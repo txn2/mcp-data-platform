@@ -12101,6 +12101,40 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/sites/hosts": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Lists the verified hostnames sites and application pages answer on, those awaiting verification, the wildcard the pages domain needs, and a cert-manager Certificate covering them.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "The hostnames the ingress needs for sites",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sitesvc.HostReport"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/storage": {
             "get": {
                 "security": [
@@ -34319,11 +34353,21 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "page_cdns": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "path": {
                     "type": "string"
                 },
                 "rate_limit": {
                     "type": "integer"
+                },
+                "response_mode": {
+                    "description": "ResponseMode and PageCDNs make the endpoint a browser page (#2517).",
+                    "type": "string"
                 },
                 "timeout_seconds": {
                     "type": "integer"
@@ -36085,6 +36129,15 @@ const docTemplate = `{
                 "self_approved": {
                     "type": "boolean"
                 },
+                "site_name": {
+                    "description": "SiteName is the site the release belongs to.",
+                    "type": "string",
+                    "example": "marketing"
+                },
+                "site_release_id": {
+                    "description": "SiteReleaseID and Target name a site release a promotion waits on and\nthe environment it would serve (#2518); SourceSHA256 is then the\nrelease's manifest digest and Version its number.",
+                    "type": "string"
+                },
                 "source_sha256": {
                     "type": "string"
                 },
@@ -36095,6 +36148,10 @@ const docTemplate = `{
                 "subject_kind": {
                     "type": "string",
                     "example": "script_version"
+                },
+                "target": {
+                    "type": "string",
+                    "example": "prod"
                 },
                 "version": {
                     "type": "integer",
@@ -37159,6 +37216,12 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "page_cdns": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "path": {
                     "type": "string"
                 },
@@ -37168,6 +37231,10 @@ const docTemplate = `{
                 },
                 "rate_limit": {
                     "type": "integer"
+                },
+                "response_mode": {
+                    "description": "ResponseMode and PageCDNs make the endpoint a browser page (#2517).",
+                    "type": "string"
                 },
                 "timeout_seconds": {
                     "type": "integer"
@@ -50070,6 +50137,31 @@ const docTemplate = `{
                 }
             }
         },
+        "sitesvc.HostReport": {
+            "type": "object",
+            "properties": {
+                "cert_manager": {
+                    "description": "CertManager is a Certificate manifest for the hostnames.",
+                    "type": "string"
+                },
+                "hostnames": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "pages_wildcard": {
+                    "description": "PagesDomain is the wildcard the pages and previews need, \"\" for none.",
+                    "type": "string"
+                },
+                "unverified": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "smtp.SettingsInput": {
             "type": "object",
             "properties": {
@@ -52737,7 +52829,7 @@ const docTemplate = `{
             "in": "header"
         }
     }
-,"tags":[{"name": "User", "description": "Current user identity, roles, persona, and available tools."}, {"name": "Applications", "description": "Applications built on the platform: one record naming an application database schema with its migrations, managed scripts (an endpoint or a form is its script's binding), webhook sources and portal assets, released together as a pinned set. While a part belongs to a released application its release's version is the one that runs and is served. Everyone signed in reads; the owner and administrators edit; administrators release, roll back, export and import."}, {"name": "Approvals", "description": "The Approvals queue: a request for an administrator's decision. A form is served to callers with no session only at a version an administrator approved; its owner files the request, and administrators decide every request, their own included."}, {"name": "Activity", "description": "Personal analytics for the authenticated user's tool usage. Timeseries, breakdowns, and summary statistics scoped to the calling user."}, {"name": "Assets", "description": "AI-generated assets \u2014 dashboards, reports, visualizations, and data exports. Supports HTML, JSX, SVG, Markdown, and CSV content types with versioning, thumbnails, and sharing."}, {"name": "Collections", "description": "Curated groups of assets organized into ordered sections with markdown descriptions. Collections support sharing via public links and user-level permissions."}, {"name": "Knowledge", "description": "Domain knowledge captured during AI sessions. Insights go through an admin review workflow before being written back to the data catalog. Includes insight statistics and governance lifecycle tracking."}, {"name": "Memory", "description": "Persistent memory records accumulated across sessions \u2014 corrections, preferences, business context, and data quality observations. Backed by PostgreSQL with pgvector for semantic search."}, {"name": "Prompts", "description": "Reusable prompt templates with argument placeholders. Users manage personal prompts and browse available global, persona, and system prompts."}, {"name": "Resources", "description": "Human-uploaded reference materials \u2014 SQL templates, runbooks, checklists, and brand assets. Scoped by visibility (global, persona, user) and accessible to AI agents via the MCP resources protocol."}, {"name": "Shares", "description": "Asset and collection sharing via public links (token-based, time-limited) and user shares (email-based with viewer/editor permissions)."}, {"name": "API Keys", "description": "The API keys a person issues for their own account. A key authenticates as its owner and carries the roles they hold, so a client that speaks only bearer tokens reaches the platform as the same identity their signed-in session does. A key value is readable once, at creation."}, {"name": "Audit", "description": "Platform-wide audit log of every tool call. Paginated event queries with filtering, aggregate statistics, performance percentiles, enrichment metrics, and discovery pattern analytics."}, {"name": "Auth Keys", "description": "API key management for programmatic access. Create, list, and revoke keys with role assignment and expiration. Keys from the config file are read-only."}, {"name": "Config", "description": "Platform configuration management. Read the active config, export as YAML, and manage per-key database overrides for whitelisted settings with hot-reload."}, {"name": "Connections", "description": "Toolkit connection management for Trino, S3, API, GraphQL and MCP backends. View file-configured connections, create database-managed instances, and inspect connection details."}, {"name": "Personas", "description": "Role-based access control profiles that determine which tools and connections a user can access. Each persona defines allow/deny patterns, context overrides, and priority-based role mapping."}, {"name": "Calls", "description": "The data-access calls the platform recorded: every query and API invocation with the purpose stated for it, what it addressed, and an outcome derived from what was later built from it. A satisfied record can be promoted, which turns a query into a catalog Query entity and an API call into a saved example on its endpoint."}, {"name": "Sessions", "description": "Sessions read back from the audit log. A session is not a stored row: it is every tool call sharing one session id, so the list reaches as far back as audit retention. One session opens onto the assets and insights it produced and the ordered record of its calls, each with the purpose the agent stated."}, {"name": "Endpoints", "description": "Every endpoint binding on the deployment, a managed script answering HTTP under /endpoints/{name}, with its script and owner, its access and limits, and over a day or a week the requests it answered by status class, their duration, its failures and callers, and the requests it refused before its handler ran. An endpoint is turned on, off and edited through its script's endpoint routes."}, {"name": "Scripts", "description": "Managed-script review and approval. Browse scripts and their version history, read a version alongside the capabilities and connections its source reaches for, and approve a version \u2014 which binds the capability grant it executes under and is the only thing that makes a script executable."}, {"name": "Secrets", "description": "Stored secrets a request references by placeholder: {{secret:<name>}} in an api_invoke_endpoint or api_export request's body, query_params, path_params or headers is filled in as the gateway sends it and redacted from the response. Each secret names the connections it may be sent through and, optionally, the personas that may use it. Values are write-only."}, {"name": "Catalog", "description": "The platform catalog's scan of every connection: how often it runs, the catalogs, schemas and operations each connection keeps out of the catalog, each connection's last scan, and a request to scan now."}, {"name": "Webhooks", "description": "Inbound webhook sources: the addresses external systems post events to at /hooks/{source}. Create, change, rotate the secret of, and delete a source, and read its status: request counts by outcome, when it last received an event, compaction progress, and its recently rejected requests. Secrets are write-only."}, {"name": "Storage", "description": "Storage capacity: every store the platform writes to (the database, the SeaweedFS cluster, each bucket, each replica's webhook spool volume), used and free, its growth over 7 and 30 days and when it would fill, a store's history, and the buckets, reconcile and tables behind them. Its settings are under Settings."}, {"name": "System", "description": "Platform identity, version, runtime feature availability, registered tools, and toolkit connections."}, {"name": "Tools", "description": "Tool schema introspection and interactive execution. Browse JSON schemas for all registered tools and execute tool calls with parameter validation."}, {"name": "Data Catalog", "description": "The platform catalog behind the portal: find and browse datasets, read a dataset with its columns, curation, lineage and history, edit and roll back its curation, and manage the glossary, tags, domains and data products."}, {"name": "Tables", "description": "Query-engine tables registered against a managed resource or a portal asset, so a file's contents can be queried through the platform's SQL surface."}, {"name": "Gateway", "description": "The API gateway data plane: call a configured upstream connection over REST, enveloped or streamed. This is what a non-MCP client (NiFi, Airflow, curl) uses in place of the api_invoke_endpoint tool."}, {"name": "APIs", "description": "The caller's view of the API catalogs: browse the connections this identity may reach, read an operation's parameters and schemas, and copy the gateway call."}, {"name": "API Catalogs", "description": "Administration of the OpenAPI documents behind API connections. Register a spec inline, by URL, or by upload, refresh it, and manage its embedding jobs."}, {"name": "Portal", "description": "Portal surfaces that are not asset content: navigation, search, and the pages the web UI is assembled from."}, {"name": "Portal Assets", "description": "Asset operations served to the portal UI: references, attachments, versions, and the managed resources an asset's content points at."}, {"name": "Feedback", "description": "Review threads on assets and knowledge: comments, activity, worklists, sign-off, and capturing a thread's conclusion as an insight."}, {"name": "Notifications", "description": "Email notification preferences, delivery history, and per-user unsubscribe. Mail-server settings live under Settings."}, {"name": "Settings", "description": "Deployment settings an administrator edits at runtime: the mail server and the review-queue alert thresholds."}, {"name": "Users", "description": "The directory of known people, keyed by email. Administrative counterpart to the single-identity User tag."}, {"name": "Access requests", "description": "A signed-in person asking an item's owner for access to an asset, collection or prompt they cannot open, the owner's answer, and how long a request waits."}, {"name": "External users", "description": "Accounts for people outside the organization under an external persona, signed in by an emailed one-time link, and how long their session and links last."}],"x-tagGroups":[{"name": "User API", "tags": ["User", "Access requests", "Activity", "Applications", "Approvals", "API Keys", "APIs", "Assets", "Collections", "Data Catalog", "Feedback", "Gateway", "Knowledge", "Memory", "Portal", "Portal Assets", "Prompts", "Resources", "Shares", "Tables"]}, {"name": "Admin API", "tags": ["API Catalogs", "Audit", "Auth Keys", "Calls", "Catalog", "Config", "Connections", "Endpoints", "External users", "Notifications", "Personas", "Scripts", "Secrets", "Sessions", "Settings", "Storage", "System", "Tools", "Users", "Webhooks"]}]}`
+,"tags":[{"name": "User", "description": "Current user identity, roles, persona, and available tools."}, {"name": "Sites", "description": "Static sites and browser pages the platform serves on hostnames of their own: the hostnames the deployment's ingress needs and the certificate that covers them."}, {"name": "Applications", "description": "Applications built on the platform: one record naming an application database schema with its migrations, managed scripts (an endpoint or a form is its script's binding), webhook sources and portal assets, released together as a pinned set. While a part belongs to a released application its release's version is the one that runs and is served. Everyone signed in reads; the owner and administrators edit; administrators release, roll back, export and import."}, {"name": "Approvals", "description": "The Approvals queue: a request for an administrator's decision. A form is served to callers with no session only at a version an administrator approved; its owner files the request, and administrators decide every request, their own included."}, {"name": "Activity", "description": "Personal analytics for the authenticated user's tool usage. Timeseries, breakdowns, and summary statistics scoped to the calling user."}, {"name": "Assets", "description": "AI-generated assets \u2014 dashboards, reports, visualizations, and data exports. Supports HTML, JSX, SVG, Markdown, and CSV content types with versioning, thumbnails, and sharing."}, {"name": "Collections", "description": "Curated groups of assets organized into ordered sections with markdown descriptions. Collections support sharing via public links and user-level permissions."}, {"name": "Knowledge", "description": "Domain knowledge captured during AI sessions. Insights go through an admin review workflow before being written back to the data catalog. Includes insight statistics and governance lifecycle tracking."}, {"name": "Memory", "description": "Persistent memory records accumulated across sessions \u2014 corrections, preferences, business context, and data quality observations. Backed by PostgreSQL with pgvector for semantic search."}, {"name": "Prompts", "description": "Reusable prompt templates with argument placeholders. Users manage personal prompts and browse available global, persona, and system prompts."}, {"name": "Resources", "description": "Human-uploaded reference materials \u2014 SQL templates, runbooks, checklists, and brand assets. Scoped by visibility (global, persona, user) and accessible to AI agents via the MCP resources protocol."}, {"name": "Shares", "description": "Asset and collection sharing via public links (token-based, time-limited) and user shares (email-based with viewer/editor permissions)."}, {"name": "API Keys", "description": "The API keys a person issues for their own account. A key authenticates as its owner and carries the roles they hold, so a client that speaks only bearer tokens reaches the platform as the same identity their signed-in session does. A key value is readable once, at creation."}, {"name": "Audit", "description": "Platform-wide audit log of every tool call. Paginated event queries with filtering, aggregate statistics, performance percentiles, enrichment metrics, and discovery pattern analytics."}, {"name": "Auth Keys", "description": "API key management for programmatic access. Create, list, and revoke keys with role assignment and expiration. Keys from the config file are read-only."}, {"name": "Config", "description": "Platform configuration management. Read the active config, export as YAML, and manage per-key database overrides for whitelisted settings with hot-reload."}, {"name": "Connections", "description": "Toolkit connection management for Trino, S3, API, GraphQL and MCP backends. View file-configured connections, create database-managed instances, and inspect connection details."}, {"name": "Personas", "description": "Role-based access control profiles that determine which tools and connections a user can access. Each persona defines allow/deny patterns, context overrides, and priority-based role mapping."}, {"name": "Calls", "description": "The data-access calls the platform recorded: every query and API invocation with the purpose stated for it, what it addressed, and an outcome derived from what was later built from it. A satisfied record can be promoted, which turns a query into a catalog Query entity and an API call into a saved example on its endpoint."}, {"name": "Sessions", "description": "Sessions read back from the audit log. A session is not a stored row: it is every tool call sharing one session id, so the list reaches as far back as audit retention. One session opens onto the assets and insights it produced and the ordered record of its calls, each with the purpose the agent stated."}, {"name": "Endpoints", "description": "Every endpoint binding on the deployment, a managed script answering HTTP under /endpoints/{name}, with its script and owner, its access and limits, and over a day or a week the requests it answered by status class, their duration, its failures and callers, and the requests it refused before its handler ran. An endpoint is turned on, off and edited through its script's endpoint routes."}, {"name": "Scripts", "description": "Managed-script review and approval. Browse scripts and their version history, read a version alongside the capabilities and connections its source reaches for, and approve a version \u2014 which binds the capability grant it executes under and is the only thing that makes a script executable."}, {"name": "Secrets", "description": "Stored secrets a request references by placeholder: {{secret:<name>}} in an api_invoke_endpoint or api_export request's body, query_params, path_params or headers is filled in as the gateway sends it and redacted from the response. Each secret names the connections it may be sent through and, optionally, the personas that may use it. Values are write-only."}, {"name": "Catalog", "description": "The platform catalog's scan of every connection: how often it runs, the catalogs, schemas and operations each connection keeps out of the catalog, each connection's last scan, and a request to scan now."}, {"name": "Webhooks", "description": "Inbound webhook sources: the addresses external systems post events to at /hooks/{source}. Create, change, rotate the secret of, and delete a source, and read its status: request counts by outcome, when it last received an event, compaction progress, and its recently rejected requests. Secrets are write-only."}, {"name": "Storage", "description": "Storage capacity: every store the platform writes to (the database, the SeaweedFS cluster, each bucket, each replica's webhook spool volume), used and free, its growth over 7 and 30 days and when it would fill, a store's history, and the buckets, reconcile and tables behind them. Its settings are under Settings."}, {"name": "System", "description": "Platform identity, version, runtime feature availability, registered tools, and toolkit connections."}, {"name": "Tools", "description": "Tool schema introspection and interactive execution. Browse JSON schemas for all registered tools and execute tool calls with parameter validation."}, {"name": "Data Catalog", "description": "The platform catalog behind the portal: find and browse datasets, read a dataset with its columns, curation, lineage and history, edit and roll back its curation, and manage the glossary, tags, domains and data products."}, {"name": "Tables", "description": "Query-engine tables registered against a managed resource or a portal asset, so a file's contents can be queried through the platform's SQL surface."}, {"name": "Gateway", "description": "The API gateway data plane: call a configured upstream connection over REST, enveloped or streamed. This is what a non-MCP client (NiFi, Airflow, curl) uses in place of the api_invoke_endpoint tool."}, {"name": "APIs", "description": "The caller's view of the API catalogs: browse the connections this identity may reach, read an operation's parameters and schemas, and copy the gateway call."}, {"name": "API Catalogs", "description": "Administration of the OpenAPI documents behind API connections. Register a spec inline, by URL, or by upload, refresh it, and manage its embedding jobs."}, {"name": "Portal", "description": "Portal surfaces that are not asset content: navigation, search, and the pages the web UI is assembled from."}, {"name": "Portal Assets", "description": "Asset operations served to the portal UI: references, attachments, versions, and the managed resources an asset's content points at."}, {"name": "Feedback", "description": "Review threads on assets and knowledge: comments, activity, worklists, sign-off, and capturing a thread's conclusion as an insight."}, {"name": "Notifications", "description": "Email notification preferences, delivery history, and per-user unsubscribe. Mail-server settings live under Settings."}, {"name": "Settings", "description": "Deployment settings an administrator edits at runtime: the mail server and the review-queue alert thresholds."}, {"name": "Users", "description": "The directory of known people, keyed by email. Administrative counterpart to the single-identity User tag."}, {"name": "Access requests", "description": "A signed-in person asking an item's owner for access to an asset, collection or prompt they cannot open, the owner's answer, and how long a request waits."}, {"name": "External users", "description": "Accounts for people outside the organization under an external persona, signed in by an emailed one-time link, and how long their session and links last."}],"x-tagGroups":[{"name": "User API", "tags": ["User", "Access requests", "Activity", "Applications", "Approvals", "API Keys", "APIs", "Assets", "Collections", "Data Catalog", "Feedback", "Gateway", "Knowledge", "Memory", "Portal", "Portal Assets", "Prompts", "Resources", "Shares", "Tables"]}, {"name": "Admin API", "tags": ["Sites", "API Catalogs", "Audit", "Auth Keys", "Calls", "Catalog", "Config", "Connections", "Endpoints", "External users", "Notifications", "Personas", "Scripts", "Secrets", "Sessions", "Settings", "Storage", "System", "Tools", "Users", "Webhooks"]}]}`
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{

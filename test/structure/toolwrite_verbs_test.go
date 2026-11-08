@@ -23,6 +23,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
+	"github.com/txn2/mcp-data-platform/internal/site/sitetool"
+
 	"github.com/txn2/mcp-data-platform/internal/approval"
 	"github.com/txn2/mcp-data-platform/internal/approval/apprtool"
 
@@ -112,6 +115,7 @@ func actionToolServer(t *testing.T) *mcp.Server {
 
 	(&apptool.Tool{Service: &appsvc.Service{}}).Register(server)
 	(&apprtool.Tool{Service: &approval.Service{}}).Register(server)
+	(&sitetool.Tool{Service: &sitesvc.Service{}}).Register(server)
 
 	appdb := postgreskit.NewMulti(postgreskit.MultiConfig{})
 	appdb.SetMigrationStore(registrationMigrationStore{})

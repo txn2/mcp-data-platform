@@ -148,6 +148,7 @@ nav:
         - GraphQL Toolkit: server/graphql-gateway.md
       - Application Databases: server/appdb.md
       - Applications: server/applications.md
+      - Sites and Pages: server/sites.md
       - Operating Modes: server/operating-modes.md
       - Session Externalization: server/session-externalization.md
       - Data Retention: server/data-retention.md

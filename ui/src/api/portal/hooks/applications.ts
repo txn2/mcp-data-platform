@@ -14,7 +14,7 @@ import { apiFetch, apiFetchRaw, ApiError } from "../client";
  * The kinds of thing an application is made of. A schema part (#2539) is the
  * application database schema the application holds, by "<connection>/<schema>".
  */
-export type ApplicationPartKind = "script" | "asset" | "source" | "schema";
+export type ApplicationPartKind = "script" | "asset" | "source" | "schema" | "site";
 
 export interface ApplicationPart {
   kind: ApplicationPartKind;

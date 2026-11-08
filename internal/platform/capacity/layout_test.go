@@ -75,7 +75,7 @@ func TestPrefixes_SharedBucketWithNoPortalPrefix(t *testing.T) {
 func TestPrefixes(t *testing.T) {
 	l := Layout{PortalBucket: "p", PortalPrefix: "/artifacts/", ResourceBucket: "r"}
 	assert.Equal(t, []BucketPrefix{
-		{"p", "artifacts/"}, {"p", "portal/"}, {"r", "resources/"}, {"r", "webhooks/"}, {"r", "maps/"},
+		{"p", "artifacts/"}, {"p", "portal/"}, {"p", "sites/"}, {"r", "resources/"}, {"r", "webhooks/"}, {"r", "maps/"},
 	}, l.Prefixes())
 	assert.Empty(t, Layout{}.Prefixes())
 }

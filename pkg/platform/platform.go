@@ -2810,7 +2810,7 @@ func (p *Platform) Start(ctx context.Context) error {
 		Assets: p.portalStore.AssetStore(), Versions: p.portalStore.VersionStore(),
 		S3: p.portalStore.ScriptS3Client(), Bucket: p.config.Portal.S3Bucket,
 		Prefix: p.config.Portal.S3Prefix, FollowTables: p.portalStore.FollowAssetTables,
-		Lander: p.portalStore.ResourceLanding(), Sources: p.portalStore.ResourceSources(), Audit: p.audit.Logger(),
+		Lander: p.portalStore.ResourceLanding(), Sources: p.portalStore.ResourceSources(), Audit: p.audit.Logger(), Sites: p.config.Sites, CookieDomain: p.config.Auth.BrowserSession.Domain,
 		Authority: iam.Authority(p.authorizer, func(name string) bool {
 			return p.personaRegistry.IsAdminName(name, p.config.Admin.Persona)
 		}),
@@ -3203,13 +3203,10 @@ func (p *Platform) PlatformTools() []ToolInfo {
 			ToolInfo{Name: scriptlayer.ToolNameManageScript, Kind: kindPlatform},
 			ToolInfo{Name: scriptlayer.ToolNameRunScript, Kind: kindPlatform},
 			ToolInfo{Name: scriptlayer.ToolNameShowScripts, Kind: kindPlatform},
-			ToolInfo{Name: apptool.ToolName, Kind: kindPlatform}, ToolInfo{Name: apprtool.ToolName, Kind: kindPlatform})
+			ToolInfo{Name: apptool.ToolName, Kind: kindPlatform}, ToolInfo{Name: apprtool.ToolName, Kind: kindPlatform}, ToolInfo{Name: scriptwiring.ToolManageSite, Kind: kindPlatform})
 	}
-	// notify is registered wherever there is a database and notifications are
-	// enabled, which is the same condition wireNotify registers it under. A
-	// deployment with no channels configured still registers it, and its list
-	// action says so: a tool that appeared only once a channel existed could
-	// not tell anybody how to get one.
+	// notify is registered under wireNotify's condition, with no channels too: its
+	// list action says so, which a tool absent until a channel existed could not.
 	if p.db != nil && p.config.Notifications.IsEnabled() {
 		tools = append(tools, ToolInfo{Name: notifylayer.ToolName, Kind: kindPlatform})
 	}

@@ -57,6 +57,10 @@ func (s *store) Decide(_ context.Context, id string, d approval.Decision) (*appr
 	return &c, nil
 }
 
+func (*store) ReleaseApproved(context.Context, string, string, string) (bool, error) {
+	return false, nil
+}
+
 func (*store) LatestApproved(context.Context, string, string) (*approval.Request, error) {
 	return nil, approval.ErrNotFound
 }

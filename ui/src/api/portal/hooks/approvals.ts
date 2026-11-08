@@ -21,10 +21,14 @@ export interface ApprovalChanges {
 
 export interface ApprovalRequest {
   id: string;
-  subject_kind: "script_version";
-  purpose: "form_public";
+  subject_kind: "script_version" | "site_release";
+  purpose: "form_public" | "site_promote";
   script_id: string;
   script_name?: string;
+  site_release_id?: string;
+  site_name?: string;
+  /** The environment a site release would serve. */
+  target?: string;
   version: number;
   source_sha256: string;
   requester_email: string;

@@ -80,6 +80,7 @@ var Annotations = map[string]Expectation{
 	"s3_object":           {Destructive: true},
 	"manage_schema":       {Destructive: true},
 	"manage_application":  {Destructive: true},
+	"manage_site":         {Destructive: true},
 
 	// Writes that only add. An export lands a new asset, or the next
 	// version of a managed resource with the earlier versions kept;

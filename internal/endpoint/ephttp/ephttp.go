@@ -107,6 +107,10 @@ type Handler struct {
 	// ViewerKey opens the viewer token an authenticated form embedded in an
 	// asset is sent with (epform.ViewerKey, #2177); nil honors none.
 	ViewerKey []byte
+	// SiteOrigins are the origins of the sites an application holds (#2518),
+	// which its public and bot_check endpoints answer without listing them;
+	// nil adds none.
+	SiteOrigins func(ctx context.Context, applicationID string) []string
 
 	endpointLimits limiters
 	callerLimits   limiters
@@ -121,39 +125,57 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+solverPath, solver)
 }
 
+// PageRoute is a request to an application's endpoint on its page origin
+// (#2517): the endpoint, the application it must belong to, and the identity
+// that origin carries in place of the portal's.
+type PageRoute struct {
+	Application string
+	Name        string
+	Rest        string
+	// Nonce is this response's inline-script nonce.
+	Nonce string
+	// Caller is who the page origin's viewer cookie names; nil and nil is
+	// nobody. Neither a portal session nor an API key is read there.
+	Caller func(r *http.Request) (*eprun.Caller, error)
+	// SignIn sends a browser with no viewer to sign in, for a page.
+	SignIn func(w http.ResponseWriter, r *http.Request)
+}
+
+type pageKey struct{}
+
+func pageOf(r *http.Request) *PageRoute {
+	p, _ := r.Context().Value(pageKey{}).(*PageRoute)
+	return p
+}
+
+// ServePage answers one request on an application's page origin. An endpoint
+// of another application answers as if it did not exist.
+func (h *Handler) ServePage(w http.ResponseWriter, r *http.Request, route PageRoute) {
+	h.serve(w, r.WithContext(context.WithValue(r.Context(), pageKey{}, &route)), route.Name, route.Rest)
+}
+
 // ServeHTTP answers one request to an endpoint.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	t, ok := h.resolve(w, r, r.PathValue("name"))
-	if !ok {
-		return
-	}
-	b := t.Binding
-	if !cors(w, r, b, t.Form) {
-		h.refused(b, eprefusal.ReasonOrigin)
-		return
-	}
-	if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", allow(b))
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if !b.Answers(r.Method) {
-		w.Header().Set("Allow", allow(b))
-		httpjson.WriteError(w, http.StatusMethodNotAllowed, "this endpoint does not answer "+r.Method)
-		return
-	}
 	rest := ""
 	if v := r.PathValue("rest"); v != "" {
 		rest = "/" + v
 	}
-	params, ok := b.Match(rest)
+	h.serve(w, r, r.PathValue("name"), rest)
+}
+
+func (h *Handler) serve(w http.ResponseWriter, r *http.Request, name, rest string) {
+	t, ok := h.resolve(w, r, name)
 	if !ok {
+		return
+	}
+	page := pageOf(r)
+	if page != nil && t.ApplicationID() != page.Application {
 		httpjson.WriteError(w, http.StatusNotFound, "no endpoint answers at this path")
 		return
 	}
-	if !h.endpointLimits.allow(b.Name, b.RateLimit, "") {
-		h.refused(b, eprefusal.ReasonRateLimit)
-		tooMany(w, r, b.RateLimit)
+	b := t.Binding
+	params, ok := h.routed(w, r, t, rest)
+	if !ok {
 		return
 	}
 	caller, ok := h.admit(w, r, t)
@@ -167,11 +189,47 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if status != 0 {
 		return
 	}
-	resp := h.Runner.Serve(r.Context(), t, eprun.Request{
+	req := eprun.Request{
 		Method: r.Method, Path: r.URL.Path, Params: params, Query: r.URL.Query(),
 		Header: r.Header.Clone(), Body: body, Caller: caller,
-	})
-	write(w, r, resp)
+	}
+	policy := contentPolicy
+	if page != nil && b.ResponseMode == epbinding.ResponsePage {
+		req.CSPNonce, policy = page.Nonce, b.PagePolicy(page.Nonce)
+	}
+	write(w, r, h.Runner.Serve(r.Context(), t, req), policy)
+}
+
+// routed runs what comes before the caller is looked at: CORS, the preflight
+// answer, the method, the path and the endpoint's own rate limit. It writes
+// the answer and reports false when the request stops here.
+func (h *Handler) routed(w http.ResponseWriter, r *http.Request, t *eprun.Target, rest string) (map[string]string, bool) {
+	b := t.Binding
+	if !cors(w, r, b, t.Form, h.siteOrigin(r, t)) {
+		h.refused(b, eprefusal.ReasonOrigin)
+		return nil, false
+	}
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", allow(b))
+		w.WriteHeader(http.StatusNoContent)
+		return nil, false
+	}
+	if !b.Answers(r.Method) {
+		w.Header().Set("Allow", allow(b))
+		httpjson.WriteError(w, http.StatusMethodNotAllowed, "this endpoint does not answer "+r.Method)
+		return nil, false
+	}
+	params, ok := b.Match(rest)
+	if !ok {
+		httpjson.WriteError(w, http.StatusNotFound, "no endpoint answers at this path")
+		return nil, false
+	}
+	if !h.endpointLimits.allow(b.Name, b.RateLimit, "") {
+		h.refused(b, eprefusal.ReasonRateLimit)
+		tooMany(w, r, b.RateLimit)
+		return nil, false
+	}
+	return params, true
 }
 
 // resolve is the enabled endpoint name serves, writing the error response
@@ -240,6 +298,10 @@ func (h *Handler) authenticated(w http.ResponseWriter, r *http.Request, t *eprun
 		return nil, false
 	case err != nil || caller == nil:
 		h.refused(b, eprefusal.ReasonCredential)
+		if page := pageOf(r); page != nil && page.SignIn != nil && b.ResponseMode == epbinding.ResponsePage && r.Method == http.MethodGet {
+			page.SignIn(w, r)
+			return nil, false
+		}
 		w.Header().Set("WWW-Authenticate", `Bearer realm="endpoints"`)
 		httpjson.WriteError(w, http.StatusUnauthorized, "this endpoint answers an authenticated caller: a platform API key or a browser session")
 		return nil, false
@@ -280,6 +342,9 @@ func (h *Handler) optional(r *http.Request, t *eprun.Target) *eprun.Caller {
 // caller is who sent the request: the browser session or API key it carries,
 // or on a form with neither, the viewer token it carries (#2177).
 func (h *Handler) caller(r *http.Request, t *eprun.Target) (*eprun.Caller, error) {
+	if page := pageOf(r); page != nil {
+		return page.Caller(r)
+	}
 	caller, err := h.Authenticate(r)
 	if err == nil && caller == nil && t.Form && r.Header.Get(epform.ViewerHeader) != "" {
 		return h.viewer(r, t.Binding.Name)
@@ -325,20 +390,31 @@ func readBody(w http.ResponseWriter, r *http.Request, limit int) (body []byte, s
 	return body, 0
 }
 
+// siteOrigin reports whether the request comes from a site its application
+// holds. Only a public or bot_check endpoint answers one unlisted, and never
+// with credentials.
+func (h *Handler) siteOrigin(r *http.Request, t *eprun.Target) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" || h.SiteOrigins == nil || t.Binding.AuthMode == epbinding.AuthAuthenticated {
+		return false
+	}
+	return slices.Contains(h.SiteOrigins(r.Context(), t.ApplicationID()), origin)
+}
+
 // write sends the endpoint's response under the policy every endpoint answer
 // carries. The headers are the ones the handler returned, which the runner
 // has already refused the platform's own from (eprun.headersFrom: framing,
 // cookies, content policy, CORS), and whatever the body is, the sandbox
 // policy below serves it as an opaque document, as pkg/blobserve serves
 // stored content.
-func write(w http.ResponseWriter, r *http.Request, resp eprun.Response) {
+func write(w http.ResponseWriter, r *http.Request, resp eprun.Response, policy string) {
 	for name, values := range resp.Header {
 		for _, v := range values {
 			// nosemgrep: relayed-response-headers -- the handler's own response, filtered by eprun.headersFrom; see above
 			w.Header().Add(name, v)
 		}
 	}
-	w.Header().Set("Content-Security-Policy", contentPolicy)
+	w.Header().Set("Content-Security-Policy", policy)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if w.Header().Get(headerCacheControl) == "" {
 		w.Header().Set(headerCacheControl, "no-store")
@@ -356,13 +432,13 @@ func write(w http.ResponseWriter, r *http.Request, resp eprun.Response) {
 // Credentials are never allowed across origins, so a browser session is
 // never sent from another site; a cross-origin caller signs in with an API
 // key.
-func cors(w http.ResponseWriter, r *http.Request, b *epbinding.Binding, form bool) bool {
+func cors(w http.ResponseWriter, r *http.Request, b *epbinding.Binding, form, site bool) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
 		return true
 	}
 	w.Header().Add("Vary", "Origin")
-	listed := slices.Contains(b.AllowedOrigins, origin) || (form && origin == originOpaque)
+	listed := slices.Contains(b.AllowedOrigins, origin) || (form && origin == originOpaque) || site
 	preflight := r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != ""
 	if !listed {
 		if preflight {
@@ -410,7 +486,7 @@ func (h *Handler) challenge(w http.ResponseWriter, r *http.Request) {
 		httpjson.WriteError(w, http.StatusNotFound, "no bot_check endpoint has this name")
 		return
 	}
-	if !cors(w, r, b, t.Form) {
+	if !cors(w, r, b, t.Form, h.siteOrigin(r, t)) {
 		return
 	}
 	if r.Method == http.MethodOptions {

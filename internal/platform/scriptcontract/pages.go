@@ -29,6 +29,12 @@ type KnowledgePage struct {
 // the reverse import would cycle; a test there fails when the two sets drift.
 var KnowledgePages = []KnowledgePage{
 	{
+		Slug:      "platform-pages-and-sites",
+		Reference: knowledgePageRefPrefix + "platform-pages-and-sites",
+		Summary: "A script answering a browser: response_mode page and its nonce, an application's own " +
+			"origin and how a viewer signs in to it, and static sites with environments, releases and hostnames.",
+	},
+	{
 		Slug:      "platform-writing-managed-scripts",
 		Reference: knowledgePageRefPrefix + "platform-writing-managed-scripts",
 		Summary: "The dialect and the authoring loop: what Starlark deliberately lacks, what a " +

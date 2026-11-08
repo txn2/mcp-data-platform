@@ -146,6 +146,10 @@ func (t *Target) For(caller *Caller) *Target {
 	return t.public
 }
 
+// ApplicationID is the application the endpoint's script is a part of, "" for
+// none, read with this request's stamp.
+func (t *Target) ApplicationID() string { return t.stamp.Application }
+
 // PublicVersion is the version a public form serves a caller with no
 // session, 0 for none.
 func (t *Target) PublicVersion() int {

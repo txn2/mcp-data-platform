@@ -55,6 +55,16 @@ func Properties() map[string]any {
 			"a larger one is answered 413 without running the script.", epbinding.DefaultMaxBodyBytes, epbinding.MaxMaxBodyBytes)),
 		"allowed_origins": strings("For endpoint_set: the browser origins (https://forms.example.com) a cross-origin " +
 			"request may come from. Empty answers no cross-origin preflight."),
+		"response_mode": map[string]any{
+			keyType: valString, "enum": epbinding.ResponseModes,
+			keyDescription: "For endpoint_set: api (default) answers under a sandbox, so HTML runs nothing; page serves a " +
+				"working browser page on the application's own origin (<application>.<pages_domain>), where its script runs, " +
+				"loads the application's assets from /_static/<asset name>, and calls the application's endpoints at " +
+				"/endpoints/<name>. The script must be a part of an application, and the deployment needs sites.pages_domain. " +
+				"An inline script needs nonce=\"req[\"csp_nonce\"]\". Read fetch mcp:knowledge_page:platform-pages-and-sites.",
+		},
+		"page_cdns": strings("For endpoint_set on a page: the https origins it may load scripts, styles, images and fonts " +
+			"from besides its own, such as https://cdn.jsdelivr.net."),
 		"rate_limit": integer(fmt.Sprintf("For endpoint_set: the endpoint's requests a minute on each replica "+
 			"(default %d); past it a request is answered 429.", epbinding.DefaultRateLimit)),
 		"connection": str("For endpoint_set on a form (a script defining form_spec and form_submit): the Trino " +

@@ -24,6 +24,14 @@ const (
 	mapsPrefix      = "maps/"
 )
 
+// sitesPrefix is where a site's releases live in the portal's bucket (#2518).
+// They are counted and never read as orphans of the portal: site_release_files
+// names them, and a portal with no key prefix lists the whole bucket.
+const sitesPrefix = "sites/"
+
+// purposeSites is the storage purpose a site's objects are counted under.
+const purposeSites = "sites"
+
 // The second path segment under the portal prefix that names a purpose; any
 // other segment is an owner id, which is an asset.
 const (
@@ -55,6 +63,7 @@ func (l Layout) Prefixes() []BucketPrefix {
 	}
 	add(l.PortalBucket, l.portalPrefix())
 	add(l.PortalBucket, legacyPortalPrefix)
+	add(l.PortalBucket, sitesPrefix)
 	add(l.ResourceBucket, resourcesPrefix)
 	add(l.ResourceBucket, webhooksPrefix)
 	add(l.ResourceBucket, mapsPrefix)
@@ -125,6 +134,9 @@ func (l Layout) Classify(bucket, key string) (purpose string, ok bool) {
 	}
 	if bucket != l.PortalBucket {
 		return "", false
+	}
+	if strings.HasPrefix(key, sitesPrefix) {
+		return purposeSites, true
 	}
 	rest, ok := l.underPortal(key)
 	if !ok {

@@ -30,7 +30,9 @@ type Filter struct {
 	Requester string
 	// ScriptID is one script's requests, empty for every script's.
 	ScriptID string
-	Limit    int
+	// SiteReleaseID is one site release's requests, empty for every one's.
+	SiteReleaseID string
+	Limit         int
 }
 
 // Decision is what an administrator decided about a request.
@@ -48,11 +50,12 @@ type PostgresStore struct{ db *sql.DB }
 // NewPostgresStore builds the store over db.
 func NewPostgresStore(db *sql.DB) *PostgresStore { return &PostgresStore{db: db} }
 
-const requestColumns = `r.id, r.subject_kind, r.purpose, r.script_id, COALESCE(s.name, ''), r.version, r.source_sha256,
+const requestColumns = `r.id, r.subject_kind, r.purpose, COALESCE(r.script_id::text, ''), COALESCE(s.name, ''), r.version, r.source_sha256,
 	r.requester_email, r.requester_persona, r.reason, r.changes, r.status, r.decided_by, r.decided_at,
-	r.decision_comment, r.self_approved, r.created_at`
+	r.decision_comment, r.self_approved, r.created_at, COALESCE(r.site_release_id, ''), r.target, COALESCE(st.name, '')`
 
-const requestFrom = ` FROM approval_requests r LEFT JOIN scripts s ON s.id = r.script_id`
+const requestFrom = ` FROM approval_requests r LEFT JOIN scripts s ON s.id = r.script_id
+	LEFT JOIN site_releases sr ON sr.id = r.site_release_id LEFT JOIN sites st ON st.id = sr.site_id`
 
 // Insert stores a new pending request.
 func (p *PostgresStore) Insert(ctx context.Context, r *Request) error {
@@ -62,11 +65,11 @@ func (p *PostgresStore) Insert(ctx context.Context, r *Request) error {
 	}
 	err = p.db.QueryRowContext(ctx, `
 		INSERT INTO approval_requests (id, subject_kind, purpose, script_id, version, source_sha256,
-			requester_email, requester_persona, reason, changes)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			requester_email, requester_persona, reason, changes, site_release_id, target)
+		VALUES ($1, $2, $3, NULLIF($4, '')::uuid, $5, $6, $7, $8, $9, $10, NULLIF($11, ''), $12)
 		RETURNING status, created_at`,
 		r.ID, r.SubjectKind, r.Purpose, r.ScriptID, r.Version, r.SourceSHA256,
-		r.RequesterEmail, r.RequesterPersona, r.Reason, changes,
+		r.RequesterEmail, r.RequesterPersona, r.Reason, changes, r.SiteReleaseID, r.Target,
 	).Scan(&r.Status, &r.CreatedAt)
 	if isUnique(err) {
 		return ErrPending
@@ -124,6 +127,9 @@ func listQuery(f Filter) (q string, args []any) {
 	if f.ScriptID != "" {
 		add("r.script_id::text = ?", f.ScriptID)
 	}
+	if f.SiteReleaseID != "" {
+		add("r.site_release_id = ?", f.SiteReleaseID)
+	}
 	q = `SELECT ` + requestColumns + requestFrom
 	if len(where) > 0 {
 		q += ` WHERE ` + strings.Join(where, " AND ")
@@ -164,6 +170,20 @@ func (p *PostgresStore) LatestApproved(ctx context.Context, scriptID, purpose st
 	return r, err
 }
 
+// ReleaseApproved reports whether a site release is approved for a target
+// at the digest the approver was shown.
+func (p *PostgresStore) ReleaseApproved(ctx context.Context, releaseID, target, digest string) (bool, error) {
+	var found bool
+	err := p.db.QueryRowContext(ctx, `
+		SELECT EXISTS (SELECT 1 FROM approval_requests
+		                WHERE site_release_id = $1 AND target = $2 AND source_sha256 = $3 AND status = 'approved')`,
+		releaseID, target, digest).Scan(&found)
+	if err != nil {
+		return false, fmt.Errorf("reading the release's approval: %w", err)
+	}
+	return found, nil
+}
+
 type rowScanner interface{ Scan(dest ...any) error }
 
 func scanRequest(row rowScanner) (*Request, error) {
@@ -174,7 +194,7 @@ func scanRequest(row rowScanner) (*Request, error) {
 	)
 	err := row.Scan(&r.ID, &r.SubjectKind, &r.Purpose, &r.ScriptID, &r.ScriptName, &r.Version, &r.SourceSHA256,
 		&r.RequesterEmail, &r.RequesterPersona, &r.Reason, &changes, &r.Status, &r.DecidedBy, &decided,
-		&r.DecisionComment, &r.SelfApproved, &r.CreatedAt)
+		&r.DecisionComment, &r.SelfApproved, &r.CreatedAt, &r.SiteReleaseID, &r.Target, &r.SiteName)
 	if err != nil {
 		return nil, fmt.Errorf("reading a request: %w", err)
 	}

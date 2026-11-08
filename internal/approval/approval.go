@@ -24,7 +24,9 @@ import (
 // The subject kinds and purposes a request has.
 const (
 	SubjectScriptVersion = "script_version"
+	SubjectSiteRelease   = "site_release"
 	PurposeFormPublic    = "form_public"
+	PurposeSitePromote   = "site_promote"
 )
 
 // The statuses a request moves through. A request is decided once.
@@ -81,23 +83,30 @@ type Changes struct {
 
 // Request is one request for a decision.
 type Request struct {
-	ID               string     `json:"id" example:"apr_0f3c9d2e"`
-	SubjectKind      string     `json:"subject_kind" example:"script_version"`
-	Purpose          string     `json:"purpose" example:"form_public"`
-	ScriptID         string     `json:"script_id"`
-	ScriptName       string     `json:"script_name,omitempty" example:"order-intake"`
-	Version          int        `json:"version" example:"2"`
-	SourceSHA256     string     `json:"source_sha256"`
-	RequesterEmail   string     `json:"requester_email" example:"jane@example.com"`
-	RequesterPersona string     `json:"requester_persona,omitempty"`
-	Reason           string     `json:"reason,omitempty"`
-	Changes          Changes    `json:"changes"`
-	Status           string     `json:"status" example:"pending"`
-	DecidedBy        string     `json:"decided_by,omitempty"`
-	DecidedAt        *time.Time `json:"decided_at,omitempty"`
-	DecisionComment  string     `json:"decision_comment,omitempty"`
-	SelfApproved     bool       `json:"self_approved"`
-	CreatedAt        time.Time  `json:"created_at"`
+	ID               string  `json:"id" example:"apr_0f3c9d2e"`
+	SubjectKind      string  `json:"subject_kind" example:"script_version"`
+	Purpose          string  `json:"purpose" example:"form_public"`
+	ScriptID         string  `json:"script_id"`
+	ScriptName       string  `json:"script_name,omitempty" example:"order-intake"`
+	Version          int     `json:"version" example:"2"`
+	SourceSHA256     string  `json:"source_sha256"`
+	RequesterEmail   string  `json:"requester_email" example:"jane@example.com"`
+	RequesterPersona string  `json:"requester_persona,omitempty"`
+	Reason           string  `json:"reason,omitempty"`
+	Changes          Changes `json:"changes"`
+	// SiteReleaseID and Target name a site release a promotion waits on and
+	// the environment it would serve (#2518); SourceSHA256 is then the
+	// release's manifest digest and Version its number.
+	SiteReleaseID string `json:"site_release_id,omitempty"`
+	Target        string `json:"target,omitempty" example:"prod"`
+	// SiteName is the site the release belongs to.
+	SiteName        string     `json:"site_name,omitempty" example:"marketing"`
+	Status          string     `json:"status" example:"pending"`
+	DecidedBy       string     `json:"decided_by,omitempty"`
+	DecidedAt       *time.Time `json:"decided_at,omitempty"`
+	DecisionComment string     `json:"decision_comment,omitempty"`
+	SelfApproved    bool       `json:"self_approved"`
+	CreatedAt       time.Time  `json:"created_at"`
 }
 
 // Store keeps requests.
@@ -111,6 +120,9 @@ type Store interface {
 	// LatestApproved is the highest version approved for a script and
 	// purpose, ErrNotFound for none.
 	LatestApproved(ctx context.Context, scriptID, purpose string) (*Request, error)
+	// ReleaseApproved reports whether a site release is approved for a
+	// target at the digest.
+	ReleaseApproved(ctx context.Context, releaseID, target, digest string) (bool, error)
 }
 
 // NewID is a request id.

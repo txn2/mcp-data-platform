@@ -7,6 +7,9 @@
 #     same stack as e2e-nightly) and run each scenario at a short smoke scale, uploading
 #     the JSON reports as an artifact.
 #
+#   - endpoint-latency: one scenario on a runner of its own, holding an endpoint
+#     to a stated p99 bound (#2544).
+#
 # GitHub runners are noisy shared hardware, so the smoke numbers are INDICATIVE
 # ONLY and are never the published reference numbers (those live in
 # docs/reference/tuning-and-scaling.md, measured on a stated environment). The
@@ -92,6 +95,60 @@ jobs:
           path: build/load-reports/**
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Collect platform log
+        if: always()
+        run: cat build/mcp-data-platform-load.log || true
+
+      - name: Tear down
+        if: always()
+        run: make load-down
+
+  # An authenticated endpoint at 200 requests a second, five statements each on
+  # an application database with the statement cache on (#2544). The scenario is
+  # this job's only work and the runner is its own, with two databases and the
+  # platform on it: no Trino, object store or indexer competes with the requests
+  # measured, which on a shared acceptance runner is what the percentile read.
+  #
+  # ENDPOINT_P99_BOUND_MS is the bound. It stays empty, reporting and holding
+  # the endpoint to none, until five runs of main are recorded in this comment
+  # with the bound chosen from them.
+  endpoint-latency:
+    name: Endpoint latency
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      LOAD_KEY: load-admin-key
+      ENCRYPTION_KEY: 58ebbd3d1ca6c9b7a855e755fffb25ab3d2c0c644ec629e796a91283ea53e891
+      ENDPOINT_P99_BOUND_MS: ""
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.3"
+          cache: true
+
+      - name: Start the databases and the platform
+        run: make load-endpoint-up
+
+      - name: Run the scenario
+        run: make load-run SCENARIO=endpoint-appdb
+
+      - name: Write the percentiles to the job summary
+        if: always()
+        run: python3 scripts/load-endpoint-summary.py build/load-reports/report-endpoint-appdb.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: endpoint-latency-report
+          path: build/load-reports/**
+          if-no-files-found: warn
+          retention-days: 90
 
       - name: Collect platform log
         if: always()

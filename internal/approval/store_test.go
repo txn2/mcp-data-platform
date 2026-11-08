@@ -27,13 +27,13 @@ func mockStore(t *testing.T) (*PostgresStore, sqlmock.Sqlmock) {
 var columns = []string{
 	"id", "subject_kind", "purpose", "script_id", "name", "version", "source_sha256",
 	"requester_email", "requester_persona", "reason", "changes", "status", "decided_by", "decided_at",
-	"decision_comment", "self_approved", "created_at",
+	"decision_comment", "self_approved", "created_at", "site_release_id", "target", "site_name",
 }
 
 func row(id, status string, decided any) *sqlmock.Rows {
 	return sqlmock.NewRows(columns).AddRow(id, SubjectScriptVersion, PurposeFormPublic, "s1", "intake", 2, "abc",
 		"jane@example.com", "analyst", "launch", []byte(`{"approved_version":1,"added":3,"removed":1}`), status, "", decided,
-		"", false, at)
+		"", false, at, "", "", "")
 }
 
 func TestStoreInsert(t *testing.T) {
@@ -85,7 +85,7 @@ func TestStoreGetAndList(t *testing.T) {
 	_, err = s.List(ctx, Filter{})
 	require.Error(t, err, "a row that does not scan")
 	mock.ExpectQuery("SELECT").WillReturnRows(sqlmock.NewRows(columns).AddRow("apr_3", SubjectScriptVersion,
-		PurposeFormPublic, "s1", "intake", 2, "abc", "j", "", "", []byte(`{`), StatusPending, "", nil, "", false, at))
+		PurposeFormPublic, "s1", "intake", 2, "abc", "j", "", "", []byte(`{`), StatusPending, "", nil, "", false, at, "", "", ""))
 	_, err = s.List(ctx, Filter{})
 	require.ErrorContains(t, err, "decoding")
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -114,6 +114,60 @@ func TestStoreDecide(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE approval_requests")).WillReturnError(errors.New("down"))
 	_, err = s.Decide(ctx, "apr_1", Decision{Status: StatusDenied, By: "a", At: at})
 	require.ErrorContains(t, err, "deciding")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestStoreReadsASiteRelease(t *testing.T) {
+	s, mock := mockStore(t)
+	mock.ExpectQuery(regexp.QuoteMeta("LEFT JOIN sites st ON st.id = sr.site_id")).WithArgs("apr_9").
+		WillReturnRows(sqlmock.NewRows(columns).AddRow("apr_9", SubjectSiteRelease, PurposeSitePromote, "", "", 3, "digest",
+			"jane@example.com", "", "launch", []byte(`{"approved_version":0}`), StatusPending, "", nil, "", false, at,
+			"srel_1", "prod", "marketing"))
+	r, err := s.Get(context.Background(), "apr_9")
+	require.NoError(t, err)
+	assert.Equal(t, SubjectSiteRelease, r.SubjectKind)
+	assert.Empty(t, r.ScriptID, "a site release names no script")
+	assert.Equal(t, "srel_1", r.SiteReleaseID)
+	assert.Equal(t, "prod", r.Target)
+	assert.Equal(t, "marketing", r.SiteName)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestStoreInsertCarriesTheRelease(t *testing.T) {
+	s, mock := mockStore(t)
+	r := &Request{
+		ID: "apr_1", SubjectKind: SubjectSiteRelease, Purpose: PurposeSitePromote, Version: 3, SourceSHA256: "digest",
+		RequesterEmail: "jane@example.com", SiteReleaseID: "srel_1", Target: "prod",
+	}
+	mock.ExpectQuery(regexp.QuoteMeta("NULLIF($11, '')")).
+		WithArgs("apr_1", SubjectSiteRelease, PurposeSitePromote, "", 3, "digest", "jane@example.com", "", "", sqlmock.AnyArg(), "srel_1", "prod").
+		WillReturnRows(sqlmock.NewRows([]string{"status", "created_at"}).AddRow(StatusPending, at))
+	require.NoError(t, s.Insert(context.Background(), r))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestStoreReleaseApproved(t *testing.T) {
+	s, mock := mockStore(t)
+	ctx := context.Background()
+	expect := func() *sqlmock.ExpectedQuery {
+		return mock.ExpectQuery(regexp.QuoteMeta("site_release_id = $1 AND target = $2 AND source_sha256 = $3 AND status = 'approved'")).
+			WithArgs("srel_1", "prod", "digest")
+	}
+
+	expect().WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	ok, err := s.ReleaseApproved(ctx, "srel_1", "prod", "digest")
+	require.NoError(t, err)
+	assert.True(t, ok)
+
+	expect().WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	ok, err = s.ReleaseApproved(ctx, "srel_1", "prod", "digest")
+	require.NoError(t, err)
+	assert.False(t, ok)
+
+	expect().WillReturnError(errors.New("down"))
+	ok, err = s.ReleaseApproved(ctx, "srel_1", "prod", "digest")
+	require.ErrorContains(t, err, "reading the release's approval")
+	assert.False(t, ok)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

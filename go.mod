@@ -8,12 +8,14 @@ require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/Masterminds/squirrel v1.5.4
 	github.com/XSAM/otelsql v0.44.0
+	github.com/andybalholm/brotli v1.2.8
 	github.com/aws/smithy-go v1.28.7
 	github.com/bazelbuild/buildtools v0.0.0-20260904073137-eaa4d125b423
 	github.com/coder/websocket v1.8.15
 	github.com/emersion/go-imap/v2 v2.0.0-beta.8
 	github.com/emersion/go-message v0.18.2
 	github.com/emersion/go-msgauth v0.7.0
+	github.com/evanw/esbuild v0.28.1
 	github.com/getkin/kin-openapi v0.152.0
 	github.com/go-json-experiment/json v0.0.0-20260623181947-01eb4420fa68
 	github.com/golang-jwt/jwt/v5 v5.3.1
@@ -80,7 +82,6 @@ require (
 	github.com/PuerkitoBio/goquery v1.10.0 // indirect
 	github.com/agnivade/levenshtein v1.2.2 // indirect
 	github.com/alecthomas/chroma/v2 v2.14.0 // indirect
-	github.com/andybalholm/brotli v1.2.8 // indirect
 	github.com/andybalholm/cascadia v1.3.2 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.43.6 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.18 // indirect
@@ -116,7 +117,6 @@ require (
 	github.com/dop251/goja v0.0.0-20240927123429-241b342198c2 // indirect
 	github.com/ebitengine/purego v0.10.1 // indirect
 	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6 // indirect
-	github.com/evanw/esbuild v0.28.1 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect

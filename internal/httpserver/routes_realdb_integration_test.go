@@ -51,6 +51,8 @@ var routesUnmountedHere = []struct {
 	{regexp.MustCompile(`^(GET|POST|PUT|DELETE) /api/v1/admin/webhooks/`), "mountWebhookAdminAPI: no object store for a webhook source"},
 	{regexp.MustCompile(`^(GET|POST|DELETE) /api/v1/portal/api-keys`), "userkeywire.Wire: no API key store with principals"},
 	{regexp.MustCompile(`^GET /api/v1/portal/scripts/\{id\}/thumbnail$`), "flowhttp.RegisterPortal: tiles need the renderer"},
+	{regexp.MustCompile(`^GET /api/v1/admin/sites/hosts$`), "sitehttp.Build: sites need a portal bucket, which this platform has none of"},
+	{regexp.MustCompile(`^GET /pages/handoff$`), "sitehttp.Build: a page origin needs sites.pages_domain and a portal bucket"},
 	{regexp.MustCompile(`^GET /api/v1/portal/(assets/\{id\}/content-url|content/\{token\})$`), "contentURLsReady: no content URL signing key"},
 	{regexp.MustCompile(`^(GET|POST) /portal/notifications/unsubscribe$`), "mountNotificationUnsubscribe: no browser-session signing key"},
 	{regexp.MustCompile(`^POST /api/v1/admin/(api-gateway|gateway)/connections/\{name\}/oauth-start$`), "connoauthapi legacy per-kind OAuth: the unified connection OAuth routes are registered instead"},

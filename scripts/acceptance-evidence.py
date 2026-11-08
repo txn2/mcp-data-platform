@@ -11,6 +11,11 @@ gates then read results rather than prose:
               diff registers is named by one of those files
   release  -- pre-tag gate: every acceptance file changed since the last tag
               has a stream in which every criterion passed
+  transcript -- write build/<n>/acceptance.md from a ticket's acceptance files
+              and its stream: their `// Wire forms:` comments, then each
+              criterion's result (#2541)
+  affected -- the acceptance files that call a tool whose registering package
+              a diff changes (#2543), read from the changed paths on stdin
 
 Before this existed the gate read build/<n>/acceptance.md and checked only
 that it carried a "Wire forms:" line. The transcript for #1663 carried a
@@ -65,6 +70,13 @@ def read_events(path: Path) -> list[dict]:
                 # `go test -json` interleaves build errors as raw text.
                 continue
     return events
+
+
+def elapsed(events: list[dict]) -> dict[str, float]:
+    """The seconds each test name's terminal event reports."""
+    return {ev["Test"]: float(ev.get("Elapsed") or 0)
+            for ev in events
+            if ev.get("Test") and ev.get("Action") in ("pass", "fail", "skip")}
 
 
 def outcomes(events: list[dict]) -> dict[str, str]:
@@ -159,6 +171,350 @@ def verdict(issue: str, files: list[str]) -> list[str]:
     return problems
 
 
+# ---------------------------------------------------------------- transcript
+
+
+WIRE_FORMS = re.compile(r"^\s*// Wire forms:\s*(.*)$")
+
+
+def ticket_files(issue: str) -> list[str]:
+    """Every acceptance file of a ticket, a suffixed one included, in order."""
+    directory = REPO_ROOT / "test" / "acceptance"
+    found = []
+    for path in sorted(directory.glob(f"issue_{issue}*_test.go")):
+        rel = path.relative_to(REPO_ROOT).as_posix()
+        if issue_of(rel) == issue:
+            found.append(rel)
+    return found
+
+
+def wire_forms_in(path: Path) -> str | None:
+    """The text of a file's `// Wire forms:` comment, its continuation lines
+    joined, or None when the file has no such comment."""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    for i, line in enumerate(lines):
+        m = WIRE_FORMS.match(line)
+        if not m:
+            continue
+        parts = [m.group(1).strip()]
+        for following in lines[i + 1:]:
+            text = following.strip()
+            if not text.startswith("//") or text == "//":
+                break
+            parts.append(text[2:].strip())
+        return " ".join(p for p in parts if p)
+    return None
+
+
+def cmd_transcript(args: argparse.Namespace) -> int:
+    """Write build/<n>/acceptance.md for one ticket's recorded run.
+
+    The transcript used to be written by hand, so a recorded, passing run
+    still failed verify when nobody had written it (#2541). It says what the
+    acceptance files state and what the stream holds, and nothing else: a
+    criterion with no terminal event reads absent.
+    """
+    issue = args.issue
+    files = ticket_files(issue)
+    if not files:
+        print(f"FAIL acceptance transcript: #{issue} has no test/acceptance/issue_{issue}_test.go", file=sys.stderr)
+        return 1
+    forms: list[str] = []
+    missing: list[str] = []
+    for f in files:
+        text = wire_forms_in(REPO_ROOT / f)
+        if text:
+            forms.append(text)
+        else:
+            missing.append(f)
+    if missing:
+        print("FAIL acceptance transcript: no `// Wire forms:` comment naming the JSON forms sent in: "
+              + ", ".join(missing), file=sys.stderr)
+        return 1
+
+    path = stream_path(issue)
+    events = read_events(path) if path.is_file() else []
+    final = outcomes(events)
+    seconds = elapsed(events)
+    rows = [f"| {name} | {final.get(name, 'absent')} | {seconds.get(name, 0):.2f} |"
+            for f in files for name in criteria_in(REPO_ROOT / f, issue)]
+
+    transcript = transcript_path(issue)
+    transcript.parent.mkdir(parents=True, exist_ok=True)
+    transcript.write_text("Wire forms: " + " ".join(forms) + "\n\n"
+                          f"# Acceptance #{issue}\n\n"
+                          f"Recorded against the dev stack; the run is {path.relative_to(REPO_ROOT)}.\n\n"
+                          "| Criterion | Result | Seconds |\n|---|---|---|\n"
+                          + "\n".join(rows) + "\n", encoding="utf-8")
+    print(f"acceptance: wrote {transcript.relative_to(REPO_ROOT)} ({len(rows)} criteria)")
+    return 0
+
+
+# ---------------------------------------------------------------- affected
+
+# A production change that alters what a tool does breaks the acceptance files
+# calling that tool, which are often not in the diff (#2543): on #2542 six
+# unchanged files failed the nightly after the merge.
+
+TOOL_TABLE = Path("test") / "toolsurface" / "toolsurface.go"
+ENVIRONMENTS = Path("test") / "acceptance" / "environments.txt"
+
+# The composition root holds the whole platform and registers a few tools of
+# its own, and every session calls one of them, so a change anywhere in it is
+# not a change to those tools: only the file registering a tool is.
+COMPOSITION_ROOTS = ("pkg/platform",)
+
+ADD_TOOL = re.compile(r"\bAddTool\(")
+STRING_CONST = re.compile(r'^[ \t]*(?:const[ \t]+)?([A-Za-z_]\w*)(?:[ \t]+string)?[ \t]*=[ \t]*"([a-z][a-z0-9_]*)"', re.MULTILINE)
+LITERAL = re.compile(r'"([a-z][a-z0-9_]*)"')
+IDENT = re.compile(r"\b[A-Za-z_]\w*\b")
+CALL = re.compile(r"\b([A-Za-z_]\w*)\(")
+NAME_FIELD = re.compile(r'\bName:\s*(?:"([a-z][a-z0-9_]*)"|([A-Za-z_]\w*))')
+BUILT_BY = re.compile(r"(?:\w+\.)?(\w+)\(\s*(\w*)")
+FUNC_DECL = re.compile(r"^func (?:\([^)]*\) )?([A-Za-z_]\w*)\(", re.MULTILINE)
+
+
+def balanced(text: str, start: int, opening: str, closing: str) -> str:
+    """The text from the bracket at start through its match, with strings,
+    runes and comments skipped: an apostrophe in a comment opens nothing."""
+    depth = 0
+    i = start
+    n = len(text)
+    while i < n:
+        c = text[i]
+        if text.startswith("//", i):
+            end = text.find("\n", i)
+            i = n if end < 0 else end
+        elif text.startswith("/*", i):
+            end = text.find("*/", i)
+            i = n if end < 0 else end + 1
+        elif c == "`":
+            end = text.find("`", i + 1)
+            i = n if end < 0 else end
+        elif c in "\"'":
+            i += 1
+            while i < n and text[i] != c and text[i] != "\n":
+                i += 2 if text[i] == "\\" else 1
+        elif c == opening:
+            depth += 1
+        elif c == closing:
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+        i += 1
+    return text[start:]
+
+
+def native_tools() -> set[str]:
+    """Every tool the platform registers: the keys of toolsurface.Annotations,
+    which TestRealDB_AdvertisedSurfaceMatchesTheTables holds to the running
+    server's tools/list."""
+    text = (REPO_ROOT / TOOL_TABLE).read_text(encoding="utf-8")
+    consts = dict(STRING_CONST.findall(text))
+    start = text.index("Annotations = map[string]Expectation{")
+    block = balanced(text, text.index("{", start), "{", "}")
+    tools: set[str] = set()
+    for m in re.finditer(r'^\s*(?:"([a-z][a-z0-9_]*)"|([A-Za-z_]\w*))\s*:', block, re.MULTILINE):
+        name = m.group(1) or consts.get(m.group(2) or "")
+        if name:
+            tools.add(name)
+    return tools
+
+
+def package_functions(text: str) -> dict[str, str]:
+    """Each top-level function of a Go source's name, mapped to its body."""
+    bodies: dict[str, str] = {}
+    for m in FUNC_DECL.finditer(text):
+        brace = text.find("{", m.end())
+        if brace >= 0:
+            bodies[m.group(1)] = balanced(text, brace, "{", "}")
+    return bodies
+
+
+def tools_named(span: str, tools: set[str], consts: dict[str, str], funcs: dict[str, str], seen: set[str]) -> set[str]:
+    """The tools a span of a registration names: a literal that is exactly a
+    tool's name (a description is longer), a constant holding one, or either
+    of those inside a function the span calls."""
+    found = {m.group(1) for m in LITERAL.finditer(span) if m.group(1) in tools}
+    found |= {consts[m.group(0)] for m in IDENT.finditer(span) if consts.get(m.group(0)) in tools}
+    for m in CALL.finditer(span):
+        name = m.group(1)
+        if name in funcs and name not in seen:
+            seen.add(name)
+            found |= tools_named(funcs[name], tools, consts, funcs, seen)
+    return found
+
+
+def registered_in(span: str, tools: set[str], consts: dict[str, str], funcs: dict[str, str]) -> set[str]:
+    """The tools one AddTool call registers: its Tool's Name field, or when a
+    helper builds the Tool, that helper's Name field or the constant it is
+    handed first. A tool name elsewhere in the call is an enum or a mention."""
+    def named(text: str) -> set[str]:
+        found = set()
+        for m in NAME_FIELD.finditer(text):
+            value = m.group(1) or consts.get(m.group(2) or "")
+            if value in tools:
+                found.add(value)
+        return found
+
+    found = named(span)
+    if found:
+        return found
+    _, _, rest = span.partition(",")
+    helper = BUILT_BY.match(rest.lstrip())
+    if not helper:
+        return set()
+    value = consts.get(helper.group(2) or "")
+    if value in tools:
+        return {value}
+    return named(funcs.get(helper.group(1), ""))
+
+
+def production_sources() -> dict[str, list[Path]]:
+    """Each package directory under pkg/ and internal/, with its non-test Go."""
+    packages: dict[str, list[Path]] = {}
+    for tree in ("pkg", "internal"):
+        for go in sorted((REPO_ROOT / tree).rglob("*.go")):
+            if not go.name.endswith("_test.go"):
+                packages.setdefault(go.parent.relative_to(REPO_ROOT).as_posix(), []).append(go)
+    return packages
+
+
+def tool_sources() -> dict[str, set[str]]:
+    """Each native tool, mapped to what must change for the tool to change:
+    the package whose source registers it, or within a composition root the
+    file. A tool a library registers (mcp-trino's) maps to its adapter, the
+    toolkit named by its prefix."""
+    tools = native_tools()
+    owners: dict[str, set[str]] = {tool: set() for tool in tools}
+    for package, files in production_sources().items():
+        texts = {go: go.read_text(encoding="utf-8", errors="replace") for go in files}
+        joined = "\n".join(texts.values())
+        consts = dict(STRING_CONST.findall(joined))
+        funcs = package_functions(joined)
+        for go, text in texts.items():
+            for m in ADD_TOOL.finditer(text):
+                span = balanced(text, m.end() - 1, "(", ")")
+                for tool in registered_in(span, tools, consts, funcs):
+                    owners[tool].add(go.relative_to(REPO_ROOT).as_posix() if package in COMPOSITION_ROOTS else package)
+    for tool, where in owners.items():
+        adapter = Path("pkg") / "toolkits" / tool.split("_", 1)[0]
+        if not where and (REPO_ROOT / adapter).is_dir():
+            where.add(adapter.as_posix())
+    return owners
+
+
+def environment_criteria() -> list[re.Pattern[str]]:
+    """The criteria that run in an environment of their own, which a run on
+    the plain stack leaves out."""
+    path = REPO_ROOT / ENVIRONMENTS
+    if not path.is_file():
+        return []
+    patterns = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        tokens = line.split()
+        if len(tokens) >= 2 and not line.lstrip().startswith("#"):
+            patterns.append(re.compile(tokens[1]))
+    return patterns
+
+
+# The harness's MCP client, whose methods any acceptance file may call. A
+# method of another type is scanned with the file declaring it, and a call
+# elsewhere with the same name is some other type's method.
+HARNESS_RECEIVER = "client"
+METHOD_DECL = re.compile(r"^func \(\w+ \*?(\w+)\) (\w+)\(", re.MULTILINE)
+
+
+def foreign_methods(text: str) -> set[str]:
+    """The names of the methods declared on a type other than the harness's."""
+    own = {name for receiver, name in METHOD_DECL.findall(text) if receiver == HARNESS_RECEIVER}
+    return {name for receiver, name in METHOD_DECL.findall(text) if receiver != HARNESS_RECEIVER} - own
+
+
+def tools_called() -> dict[str, set[str]]:
+    """Each issue_<n> acceptance file, mapped to the tools it calls by name,
+    directly or through a helper function any acceptance file declares."""
+    tools = native_tools()
+    directory = REPO_ROOT / "test" / "acceptance"
+    sources = {p.relative_to(REPO_ROOT).as_posix(): p.read_text(encoding="utf-8") for p in sorted(directory.glob("*_test.go"))}
+    joined = "\n".join(sources.values())
+    consts = dict(STRING_CONST.findall(joined))
+    # Opening a client calls platform_info and search for every session; that
+    # is the harness connecting, not the criterion calling those tools.
+    foreign = foreign_methods(joined)
+    funcs = {name: body for name, body in package_functions(joined).items()
+             if not name.startswith("connect") and name not in foreign}
+    return {path: tools_named(text, tools, consts, funcs, set()) for path, text in sources.items() if issue_of(path)}
+
+
+def changed_source_of(where: str, changed: list[str]) -> str | None:
+    """The first changed production file that where (a package or a file)
+    names, or None."""
+    for path in changed:
+        if path.endswith("_test.go") or not path.endswith(".go"):
+            continue
+        if path == where or Path(path).parent.as_posix() == where:
+            return path
+    return None
+
+
+def affected(changed: list[str]) -> dict[str, dict[str, str]]:
+    """The acceptance files calling a tool the changed paths change, each
+    mapped to those tools and the changed file behind each. A file whose every
+    criterion runs in its own environment is left out: a run on the plain
+    stack cannot execute it, and the E2E Nightly runs that environment."""
+    changed_tools: dict[str, str] = {}
+    for tool, sources in tool_sources().items():
+        for where in sorted(sources):
+            hit = changed_source_of(where, changed)
+            if hit:
+                changed_tools.setdefault(tool, hit)
+                break
+    if not changed_tools:
+        return {}
+    elsewhere = environment_criteria()
+    out: dict[str, dict[str, str]] = {}
+    for path, called in sorted(tools_called().items()):
+        hits = {tool: changed_tools[tool] for tool in sorted(called) if tool in changed_tools}
+        if not hits:
+            continue
+        criteria = criteria_in(REPO_ROOT / path, issue_of(path) or "")
+        if criteria and all(any(p.search(c) for p in elsewhere) for c in criteria):
+            continue
+        out[path] = hits
+    return out
+
+
+def cmd_affected(_args: argparse.Namespace) -> int:
+    """Print the tickets of the acceptance files the changed paths on stdin
+    reach, comma-separated, as acceptance-pr-paths.py --tickets does."""
+    changed = [line.strip() for line in sys.stdin if line.strip()]
+    print(",".join(str(n) for n in sorted({int(issue_of(p) or 0) for p in affected(changed)})))
+    return 0
+
+
+def stale_recordings(changed: list[str]) -> list[str]:
+    """Each acceptance file calling a changed tool whose recorded run did not
+    pass, or was recorded before the change."""
+    problems: list[str] = []
+    if not changed:
+        return problems
+    for path, hits in affected(changed).items():
+        issue = issue_of(path) or ""
+        named = ", ".join(sorted(hits))
+        found = verdict(issue, [path])
+        problems.extend(f"{p} (it calls {named}, which this diff changes)" for p in found)
+        if found:
+            continue
+        recorded = stream_path(issue).stat().st_mtime
+        for tool, source in sorted(hits.items()):
+            if (REPO_ROOT / source).stat().st_mtime > recorded:
+                problems.append(f"#{issue}: {stream_path(issue).relative_to(REPO_ROOT)} was recorded "
+                                f"before {source} changed, and {path} calls {tool}")
+                break
+    return problems
+
+
 # ---------------------------------------------------------------- check
 
 
@@ -212,18 +568,24 @@ def tools_added(merge_base: str) -> dict[str, str]:
     return added
 
 
+def changed_paths(args: argparse.Namespace) -> list[str]:
+    """The paths --changed-stdin hands the check, one per line."""
+    return [line.strip() for line in sys.stdin if line.strip()] if args.changed_stdin else []
+
+
 def cmd_check(args: argparse.Namespace) -> int:
     by_issue: dict[str, list[str]] = {}
     for path in args.files:
         issue = issue_of(path)
         if issue:
             by_issue.setdefault(issue, []).append(path)
-    if not by_issue:
+    stale = stale_recordings(changed_paths(args))
+    if not by_issue and not stale:
         return 0
 
-    problems: list[str] = []
+    problems: list[str] = list(stale)
     for issue, files in sorted(by_issue.items()):
-        problems.extend(verdict(issue, files))
+        problems.extend(p for p in verdict(issue, files) if not any(p in s for s in stale))
         transcript = transcript_path(issue)
         if not transcript.is_file() or transcript.stat().st_size == 0:
             problems.append(f"#{issue}: no run transcript at {transcript.relative_to(REPO_ROOT)}")
@@ -324,12 +686,20 @@ def main() -> int:
 
     check = sub.add_parser("check", help="per-commit gate over the changed acceptance files")
     check.add_argument("--merge-base", default="", help="base commit the diff is read against")
+    check.add_argument("--changed-stdin", action="store_true", help="read the diff's changed paths from stdin")
     check.add_argument("files", nargs="*", help="changed test/acceptance/*_test.go paths")
 
     sub.add_parser("release", help="pre-tag gate over every ticket closed since the last tag")
 
+    transcript = sub.add_parser("transcript", help="write a ticket's acceptance.md from its run")
+    transcript.add_argument("issue", help="the ticket number")
+
+    sub.add_parser("affected", help="tickets calling a tool the changed paths on stdin change")
+
     args = parser.parse_args()
-    return {"split": cmd_split, "check": cmd_check, "release": cmd_release}[args.command](args)
+    commands = {"split": cmd_split, "check": cmd_check, "release": cmd_release,
+                "transcript": cmd_transcript, "affected": cmd_affected}
+    return commands[args.command](args)
 
 
 if __name__ == "__main__":

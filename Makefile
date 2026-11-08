@@ -54,7 +54,7 @@ GOFMT := gofmt
 GOLINT := golangci-lint
 
 .PHONY: all migrate-check-diff build test lint lint-full fmt clean install help docs-serve docs-build docs-images-check verify verify-release alert-rules-test builtin-pages-check \
-	tools-check dead-code mutate patch-coverage patch-coverage-check coverage-summary doc-check acceptance acceptance-release acceptance-check acceptance-release-check release-tag-check schedule-lane schedule-lane-ui realdb-lane state-readers-check e2e-copy-check acceptance-copy-check route-manifest-check posture-check migrate-check-lane swagger swagger-check verify-checks verify-go verify-static verify-docker verify-ui verify-static-ui vet-tags e2e-standalone \
+	load-endpoint-up load-platform tools-check dead-code mutate patch-coverage patch-coverage-check coverage-summary doc-check acceptance acceptance-release acceptance-check acceptance-release-check release-tag-check schedule-lane schedule-lane-ui realdb-lane state-readers-check e2e-copy-check acceptance-copy-check route-manifest-check posture-check migrate-check-lane swagger swagger-check verify-checks verify-go verify-static verify-docker verify-ui verify-static-ui vet-tags e2e-standalone \
 	semgrep semgrep-diff semgrep-changed codeql sast osv embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer content-viewer-embed \
 	frontend-dev frontend-mock frontend-test frontend-lint frontend-e2e \
@@ -808,8 +808,11 @@ acceptance:
 	elif [ -n "$(ACCEPTANCE_SHARD)" ]; then run_flag=$$(python3 scripts/acceptance-env.py flags "$(ACCEPTANCE_ENV)" --shard "$(ACCEPTANCE_SHARD)") || exit 1; echo "  group $(ACCEPTANCE_SHARD)"; \
 	else run_flag=$$(python3 scripts/acceptance-env.py flags "$(ACCEPTANCE_ENV)") || exit 1; fi; \
 	set -o pipefail; \
+	rc=0; \
 	eval "$(GOTEST) -count=1 -timeout $(ACCEPTANCE_TIMEOUT) -tags=integration ./test/acceptance/ -v -json $$run_flag" \
-		| python3 scripts/acceptance-evidence.py split
+		| python3 scripts/acceptance-evidence.py split || rc=$$?; \
+	if [ -n "$(ISSUE)" ]; then python3 scripts/acceptance-evidence.py transcript $(ISSUE) || rc=1; fi; \
+	exit $$rc
 
 ## dev-smoke: One call through the platform per service the dev stack runs, in under a minute (#2248)
 ## A managed resource read back by digest (the TLS store), a portal asset read
@@ -1612,7 +1615,16 @@ LOAD_PID := build/mcp-data-platform-load.pid
 LOAD_LOG := build/mcp-data-platform-load.log
 
 ## load-up: Start the compose stack and a release-built platform for load tests
-load-up: e2e-up
+load-up: e2e-up load-platform
+
+## load-endpoint-up: The two databases and a release-built platform, nothing else (#2544)
+load-endpoint-up: LOAD_CONFIG := test/load/config/platform.load-endpoint.yaml
+load-endpoint-up:
+	$(E2E_COMPOSE) up -d --wait postgres postgres-target
+	@$(MAKE) load-platform LOAD_CONFIG=$(LOAD_CONFIG)
+
+## load-platform: Build and start the platform and loadgen against a running stack
+load-platform:
 	@echo "Building release-style platform binary (no -race)..."
 	@mkdir -p $(BUILD_DIR)
 	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-load $(CMD_DIR)

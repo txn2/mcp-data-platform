@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"slices"
@@ -293,6 +294,12 @@ func TestIssue2402_AnEndpointHolds200RequestsASecondWithTheCacheOn(t *testing.T)
 			req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, admin.base+"/endpoints/"+ep+"/", http.NoBody) // #nosec G704 -- the platform under test
 			req.Header = header.Clone()
 			res, err := hc.Do(req)
+			if res != nil {
+				// Read to the end, or the connection is not reused and every
+				// measured request pays for a new one (#2544).
+				_, _ = io.Copy(io.Discard, res.Body)
+				_ = res.Body.Close()
+			}
 			took := time.Since(start)
 			mu.Lock()
 			defer mu.Unlock()
@@ -300,9 +307,6 @@ func TestIssue2402_AnEndpointHolds200RequestsASecondWithTheCacheOn(t *testing.T)
 				failures++
 			} else {
 				latencies = append(latencies, took)
-			}
-			if res != nil {
-				_ = res.Body.Close()
 			}
 		}()
 	}
@@ -315,11 +319,11 @@ func TestIssue2402_AnEndpointHolds200RequestsASecondWithTheCacheOn(t *testing.T)
 	p50 := latencies[len(latencies)/2]
 	t.Logf("%d requests at %d/s: p50 %s, p99 %s; %d index jobs pending or running after", len(latencies), rate, p50, p99,
 		issue1904Count(t, db, indexBusy2402))
-	// The percentile is logged and not asserted: on a shared four-CPU runner
-	// it reads how busy the runner is. The same code measures 22ms on a quiet
-	// runner and 163ms on a busy one, and main exceeds 100ms under the same
-	// CPU limits as this branch. What this criterion holds the endpoint to is
-	// that every request succeeds and the statement cache answers them.
+	// The percentile is logged and not asserted here: this runner is shared
+	// with the rest of the suite. The Endpoint latency job of
+	// .github/workflows/load.yml holds this load to a bound on a runner of its
+	// own (#2544). What this criterion holds the endpoint to is that every
+	// request succeeds and the statement cache answers them.
 
 	after := scrapeRaw(t)
 	labels := func(result string) map[string]string {

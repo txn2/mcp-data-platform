@@ -601,6 +601,7 @@ func (im *importer) endpoint(ctx context.Context, sc *script.Script, e *Endpoint
 		Endpoint: e.Name, Methods: e.Methods, Path: &path, AuthMode: e.AuthMode, Callers: e.Callers,
 		CheckedMethods: e.CheckedMethods, MaxMemoryBytes: e.MaxMemoryBytes, MaxBodyBytes: e.MaxBodyBytes,
 		AllowedOrigins: e.AllowedOrigins, RateLimit: e.RateLimit, CallerRateLimit: e.CallerRateLimit,
+		ResponseMode: e.ResponseMode, PageCDNs: e.PageCDNs,
 	}
 	if e.BotCheck != "" {
 		in.BotCheck = im.mapped(e.BotCheck)

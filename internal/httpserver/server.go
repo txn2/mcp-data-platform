@@ -37,6 +37,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/instanceheader"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/mapwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/sitehttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/storagewire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/thumbwire"
 	"github.com/txn2/mcp-data-platform/internal/platform/listenbridge"
@@ -255,7 +256,11 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	appdbwire.Mount(ctx, mux, p, notify, appdbwire.Admin{Auth: func() func(http.Handler) http.Handler { return buildAdminAuth(p) }, Actor: adminEmail}) // application databases (#2406, #2409)
 
 	endpointwire.Mount(mux, p, func() func(http.Handler) http.Handler { return buildAdminAuth(p) }, adminEmail) // endpoints (#2170)
-	catalogScan := catalogwire.Build(p)                                                                         // the catalog scan (#1918)
+	sites, err := sitehttp.Build(mux, p, func() func(http.Handler) http.Handler { return buildAdminAuth(p) })   // sites and pages (#2517, #2518)
+	if err != nil {
+		return err //nolint:wrapcheck // the configuration's own sentence
+	}
+	catalogScan := catalogwire.Build(p) // the catalog scan (#1918)
 	catalogScan.MountAdmin(mux, buildAdminAuth, adminEmail)
 	// The built-in platform-admin self-connection (issue #543) that lets an
 	// admin drive /api/v1/admin/* through the api gateway is seeded by
@@ -312,13 +317,14 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	defer streetMaps.Stop()
 	storage.Start(ctx)
 	defer storage.Stop()
+	stopSites := sites.Start(ctx)
+	defer stopSites()
 	apiChanges.Start(ctx)
 	defer apiChanges.Stop()
 
-	hcfg.mcpServer = mcpServer
-	hcfg.observe.Mux = mux
+	hcfg.mcpServer, hcfg.observe.Mux = mcpServer, mux
 	// The observer is outermost (#1889): every request, a CORS preflight and a webhook included, is measured under its route template.
-	return listenAndServe(ctx, address, instanceheader.Middleware(instanceheader.HostName(address), httpobs.Middleware(hcfg.observe)(corshttp.WithoutHooks(mux, corshttp.Gated(streetMaps.SiteCheck(), portalBaseURL(p))(mux)))), hcfg, hc)
+	return listenAndServe(ctx, address, instanceheader.Middleware(instanceheader.HostName(address), httpobs.Middleware(hcfg.observe)(sites.Wrap(corshttp.WithoutHooks(mux, corshttp.Gated(streetMaps.SiteCheck(), portalBaseURL(p))(mux))))), hcfg, hc)
 }
 
 // buildRootHandler constructs the MCP streamable HTTP handler with optional
@@ -490,20 +496,11 @@ func drainHTTPServer(server *http.Server, mcpServer *mcp.Server, gracePeriod tim
 	settle := min(sessionDrainSettle, gracePeriod)
 	select {
 	case err := <-done:
-		logHTTPDrainResult(err)
+		shutdown.LogHTTPDrain(err)
 	case <-time.After(settle):
 		shutdown.CloseSessions(shutdownCtx, mcpServer)
-		logHTTPDrainResult(<-done)
+		shutdown.LogHTTPDrain(<-done)
 	}
-}
-
-// logHTTPDrainResult records the outcome of the HTTP server drain.
-func logHTTPDrainResult(err error) {
-	if err != nil {
-		slog.Error("shutdown: HTTP drain error", logKeyError, err)
-		return
-	}
-	slog.Info("shutdown: HTTP server stopped")
 }
 
 // portalBaseURL is the address people open the portal at, the platform's own

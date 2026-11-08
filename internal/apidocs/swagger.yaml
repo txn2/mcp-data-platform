@@ -2452,10 +2452,17 @@ definitions:
         type: array
       name:
         type: string
+      page_cdns:
+        items:
+          type: string
+        type: array
       path:
         type: string
       rate_limit:
         type: integer
+      response_mode:
+        description: ResponseMode and PageCDNs make the endpoint a browser page (#2517).
+        type: string
       timeout_seconds:
         type: integer
     type: object
@@ -3741,6 +3748,16 @@ definitions:
         type: string
       self_approved:
         type: boolean
+      site_name:
+        description: SiteName is the site the release belongs to.
+        example: marketing
+        type: string
+      site_release_id:
+        description: |-
+          SiteReleaseID and Target name a site release a promotion waits on and
+          the environment it would serve (#2518); SourceSHA256 is then the
+          release's manifest digest and Version its number.
+        type: string
       source_sha256:
         type: string
       status:
@@ -3748,6 +3765,9 @@ definitions:
         type: string
       subject_kind:
         example: script_version
+        type: string
+      target:
+        example: prod
         type: string
       version:
         example: 2
@@ -4643,6 +4663,10 @@ definitions:
         items:
           type: string
         type: array
+      page_cdns:
+        items:
+          type: string
+        type: array
       path:
         type: string
       preview_version:
@@ -4652,6 +4676,9 @@ definitions:
         type: integer
       rate_limit:
         type: integer
+      response_mode:
+        description: ResponseMode and PageCDNs make the endpoint a browser page (#2517).
+        type: string
       timeout_seconds:
         type: integer
     type: object
@@ -15070,6 +15097,24 @@ definitions:
         example: editor
         type: string
     type: object
+  sitesvc.HostReport:
+    properties:
+      cert_manager:
+        description: CertManager is a Certificate manifest for the hostnames.
+        type: string
+      hostnames:
+        items:
+          type: string
+        type: array
+      pages_wildcard:
+        description: PagesDomain is the wildcard the pages and previews need, "" for
+          none.
+        type: string
+      unverified:
+        items:
+          type: string
+        type: array
+    type: object
   smtp.SettingsInput:
     properties:
       enabled:
@@ -25427,6 +25472,28 @@ paths:
       summary: Update webhook alert settings
       tags:
       - Settings
+  /admin/sites/hosts:
+    get:
+      description: Lists the verified hostnames sites and application pages answer
+        on, those awaiting verification, the wildcard the pages domain needs, and
+        a cert-manager Certificate covering them.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sitesvc.HostReport'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: The hostnames the ingress needs for sites
+      tags:
+      - Sites
   /admin/storage:
     get:
       description: 'Reads every store the platform writes to now: the database against
@@ -38278,6 +38345,8 @@ swagger: "2.0"
 tags:
   - name: "User"
     description: "Current user identity, roles, persona, and available tools."
+  - name: "Sites"
+    description: "Static sites and browser pages the platform serves on hostnames of their own: the hostnames the deployment's ingress needs and the certificate that covers them."
   - name: "Applications"
     description: "Applications built on the platform: one record naming an application database schema with its migrations, managed scripts (an endpoint or a form is its script's binding), webhook sources and portal assets, released together as a pinned set. While a part belongs to a released application its release's version is the one that runs and is served. Everyone signed in reads; the owner and administrators edit; administrators release, roll back, export and import."
   - name: "Approvals"
@@ -38382,6 +38451,7 @@ x-tagGroups:
       - "Tables"
   - name: "Admin API"
     tags:
+      - "Sites"
       - "API Catalogs"
       - "Audit"
       - "Auth Keys"

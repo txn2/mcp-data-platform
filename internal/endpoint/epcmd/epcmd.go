@@ -76,6 +76,9 @@ type Input struct {
 	AllowedOrigins  []string `json:"allowed_origins,omitempty"`
 	RateLimit       int      `json:"rate_limit,omitempty"`
 	CallerRateLimit int      `json:"caller_rate_limit,omitempty"`
+	// ResponseMode and PageCDNs make the endpoint a browser page (#2517).
+	ResponseMode string   `json:"response_mode,omitempty"`
+	PageCDNs     []string `json:"page_cdns,omitempty"`
 	// Connection and DecryptPersonas are a form's (#2178, #2179): the Trino
 	// connection its source's table is created on, and the personas a script
 	// run may decrypt its sensitive fields as (nil keeps them).
@@ -124,6 +127,9 @@ type Handler struct {
 	Approvals Approvals
 	// Previews opens a form's preview (#2494); nil refuses form_preview.
 	Previews *eppreview.Previews
+	// PageAllowed reports why a script's endpoint cannot be a browser page
+	// (#2517); nil refuses every page.
+	PageAllowed func(ctx context.Context, scriptID string) error
 
 	// forms makes a form's webhook source (SetForms); nil makes none.
 	forms atomic.Pointer[FormSources]
@@ -198,7 +204,7 @@ func (h *Handler) set(ctx context.Context, req Request) (map[string]any, error) 
 		BotCheck: in.BotCheck, CheckedMethods: in.CheckedMethods,
 		TimeoutSeconds: req.TimeoutSeconds, MaxMemoryBytes: in.MaxMemoryBytes, MaxBodyBytes: in.MaxBodyBytes,
 		AllowedOrigins: in.AllowedOrigins, RateLimit: in.RateLimit, CallerRateLimit: in.CallerRateLimit,
-		Actor: req.Actor,
+		Actor: req.Actor, ResponseMode: in.ResponseMode, PageCDNs: in.PageCDNs,
 	}, time.Now())
 	if err != nil {
 		return nil, err //nolint:wrapcheck // the binding's own refusal is what the caller reads
@@ -209,6 +215,9 @@ func (h *Handler) set(ctx context.Context, req Request) (map[string]any, error) 
 		}
 	}
 	if err := h.publicApproved(ctx, req, b); err != nil {
+		return nil, err
+	}
+	if err := h.pageAllowed(ctx, b); err != nil {
 		return nil, err
 	}
 	if err := h.Store.Set(ctx, b); err != nil {
@@ -226,6 +235,18 @@ func (h *Handler) set(ctx context.Context, req Request) (map[string]any, error) 
 		return nil, err
 	}
 	return out, nil
+}
+
+// pageAllowed refuses making an endpoint a page where no page origin serves
+// it: a deployment with no pages domain, or a script in no application.
+func (h *Handler) pageAllowed(ctx context.Context, b *epbinding.Binding) error {
+	if b.ResponseMode != epbinding.ResponsePage {
+		return nil
+	}
+	if h.PageAllowed == nil {
+		return errors.New("this deployment serves no browser pages: it has no sites.pages_domain")
+	}
+	return h.PageAllowed(ctx, b.ScriptID)
 }
 
 // formSource makes or updates the webhook source a form stores into, once
@@ -366,6 +387,7 @@ func (h *Handler) fields(scriptName string, b *epbinding.Binding) map[string]any
 		"timeout_seconds": b.TimeoutSeconds, "max_memory_bytes": b.MaxMemoryBytes,
 		"max_body_bytes": b.MaxBodyBytes, "allowed_origins": b.AllowedOrigins,
 		"rate_limit": b.RateLimit, "caller_rate_limit": b.CallerRateLimit,
+		"response_mode": b.ResponseMode, "page_cdns": b.PageCDNs,
 		"updated_by": b.UpdatedBy, "updated_at": b.UpdatedAt,
 	}
 }

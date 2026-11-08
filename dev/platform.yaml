@@ -702,6 +702,23 @@ scripts:
 # replica of its own with them set (test/acceptance/issue_2121_test.go), so the
 # criteria about a stalled object store and a killed replica run against a
 # process they can stall and kill without touching the others.
+# Static sites and browser pages (#2517, #2518). pages.localhost resolves to
+# loopback in a browser and the suite reaches it with a Host header; the dev
+# stack's fixtures are on private addresses, which production refuses.
+sites:
+  pages_domain: pages.localhost
+  verify:
+    dns_server: "127.0.0.1:${DEV_CHALLTEST_DNS_PORT:-8053}"
+  crawl:
+    allow_private_cidrs: ["127.0.0.0/8", "::1/128"]
+  tls:
+    acme:
+      enabled: true
+      address: "0.0.0.0:${DEV_SITES_ACME_PORT:-5443}"
+      email: "ops@example.com"
+      directory_url: "https://127.0.0.1:${DEV_PEBBLE_PORT:-14000}/dir"
+      ca_file: "dev/pebble/pebble.minica.pem"
+
 webhooks:
   receiver:
     # Seconds rather than the 30s default: #1870's criteria stall the store and

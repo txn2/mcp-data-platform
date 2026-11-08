@@ -102,9 +102,13 @@ func mountOver(mux *http.ServeMux, e *epwire.Endpoints, id identity, settings fu
 		h.Refused = e.Refusals.Refused
 	}
 	h.Mount(mux)
+	e.Handler, e.PortalCaller = h, id.auth // an application's page origin answers through it (#2517)
+	if e.Sites != nil {
+		h.SiteOrigins = e.Sites.SiteOrigins
+	}
 	// The page a form is rendered on (#2177, #2331). It reads the session only
 	// to sign a viewer token for an authenticated form opened directly.
-	page := &epformpage.Handler{Runner: e.Runner, BaseURL: e.Commands.BaseURL, ViewerKey: viewerKey, Session: id.auth, SignIn: id.signIn}
+	page := &epformpage.Handler{Runner: e.Runner, BaseURL: e.Commands.BaseURL, ViewerKey: viewerKey, Session: id.auth, SignIn: id.signIn, SiteOrigins: h.SiteOrigins}
 	if e.Previews != nil {
 		page.Previews = previewOwners{e.Previews.Store}
 	}

@@ -120,3 +120,12 @@ func CloseSessions(ctx context.Context, mcpServer *mcp.Server) {
 		slog.WarnContext(ctx, "shutdown: MCP session close did not finish before the grace deadline; process exit will drop remaining connections", "count", len(sessions))
 	}
 }
+
+// LogHTTPDrain records the outcome of the HTTP server drain.
+func LogHTTPDrain(err error) {
+	if err != nil {
+		slog.Error("shutdown: HTTP drain error", "error", err)
+		return
+	}
+	slog.Info("shutdown: HTTP server stopped")
+}

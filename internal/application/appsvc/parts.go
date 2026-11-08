@@ -84,7 +84,7 @@ func (s *Service) Describe(ctx context.Context, actor application.Actor, parts [
 			s.describeAsset(ctx, actor, &v, view)
 		case application.KindSource:
 			s.describeSource(ctx, actor, &v)
-		case application.KindSchema:
+		case application.KindSchema, application.KindSite:
 			v.Name = p.ID
 		}
 		out = append(out, v)

@@ -17,12 +17,19 @@ request changed and still holds, comma-separated (empty for none), and CI
 runs those criteria on a fresh stack (#2341). They were otherwise run only on
 the author's machine before merge, against whatever its .env set: #2179's
 criteria passed there with a field-encryption key the runners never had, and
-failed the first nightly after the merge.
+failed the first nightly after the merge. The list also takes the acceptance
+files that call, by name, a tool whose registering package the paths change
+(#2543): those files are often not in the diff, and the first run to see them
+used to be the E2E Nightly after the merge. With --ticket-groups it prints the
+same tickets as a JSON array of comma-separated groups, one job per group, so a
+change to a widely called tool fits the jobs' time limit.
 """
 
 from __future__ import annotations
 
+import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -48,6 +55,30 @@ def changed_tickets(paths: list[str], root: Path = ROOT) -> list[int]:
     return sorted(found)
 
 
+def tickets_calling_changed_tools(paths: list[str], root: Path = ROOT) -> list[int]:
+    """The tickets whose acceptance files call a tool paths change, read from
+    the evidence script, which derives the map from the tools the server
+    registers."""
+    out = subprocess.run(
+        [sys.executable, str(root / "scripts" / "acceptance-evidence.py"), "affected"],
+        input="\n".join(paths) + "\n", capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    return [int(n) for n in out.split(",") if n]
+
+
+# The tickets one job runs, and the most jobs a pull request starts.
+TICKETS_PER_GROUP = 25
+MAX_GROUPS = 8
+
+
+def ticket_groups(tickets: list[int]) -> list[str]:
+    """Tickets dealt round robin into groups, as comma-separated strings."""
+    if not tickets:
+        return []
+    count = min(MAX_GROUPS, (len(tickets) + TICKETS_PER_GROUP - 1) // TICKETS_PER_GROUP)
+    return [",".join(str(n) for n in tickets[i::count]) for i in range(count)]
+
+
 def touches_stack(paths: list[str]) -> bool:
     """Whether any of paths is one STACK_PATHS names."""
     return any(p.search(path) for path in paths for p in STACK_PATHS)
@@ -55,8 +86,12 @@ def touches_stack(paths: list[str]) -> bool:
 
 def main() -> int:
     paths = [line.strip() for line in sys.stdin if line.strip()]
-    if sys.argv[1:] == ["--tickets"]:
-        print(",".join(str(n) for n in changed_tickets(paths)))
+    if sys.argv[1:] in (["--tickets"], ["--ticket-groups"]):
+        tickets = sorted(set(changed_tickets(paths)) | set(tickets_calling_changed_tools(paths)))
+        if sys.argv[1] == "--tickets":
+            print(",".join(str(n) for n in tickets))
+        else:
+            print(json.dumps(ticket_groups(tickets)))
     else:
         print("true" if touches_stack(paths) else "false")
     return 0

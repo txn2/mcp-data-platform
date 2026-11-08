@@ -946,7 +946,7 @@ if [ "$DEV_REPLICAS" = 2 ]; then
   # DEV_DEPLOYMENT_ID_B names the second replica as a deployment of its own,
   # for the fleet criterion of #1900; unset, both replicas are acme-dev.
   MCP_PLATFORM_DEPLOYMENT_ID="${DEV_DEPLOYMENT_ID_B:-$MCP_PLATFORM_DEPLOYMENT_ID}" \
-  DEV_API_PORT="$DEV_API_PORT_B" OTEL_METRICS_ADDR=":9465" air -c dev/.air.toml \
+  DEV_SITES_ACME_PORT=5444 DEV_API_PORT="$DEV_API_PORT_B" OTEL_METRICS_ADDR=":9465" air -c dev/.air.toml \
     -tmp_dir build/air-b \
     -build.cmd "go build -o ./build/air-b/mcp-data-platform ./cmd/mcp-data-platform" \
     -build.bin ./build/air-b/mcp-data-platform \

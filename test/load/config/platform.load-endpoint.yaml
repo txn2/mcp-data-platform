@@ -1,0 +1,59 @@
+# Platform configuration for the endpoint latency job (.github/workflows/load.yml,
+# #2544): the platform database and one application database, and nothing else
+# running beside them, so a p99 read from it is the endpoint's.
+apiVersion: v1
+
+server:
+  name: mcp-data-platform-load-endpoint
+  transport: http
+  address: ":8099"
+
+sessions:
+  handles:
+    require: false
+
+auth:
+  api_keys:
+    enabled: true
+    keys:
+      - key: "${API_KEY_ADMIN}"
+        name: "load-admin"
+        roles: ["admin"]
+
+database:
+  dsn: "postgres://platform:platform_secret@localhost:5432/mcp_platform?sslmode=disable"
+  max_open_conns: 25
+
+audit:
+  enabled: true
+  log_tool_calls: true
+  delivery: ${AUDIT_DELIVERY}
+
+rate_limit:
+  enabled: false
+
+workflow:
+  require_search: false
+
+personas:
+  admin:
+    display_name: "Load Admin"
+    roles: ["admin"]
+    tools:
+      allow: ["*"]
+    connections:
+      allow: ["*"]
+
+toolkits:
+  appdb:
+    enabled: true
+    instances:
+      load-target:
+        host: "localhost"
+        port: 5442
+        database: "orders"
+        user: "orders_app"
+        password: "orders_secret"
+        sslmode: "disable"
+        description: "The endpoint latency job's application database"
+    default: load-target

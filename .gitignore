@@ -37,7 +37,7 @@ go.work.sum
 settings.local.json
 
 # MkDocs generated site
-site/
+/site/
 
 # Temporary files
 tmp/

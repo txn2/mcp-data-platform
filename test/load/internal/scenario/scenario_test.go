@@ -10,7 +10,7 @@ import (
 )
 
 func TestRegistryHasAllSpecifiedScenarios(t *testing.T) {
-	want := []string{"audit-burst", "mcp-session-churn", "mcp-tool-call", "oauth-token", "portal-read", "soak"}
+	want := []string{"audit-burst", "endpoint-appdb", "mcp-session-churn", "mcp-tool-call", "oauth-token", "portal-read", "soak"}
 	got := Names()
 	if len(got) != len(want) {
 		t.Fatalf("scenario count = %d, want %d (%v)", len(got), len(want), got)
@@ -99,5 +99,23 @@ func TestThroughputAssertion(t *testing.T) {
 	}
 	if a := throughputAssertion(rep, "missing"); a.Passed {
 		t.Error("missing op should fail")
+	}
+}
+
+func TestLatencyAssertionReadsTheBound(t *testing.T) {
+	rep := &report.Report{Operations: []stats.OpSummary{{Operation: endpointOp, Count: 100, P50Ms: 5, P99Ms: 40}}}
+	for _, tc := range []struct {
+		bound string
+		want  bool
+	}{{"", true}, {"40", true}, {"39.5", false}, {"not-a-number", false}} {
+		if got := latencyAssertion(rep, tc.bound); got.Passed != tc.want {
+			t.Errorf("bound %q: passed %v, want %v (%s)", tc.bound, got.Passed, tc.want, got.Message)
+		}
+	}
+	if got := latencyAssertion(rep, ""); !strings.Contains(got.Message, "p50 5.0ms, p99 40.0ms") {
+		t.Errorf("the percentiles are not stated: %s", got.Message)
+	}
+	if got := latencyAssertion(&report.Report{}, ""); got.Passed {
+		t.Error("no samples passed")
 	}
 }

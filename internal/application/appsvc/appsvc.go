@@ -75,12 +75,30 @@ type Service struct {
 	// Diagrams is what an application's diagram reads besides the stores
 	// above (#2540).
 	Diagrams DiagramDeps
+	// Sites reads a site part and points its environment at a release
+	// (#2518); nil adds no site.
+	Sites Sites
+}
+
+// Sites is what an application does with its site parts.
+type Sites interface {
+	// EnvironmentOwner is the owner of the site holding the environment.
+	EnvironmentOwner(ctx context.Context, site, environment string) (string, error)
+	LatestRelease(ctx context.Context, site string) (int, error)
+	ReleaseExists(ctx context.Context, site string, number int) bool
+	ApplyPin(ctx context.Context, actorEmail, site, environment string, number int) error
 }
 
 // RefusedError is an operation refused for a reason the caller can act on.
 type RefusedError struct{ Msg string }
 
 func (e *RefusedError) Error() string { return e.Msg }
+
+// The words a pin's failure is written with.
+const (
+	siteLabel = "site "
+	labelSep  = ": "
+)
 
 func refused(format string, args ...any) error {
 	return &RefusedError{Msg: fmt.Sprintf(format, args...)}
@@ -197,7 +215,7 @@ func (s *Service) AddPart(ctx context.Context, actor application.Actor, ref, kin
 		return nil, err
 	}
 	if !application.ValidKind(kind) {
-		return nil, refused("kind %q: one of script, asset, source, schema", kind)
+		return nil, refused("kind %q: one of script, asset, source, schema, site", kind)
 	}
 	if kind == application.KindSchema {
 		return s.addSchema(ctx, actor, a, id)
@@ -236,6 +254,45 @@ func (s *Service) mayAdd(ctx context.Context, actor application.Actor, kind, id 
 		return s.mayAddAsset(ctx, actor, id)
 	case application.KindSource:
 		return s.mayAddSource(ctx, actor, id)
+	case application.KindSite:
+		return s.mayAddSite(ctx, actor, id)
+	}
+	return nil
+}
+
+func (s *Service) mayAddSite(ctx context.Context, actor application.Actor, id string) error {
+	name, env, ok := application.ParseSitePartID(id)
+	if !ok {
+		return refused("site part %q: \"<site>/<environment>\"", id)
+	}
+	if s.Sites == nil {
+		return refused("this deployment has no sites")
+	}
+	owner, err := s.Sites.EnvironmentOwner(ctx, name, env)
+	if err != nil {
+		return refused("site part %q: %s", id, err.Error())
+	}
+	if !actor.Admin && !strings.EqualFold(owner, actor.Email) {
+		return fmt.Errorf("site %q is added to an application by its owner or an administrator: %w", name, application.ErrNotAllowed)
+	}
+	return nil
+}
+
+// applySitePins points each site part's environment at the release pins
+// hold. An application release or rollback is an administrator's, so it
+// stands in for the environment's own approval.
+func (s *Service) applySitePins(ctx context.Context, actor application.Actor, pins []application.Pin) error {
+	for _, p := range pins {
+		if p.Kind != application.KindSite || s.Sites == nil {
+			continue
+		}
+		name, env, ok := application.ParseSitePartID(p.PartID)
+		if !ok {
+			continue
+		}
+		if err := s.Sites.ApplyPin(ctx, actor.Email, name, env, p.Version); err != nil {
+			return fmt.Errorf("the release was recorded, but site %s was not pointed at release %d, which releasing again does: %w", p.PartID, p.Version, err)
+		}
 	}
 	return nil
 }
@@ -411,15 +468,31 @@ func (s *Service) newestPin(ctx context.Context, p application.Part) (pin applic
 	case application.KindScript:
 		sc, err := s.script(ctx, p.ID)
 		if err != nil {
-			return pin, "script " + p.ID + ": " + err.Error()
+			return pin, "script " + p.ID + labelSep + err.Error()
 		}
 		pin.Version = sc.Version
 	case application.KindAsset:
 		as, err := s.asset(ctx, p.ID)
 		if err != nil {
-			return pin, "asset " + p.ID + ": " + err.Error()
+			return pin, "asset " + p.ID + labelSep + err.Error()
 		}
 		pin.Version = as.CurrentVersion
+	case application.KindSite:
+		name, env, ok := application.ParseSitePartID(p.ID)
+		if !ok || s.Sites == nil {
+			return pin, siteLabel + p.ID + " cannot be read"
+		}
+		if _, err := s.Sites.EnvironmentOwner(ctx, name, env); err != nil {
+			return pin, siteLabel + p.ID + labelSep + err.Error()
+		}
+		n, err := s.Sites.LatestRelease(ctx, name)
+		if err != nil {
+			return pin, siteLabel + p.ID + labelSep + err.Error()
+		}
+		if n == 0 {
+			return pin, siteLabel + p.ID + " has no release to pin; publish one first"
+		}
+		pin.Version = n
 	case application.KindSource:
 		if s.Sources == nil {
 			return pin, ""
@@ -476,7 +549,14 @@ func (s *Service) ReleaseAs(ctx context.Context, actor application.Actor, ref, n
 	}
 	rel.Changes.Parts = application.Diff(prev.Pins, pins)
 	rel.Changes.Findings = appdiagram.Problems(&appdiagram.Diagram{Findings: found})
-	return s.Store.Record(ctx, a.ID, application.Recorded{Release: rel, After: a.CurrentRelease}) //nolint:wrapcheck // read by identity
+	recorded, err := s.Store.Record(ctx, a.ID, application.Recorded{Release: rel, After: a.CurrentRelease})
+	if err != nil {
+		return nil, err //nolint:wrapcheck // read by identity
+	}
+	if err := s.applySitePins(ctx, actor, pins); err != nil {
+		return nil, err
+	}
+	return recorded, nil
 }
 
 // current is the application's current release, an empty one before the
@@ -532,7 +612,14 @@ func (s *Service) Rollback(ctx context.Context, actor application.Actor, ref str
 		rel.Changes.Reverted, rel.Changes.MigrationsKept, rel.MigrationVersion = reverted.Versions, reverted.Kept, reverted.Head
 	}
 	rel.Changes.Parts = application.Diff(prev.Pins, target.Pins)
-	return s.Store.Record(ctx, a.ID, application.Recorded{Release: rel, After: a.CurrentRelease}) //nolint:wrapcheck // read by identity
+	recorded, err := s.Store.Record(ctx, a.ID, application.Recorded{Release: rel, After: a.CurrentRelease})
+	if err != nil {
+		return nil, err //nolint:wrapcheck // read by identity
+	}
+	if err := s.applySitePins(ctx, actor, target.Pins); err != nil {
+		return nil, err
+	}
+	return recorded, nil
 }
 
 // rollbackTarget is the release a rollback restores: to, or the one before
@@ -566,6 +653,9 @@ func (s *Service) readable(ctx context.Context, p application.Pin) bool {
 		}
 		v, err := s.Scripts.GetVersion(ctx, p.PartID, p.Version)
 		return err == nil && v != nil
+	case application.KindSite:
+		name, _, ok := application.ParseSitePartID(p.PartID)
+		return ok && s.Sites != nil && s.Sites.ReleaseExists(ctx, name, p.Version)
 	case application.KindAsset:
 		if s.AssetVersions == nil {
 			return false

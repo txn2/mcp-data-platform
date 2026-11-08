@@ -79,6 +79,7 @@ const (
 	slugContentTypes  = knowledgepage.BuiltinSlugContentTypes
 	slugAppDB         = "platform-application-databases"
 	slugApps          = "platform-applications"
+	slugSites         = "platform-pages-and-sites"
 	// The PostgreSQL design pages (#2448).
 	slugPGWrites    = "platform-postgres-write-patterns"
 	slugPGIntegrity = "platform-postgres-integrity"
@@ -145,6 +146,13 @@ var pageMetas = []pageMeta{
 		summary: "Building an application on the platform end to end, a shop as the worked example: the schema first through migrations, a checkout in one transaction, identity and row-level security, endpoints and forms as the front, outbox events for side effects, scheduled maintenance, and a release with manage_application that pins it all, with rollback, export and import.",
 		tags:    []string{"applications", "application database", "endpoints", "forms", "releases"},
 		related: []string{slugAppDB, slugPGWrites, slugPGSecurity, slugPGProvides, slugWriting},
+	},
+	{
+		file:    "pages-and-sites.md",
+		slug:    slugSites,
+		summary: "Browser pages and static sites the platform serves on hostnames of their own: response_mode page and its content policy and nonce, an application's own origin and how a viewer signs in to it, and sites with environments, releases, promote and rollback, hostnames, TLS and moving a site off a CMS with crawl.",
+		tags:    []string{"pages", "sites", "applications", "endpoints", "hosting"},
+		related: []string{slugApps, slugWriting},
 	},
 	{
 		file:    "reference-script.md",

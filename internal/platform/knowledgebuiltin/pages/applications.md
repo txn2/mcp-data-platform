@@ -461,3 +461,9 @@ naming any script the gate refuses, all before anything is written, then
 creates or releases the application there. A migration that writes a
 credential (`PASSWORD '...'`) is refused when it is added, so no bundle ever
 carries one.
+
+## Giving it a front
+
+An endpoint with `response_mode: "page"` is a working browser page on the
+application's own origin, and a static site's environment can be a part of the
+application: mcp:knowledge_page:platform-pages-and-sites.
