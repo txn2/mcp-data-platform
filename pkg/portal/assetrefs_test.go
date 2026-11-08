@@ -225,6 +225,30 @@ func TestAssetContentRewritesDeclaredReference(t *testing.T) {
 	assert.Equal(t, refAssetBody, string(f.s3.getData), "the stored content must keep the mcp:// URI")
 }
 
+// TestAssetContentAsStoredSkipsTheRewrite pins #2530: ?source=stored answers
+// the asset's stored bytes, its declared reference as written, through the
+// same access check.
+func TestAssetContentAsStoredSkipsTheRewrite(t *testing.T) {
+	f := newRefFixture(t, &User{UserID: "u1"}, true)
+
+	rec := f.get(t, "/api/v1/portal/assets/a1/content?source=stored")
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, refAssetBody, rec.Body.String())
+	assert.NotContains(t, rec.Body.String(), "/portal/refs/")
+}
+
+// TestPublicShareContentAsStoredSkipsTheRewrite: the same on a share link.
+func TestPublicShareContentAsStoredSkipsTheRewrite(t *testing.T) {
+	h := publicRefFixture(t)
+
+	rec := publicGet(t, h, "/portal/view/tok1/content?source=stored")
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), refLogoURI)
+	assert.NotContains(t, rec.Body.String(), "/portal/refs/")
+}
+
 // TestAssetContentLeavesUndeclaredReferenceAlone is acceptance criterion 3
 // through the handler: the grant is the declaration, not a string in the body.
 func TestAssetContentLeavesUndeclaredReferenceAlone(t *testing.T) {

@@ -314,7 +314,7 @@ func (h *Handler) resourceClaims(user *User) resource.Claims {
 // over an image, which is the opposite of the rule references already follow
 // for a resource that has been deleted.
 func (h *Handler) serveRefs(r *http.Request, assetID, contentType string, data []byte) []byte {
-	if h.deps.ContentRefs == nil || assetID == "" {
+	if h.deps.ContentRefs == nil || assetID == "" || storedSource(r) {
 		return data
 	}
 	refs, err := h.deps.ContentRefs.ListByAsset(r.Context(), assetID)
@@ -368,4 +368,20 @@ func (h *Handler) formViewer(r *http.Request) *epform.Viewer {
 		}
 	}
 	return &v
+}
+
+// sourceParam and sourceStored ask a content route for an asset as it is
+// stored (#2530): the bytes its author saved, with its declared references as
+// written and no form's viewer token in them. It is what the portal saves when
+// a reader downloads the source of an asset whose standalone file would not
+// show its data. The route's own access check is unchanged: the parameter only
+// skips the rewrite done for viewing.
+const (
+	sourceParam  = "source"
+	sourceStored = "stored"
+)
+
+// storedSource reports whether r asks for an asset as stored.
+func storedSource(r *http.Request) bool {
+	return r != nil && r.URL != nil && r.URL.Query().Get(sourceParam) == sourceStored
 }

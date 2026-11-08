@@ -19,7 +19,15 @@ if [ ! -f "$COVERAGE_FILE" ]; then
     exit 1
 fi
 
-MERGE_BASE=$(git merge-base "$BASE_BRANCH" HEAD 2>/dev/null || true)
+# DELTA_BASE (#2535) is the last tree proved green, a commit scripts/ci-delta.py
+# names: the changed lines are then the change since it, which is all a
+# narrowed run's coverage.out was written for.
+if [ -n "${DELTA_BASE:-}" ] && git rev-parse --verify --quiet "${DELTA_BASE}^{commit}" >/dev/null; then
+    MERGE_BASE="$DELTA_BASE"
+    BASE_BRANCH="the last green tree"
+else
+    MERGE_BASE=$(git merge-base "$BASE_BRANCH" HEAD 2>/dev/null || true)
+fi
 if [ -z "$MERGE_BASE" ]; then
     echo "SKIP: Could not determine merge base with $BASE_BRANCH."
     exit 0

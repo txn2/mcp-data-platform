@@ -7,13 +7,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Interactive end-to-end tests for the admin observability dashboards.
 // Runs against the MSW mock server (rich deterministic data) so every tab,
 // time-range preset, and drilldown is exercised without a live backend.
-// Reuses an already-running `make frontend-mock` server on :5173.
-// The port the MSW dev server is served on. Overridable because
-// `reuseExistingServer` below cannot tell an MSW server from any other Vite on
-// the same port: `make dev` runs one without VITE_MSW, and the suite then binds
-// to the live backend and fails every case at sign-in. Set E2E_PORT to run the
-// suite beside a dev stack.
-const PORT = Number(process.env["E2E_PORT"] ?? 5173);
+// Reuses an MSW server already running on its port.
+// The port the MSW dev server is served on: 5273, a port `make dev` never
+// takes (#2523). `reuseExistingServer` below cannot tell an MSW server from
+// any other Vite on the same port, and `make dev` serves one without VITE_MSW
+// on 5173, so a suite defaulting there bound to the live backend and failed
+// every case at sign-in. TestPlaywrightDefaultsAvoidDevPorts (test/gates)
+// fails when this default equals a fixed port dev/start.sh takes. E2E_PORT
+// overrides it.
+const PORT = Number(process.env["E2E_PORT"] ?? 5273);
 
 export default defineConfig({
   testDir: __dirname,

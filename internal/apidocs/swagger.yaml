@@ -14939,6 +14939,18 @@ definitions:
         example: admin@example.com
         type: string
     type: object
+  standalonehttp.Refusal:
+    properties:
+      error:
+        description: Error is platform_data or build_failed.
+        example: platform_data
+        type: string
+      reasons:
+        description: Reasons are the sentences the portal shows.
+        items:
+          type: string
+        type: array
+    type: object
   statehttp.stateRequest:
     properties:
       state:
@@ -28588,6 +28600,63 @@ paths:
       summary: Asset sign-off summary
       tags:
       - Feedback
+  /portal/assets/{id}/standalone:
+    get:
+      description: 'Reads the asset through the route''s .../content sibling with
+        the caller''s own request, so the same access rules apply and that route''s
+        refusal status is returned, and answers one HTML file that opens from disk
+        with the network off: the platform''s served runtimes, the asset''s declared
+        images and fonts, and files it names on other hosts are inlined, and a JSX
+        asset is compiled and bundled with React, Recharts and lucide-react. A file
+        that could not be fetched is left as its URL and named in the X-Standalone-Notices
+        header (URL-escaped JSON). 409 when the asset reads the platform''s data while
+        it renders (a declared data file, an embedded form, the basemap archive),
+        with the reasons; the stored source is then read with ?source=stored on the
+        content route. 415 for any other content type; 422 for a JSX asset that does
+        not build.'
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/standalonehttp.Refusal'
+        "415":
+          description: Unsupported Media Type
+          schema:
+            type: string
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/standalonehttp.Refusal'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Download an HTML or JSX asset as a self-contained file
+      tags:
+      - Portal
   /portal/assets/{id}/tables:
     get:
       description: Returns the registrations built over one portal asset under a `table_registrations`

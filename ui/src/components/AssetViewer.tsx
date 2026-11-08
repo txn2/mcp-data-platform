@@ -24,6 +24,8 @@ import { IncompleteBadge } from "@/components/IncompleteBadge";
 import { isTruncated } from "@/lib/truncation";
 import { useAuthStore } from "@/stores/auth";
 import { usePortalAccess } from "@/hooks/usePortalAccess";
+import { useStandaloneDownload } from "@/components/StandaloneDownload";
+import { authHeaders } from "@/api/portal/client";
 
 export type { AssetViewerProps } from "./assetviewer/types";
 
@@ -135,24 +137,14 @@ export function AssetViewer({
     });
   }, [asset, copyMutation, onNavigate]);
 
-  const handleDownload = useCallback(async () => {
+  // An HTML or JSX asset downloads as one self-contained file (#2530);
+  // anything else as the content route serves it.
+  const standalone = useStandaloneDownload(authHeaders);
+  const startDownload = standalone.start;
+  const handleDownload = useCallback(() => {
     if (!asset) return;
-    try {
-      const res = await fetch(contentUrl, { credentials: "include" });
-      if (!res.ok) return;
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = asset.name;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch {
-      // best-effort download
-    }
-  }, [asset, contentUrl]);
+    void startDownload(contentUrl, asset.name, asset.content_type);
+  }, [asset, contentUrl, startDownload]);
 
   if (isLoading) {
     return <LoadingIndicator />;
@@ -234,6 +226,7 @@ export function AssetViewer({
 
   return (
     <>
+      {standalone.dialog}
       <ViewerLayout
         onBack={onBack}
         title={<AssetTitle asset={asset} />}

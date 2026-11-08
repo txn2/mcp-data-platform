@@ -9,8 +9,78 @@ on:
 permissions: read-all
 
 jobs:
+  # What a follow-up push to a pull request needs to check (#2535). A push
+  # after a green run is checked against the merge that run tested: Go tests
+  # for the packages the change affects and their importers, lint and gosec on
+  # the change, the frontend only when ui/ changed, and the criteria of the
+  # tickets it touches. A pull request's first run, a run with no green
+  # ancestor, every push to main, and a change to a file that decides how the
+  # gates run (scripts/ci-delta.py FULL_RUN_FILES) run everything. Lint, Test
+  # and Build always run, so the checks a merge requires are never skipped.
+  delta:
+    name: Delta
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      mode: ${{ steps.base.outputs.mode }}
+      old_head: ${{ steps.base.outputs.old_head }}
+      old_main: ${{ steps.base.outputs.old_main }}
+      ui: ${{ steps.scope.outputs.ui }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Find the last green run
+        id: base
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_ACTION: ${{ github.event.action }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: python3 scripts/ci-delta.py ci-base
+
+      - name: Read what the change touches
+        id: scope
+        # Through the environment, never interpolated into the script: the
+        # reason can carry text a pull request's author chose (a branch name).
+        env:
+          MODE: ${{ steps.base.outputs.mode }}
+          REASON: ${{ steps.base.outputs.reason }}
+          OLD_HEAD: ${{ steps.base.outputs.old_head }}
+          OLD_MAIN: ${{ steps.base.outputs.old_main }}
+        run: |
+          if [ "$MODE" = "delta" ]; then
+            DELTA_BASE=$(python3 scripts/ci-delta.py rebuild "$OLD_HEAD" "$OLD_MAIN")
+            export DELTA_BASE
+          fi
+          if python3 scripts/ci-delta.py ui; then echo "ui=true" >> "$GITHUB_OUTPUT"; else echo "ui=false" >> "$GITHUB_OUTPUT"; fi
+          python3 scripts/ci-delta.py summary "$MODE" "$REASON" >> "$GITHUB_STEP_SUMMARY"
+
+      # The two commits this run tests, which the next push reads to rebuild
+      # the merge (and the tree it must come back as, or that push runs in
+      # full).
+      - name: Record the tested commits
+        if: github.event_name == 'pull_request'
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/ci-delta.py record-tested > tested.json
+
+      - name: Upload the tested commits
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ci-tested
+          path: tested.json
+          retention-days: 30
+
   lint:
     name: Lint
+    needs: delta
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -28,6 +98,17 @@ jobs:
           go-version: '1.27.3'
           cache: true
 
+      # The base a follow-up push is checked against (#2535): the merge the
+      # last green run tested, rebuilt from its two parents. Every Makefile
+      # target and script that reads a diff reads DELTA_BASE in place of the
+      # merge base with main.
+      - name: Rebuild the delta base
+        if: needs.delta.outputs.mode == 'delta'
+        env:
+          OLD_HEAD: ${{ needs.delta.outputs.old_head }}
+          OLD_MAIN: ${{ needs.delta.outputs.old_main }}
+        run: echo "DELTA_BASE=$(python3 scripts/ci-delta.py rebuild "$OLD_HEAD" "$OLD_MAIN")" >> "$GITHUB_ENV"
+
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
@@ -38,13 +119,16 @@ jobs:
           # which hard-fails on diffs over 20000 lines (large refactors) and then
           # falls back to a full-repo scan that surfaces pre-existing issues. The
           # git-based diff has no size cap and matches `make verify` locally.
-          # Base: the PR target tip on pull_request, the pre-push tip on push.
+          # Base: the last green tree on a delta run (#2535), the PR target tip
+          # on pull_request, the pre-push tip on push.
           # The timeout is .golangci.yml's (10m), as it is locally: a toolchain bump
           # invalidates the analysis cache and a cold run took 340s on #2064.
-          args: --new-from-rev=${{ github.event.pull_request.base.sha || github.event.before }}
+          args: --new-from-rev=${{ env.DELTA_BASE || github.event.pull_request.base.sha || github.event.before }}
 
   test:
     name: Test
+    needs: delta
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -92,10 +176,37 @@ jobs:
           go-version: '1.27.3'
           cache: true
 
+      # The base a follow-up push is checked against (#2535): the merge the
+      # last green run tested, rebuilt from its two parents. Every Makefile
+      # target and script that reads a diff reads DELTA_BASE in place of the
+      # merge base with main.
+      - name: Rebuild the delta base
+        if: needs.delta.outputs.mode == 'delta'
+        env:
+          OLD_HEAD: ${{ needs.delta.outputs.old_head }}
+          OLD_MAIN: ${{ needs.delta.outputs.old_main }}
+        run: echo "DELTA_BASE=$(python3 scripts/ci-delta.py rebuild "$OLD_HEAD" "$OLD_MAIN")" >> "$GITHUB_ENV"
+      - name: Read whether the change touches a migration
+        if: needs.delta.outputs.mode == 'delta'
+        run: |
+          if python3 scripts/ci-delta.py files | grep -q '^pkg/database/migrate/'; then
+            echo "DELTA_MIGRATIONS=yes" >> "$GITHUB_ENV"
+          fi
+
+      # Every package on a full run; on a delta run the packages the change
+      # affects and every package importing one (#2535).
       - name: Run tests with coverage
         env:
           MIGRATE_TEST_DSN: postgres://migrate:migrate@localhost:5432/migrate_check?sslmode=disable
-        run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+        run: |
+          pkgs=$(python3 scripts/ci-delta.py packages)
+          if [ -z "$pkgs" ]; then
+            echo "The change since the last green run affects no Go package."
+            echo "mode: atomic" > coverage.out
+            exit 0
+          fi
+          # shellcheck disable=SC2086 # one word per package
+          go test -v -race -coverprofile=coverage.out -covermode=atomic $pkgs
 
       # The integration-tagged test/e2e tests that need none of the e2e
       # services, the same target `make verify` runs (#2342). Only the E2E
@@ -133,6 +244,7 @@ jobs:
       # reported exactly that as green and it reached a release (000102, fixed
       # by 000111). One major is not a gate.
       - name: Run migration gate against PostgreSQL 17
+        if: needs.delta.outputs.mode != 'delta' || contains(env.DELTA_MIGRATIONS, 'yes')
         env:
           MIGRATE_TEST_DSN: postgres://migrate:migrate@localhost:5433/migrate_check?sslmode=disable
         run: go test -count=1 -run TestMigrationsAgainstRealPostgres ./pkg/database/migrate/
@@ -143,6 +255,7 @@ jobs:
       # Threshold must equal COVERAGE_MIN in the Makefile and the Codecov
       # project target; TestGateFiguresAgree (test/structure/pins_test.go) enforces that.
       - name: Check coverage threshold
+        if: needs.delta.outputs.mode != 'delta'
         run: |
           COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print substr($3, 1, length($3)-1)}')
           echo "Total coverage: ${COVERAGE}%"
@@ -151,7 +264,15 @@ jobs:
             exit 1
           fi
 
+      # A delta run tests part of the module, so its total is not the
+      # module's: the threshold and the upload are a full run's, and the
+      # change itself is held to the patch threshold here (#2535).
+      - name: Check patch coverage of the change
+        if: needs.delta.outputs.mode == 'delta'
+        run: make patch-coverage-check
+
       - name: Upload coverage to Codecov
+        if: needs.delta.outputs.mode != 'delta'
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           files: ./coverage.out
@@ -162,6 +283,8 @@ jobs:
 
   build:
     name: Build
+    needs: delta
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -183,6 +306,8 @@ jobs:
 
   frontend:
     name: Frontend Build
+    needs: delta
+    if: ${{ !cancelled() && (needs.delta.outputs.mode != 'delta' || needs.delta.outputs.ui == 'true') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -225,6 +350,8 @@ jobs:
 
   frontend-e2e:
     name: Frontend E2E
+    needs: delta
+    if: ${{ !cancelled() && (needs.delta.outputs.mode != 'delta' || needs.delta.outputs.ui == 'true') }}
     runs-on: ubuntu-latest
     # The suite takes about ten minutes. A step that hangs (a browser install
     # that never finishes unpacking, #1976) fails here instead of holding the
@@ -257,6 +384,8 @@ jobs:
 
   security:
     name: Security Scan
+    needs: delta
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -270,10 +399,30 @@ jobs:
           go-version: '1.27.3'
           cache: true
 
+      # The base a follow-up push is checked against (#2535): the merge the
+      # last green run tested, rebuilt from its two parents. Every Makefile
+      # target and script that reads a diff reads DELTA_BASE in place of the
+      # merge base with main.
+      - name: Rebuild the delta base
+        if: needs.delta.outputs.mode == 'delta'
+        env:
+          OLD_HEAD: ${{ needs.delta.outputs.old_head }}
+          OLD_MAIN: ${{ needs.delta.outputs.old_main }}
+        run: echo "DELTA_BASE=$(python3 scripts/ci-delta.py rebuild "$OLD_HEAD" "$OLD_MAIN")" >> "$GITHUB_ENV"
+
+      # Every package on a full run; on a delta run the packages with a
+      # production Go file the change touches, as make verify's security-diff.
       - name: Run Gosec Security Scanner
         run: |
           go install github.com/securego/gosec/v2/cmd/gosec@v2.29.1-0.20261015133444-707f2271f665
-          gosec ./...
+          if [ -n "${DELTA_BASE:-}" ]; then
+            pkgs=$(python3 scripts/verify-diff.py gosec-packages)
+            if [ -z "$pkgs" ]; then echo "The change touches no production Go file."; exit 0; fi
+            # shellcheck disable=SC2086 # one word per package
+            gosec $pkgs
+          else
+            gosec ./...
+          fi
 
       # The action has no way to accept a finding and exits non-zero whenever
       # our code calls a vulnerable symbol, fix or no fix. These are the same
@@ -313,7 +462,8 @@ jobs:
   # group. scripts/acceptance-pr-paths.py names the paths.
   stack-changes:
     name: Stack changes
-    if: github.event_name == 'pull_request'
+    needs: delta
+    if: ${{ !cancelled() && github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -326,15 +476,29 @@ jobs:
         with:
           fetch-depth: 0
 
+      # The base a follow-up push is checked against (#2535): the merge the
+      # last green run tested, rebuilt from its two parents. Every Makefile
+      # target and script that reads a diff reads DELTA_BASE in place of the
+      # merge base with main.
+      - name: Rebuild the delta base
+        if: needs.delta.outputs.mode == 'delta'
+        env:
+          OLD_HEAD: ${{ needs.delta.outputs.old_head }}
+          OLD_MAIN: ${{ needs.delta.outputs.old_main }}
+        run: echo "DELTA_BASE=$(python3 scripts/ci-delta.py rebuild "$OLD_HEAD" "$OLD_MAIN")" >> "$GITHUB_ENV"
+
+      # The paths since the PR base, or on a delta run since the last green
+      # tree, so a follow-up push runs the criteria of the tickets it touches.
       - name: Read the changed paths
         id: paths
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          changed=$(git diff --name-only "$BASE_SHA"...HEAD | python3 scripts/acceptance-pr-paths.py)
+          if [ -n "${DELTA_BASE:-}" ]; then range="$DELTA_BASE"; else range="$PR_BASE_SHA...HEAD"; fi
+          changed=$(git diff --name-only "$range" | python3 scripts/acceptance-pr-paths.py)
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
           echo "The diff changes the dev stack or the suite's harness: $changed"
-          tickets=$(git diff --name-only "$BASE_SHA"...HEAD | python3 scripts/acceptance-pr-paths.py --tickets)
+          tickets=$(git diff --name-only "$range" | python3 scripts/acceptance-pr-paths.py --tickets)
           echo "tickets=$tickets" >> "$GITHUB_OUTPUT"
           echo "The diff changes the criteria of tickets: ${tickets:-none}"
 

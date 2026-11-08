@@ -337,9 +337,13 @@ var actionTools = map[string]actionRule{
 	), split: map[string]actionRule{
 		"state": {arg: "state_action", reads: set("", "get"), writes: set("set", "clear")},
 	}},
-	// s3_object: presign mints a URL against the object store and stores
-	// nothing.
-	"s3_object": {arg: "action", reads: set("get", "metadata", "presign"), writes: set("put", "copy", "delete")},
+	// s3_object: a GET presign mints a download URL and stores nothing. A PUT
+	// presign mints an upload URL, a bearer credential that writes the key
+	// until it expires, so it is a write (#2533); an absent method is GET, as
+	// the handler reads it.
+	"s3_object": {arg: "action", reads: set("get", "metadata"), writes: set("put", "copy", "delete"), split: map[string]actionRule{
+		"presign": {arg: "method", reads: set("", "GET", "get"), writes: set("PUT", "put")},
+	}},
 	// notify: list reads. send and publish leave a message in somebody else's
 	// chat client or inbox, which nothing can take back -- the most literal
 	// write on this list, whatever it does to the platform's own tables.

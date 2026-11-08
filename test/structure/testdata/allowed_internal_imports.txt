@@ -357,6 +357,7 @@ internal/httpserver -> internal/httpserver/changesethttp
 internal/httpserver -> internal/httpserver/corshttp
 internal/httpserver -> internal/httpserver/embedwire
 internal/httpserver -> internal/httpserver/endpointwire
+internal/httpserver -> internal/httpserver/exportwire
 internal/httpserver -> internal/httpserver/feedbackwire
 internal/httpserver -> internal/httpserver/formpublishwire
 internal/httpserver -> internal/httpserver/formwire
@@ -367,7 +368,6 @@ internal/httpserver -> internal/httpserver/instanceheader
 internal/httpserver -> internal/httpserver/mapwire
 internal/httpserver -> internal/httpserver/mentionhttp
 internal/httpserver -> internal/httpserver/notifywire
-internal/httpserver -> internal/httpserver/pdfhttp
 internal/httpserver -> internal/httpserver/personashare
 internal/httpserver -> internal/httpserver/resourcelevel
 internal/httpserver -> internal/httpserver/resourcesharewire
@@ -589,6 +589,9 @@ internal/httpserver/endpointwire -> internal/httpserver/savegatewire
 internal/httpserver/endpointwire -> internal/platform/scriptstore
 internal/httpserver/endpointwire -> pkg/platform
 internal/httpserver/endpointwire -> pkg/portal
+internal/httpserver/exportwire -> internal/httpserver/pdfhttp
+internal/httpserver/exportwire -> internal/httpserver/standalonehttp
+internal/httpserver/exportwire -> pkg/platform
 internal/httpserver/feedbackwire -> internal/portal/access
 internal/httpserver/feedbackwire -> internal/portal/threadreach
 internal/httpserver/feedbackwire -> pkg/middleware
@@ -800,6 +803,18 @@ internal/httpserver/scripthttp/submissionshttp -> internal/logsan
 internal/httpserver/scripthttp/transferwords -> internal/producedview
 internal/httpserver/sources -> pkg/catalog
 internal/httpserver/sources -> pkg/toolkits/gateway/enrichment
+internal/httpserver/standalonehttp -> internal/egressguard
+internal/httpserver/standalonehttp -> internal/httpobs
+internal/httpserver/standalonehttp -> internal/httpserver/corshttp
+internal/httpserver/standalonehttp -> internal/httpserver/pdfhttp
+internal/httpserver/standalonehttp -> internal/logsan
+internal/httpserver/standalonehttp -> internal/outbound
+internal/httpserver/standalonehttp -> internal/portal/assetrefs
+internal/httpserver/standalonehttp -> internal/standalone
+internal/httpserver/standalonehttp -> internal/wirejson
+internal/httpserver/standalonehttp -> pkg/blobserve
+internal/httpserver/standalonehttp -> pkg/platform
+internal/httpserver/standalonehttp -> pkg/ratelimit
 internal/httpserver/storagewire -> internal/admin/storageapi
 internal/httpserver/storagewire -> internal/logsan
 internal/httpserver/storagewire -> internal/outbound

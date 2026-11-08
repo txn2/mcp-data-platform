@@ -23,6 +23,9 @@ func recipe(t *testing.T, makefile, target string) []string {
 			if !strings.HasPrefix(strings.TrimSpace(line), "@#") {
 				lines = append(lines, strings.TrimSpace(line))
 			}
+		case in && makeConditional(line):
+			// A conditional inside a recipe (a delta run's skip, #2535)
+			// belongs to it; both branches are read.
 		case in:
 			return lines
 		}
@@ -286,7 +289,7 @@ func prerequisites(makefile, target string) []string {
 }
 
 // TestVerifyReleaseRunsInOneInvocation pins #1969 and #2218: verify-release
-// runs verify, whose frontend-e2e wants port 5173 and moves beside a dev
+// runs verify, whose frontend-e2e defaults to 5273 (#2523) and moves beside a
 // server it finds there instead of refusing, and requires the release's own
 // tickets' recorded acceptance runs. It never runs the whole suite, which runs
 // for well over an hour: that is the E2E Nightly's, through acceptance-release,
@@ -311,7 +314,7 @@ func TestVerifyReleaseRunsInOneInvocation(t *testing.T) {
 	}
 	e2e := strings.Join(recipe(t, makefile, "frontend-e2e"), "\n")
 	if !strings.Contains(e2e, "E2E_PORT=$$port npm run test:e2e") || !strings.Contains(e2e, "next=5199") {
-		t.Error("frontend-e2e no longer runs on a free port beside a dev server it finds on :5173")
+		t.Error("frontend-e2e no longer runs on a free port beside a server it finds on its port")
 	}
 }
 
@@ -438,4 +441,15 @@ func TestRealDBLaneReportsItsConnections(t *testing.T) {
 	if !strings.Contains(makefile, "REALDB_MAX_CONNECTIONS ?= ") {
 		t.Error("REALDB_MAX_CONNECTIONS is not set")
 	}
+}
+
+// makeConditional reports whether a Makefile line is a conditional directive,
+// which may sit inside a recipe without a leading tab.
+func makeConditional(line string) bool {
+	word, _, _ := strings.Cut(strings.TrimSpace(line), " ")
+	switch word {
+	case "ifeq", "ifneq", "ifdef", "ifndef", "else", "endif":
+		return true
+	}
+	return false
 }

@@ -360,7 +360,7 @@ of read and write.
 
 ## S3 Tools
 
-Two tools (#1591): `s3_list` lists buckets or one bucket's objects, `s3_object` performs one action over a `(bucket, key)`. Both are registered on every connection; `put`, `copy` and `delete` on a connection configured `read_only: true` are refused with an error naming the connection.
+Two tools (#1591): `s3_list` lists buckets or one bucket's objects, `s3_object` performs one action over a `(bucket, key)`. Both are registered on every connection; `put`, `copy`, `delete` and `presign` with `method: PUT` on a connection configured `read_only: true` are refused with an error naming the connection.
 
 ### s3_list
 
@@ -523,6 +523,12 @@ Note: `put` is limited by `max_put_size`.
 
 ```
 Error: connection "archive" is read-only: s3_object action "delete" is not permitted on it
+```
+
+A `presign` with `method: PUT` is refused there too, because the URL it returns uploads to the key until it expires; a `GET` presign is still issued:
+
+```
+Error: connection "archive" is read-only: s3_object action "presign" with method PUT is not permitted on it; presign with method GET is
 ```
 
 ---

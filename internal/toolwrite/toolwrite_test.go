@@ -78,7 +78,12 @@ func TestClassify_ActionTools(t *testing.T) {
 		{"script state non-string action is a get", "manage_script", map[string]any{"command": "state", "state_action": 7}, false, "manage_script command=state"},
 		{"state_action outside state is ignored", "manage_script", map[string]any{"command": "create", "state_action": "get"}, true, "manage_script command=create"},
 		{"object get reads", "s3_object", map[string]any{"action": "get"}, false, "s3_object action=get"},
-		{"object presign reads", "s3_object", map[string]any{"action": "presign"}, false, "s3_object action=presign"},
+		{"object presign with no method reads", "s3_object", map[string]any{"action": "presign"}, false, "s3_object action=presign"},
+		{"object presign GET reads", "s3_object", map[string]any{"action": "presign", "method": "GET"}, false, "s3_object action=presign method=GET"},
+		{"object presign get reads", "s3_object", map[string]any{"action": "presign", "method": "get"}, false, "s3_object action=presign method=get"},
+		{"object presign PUT writes", "s3_object", map[string]any{"action": "presign", "method": "PUT"}, true, "s3_object action=presign method=PUT"},
+		{"object presign put writes", "s3_object", map[string]any{"action": "presign", "method": "put"}, true, "s3_object action=presign method=put"},
+		{"object presign unknown method writes", "s3_object", map[string]any{"action": "presign", "method": "POST"}, true, "s3_object action=presign method=POST"},
 		{"object put writes", "s3_object", map[string]any{"action": "put"}, true, "s3_object action=put"},
 	}
 	for _, tc := range cases {

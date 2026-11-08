@@ -53,6 +53,15 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/**
+ * The headers a raw read of the portal's own routes carries: the API key, for
+ * a reader signed in with one. A cookie session needs none.
+ */
+export function authHeaders(): Record<string, string> {
+  const { apiKey, authMethod } = useAuthStore.getState();
+  return authMethod === "apikey" && apiKey ? { "X-API-Key": apiKey } : {};
+}
+
 async function apiFetchRaw(path: string, init?: RequestInit): Promise<Response> {
   const { apiKey, authMethod } = useAuthStore.getState();
   const headers: Record<string, string> = {

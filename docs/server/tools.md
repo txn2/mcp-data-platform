@@ -268,7 +268,7 @@ aliased. What each kind of read and write is now:
 
 ## S3 Tools
 
-Two tools cover object storage (#1591): `s3_list` is a listing, of buckets or of one bucket's objects, and `s3_object` is one action over a `(bucket, key)`. Both are registered on every S3 connection. Whether a connection accepts writes is its `read_only` setting: `put`, `copy` and `delete` on a read-only connection are refused with an error that names the connection, while `get`, `metadata` and `presign` still work.
+Two tools cover object storage (#1591): `s3_list` is a listing, of buckets or of one bucket's objects, and `s3_object` is one action over a `(bucket, key)`. Both are registered on every S3 connection. Whether a connection accepts writes is its `read_only` setting: `put`, `copy`, `delete` and an upload link (`presign` with `method: PUT`) on a read-only connection are refused with an error that names the connection, while `get`, `metadata` and a download link (`presign` with `method: GET`) still work. `read_only` is enforced by the toolkit only; for defence in depth, give a read-only connection upstream credentials that can only read and list, so no path writes even if a handler missed the check.
 
 ### s3_list
 

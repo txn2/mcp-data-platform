@@ -1003,7 +1003,7 @@ toolkits:
 | `use_path_style` | bool | `false` | Use path-style S3 URLs |
 | `timeout` | duration | see below | Bounds a whole S3 call: the request and the read of the response body. It applies to the `s3_*` tools and, when this instance is named by `portal.s3_connection` or `resources.managed.s3_connection`, to the platform's own reads of assets and managed resources. Setting it is the operator's final word. |
 | `disable_ssl` | bool | `false` | Disable SSL (for local testing) |
-| `read_only` | bool | `false` | Refuse the writing actions of `s3_object` (`put`, `copy`, `delete`) on this connection; the refusal names the connection. Per connection, so a read-only connection added at run time is bound by its own flag. |
+| `read_only` | bool | `false` | Refuse the writing actions of `s3_object` (`put`, `copy`, `delete`, and `presign` with `method: PUT`) on this connection; the refusal names the connection. Per connection, so a read-only connection added at run time is bound by its own flag. The toolkit is the only enforcement: give a read-only connection credentials that can only read and list. |
 | `max_get_size` | int64 | `10485760` | Max bytes to read from objects |
 | `max_put_size` | int64 | `104857600` | Max bytes to write to objects |
 | `connection_name` | string | instance name | The name a call binds this connection by: what an audit row records, what a persona's `connections.allow` / `connections.deny` rules match, and what the semantic layer resolves its platform and catalog mapping through. See [Connection Names](multi-provider.md#connection-names) |

@@ -3,10 +3,10 @@
 # against the dev stack, starting one when none answers (#1969).
 #
 # verify-release runs `verify` and then the acceptance suite. verify's
-# frontend-e2e wants port 5173 for its MSW server and the acceptance suite
-# wants a running `make dev`, so with the stack up the first refused and with
-# it down the second failed. frontend-e2e now runs beside a stack; this covers
-# the other half.
+# frontend-e2e once wanted port 5173 for its MSW server and the acceptance
+# suite wants a running `make dev`, so with the stack up the first refused and
+# with it down the second failed. frontend-e2e now defaults to 5273, a port
+# `make dev` never takes (#2523); this covers the other half.
 #
 # The live-stack Playwright suite (frontend-e2e-public-viewer) runs after it
 # against the same stack. It is the one browser suite served by the Go binary

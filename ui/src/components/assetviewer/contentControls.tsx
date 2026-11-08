@@ -1,4 +1,6 @@
-import { AlertTriangle, Code, Download, Eye, FileWarning, RefreshCw, RotateCcw, Save } from "lucide-react";
+import { DownloadButton } from "@/components/StandaloneDownload";
+import { authHeaders } from "@/api/portal/client";
+import { AlertTriangle, Code, Eye, FileWarning, RefreshCw, RotateCcw, Save } from "lucide-react";
 import type { Asset, AssetVersion } from "@/api/portal/types";
 import { EmptyState } from "@/components/patterns/EmptyState";
 import { SegmentedControl } from "@/components/patterns/SegmentedControl";
@@ -194,14 +196,7 @@ export function TooLarge({
     <EmptyState
       icon={FileWarning}
       className="py-20"
-      action={
-        <Button asChild>
-          <a href={contentUrl} download={asset.name}>
-            <Download />
-            Download
-          </a>
-        </Button>
-      }
+      action={<DownloadButton contentUrl={contentUrl} name={asset.name} contentType={asset.content_type} authHeaders={authHeaders} />}
     >
       <p className="text-lg font-medium text-foreground">Too large to preview</p>
       <p className="mt-1">
@@ -223,7 +218,7 @@ export function ContentLoadError({
   contentUrl,
   onRetry,
 }: {
-  asset: Pick<Asset, "name">;
+  asset: Pick<Asset, "name"> & Partial<Pick<Asset, "content_type">>;
   error: unknown;
   contentUrl: string;
   onRetry?: () => void;
@@ -240,12 +235,7 @@ export function ContentLoadError({
               Retry
             </Button>
           )}
-          <Button asChild>
-            <a href={contentUrl} download={asset.name}>
-              <Download />
-              Download
-            </a>
-          </Button>
+          <DownloadButton contentUrl={contentUrl} name={asset.name} contentType={asset.content_type ?? ""} authHeaders={authHeaders} />
         </div>
       }
     >

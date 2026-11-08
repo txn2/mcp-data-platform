@@ -1,13 +1,13 @@
 import { useState, useEffect } from "react";
-import { Download, FileWarning } from "lucide-react";
+import { FileWarning } from "lucide-react";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { apiFetchRaw, BASE_URL } from "@/api/portal/client";
+import { DownloadButton } from "@/components/StandaloneDownload";
+import { apiFetchRaw, authHeaders, BASE_URL } from "@/api/portal/client";
 import { ContentLoadError } from "@/components/assetviewer/contentControls";
 import { ContentRenderer } from "@/components/renderers/ContentRenderer";
 import { contentLoad, readsByRange } from "@/components/renderers/registry";
@@ -101,11 +101,11 @@ function PreviewBody({ assetId, assetName, contentType, sizeBytes = 0 }: Omit<Pr
   const waiting = load === "url" ? media.loading : text.content === null;
 
   if (load === "too-large") {
-    return <PreviewTooLarge name={assetName} sizeBytes={sizeBytes} contentUrl={contentUrl} />;
+    return <PreviewTooLarge name={assetName} contentType={contentType} sizeBytes={sizeBytes} contentUrl={contentUrl} />;
   }
   if (failure.error) {
     return (
-      <ContentLoadError asset={{ name: assetName }} error={failure.error} contentUrl={contentUrl} onRetry={failure.retry} />
+      <ContentLoadError asset={{ name: assetName, content_type: contentType }} error={failure.error} contentUrl={contentUrl} onRetry={failure.retry} />
     );
   }
   if (waiting) {
@@ -128,17 +128,12 @@ function PreviewBody({ assetId, assetName, contentType, sizeBytes = 0 }: Omit<Pr
   );
 }
 
-function PreviewTooLarge({ name, sizeBytes, contentUrl }: { name: string; sizeBytes: number; contentUrl: string }) {
+function PreviewTooLarge({ name, contentType, sizeBytes, contentUrl }: { name: string; contentType: string; sizeBytes: number; contentUrl: string }) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
       <FileWarning className="h-10 w-10 text-muted-foreground" />
       <p className="text-sm text-muted-foreground">Too large to preview ({formatBytes(sizeBytes)})</p>
-      <Button asChild size="sm">
-        <a href={contentUrl} download={name}>
-          <Download />
-          Download
-        </a>
-      </Button>
+      <DownloadButton contentUrl={contentUrl} name={name} contentType={contentType} size="sm" authHeaders={authHeaders} />
     </div>
   );
 }
