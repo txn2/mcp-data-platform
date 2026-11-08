@@ -277,7 +277,8 @@ by `http_rate_limited_total{limiter}`: `oauth_token` and `oauth_register`
 (the OAuth server's `/token` and `/register`), `portal_viewer`,
 `portal_content` and `portal_refs` (the public share viewer, its content
 route and asset references), `observability_proxy` (the PromQL proxy's
-per-persona limit), `pdf_export` (the public PDF routes), `webhook` (a
+per-persona limit), `pdf_export` (the public PDF routes), `standalone_export`
+(the public standalone download routes, #2530), `webhook` (a
 source's rate limit, also in `webhook_requests_total{outcome="rate_limited"}`)
 and `endpoint` (an endpoint's limit or its caller's, #2174).
 
@@ -551,7 +552,7 @@ W3C `traceparent` to the upstream, and records the request under
 `http_client_requests_total{kind, connection, status_class}` and its
 duration histogram. `kind` is the closed set above (`api`, `graphql`, `mcp`,
 `util`, `oauth`, `oidc`, `embedding`, `notification`, `spec_fetch`,
-`promql`, `renderer`, `branding`, `maps`, `storage`, `import`, `bot_check`); `connection` is the operator's
+`promql`, `renderer`, `branding`, `maps`, `storage`, `import`, `bot_check`, `standalone`); `connection` is the operator's
 connection name, empty for a kind that has none; a transport failure (DNS,
 dial, TLS, timeout) is `status_class="other"`. The span's `url.full`, and
 the URL a transport failure's error names, carry no credential (#2358): no

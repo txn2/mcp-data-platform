@@ -8,14 +8,14 @@ writing-managed-scripts.md internal/platform/scriptrun/ internal/platform/script
 managed-script-dialect.md internal/platform/scriptcontract/ internal/platform/scriptdialect/
 reference-script.md internal/platform/scriptexamples/ internal/platform/scripttest/ internal/platform/scriptrec/ internal/platform/scriptbehavior/
 script-outputs-and-export-identity.md internal/platform/scriptout/ internal/scriptdest/ internal/platform/exportlibrary/ internal/platform/tooloutput/
-semi-dynamic-dashboards.md internal/platform/scriptrun/host.go internal/platform/scriptout/
+semi-dynamic-dashboards.md internal/platform/scriptrun/host.go internal/platform/scriptout/ internal/standalone/ internal/httpserver/standalonehttp/
 asset-references-and-the-refresh-loop.md internal/portal/assetrefs/ internal/portal/assetrefstore/ internal/portal/contentrefs/
 provenance-and-the-capture-loop.md internal/platform/callrecord/ pkg/toolkits/knowledge/ pkg/toolkits/memory/
 documents-that-fit-any-screen.md ui/src/components/renderers/HtmlRenderer.tsx internal/portal/publicviewer/
-presentations.md ui/vite.config.ts ui/src/components/renderers/HtmlRenderer.tsx internal/portal/publicviewer/
+presentations.md ui/vite.config.ts ui/src/components/renderers/HtmlRenderer.tsx internal/portal/publicviewer/ internal/standalone/ internal/httpserver/standalonehttp/
 maps.md internal/maps/ internal/httpserver/maphttp/ internal/pmtiles/
 content-types-for-stored-files.md pkg/contenttype/ pkg/toolkits/portal/ internal/platform/tableregister/ internal/sourcecheck/
-visual-libraries.md internal/portal/publicviewer/ ui/src/components/renderers/JsxRenderer.tsx ui/src/components/renderers/assetFrame.ts internal/portal/embedhosts/ ui/src/lib/videoCards.ts
+visual-libraries.md internal/portal/publicviewer/ ui/src/components/renderers/JsxRenderer.tsx ui/src/components/renderers/assetFrame.ts internal/portal/embedhosts/ ui/src/lib/videoCards.ts internal/standalone/ internal/httpserver/standalonehttp/
 application-databases.md internal/platform/scripttx/ pkg/toolkits/postgres/ internal/platform/scriptsession/appdb.go
 postgres-write-patterns.md internal/platform/scripttx/ internal/platform/scriptsql/
 postgres-integrity.md pkg/toolkits/postgres/values.go pkg/toolkits/postgres/lintsecurity.go

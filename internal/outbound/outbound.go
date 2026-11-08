@@ -57,6 +57,7 @@ const (
 	KindStorage      Kind = "storage"      // the object store asked which server it is (internal/platform/capacity)
 	KindImport       Kind = "import"       // the DataHub a catalog import reads (internal/platform/catalogimport)
 	KindBotCheck     Kind = "bot_check"    // a bot check provider's token verification (internal/botcheck)
+	KindStandalone   Kind = "standalone"   // a file an asset names on another host, fetched for its standalone download (internal/standalone)
 )
 
 // The span attribute keys a client span carries beside the HTTP semantic

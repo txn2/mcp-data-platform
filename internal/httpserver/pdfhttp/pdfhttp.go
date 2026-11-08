@@ -175,12 +175,14 @@ func MountFor(mux *http.ServeMux, p *platform.Platform) {
 	// cross-origin and is refused without it.
 	New(Deps{
 		Routes: corshttp.Middleware(mux), Printer: renderer, Limiter: limiter,
-		Exports: exportsFor(p),
+		Exports: ExportsFor(p),
 	}).Mount(mux)
 }
 
-// exportsFor is Deps.Exports for the platform.
-func exportsFor(p *platform.Platform) func(r *http.Request) bool {
+// ExportsFor is Deps.Exports for the platform: whether the signed-in caller's
+// persona includes downloading from the portal. The standalone download
+// routes are held to it too (#2530).
+func ExportsFor(p *platform.Platform) func(r *http.Request) bool {
 	var opts []portal.AuthenticatorOption
 	if p.BrowserSessionAuth() != nil {
 		opts = append(opts, portal.WithBrowserAuth(p.BrowserSessionAuth()))

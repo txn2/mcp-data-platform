@@ -37,6 +37,7 @@ const (
 	LimiterPortalRefs         = "portal_refs"
 	LimiterObservabilityProxy = "observability_proxy"
 	LimiterPDFExport          = "pdf_export"
+	LimiterStandaloneExport   = "standalone_export"
 	LimiterWebhook            = "webhook"
 	LimiterEndpoint           = "endpoint"
 	LimiterUnknown            = "unknown"

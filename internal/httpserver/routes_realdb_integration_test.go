@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/httpserver/pdfhttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/standalonehttp"
 	"github.com/txn2/mcp-data-platform/internal/routescan"
 	"github.com/txn2/mcp-data-platform/internal/testdb"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -182,6 +183,12 @@ func scannedRoutes(t *testing.T) []string {
 		out = append(out, rt.Pattern)
 	}
 	for _, rt := range pdfhttp.Routes {
+		if !seen[rt.Pattern] {
+			seen[rt.Pattern] = true
+			out = append(out, rt.Pattern)
+		}
+	}
+	for _, rt := range standalonehttp.Routes {
 		if !seen[rt.Pattern] {
 			seen[rt.Pattern] = true
 			out = append(out, rt.Pattern)

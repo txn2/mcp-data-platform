@@ -570,6 +570,13 @@ export default function Flow() {
 Graphviz and dotLottie are built on WebAssembly, which a JSX asset's frame does
 not compile; use them in an HTML asset.
 
+A JSX asset downloads as one HTML file that runs offline: the component is
+compiled, and the four libraries it resolves and any library it imports from
+`https://esm.sh/` are bundled into the file with it, along with its declared
+images and fonts. A JSX asset that fetches a declared data file or embeds a
+form is not made into a file; the reader is offered its source as stored
+(mcp:knowledge_page:platform-presentations says what the download carries).
+
 ## Video in a document or a deck
 
 A clip plays inside an HTML asset or a slide when its host is on the

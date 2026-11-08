@@ -30,13 +30,13 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/catalogwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/corshttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/endpointwire"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/exportwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/formwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/health"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/httpauth"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/instanceheader"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/mapwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
-	"github.com/txn2/mcp-data-platform/internal/httpserver/pdfhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/storagewire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/thumbwire"
 	"github.com/txn2/mcp-data-platform/internal/platform/listenbridge"
@@ -293,8 +293,8 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	rootHandler := buildRootHandler(ctx, mcpServer, p, hcfg)
 	mountRootHandler(mux, rootHandler, hcfg, rmURL)
 
-	// The PDF routes and the tile worker read the complete mux, through the CORS layer a browser's reads pass; the worker stops after the drain.
-	pdfhttp.MountFor(mux, p)
+	// The export routes (PDF, #1983; standalone download, #2530) and the tile worker read the complete mux, through the CORS layer a browser's reads pass; the worker stops after the drain.
+	exportwire.MountFor(mux, p)
 	thumbs := thumbwire.Build(p, corshttp.Middleware(mux))
 	// The platform-admin connection serves a managed script's call with the same complete mux, as the script's own identity (#2086).
 	if p != nil {

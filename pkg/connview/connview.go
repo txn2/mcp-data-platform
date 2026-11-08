@@ -50,7 +50,7 @@ var dataKinds = map[string]bool{"trino": true, "s3": true}
 const ToolDescription = "List all configured data connections across toolkits (Trino, S3, API, GraphQL, MCP). " +
 	"Each connection includes a count and a bounded sample of the canonical knowledge pages that document it. " +
 	"Where the kind has the notion, a connection also reports read_only: true means write-class calls are refused " +
-	"on it, so plan the write path BEFORE staging data rather than meeting the refusal partway through. " +
+	"on it, an S3 upload link (s3_object presign with method PUT) among them, so plan the write path BEFORE staging data rather than meeting the refusal partway through. " +
 	"read_only: false is not scoped to whatever catalog, schema or bucket the connection declares: those are the " +
 	"defaults a call uses when it names none, not a boundary, and a fully qualified statement reaches wherever " +
 	"the connection's upstream identity may reach."

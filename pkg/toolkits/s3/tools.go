@@ -42,7 +42,8 @@ const (
 		"copy (copy the object to dest_key in dest_bucket, defaulting to the same bucket), " +
 		"delete (remove the object), " +
 		"presign (get a download link or an upload link: a presigned URL for method GET or PUT that expires after expires_in seconds, default 3600, maximum 604800). " +
-		"put, copy and delete are refused on a read-only connection, and the refusal names the connection."
+		"put, copy, delete and presign with method PUT are refused on a read-only connection, and the refusal names the connection; " +
+		"presign with method GET is allowed on one."
 
 	// The s3_object actions.
 	actionGet      = "get"
@@ -115,7 +116,7 @@ type objectInput struct {
 	Metadata    map[string]string `json:"metadata,omitempty" jsonschema:"put or copy: custom metadata to attach; on copy it replaces the source's"`
 	DestBucket  string            `json:"dest_bucket,omitempty" jsonschema:"copy: destination bucket (default: the same bucket)"`
 	DestKey     string            `json:"dest_key,omitempty" jsonschema:"copy: destination key"`
-	Method      string            `json:"method,omitempty" jsonschema:"presign: GET for a download link (default) or PUT for an upload link"`
+	Method      string            `json:"method,omitempty" jsonschema:"presign: GET for a download link (default) or PUT for an upload link; PUT is refused on a read-only connection"`
 	ExpiresIn   int               `json:"expires_in,omitempty" jsonschema:"presign: seconds until the URL expires (default 3600, maximum 604800)"`
 }
 
@@ -228,7 +229,7 @@ func (t *Toolkit) admitObject(in objectInput) (s3tools.S3Client, connSettings, *
 		return nil, connSettings{}, s3tools.ErrorResult(err.Error())
 	}
 	settings := t.settings(in.Connection)
-	if isWriteAction(in.Action) && settings.readOnly {
+	if settings.readOnly && writes(in) {
 		return nil, connSettings{}, t.refuseWrite(in)
 	}
 	return client, settings, nil
@@ -264,11 +265,27 @@ func objectInputSchema() *jsonschema.Schema {
 		panic("s3: derive the s3_object input schema: " + err.Error())
 	}
 	s.Properties["action"].Enum = []any{actionGet, actionMetadata, actionPut, actionCopy, actionDelete, actionPresign}
+	// Both cases and the empty string (GET), because presignObject reads the
+	// method case-insensitively with "" as its default and callers have sent
+	// all three; the enum is what lets the draft write barrier prove a PUT
+	// presign is classified as a write (#2533).
+	s.Properties["method"].Enum = []any{"", methodGet, methodPut, strings.ToLower(methodGet), strings.ToLower(methodPut)}
 	return s
 }
 
-func isWriteAction(action string) bool {
-	return action == actionPut || action == actionCopy || action == actionDelete
+// writes reports whether a call can change what the bucket holds. A PUT
+// presign writes: the URL it returns is a bearer credential that uploads to
+// the key until it expires, so a read-only connection refuses to mint one as
+// it refuses put (#2533).
+func writes(in objectInput) bool {
+	switch in.Action {
+	case actionPut, actionCopy, actionDelete:
+		return true
+	case actionPresign:
+		return strings.EqualFold(strings.TrimSpace(in.Method), methodPut)
+	default:
+		return false
+	}
 }
 
 // refuseWrite is the read-only refusal: it names the connection the write was
@@ -277,6 +294,10 @@ func (t *Toolkit) refuseWrite(in objectInput) *mcp.CallToolResult {
 	name := in.Connection
 	if name == "" {
 		name = t.name
+	}
+	if in.Action == actionPresign {
+		return s3tools.ErrorResultf("connection %q is read-only: s3_object action %q with method PUT is not permitted on it; "+
+			"presign with method GET is", name, in.Action)
 	}
 	return s3tools.ErrorResultf("connection %q is read-only: s3_object action %q is not permitted on it", name, in.Action)
 }

@@ -1,4 +1,5 @@
 import { lazy, Suspense, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ContentRenderer } from "./components/renderers/ContentRenderer";
@@ -10,6 +11,37 @@ import { resolveRenderer } from "./components/renderers/registry";
 const MarkdownRenderer = lazy(() =>
   import("./components/renderers/MarkdownRenderer").then((m) => ({ default: m.MarkdownRenderer })),
 );
+
+// The standalone download (#2530) is offered for an HTML or JSX asset only,
+// so it loads behind its own boundary: the entry chunk stays React and the
+// registry.
+const StandaloneDownloadButton = lazy(() =>
+  import("./components/StandaloneDownload").then((m) => ({ default: m.DownloadButton })),
+);
+
+/** Whether a shared asset downloads as a standalone file. */
+function downloadsStandalone(contentType: string, name?: string): boolean {
+  const kind = resolveRenderer({ contentType, fileName: name }).kind;
+  return kind === "html" || kind === "jsx";
+}
+
+/**
+ * The share page's Download for an HTML or JSX asset: one file that opens with
+ * the network off, beside the renderer's own controls.
+ */
+function ShareDownload({ downloadURL, name, contentType, slot }: {
+  downloadURL: string;
+  name: string;
+  contentType: string;
+  slot: HTMLElement | null;
+}) {
+  const button = (
+    <Suspense fallback={null}>
+      <StandaloneDownloadButton contentUrl={downloadURL} name={name} contentType={contentType} size="sm" />
+    </Suspense>
+  );
+  return slot ? createPortal(button, slot) : button;
+}
 
 const ViewerLoading = () => (
   <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
@@ -87,7 +119,8 @@ function formatBytesSimple(bytes: number): string {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
-function TooLargeMessage({ sizeBytes, downloadURL, name }: { sizeBytes: number; downloadURL?: string; name?: string }) {
+function TooLargeMessage({ sizeBytes, downloadURL, name, contentType }: { sizeBytes: number; downloadURL?: string; name?: string; contentType?: string }) {
+  const standalone = !!downloadURL && downloadsStandalone(contentType ?? "", name);
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "1rem", padding: "5rem 1rem", textAlign: "center" }}>
       <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5 }}>
@@ -99,7 +132,10 @@ function TooLargeMessage({ sizeBytes, downloadURL, name }: { sizeBytes: number; 
           This file is {formatBytesSimple(sizeBytes)}.
         </p>
       </div>
-      {downloadURL && (
+      {standalone && downloadURL && (
+        <ShareDownload downloadURL={downloadURL} name={name ?? "document"} contentType={contentType ?? ""} slot={null} />
+      )}
+      {!standalone && downloadURL && (
         <a
           href={downloadURL}
           download={name || true}
@@ -130,7 +166,9 @@ if (dataEl) {
   const root = document.getElementById("content-root");
   if (root) {
     if (tooLarge) {
-      createRoot(root).render(<TooLargeMessage sizeBytes={sizeBytes || 0} downloadURL={downloadURL} name={name} />);
+      createRoot(root).render(
+        <TooLargeMessage sizeBytes={sizeBytes || 0} downloadURL={downloadURL} name={name} contentType={contentType} />,
+      );
     } else {
       const entry = resolveRenderer({
         contentType,
@@ -150,10 +188,16 @@ if (dataEl) {
             />
           );
       const sourceLabel = serveFromURL ? undefined : SOURCE_LABELS[entry.kind];
+      const download = downloadURL && downloadsStandalone(contentType, name)
+        ? <ShareDownload downloadURL={downloadURL} name={name} contentType={contentType} slot={document.getElementById("content-actions")} />
+        : null;
       createRoot(root).render(
-        sourceLabel
-          ? <WithSourceToggle label={sourceLabel} content={content}>{viewer}</WithSourceToggle>
-          : guarded(viewer),
+        <>
+          {sourceLabel
+            ? <WithSourceToggle label={sourceLabel} content={content}>{viewer}</WithSourceToggle>
+            : guarded(viewer)}
+          {download}
+        </>,
       );
     }
   }

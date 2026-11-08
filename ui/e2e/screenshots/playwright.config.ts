@@ -11,12 +11,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // this dir only holds Playwright's own traces/attachments and is gitignored.
 const outputDir = path.resolve(__dirname, "../../test-results/screenshots");
 
-// The port the MSW dev server is served on. Overridable because
-// `reuseExistingServer` below cannot tell an MSW server from any other Vite on
-// the same port: `make dev` runs one without VITE_MSW, and the capture run then
-// drives the live backend and fails at sign-in. Set E2E_PORT to capture beside
-// a dev stack.
-const PORT = Number(process.env["E2E_PORT"] ?? 5173);
+// The port the MSW dev server is served on: 5273, a port `make dev` never
+// takes (#2523). `reuseExistingServer` below cannot tell an MSW server from
+// any other Vite on the same port, and `make dev` serves one without VITE_MSW
+// on 5173, so a capture run defaulting there drove the live backend and failed
+// at sign-in. TestPlaywrightDefaultsAvoidDevPorts (test/gates) fails when this
+// default equals a fixed port dev/start.sh takes. E2E_PORT overrides it.
+const PORT = Number(process.env["E2E_PORT"] ?? 5273);
 
 export default defineConfig({
   testDir: ".",

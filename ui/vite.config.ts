@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import fs from "fs";
+import { createRequire } from "module";
 import { buildSync } from "esbuild";
 import { bootRecovery } from "./bootRecoveryPlugin";
 
@@ -217,8 +218,118 @@ function mapFiles(): Map<string, string> {
   return files;
 }
 
+/**
+ * The libraries a JSX asset imports, built for the standalone download
+ * (#2530): one ES module per specifier the JSX viewer's import map names
+ * (JsxRenderer.tsx BARE_IMPORT_MAP), at the versions ui/package.json pins
+ * within the ranges that map names. The viewer itself still resolves them from
+ * esm.sh; these are what the platform bundles a downloaded JSX asset with, so
+ * the file it hands back needs no network.
+ *
+ * Each module imports the others by bare names, which stay external here: the
+ * platform's bundler (internal/standalone) resolves every bare name to one of
+ * these files, so React is one instance across the asset, Recharts and
+ * lucide-react, and the asset's own build keeps only what it uses.
+ *
+ * React and ReactDOM are CommonJS. A CommonJS require of an external name in
+ * an ES module build is a shim that throws when it runs, so the four React
+ * entry points are bundled together into react-all.mjs, one instance, and each
+ * specifier is a small module naming its exports over it, the names read from
+ * the package itself. Recharts and lucide-react ship ES modules and import
+ * react by name. The file names served are the contract with
+ * internal/standalone's specifier map.
+ */
+const JSX_VENDOR_PREFIX = "/portal/vendor/jsx/";
+const JSX_VENDOR_REACT_ALL = "platform-react-all";
+const JSX_REACT_FAMILY: [string, string, string][] = [
+  // file, specifier, the react-all export it is
+  ["react.mjs", "react", "React"],
+  ["react-dom.mjs", "react-dom", "ReactDOM"],
+  ["react-dom-client.mjs", "react-dom/client", "ReactDOMClient"],
+  ["react-jsx-runtime.mjs", "react/jsx-runtime", "JSXRuntime"],
+];
+
+function jsxVendorFiles(): Map<string, string> {
+  const outDir = path.resolve(__dirname, "node_modules/.cache/jsx-vendor");
+  fs.mkdirSync(outDir, { recursive: true });
+  const req = createRequire(import.meta.url);
+  const build = (file: string, contents: string, external: string[], keepNames = false) => {
+    const out = path.join(outDir, file);
+    buildSync({
+      stdin: { contents, resolveDir: __dirname, loader: "js" },
+      bundle: true,
+      format: "esm",
+      // keepNames leaves identifiers as written, so lucide-react's icon
+      // calls can be found by name below.
+      minifyWhitespace: true,
+      minifySyntax: true,
+      minifyIdentifiers: !keepNames,
+      legalComments: "none",
+      external,
+      define: { "process.env.NODE_ENV": '"production"' },
+      outfile: out,
+    });
+    return out;
+  };
+  const files = new Map<string, string>();
+  files.set(
+    "react-all.mjs",
+    build(
+      "react-all.mjs",
+      JSX_REACT_FAMILY.map(
+        ([, specifier, name], i) =>
+          `import * as m${i} from ${JSON.stringify(specifier)}; export const ${name} = m${i}.default ?? m${i};`,
+      ).join("\n"),
+      [],
+    ),
+  );
+  for (const [file, specifier, name] of JSX_REACT_FAMILY) {
+    const names = Object.keys(req(specifier) as Record<string, unknown>).filter(
+      (n) => /^[A-Za-z_$][\w$]*$/.test(n) && n !== "default",
+    );
+    const out = path.join(outDir, file);
+    fs.writeFileSync(
+      out,
+      [
+        `import { ${name} as ns } from "${JSX_VENDOR_REACT_ALL}";`,
+        `export default ns;`,
+        `export const { ${names.join(", ")} } = ns;`,
+        "",
+      ].join("\n"),
+    );
+    files.set(file, out);
+  }
+  const reactNames = JSX_REACT_FAMILY.map(([, specifier]) => specifier);
+  files.set("recharts.mjs", build("recharts.mjs", `export * from "recharts";`, reactNames));
+  // Named one by one rather than `export *`: lucide-react also exports every
+  // icon as one `icons` object, which would keep them all in any build that
+  // imports one. That object is not served.
+  const lucideNames = Object.keys(req("lucide-react") as Record<string, unknown>).filter(
+    (n) => /^[A-Za-z_$][\w$]*$/.test(n) && n !== "default" && n !== "icons",
+  );
+  const lucide = build("lucide-react.mjs", `export { ${lucideNames.join(", ")} } from "lucide-react";`, reactNames, true);
+  // Each icon is a call to createLucideIcon at the module's top level, which
+  // a bundler must keep unless it is told the call has no effect. Annotated,
+  // a downloaded asset carries the icons it uses (about a kilobyte for one)
+  // rather than all fifteen hundred.
+  const annotated = fs
+    .readFileSync(lucide, "utf8")
+    .replace(/=createLucideIcon\(/g, "=/* @__PURE__ */createLucideIcon(");
+  if (!annotated.includes("/* @__PURE__ */createLucideIcon(")) {
+    throw new Error("jsx-vendor: lucide-react's icons are no longer created by createLucideIcon");
+  }
+  fs.writeFileSync(lucide, annotated);
+  files.set("lucide-react.mjs", lucide);
+  const mod = (p: string) => path.resolve(__dirname, "node_modules", p);
+  files.set("LICENSE-react.txt", mod("react/LICENSE"));
+  files.set("LICENSE-recharts.txt", mod("recharts/LICENSE"));
+  files.set("LICENSE-lucide-react.txt", mod("lucide-react/LICENSE"));
+  return files;
+}
+
 const VENDOR_CONTENT_TYPES: Record<string, string> = {
   ".js": "application/javascript; charset=utf-8",
+  ".mjs": "application/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".json": "application/json",
   ".pbf": "application/x-protobuf",
@@ -277,6 +388,7 @@ export default defineConfig(({ mode }) => {
       bootRecovery(),
       vendorFiles("reveal-vendor", REVEAL_VENDOR_PREFIX, revealFiles),
       vendorFiles("maplibre-vendor", MAP_VENDOR_PREFIX, mapFiles),
+      vendorFiles("jsx-vendor", JSX_VENDOR_PREFIX, jsxVendorFiles),
       ...(mode === "development" ? [mswRootWorker(), mockRefRoute()] : []),
     ],
     base: "/portal/",

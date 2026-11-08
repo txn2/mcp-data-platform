@@ -17330,6 +17330,79 @@
                 }
             }
         },
+        "/portal/assets/{id}/standalone": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Reads the asset through the route's .../content sibling with the caller's own request, so the same access rules apply and that route's refusal status is returned, and answers one HTML file that opens from disk with the network off: the platform's served runtimes, the asset's declared images and fonts, and files it names on other hosts are inlined, and a JSX asset is compiled and bundled with React, Recharts and lucide-react. A file that could not be fetched is left as its URL and named in the X-Standalone-Notices header (URL-escaped JSON). 409 when the asset reads the platform's data while it renders (a declared data file, an embedded form, the basemap archive), with the reasons; the stored source is then read with ?source=stored on the content route. 415 for any other content type; 422 for a JSX asset that does not build.",
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "Portal"
+                ],
+                "summary": "Download an HTML or JSX asset as a self-contained file",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/standalonehttp.Refusal"
+                        }
+                    },
+                    "415": {
+                        "description": "Unsupported Media Type",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/standalonehttp.Refusal"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/assets/{id}/tables": {
             "get": {
                 "security": [
@@ -49765,6 +49838,23 @@
                 "to": {
                     "type": "string",
                     "example": "admin@example.com"
+                }
+            }
+        },
+        "standalonehttp.Refusal": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "description": "Error is platform_data or build_failed.",
+                    "type": "string",
+                    "example": "platform_data"
+                },
+                "reasons": {
+                    "description": "Reasons are the sentences the portal shows.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },

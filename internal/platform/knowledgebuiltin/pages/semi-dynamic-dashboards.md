@@ -105,6 +105,13 @@ Author the document with a plausible initial payload in the island so it
 renders before the first refresh, and make the rendering code tolerate an
 empty structure.
 
+The shape decides what a reader's download is. A dashboard whose numbers are
+spliced into its island carries them, so its Download is one HTML file that
+shows those numbers with the network off. One that references a data file
+fetches it while it renders, so the portal does not make it into a file: the
+reader is told it reads data from the platform and offered its source as
+stored, which opens without the numbers.
+
 Draw the charts from that payload with a library, not hand-drawn SVG:
 mcp:knowledge_page:platform-visual-libraries gives Vega-Lite and the others at
 pinned versions, each with a skeleton that follows light and dark. A Vega-Lite

@@ -27,6 +27,8 @@ type fakeS3 struct {
 	lastPut *s3client.PutObjectInput
 	lastCp  *s3client.CopyObjectInput
 	lastLs  fakeListCall
+	// presignPuts counts the upload URLs signed.
+	presignPuts int
 }
 
 type fakeObject struct {
@@ -175,6 +177,7 @@ func (f *fakeS3) PresignPutURL(_ context.Context, bucket, key string, expires ti
 	if f.fail != nil {
 		return nil, f.fail
 	}
+	f.presignPuts++
 	return &s3client.PresignedURL{URL: "https://s3.example.test/" + bucket + "/" + key + "?put", Method: methodPut, ExpiresAt: fakeStamp.Add(expires)}, nil
 }
 
@@ -415,8 +418,13 @@ func TestS3Object_Actions(t *testing.T) {
 		assert.Equal(t, "PUT", out["method"])
 		assert.EqualValues(t, maxPresignSeconds, out["expires_in_seconds"])
 
+		// The schema names the methods (#2533), so another is refused before
+		// the handler; the handler's own check stays for a direct caller.
 		_, errText = rt.call("s3_object", map[string]any{"action": "presign", "bucket": "acme-lake", "key": "x", "method": "DELETE"})
-		assert.Contains(t, errText, "invalid method: DELETE")
+		assert.Contains(t, errText, "DELETE does not equal any of")
+		res, _ := presignObject(context.Background(), fake, objectInput{Action: "presign", Bucket: "acme-lake", Key: "x", Method: "DELETE"})
+		require.NotNil(t, res)
+		assert.True(t, res.IsError)
 	})
 
 	t.Run("get of a missing key is refused in the tool's words, and an unknown action by the schema", func(t *testing.T) {
@@ -486,6 +494,40 @@ func TestS3Object_ReadOnlyRefusesWritesNamingTheConnection(t *testing.T) {
 	}
 	_, errText := rt.call("s3_list", map[string]any{"bucket": "acme-lake"})
 	assert.Empty(t, errText)
+}
+
+// TestS3Object_ReadOnlyRefusesAnUploadLink pins #2533: a PUT presign is an
+// upload credential, so a read-only connection refuses to mint one, in either
+// case the method is sent in, before the client is asked to sign anything,
+// while a GET presign on the same connection is still issued.
+func TestS3Object_ReadOnlyRefusesAnUploadLink(t *testing.T) {
+	tk, fake := newFakeToolkit(Config{ReadOnly: true})
+	rt := newRoundTrip(t, tk)
+
+	for _, method := range []string{"PUT", "put"} {
+		out, errText := rt.call("s3_object", map[string]any{"action": "presign", "method": method, "bucket": "acme-lake", "key": "backups/db.dump"})
+		assert.Contains(t, errText, `connection "lake" is read-only`, method)
+		assert.Contains(t, errText, `action "presign" with method PUT is not permitted`, method)
+		assert.Nil(t, out, method)
+	}
+	assert.Zero(t, fake.presignPuts, "no upload URL was signed")
+
+	for _, method := range []string{"GET", "get", ""} {
+		out, errText := rt.call("s3_object", map[string]any{"action": "presign", "method": method, "bucket": "acme-lake", "key": "backups/db.dump"})
+		assert.Empty(t, errText, method)
+		assert.Equal(t, "GET", out["method"], method)
+	}
+}
+
+// TestS3Object_WritableConnectionIssuesAnUploadLink: the refusal is the
+// read-only connection's, not the action's.
+func TestS3Object_WritableConnectionIssuesAnUploadLink(t *testing.T) {
+	tk, fake := newFakeToolkit(Config{})
+	rt := newRoundTrip(t, tk)
+	out, errText := rt.call("s3_object", map[string]any{"action": "presign", "method": "put", "bucket": "acme-lake", "key": "up.csv"})
+	require.Empty(t, errText)
+	assert.Equal(t, "PUT", out["method"])
+	assert.Equal(t, 1, fake.presignPuts)
 }
 
 // TestS3Object_ReadOnlyIsPerConnection: a connection added at run time carries

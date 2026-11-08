@@ -172,6 +172,21 @@ A link on a slide to a website (`http:`, `https:`) or an email address
 (`mailto:`) does open, in a new tab, when the presenter clicks it; the deck
 stays on its slide.
 
-A deck is a document with a fixed origin for its runtime, so a downloaded copy
-opened from disk has no runtime to load and shows its sections stacked. The
-deck is presented from the portal or from a share link, not from a file.
+## Downloaded, it runs offline
+
+**Download** on the asset page and on a share link (signed in or public)
+hands the reader one HTML file that presents the deck with the network off:
+opened from disk, it shows the theme and steps through the slides with the
+arrow keys. The served runtime, its theme
+and plugins, the deck's declared images and fonts, and any file it names on a
+public host (a Google Fonts stylesheet and its fonts, an image, a library from
+a CDN) are put inside the file. This is the way to take a deck to a room with
+no network, or to send it to someone without an account.
+
+What the file cannot carry is named beside the download: a file on a host the
+platform could not reach or would not fetch (an address inside the deployment,
+a file past the download's size bound), which that part of the deck still
+needs the network for. A deck that reads the platform's data while it is shown
+(a declared CSV or JSON it fetches, an embedded form, a map on the basemap
+archive) is not made into a file: the reader is told it reads data from the
+platform and offered its source as stored instead.

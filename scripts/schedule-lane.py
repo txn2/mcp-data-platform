@@ -73,6 +73,19 @@ def git(*args: str) -> str:
 
 
 def merge_base(base_branch: str) -> str:
+    # DELTA_BASE (#2535) is the last tree proved green, a commit
+    # scripts/ci-delta.py names; the diff is then the change since it. It is
+    # used as it is, not merged with HEAD: a tree verify passed on is often
+    # not an ancestor of the next one.
+    delta = os.environ.get("DELTA_BASE", "").strip()
+    if delta:
+        probe = subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet", f"{delta}^{{commit}}"],
+            cwd=REPO_ROOT, capture_output=True, text=True,
+        )
+        if probe.returncode != 0:
+            raise SystemExit(f"FAIL schedule-lane: DELTA_BASE {delta} is not a commit in this clone")
+        return delta
     for ref in (f"origin/{base_branch}", base_branch):
         probe = subprocess.run(
             ["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],

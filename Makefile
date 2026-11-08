@@ -88,7 +88,17 @@ test:
 	@#
 	@# -race multiplies the memory and CPU each package costs, which is why
 	@# the bound matters more here than on an ordinary test run.
-	$(GOTEST) -v -race -p 6 -coverprofile=coverage.out ./...
+	@# On a delta run (#2535), only the packages the change affects: those it
+	@# changed and every package importing one, from a test too.
+	@pkgs="$$(python3 scripts/ci-delta.py packages)"; \
+	if [ -z "$$pkgs" ]; then \
+		echo "test: the change since the last green tree affects no Go package; skipped"; \
+		echo "mode: atomic" > coverage.out; exit 0; \
+	fi; \
+	if [ "$$pkgs" != "./..." ]; then \
+		echo "test: the $$(echo $$pkgs | wc -w | tr -d ' ') package(s) the change since the last green tree affects"; \
+	fi; \
+	$(GOTEST) -v -race -p 6 -coverprofile=coverage.out $$pkgs
 	@echo "Tests complete."
 
 ## test-short: Run tests without race detection (faster)
@@ -111,6 +121,8 @@ test-integration:
 ## test-realdb: Real-Postgres round-trip gate for store write paths
 test-realdb:
 	@echo "Running real-DB round-trip gate..."
+	@# REALDB_PKGS is expanded once, here: on a delta run it is realdb-lane's
+	@# answer, and an empty one means the change reaches no RealDB test.
 	@# One Postgres for the whole gate, not one per test.
 	@#
 	@# internal/testdb.New is called at 163 sites and per test, not per
@@ -130,6 +142,8 @@ test-realdb:
 	@# The sampler reports the peak connections the run held, in total and for
 	@# the packages that held the most, beside REALDB_MAX_CONNECTIONS (#2249).
 	@set -e; \
+	pkgs='$(strip $(REALDB_PKGS))'; \
+	if [ -z "$$pkgs" ]; then echo "test-realdb: the change since the last green tree reaches no RealDB test; skipped"; exit 0; fi; \
 	report=$$(mktemp); sampler=; \
 	finish() { \
 		if [ -n "$$sampler" ]; then kill -TERM $$sampler 2>/dev/null; wait $$sampler 2>/dev/null || true; cat "$$report"; fi; \
@@ -180,7 +194,7 @@ test-realdb:
 	TESTDB_DSN="postgres://test:test@localhost:$$pg_port/postgres?sslmode=disable" \
 	TESTDB_TEMPLATE="$(REALDB_TEMPLATE)" \
 	APPDB_TARGET_DSNS="$$appdb_dsns" \
-		$(GOTEST) -count=1 -p 4 -tags=integration -run '$(REALDB_RUN)' $(REALDB_PKGS)
+		$(GOTEST) -count=1 -p 4 -tags=integration -run '$(REALDB_RUN)' $$pkgs
 	@echo "Real-DB gate passed."
 
 # Live post-deploy smoke: connects to a RUNNING MCP server as a real MCP client
@@ -234,9 +248,30 @@ REALDB_APPDB_CONTAINER := mcpdp-realdb-appdb
 REALDB_APPDB_IMAGES := \
 	17=pgvector/pgvector:0.8.1-pg17@sha256:3e8b3adfd27b5707128f60956f62a793c3c9326ea8cfaf0eab7adccb5d700b21 \
 	18=pgvector/pgvector:0.8.1-pg18@sha256:508c5290cda481d4f5f846446a26e9c1b804766828a394a5861de1b348a18b4c
+# DELTA_BASE is the last tree a `make verify` passed on (#2535): verify then
+# checks the change since it rather than everything. The top-level `make
+# verify` reads it once (scripts/ci-delta.py local-base, which prints nothing
+# when there is no usable record, when VERIFY_FULL=1, or when the change
+# touches a file that decides how the gates run) and every step's make
+# inherits it through the environment. CI sets it the same way on a follow-up
+# push. The steps that read it: test, coverage-summary, patch-coverage-check,
+# schedule-lane, schedule-lane-ui, frontend-e2e, lint, security, security-diff,
+# e2e-standalone, migrate-check-lane and test-realdb.
+ifneq ($(filter verify,$(MAKECMDGOALS)),)
+ifeq ($(origin DELTA_BASE),undefined)
+export DELTA_BASE := $(shell python3 scripts/ci-delta.py local-base)
+endif
+endif
+# The shell tests a step a delta may not reach runs first, in its own recipe:
+# true when there is no delta, or when the change reaches the step. They are
+# shell, not make conditionals, so only the step that asks pays for the read.
+delta_reaches_ui = { [ -z "$(DELTA_BASE)" ] || python3 scripts/ci-delta.py ui; }
+delta_reaches_e2e = { [ -z "$(DELTA_BASE)" ] || python3 scripts/ci-delta.py tagged-affected ./test/e2e; }
+delta_reaches_migrations = { [ -z "$(DELTA_BASE)" ] || python3 scripts/ci-delta.py files | grep -q '^pkg/database/migrate/'; }
 # REALDB_PKGS is what test-realdb runs: every package, unless realdb-lane
-# narrows it to the packages a branch can break (#1947).
-REALDB_PKGS         ?= ./...
+# narrows it to the packages a branch can break (#1947), or a delta run to the
+# ones the change since the last green tree can (#2535).
+REALDB_PKGS         ?= $(if $(DELTA_BASE),$(shell python3 scripts/realdb-lane.py),./...)
 # REALDB_RUN is the -run pattern: every RealDB test, unless route-template-diff
 # names the one gate it needs (#2186).
 REALDB_RUN          ?= RealDB
@@ -339,6 +374,7 @@ lint:
 		echo "       Ensure the current branch shares history with $$BASE."; \
 		exit 1; \
 	fi; \
+	if [ -n "$(DELTA_BASE)" ]; then MERGE_BASE=$(DELTA_BASE); BASE="the last green tree"; fi; \
 	PATCH=$$(mktemp -t mcpdp-lint-patch.XXXXXX); \
 	trap "rm -f $$PATCH" EXIT; \
 	git diff $$MERGE_BASE > $$PATCH; \
@@ -395,8 +431,9 @@ vet-tags:
 ## make verify and in CI's test job. The metrics listener takes a free port so
 ## a dev stack's Keycloak on 127.0.0.1:9090 does not refuse it on Linux.
 e2e-standalone:
-	@echo "Running the e2e tests that need no e2e service..."
-	@E2E_STANDALONE=1 OTEL_METRICS_ADDR=127.0.0.1:0 $(GOTEST) -count=1 -race -tags=integration -timeout 5m ./test/e2e/...
+	@if ! $(delta_reaches_e2e); then echo "e2e-standalone: the change since the last green tree reaches no test/e2e package; skipped"; exit 0; fi; \
+	echo "Running the e2e tests that need no e2e service..."; \
+	E2E_STANDALONE=1 OTEL_METRICS_ADDR=127.0.0.1:0 $(GOTEST) -count=1 -race -tags=integration -timeout 5m ./test/e2e/...
 
 ## fmt: Format code
 fmt:
@@ -443,7 +480,11 @@ security:
 	@# Linux, uint32 on darwin) is otherwise judged locally on darwin's.
 	@# Not -quiet: with it, gosec exits 0 when it cannot load a package, so a
 	@# scan that analyzed nothing passes. CI runs it the same way.
+ifneq ($(DELTA_BASE),)
+	@echo "gosec: security-diff ran it over the packages the change since the last green tree touches"
+else
 	GOOS=linux gosec ./...
+endif
 	@echo "Running govulncheck..."
 	@# govulncheck exits 3 when our code calls a vulnerable symbol, whether or
 	@# not a fixed version exists, and has no way to accept a finding. The gate
@@ -590,6 +631,10 @@ coverage-report: test
 ## this, so a verify runs the race unit suite once rather than once per reader
 ## of its profile (#2053).
 coverage-summary:
+ifneq ($(DELTA_BASE),)
+	@echo "coverage-summary: a delta run tests part of the module, so its total is not the module's;"
+	@echo "  the $(COVERAGE_MIN)% total is checked on a full run, and patch-coverage-check checks the change (#2535)"
+else
 	@echo ""
 	@echo "=== Coverage Summary ==="
 	@$(GO) tool cover -func=coverage.out | tail -1
@@ -605,6 +650,7 @@ coverage-summary:
 	@echo "Functions below $(PATCH_COVERAGE_MIN)% coverage:"
 	@$(GO) tool cover -func=coverage.out | awk '{gsub(/%/,"",$$3); if ($$3+0 < $(PATCH_COVERAGE_MIN).0 && $$3+0 > 0 && $$1 != "total:") print $$0}' || true
 	@echo "=== End Coverage ==="
+endif
 
 ## patch-coverage: Check coverage of changed lines vs main (fails below PATCH_COVERAGE_MIN)
 patch-coverage: test
@@ -711,7 +757,8 @@ schedule-lane:
 ## the machine. It runs the full suite, so verify-ui calls it in place of
 ## frontend-test.
 schedule-lane-ui:
-	@python3 scripts/schedule-lane.py ui
+	@if ! $(delta_reaches_ui); then echo "schedule-lane-ui: the change since the last green tree touches nothing under ui/; skipped"; exit 0; fi; \
+	python3 scripts/schedule-lane.py ui
 
 ## acceptance: Run the per-ticket acceptance suite as a real MCP client against a running server (make dev)
 ## Each test/acceptance/issue_<n>_test.go executes one ticket's acceptance
@@ -1072,6 +1119,9 @@ verify:
 			| cut -c1-16 > .claude/.last-verify-passed; \
 		rm -rf $$dir
 	@echo "Wrote .claude/.last-verify-passed (gate sentinel)"
+	@# The same tree as a commit, which the next verify checks the change
+	@# since (#2535).
+	@python3 scripts/ci-delta.py record-local
 
 ## verify-checks: the read-only half of `verify`, run concurrently by it.
 ##
@@ -1206,7 +1256,8 @@ migrate-check-diff:
 ## verify's preamble on this same tree; running it again here would check the
 ## same migrations twice. Otherwise the lane runs it over every migration.
 migrate-check-lane:
-	@$(migrations_changed); \
+	@if ! $(delta_reaches_migrations); then echo "migrate-check-lane: the change since the last green tree touches no migration; skipped"; exit 0; fi; \
+	$(migrations_changed); \
 	if [ -n "$$changed" ]; then echo "migrate-check-lane: migrate-check-diff checked this tree's migrations in verify's preamble; skipped"; exit 0; fi; \
 	$(MAKE) --no-print-directory migrate-check
 
@@ -1325,19 +1376,21 @@ frontend-lint:
 frontend-e2e:
 	@# The suite reuses whatever is on its port, and it cannot tell an MSW
 	@# server from any other Vite there (see e2e/interactive/playwright.config.ts).
-	@# A `make dev` left running is one WITHOUT VITE_MSW, so on :5173 the suite
-	@# would bind to the live backend and fail all 213 cases at sign-in.
+	@# Its default is 5273, which `make dev` never takes (#2523): `make dev`
+	@# serves a Vite WITHOUT VITE_MSW on 5173, and a suite bound to it would
+	@# fail all 213 cases at sign-in.
 	@#
 	@# So the port is checked here. The marker is the flag main.tsx reads, which
 	@# Vite inlines into the source it serves: an MSW server answers with
 	@# "VITE_MSW": "true" in /portal/src/main.tsx and a plain one does not.
 	@# mockServiceWorker.js is no use -- a static file both servers serve.
 	@#
-	@# A non-MSW server on the default port is a dev stack, and the suite runs
-	@# beside it on the next free port rather than refusing (#1969):
-	@# the acceptance suite runs against that same stack. An E2E_PORT set by
-	@# hand is the caller's choice and is refused.
-	@port=$${E2E_PORT:-5173}; \
+	@# A non-MSW server on the default port is something else of the
+	@# developer's, and the suite runs beside it on the next free port rather
+	@# than refusing (#1969). An E2E_PORT set by hand is the caller's choice
+	@# and is refused.
+	@if ! $(delta_reaches_ui); then echo "frontend-e2e: the change since the last green tree touches nothing under ui/; skipped"; exit 0; fi; \
+	port=$${E2E_PORT:-5273}; \
 	is_msw() { curl -sf -m 3 "http://localhost:$$1/portal/src/main.tsx" 2>/dev/null | grep -q '"VITE_MSW": *"true"'; }; \
 	busy() { curl -s -o /dev/null -m 3 "http://localhost:$$1/" 2>/dev/null || lsof -nP -iTCP:$$1 -sTCP:LISTEN > /dev/null 2>&1; }; \
 	if ! is_msw $$port && busy $$port; then \
@@ -1347,7 +1400,7 @@ frontend-e2e:
 			exit 1; \
 		fi; \
 		next=5199; while busy $$next; do next=$$((next + 1)); done; \
-		echo "frontend-e2e: :$$port serves a dev server that is not the MSW one (a 'make dev'); running the suite on :$$next beside it."; \
+		echo "frontend-e2e: :$$port serves a server that is not the MSW one; running the suite on :$$next beside it."; \
 		port=$$next; \
 	fi; \
 	cd $(UI_DIR) && npx playwright install chromium && E2E_PORT=$$port npm run test:e2e
