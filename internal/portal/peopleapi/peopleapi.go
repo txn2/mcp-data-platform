@@ -225,22 +225,29 @@ func (h *handler) shareSummary(w http.ResponseWriter, r *http.Request) {
 }
 
 // summarize sorts active shares into personas, people and links, copying
-// only the fields a summary may carry.
+// only the fields a summary may carry. A person or a persona holding several
+// active shares (one made explicitly and one made when they signed in through
+// a public link, #2537) is listed once, with the highest permission among
+// them, and counted once.
 func summarize(shares []portaldomain.Share) ShareSummary {
 	out := ShareSummary{Personas: []personaShare{}, People: []personShare{}, Links: []linkShare{}}
+	personas := map[string]int{}
+	var people peopleIndex
 	for _, s := range shares {
 		if !access.IsShareActive(s) {
 			continue
 		}
 		switch {
 		case s.SharedWithPersona != "":
-			out.Personas = append(out.Personas, personaShare{Persona: s.SharedWithPersona, Permission: s.Permission})
-		case s.SharedWithEmail != "" || s.SharedWithUserID != "":
-			email := s.SharedWithEmail
-			if email == "" {
-				email = s.SharedWithUserID
+			p := personaShare{Persona: s.SharedWithPersona, Permission: s.Permission}
+			if i, seen := personas[p.Persona]; seen {
+				out.Personas[i].Permission = higher(out.Personas[i].Permission, p.Permission)
+				continue
 			}
-			out.People = append(out.People, personShare{Email: email, Permission: s.Permission, ExpiresAt: s.ExpiresAt})
+			personas[p.Persona] = len(out.Personas)
+			out.Personas = append(out.Personas, p)
+		case s.SharedWithEmail != "" || s.SharedWithUserID != "":
+			out.People = people.add(out.People, s)
 		default:
 			out.Links = append(out.Links, linkShare{
 				AccessMode: s.AccessMode, Origin: s.Origin, PostedTo: s.PostedTo, CreatedBy: s.CreatedBy,
@@ -254,4 +261,84 @@ func summarize(shares []portaldomain.Share) ShareSummary {
 	})
 	out.Total = len(out.Personas) + len(out.People) + len(out.Links)
 	return out
+}
+
+// peopleIndex finds the entry of a person already listed, by their user id
+// where a share knows it and by their address otherwise.
+type peopleIndex struct {
+	byUser, byEmail map[string]int
+}
+
+// add lists the person a share names, or merges the share into their entry.
+func (x *peopleIndex) add(people []personShare, s portaldomain.Share) []personShare {
+	if x.byUser == nil {
+		x.byUser, x.byEmail = map[string]int{}, map[string]int{}
+	}
+	user, email := strings.TrimSpace(s.SharedWithUserID), strings.ToLower(strings.TrimSpace(s.SharedWithEmail))
+	i, seen := x.byUser[user]
+	if !seen || user == "" {
+		i, seen = x.byEmail[email]
+		seen = seen && email != ""
+	}
+	if !seen {
+		shown := s.SharedWithEmail
+		if shown == "" {
+			shown = s.SharedWithUserID
+		}
+		i = len(people)
+		people = append(people, personShare{Email: shown, Permission: s.Permission, ExpiresAt: s.ExpiresAt})
+	} else {
+		people[i] = merged(people[i], s)
+	}
+	if user != "" {
+		x.byUser[user] = i
+	}
+	if email != "" {
+		x.byEmail[email] = i
+	}
+	return people
+}
+
+// merged is a person's entry with one more of their shares: the higher
+// permission, with the expiry of the share granting it, or the later expiry
+// (none being latest) when both grant the same.
+func merged(p personShare, s portaldomain.Share) personShare {
+	if p.Email == "" || (!strings.Contains(p.Email, "@") && s.SharedWithEmail != "") {
+		p.Email = s.SharedWithEmail
+	}
+	switch {
+	case rank(s.Permission) > rank(p.Permission):
+		p.Permission, p.ExpiresAt = s.Permission, s.ExpiresAt
+	case rank(s.Permission) == rank(p.Permission) && later(s.ExpiresAt, p.ExpiresAt):
+		p.ExpiresAt = s.ExpiresAt
+	}
+	return p
+}
+
+// later reports whether expiry a ends after b; no expiry ends last.
+func later(a, b *time.Time) bool {
+	switch {
+	case b == nil:
+		return false
+	case a == nil:
+		return true
+	default:
+		return a.After(*b)
+	}
+}
+
+// higher is the higher of two permissions.
+func higher(a, b portaldomain.SharePermission) portaldomain.SharePermission {
+	if rank(b) > rank(a) {
+		return b
+	}
+	return a
+}
+
+// rank orders permissions: an editor may do everything a viewer may.
+func rank(p portaldomain.SharePermission) int {
+	if p == portaldomain.PermissionEditor {
+		return 1
+	}
+	return 0
 }

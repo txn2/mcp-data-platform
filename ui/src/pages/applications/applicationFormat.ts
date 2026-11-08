@@ -2,6 +2,7 @@ import type {
   ApplicationPartKind,
   ApplicationPartView,
   ApplicationReleaseAction,
+  ApplicationSchemaView,
 } from "@/api/portal/hooks/applications";
 import { formatRelative } from "@/components/feedback/meta";
 import { familyLabel } from "@/components/renderers/registry";
@@ -15,15 +16,17 @@ export const PART_KIND_LABEL: Record<ApplicationPartKind, string> = {
   script: "Automation",
   asset: "Asset",
   source: "Webhook source",
+  schema: "Schema",
 };
 
-export const PART_KINDS: ApplicationPartKind[] = ["script", "asset", "source"];
+export const PART_KINDS: ApplicationPartKind[] = ["script", "asset", "source", "schema"];
 
 /** The heading of each kind's group on the Parts card and its filter pill. */
 export const PART_GROUP_LABEL: Record<ApplicationPartKind, string> = {
   script: "Automations",
   asset: "Assets",
   source: "Webhook sources",
+  schema: "Schema",
 };
 
 /** partName is what a part is called on the page, never its id. */
@@ -33,11 +36,43 @@ export function partName(p: Pick<ApplicationPartView, "kind" | "state" | "name">
   return p.state === "not_visible" ? `${PART_KIND_LABEL[p.kind]} you can't open` : `Deleted ${noun}`;
 }
 
+/**
+ * What a schema part's line is read from (#2539): the application's schema
+ * view and its current release, 0 before the first.
+ */
+export interface SchemaContext {
+  schema?: ApplicationSchemaView;
+  release: number;
+}
+
 /** partDescription is the line under a part's name: what it is and how it runs. */
-export function partDescription(p: ApplicationPartView): string {
+export function partDescription(p: ApplicationPartView, ctx?: SchemaContext): string {
   if (p.state !== "ok") return "";
-  const pieces = p.kind === "script" ? scriptPieces(p) : p.kind === "asset" ? assetPieces(p) : sourcePieces(p);
-  return pieces.join(" · ");
+  return piecesOf(p, ctx).join(" · ");
+}
+
+function piecesOf(p: ApplicationPartView, ctx?: SchemaContext): string[] {
+  switch (p.kind) {
+    case "script":
+      return scriptPieces(p);
+    case "asset":
+      return assetPieces(p);
+    case "source":
+      return sourcePieces(p);
+    case "schema":
+      return ctx?.schema ? schemaPieces(ctx.schema, ctx.release) : [];
+  }
+}
+
+function schemaPieces(v: ApplicationSchemaView, release: number): string[] {
+  const pieces: string[] = [];
+  if (!v.problem) {
+    pieces.push(v.migration_version > 0 ? `migration ${v.migration_version} applied` : "no migrations applied");
+  }
+  if (release > 0) pieces.push(`release v${release} recorded ${v.released_version}`);
+  if (v.pending.length > 0) pieces.push(`${v.pending.length} pending`);
+  if (v.run_role) pieces.push(`scripts run as ${v.run_role}`);
+  return pieces;
 }
 
 function scriptPieces(p: ApplicationPartView): string[] {
@@ -66,9 +101,9 @@ function lowerFirst(s: string): string {
   return s.length > 0 ? s[0]!.toLowerCase() + s.slice(1) : s;
 }
 
-/** partReference is the mcp: reference a part is cited by; a webhook source has none. */
+/** partReference is the mcp: reference a part is cited by; a webhook source and a schema have none. */
 export function partReference(kind: ApplicationPartKind, id: string): string | null {
-  return kind === "source" ? null : `mcp:${kind}:${id}`;
+  return kind === "source" || kind === "schema" ? null : `mcp:${kind}:${id}`;
 }
 
 export const ACTION_LABEL: Record<ApplicationReleaseAction, string> = {
@@ -105,5 +140,7 @@ export function partPath(kind: ApplicationPartKind, id: string, isAdmin: boolean
     case "source":
       // A webhook source's page is the administrator's.
       return isAdmin ? `/admin/webhooks/${encodeURIComponent(id)}` : null;
+    case "schema":
+      return null;
   }
 }

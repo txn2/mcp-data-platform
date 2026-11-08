@@ -1,4 +1,4 @@
-package postgres
+package pglint
 
 import (
 	"fmt"
@@ -21,9 +21,9 @@ const (
 	ruleDefinerPublic      = "security_definer_public_execute"
 	ruleRLSNotForced       = "row_security_not_forced"
 	ruleViewOverRLS        = "view_bypasses_row_security"
-	ruleIndexVirtualColumn = "index_on_virtual_column"
-	ruleNeedsNewerServer   = "feature_needs_newer_server"
-	ruleTargetUnread       = "target_unread"
+	RuleIndexVirtualColumn = "index_on_virtual_column"
+	RuleNeedsNewerServer   = "feature_needs_newer_server"
+	RuleTargetUnread       = "target_unread"
 	ruleUntrustedCode      = "untrusted_code"
 	ruleCopyProgram        = "copy_program"
 	ruleEventTrigger       = "event_trigger"
@@ -45,6 +45,9 @@ type Target struct {
 	RowSecurity map[string]bool
 	// Virtual is the schema's virtual generated columns, by table.
 	Virtual map[string]map[string]bool
+	// Schema is the schema the migration is for, whose name every role the
+	// migration names starts with (#2539); empty checks no role.
+	Schema string
 }
 
 // untrustedLanguages are the languages a function runs outside the
@@ -91,6 +94,7 @@ func newSecurityState(target Target) *securityState {
 
 // Words the security rules read statements by.
 const (
+	kwAdd       = "add"
 	kwFunction  = "function"
 	kwProcedure = "procedure"
 	kwAs        = "as"
@@ -121,6 +125,10 @@ func (l *linter) securityStatement(n int, stmt string, ts toks) {
 		return
 	}
 	l.passwordLiteral(n, stmt)
+	l.rolesOutsideSchema(n, ts)
+	if ts[0].word == "do" {
+		l.rolesInDo(n, stmt)
+	}
 	l.versionFeatures(n, ts)
 	if rule, ok := securityRules[ts[0].word]; ok {
 		rule(l, n, ts)
@@ -552,14 +560,14 @@ func (l *linter) createTableColumns(n int, ts toks, k int) {
 	}
 	end := ts.skipArgs(open)
 	for _, col := range ts[open+1 : max(open+1, end-1)].actions(0) {
-		l.addVirtualColumn(n, table, append(toks{{word: schemaAdd, text: schemaAdd}}, col...))
+		l.addVirtualColumn(n, table, append(toks{{word: kwAdd, text: kwAdd}}, col...))
 	}
 }
 
 // addVirtualColumn notes a column an ADD [COLUMN] declares GENERATED ALWAYS
 // AS (...) without STORED.
 func (l *linter) addVirtualColumn(_ int, table string, a toks) {
-	if !a.at(0, schemaAdd) || isConstraintAction(a) {
+	if !a.at(0, kwAdd) || isConstraintAction(a) {
 		return
 	}
 	g := a.findPair("generated", "always")
@@ -597,7 +605,7 @@ func (l *linter) indexOnVirtual(n int, ts toks) {
 	for _, t := range ts[open:ts.skipArgs(open)] {
 		if l.sec.virtual[table][t.word] || l.sec.target.Virtual[table][t.word] {
 			l.add(Finding{
-				Rule: ruleIndexVirtualColumn, Severity: SeverityWarning, Statement: n, Object: table + "." + t.word,
+				Rule: RuleIndexVirtualColumn, Severity: SeverityWarning, Statement: n, Object: table + "." + t.word,
 				Effect: fmt.Sprintf("indexes %s.%s, a generated column declared without STORED, which PostgreSQL %d makes virtual "+
 					"and cannot index", table, t.word, l.sec.target.Major),
 				Safe: "declare the column GENERATED ALWAYS AS (...) STORED",
@@ -647,7 +655,7 @@ func (l *linter) versionFeatures(n int, ts toks) {
 	for _, f := range features18 {
 		if f.found(ts) {
 			l.add(Finding{
-				Rule: ruleNeedsNewerServer, Severity: SeverityWarning, Statement: n, Object: f.name,
+				Rule: RuleNeedsNewerServer, Severity: SeverityWarning, Statement: n, Object: f.name,
 				Effect: fmt.Sprintf("uses %s, which PostgreSQL 18 introduced; the connection's server is PostgreSQL %d, which refuses it",
 					f.name, major),
 				Safe: f.safe,

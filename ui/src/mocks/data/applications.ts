@@ -5,12 +5,14 @@ import type {
   ApplicationPart,
   ApplicationPartView,
   ApplicationRelease,
+  ApplicationSchemaView,
 } from "@/api/portal/hooks/applications";
 
 // Two applications (#2411): "shop", released twice with a rollback between,
 // made of a schema, two scripts, an asset and a webhook source; and "intake",
 // recorded but never released. The script, asset and source ids are ones the
-// other mocks serve, so a part reads as something that exists.
+// other mocks serve, so a part reads as something that exists. shop's schema
+// is a part of kind schema (#2539), listed last.
 
 export const mockApplications: Application[] = [
   {
@@ -20,6 +22,7 @@ export const mockApplications: Application[] = [
     owner_email: "sarah.chen@example.com",
     connection: "acme-shop",
     schema: "shop",
+    schema_adopted_version: 0,
     current_release: 3,
     created_by: "sarah.chen@example.com",
     created_at: "2025-01-10T09:00:00Z",
@@ -29,6 +32,7 @@ export const mockApplications: Application[] = [
       { kind: "script", id: "script-002", added_by: "sarah.chen@example.com", added_at: "2025-01-10T09:06:00Z" },
       { kind: "asset", id: "ast-001", added_by: "sarah.chen@example.com", added_at: "2025-01-12T11:00:00Z" },
       { kind: "source", id: "billing-events", added_by: "admin@example.com", added_at: "2025-01-15T14:00:00Z" },
+      { kind: "schema", id: "acme-shop/shop", added_by: "sarah.chen@example.com", added_at: "2025-01-10T09:00:00Z" },
     ],
   },
   {
@@ -38,6 +42,7 @@ export const mockApplications: Application[] = [
     owner_email: "j.martinez@example.com",
     connection: "",
     schema: "",
+    schema_adopted_version: 0,
     current_release: 0,
     created_by: "j.martinez@example.com",
     created_at: "2025-01-20T10:00:00Z",
@@ -152,8 +157,11 @@ export const mockPartCatalog: Record<string, Omit<ApplicationPartView, "state" |
   "source/revenue-events": { kind: "source", id: "revenue-events", name: "revenue-events", latest_version: null, requests_last_day: 312 },
 };
 
-/** partView is a part as the detail route reads it from the catalog. */
+/** partView is a part as the detail route reads it from the catalog; a schema is named by its id. */
 export function partView(p: ApplicationPart): ApplicationPartView {
+  if (p.kind === "schema") {
+    return { kind: "schema", id: p.id, state: "ok", name: p.id, latest_version: null, added_by: p.added_by, added_at: p.added_at };
+  }
   const known = mockPartCatalog[`${p.kind}/${p.id}`];
   return known
     ? { ...known, state: "ok", added_by: p.added_by, added_at: p.added_at }
@@ -168,6 +176,32 @@ export function candidateOf(v: Omit<ApplicationPartView, "state" | "added_by" | 
   };
 }
 
+/**
+ * schemaNote is what the server says a run role still needs while the
+ * schema's migrations define no write role.
+ */
+export function schemaNote(schema: string, runRole: string): string {
+  return (
+    `the application's scripts log in as ${runRole}, which reaches no table until a migration defines ${schema}_write ` +
+    `(CREATE ROLE ${schema}_write NOLOGIN, with its grants on schema ${schema}); the next release grants it to ${runRole}`
+  );
+}
+
+/** schemaViewOf is a newly added schema as the detail route shows it. */
+export function schemaViewOf(connection: string, schema: string): ApplicationSchemaView {
+  const runRole = `${schema}_run`;
+  return {
+    connection, schema, migration_version: 0, released_version: 0, pending: [], adopted_version: 0,
+    run_role: runRole, write_role: "", note: schemaNote(schema, runRole),
+  };
+}
+
+/**
+ * What shop's diagram finds (#2540): a table its scripts read that no part
+ * writes. Advice, not a refusal: the release is not held back for it.
+ */
+export const SHOP_UNWRITTEN = "table shop.refunds is read by the application's scripts and written by no part";
+
 export const mockApplicationDetails: Record<string, ApplicationDetail> = {
   "app-shop": {
     application: mockApplications[0]!,
@@ -175,7 +209,12 @@ export const mockApplicationDetails: Record<string, ApplicationDetail> = {
     current_release: shopReleases[0]!,
     pending: [{ kind: "script", part_id: "script-001", from: 4, to: 5 }],
     migrations: { applied: 3, pending: [4] },
-    problems: [],
+    schema: {
+      connection: "acme-shop", schema: "shop", migration_version: 3, released_version: 2, pending: [4],
+      adopted_version: 0, run_role: "shop_run", write_role: "", note: schemaNote("shop", "shop_run"),
+    },
+    problems: [SHOP_UNWRITTEN],
+    findings: [{ kind: "unwritten_table", node: "table:acme-shop/shop.refunds", message: SHOP_UNWRITTEN, blocks: false }],
     releases: shopReleases,
   },
   "app-intake": {
@@ -184,6 +223,7 @@ export const mockApplicationDetails: Record<string, ApplicationDetail> = {
     current_release: null,
     pending: [{ kind: "script", part_id: "script-004", from: 0, to: 1 }],
     problems: ["script-004 has no saved version that passed its tests"],
+    findings: [],
     releases: [],
   },
 };

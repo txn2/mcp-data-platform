@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/pglint"
 	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 )
 
@@ -24,7 +25,7 @@ type fakeLedger struct {
 	err     error
 	// target answers the review's read of the server and schema; a zero
 	// major reads as PostgreSQL 17.
-	target    Target
+	target    pglint.Target
 	targetErr error
 }
 
@@ -37,7 +38,7 @@ func (f *fakeLedger) QueryRow(_ context.Context, sql string, _ ...any) pgx.Row {
 
 // targetRow answers lintTargetSQL.
 type targetRow struct {
-	target Target
+	target pglint.Target
 	err    error
 }
 

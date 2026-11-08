@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/pglint"
 	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 )
 
@@ -34,7 +35,7 @@ func TestAddRefusesAMigrationThatRemovesDataWithoutAnAgreedSummary(t *testing.T)
 	require.Len(t, findings, 1)
 	first, ok := findings[0].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, RuleDropColumn, first["rule"])
+	assert.Equal(t, pglint.RuleDropColumn, first["rule"])
 	require.Len(t, store.events, 1)
 	assert.Equal(t, EventAdded, store.events[0].Event)
 	assert.Contains(t, store.events[0].Detail, "change summary agreed by dev@example.com: Removes the free-text note on every order.")
@@ -52,8 +53,8 @@ func TestAddWarnsAndSaves(t *testing.T) {
 	require.Len(t, findings, 1)
 	f, ok := findings[0].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, RuleIndexLocks, f["rule"])
-	assert.Equal(t, SeverityWarning, f["severity"])
+	assert.Equal(t, pglint.RuleIndexLocks, f["rule"])
+	assert.Equal(t, pglint.SeverityWarning, f["severity"])
 	assert.NotEmpty(t, f["safe_form"])
 	require.Len(t, store.migrations, 1)
 	assert.Equal(t, "create_index_locks on orders (statement 1)", store.events[0].Detail)
@@ -77,14 +78,14 @@ func TestAddNamesTheScriptsARenameBreaks(t *testing.T) {
 	require.Len(t, findings, 1, "a rename no script names is not reported")
 	f, ok := findings[0].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, RuleRenameReferenced, f["rule"])
+	assert.Equal(t, pglint.RuleRenameReferenced, f["rule"])
 	assert.Equal(t, []any{"order-intake", "weekly-report"}, f["scripts"])
 	assert.Contains(t, f["effect"], "order-intake, weekly-report")
 
 	tk.SetScriptReferences(func(context.Context, string, []string) (map[string][]string, error) {
 		return nil, errors.New("index down")
 	})
-	_, renames := Lint("ALTER TABLE orders RENAME TO purchases", Target{})
+	_, renames := pglint.Lint("ALTER TABLE orders RENAME TO purchases", pglint.Target{})
 	assert.Empty(t, tk.renameFindings(context.Background(), "shop", renames), "a lookup failure reports nothing rather than guessing")
 }
 
@@ -98,7 +99,7 @@ func TestAddWithoutCreateDBWarnsThatFromZeroWasNotChecked(t *testing.T) {
 	require.Len(t, findings, 1)
 	f, ok := findings[0].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, RuleFromZeroUnchecked, f["rule"])
+	assert.Equal(t, pglint.RuleFromZeroUnchecked, f["rule"])
 	assert.Contains(t, f["effect"], "CREATEDB")
 	assert.Len(t, store.migrations, 1)
 }
@@ -126,4 +127,72 @@ func TestWithMigration(t *testing.T) {
 	assert.Equal(t, "new", got[0].Name)
 	got = withMigration(got, Migration{Schema: "a", Version: 2})
 	assert.Equal(t, []int{1, 2, 1}, versionsOf(got))
+}
+
+func TestReviewRefusesAndReportsTheTarget(t *testing.T) {
+	ctx := mcpcontext.WithCaller(context.Background(), mcpcontext.Caller{UserID: "u1", Email: "dev@example.com", IsAdmin: true})
+	tk, store := schemaToolkit(&fakeLedger{exists: true}, baseConfig())
+	_, refusal := run(ctx, t, tk, schemaInput{Command: schemaAdd, Version: 2, Name: "sys", Up: "CREATE TABLE a (id int);\nALTER SYSTEM SET work_mem = '1GB'"})
+	assert.Contains(t, refusal, "migration 2 is refused")
+	assert.Contains(t, refusal, "statement 2 (ALTER SYSTEM)")
+	assert.Empty(t, store.migrations, "nothing saved")
+
+	// The down SQL is held to the same refusals (#2475).
+	const canary = "down-canary-2475"
+	_, refusal = run(ctx, t, tk, schemaInput{
+		Command: schemaAdd, Version: 2, Name: "down", Up: "CREATE TABLE a (id int)",
+		Down: "DROP TABLE a;\nALTER ROLE app PASSWORD '" + canary + "'",
+	})
+	assert.Contains(t, refusal, "down statement 2 (ALTER ROLE)")
+	assert.NotContains(t, refusal, canary)
+	assert.Empty(t, store.migrations, "nothing saved")
+
+	tk, _ = schemaToolkit(&fakeLedger{exists: true, targetErr: errors.New("connection refused")}, baseConfig())
+	out, refusal := run(ctx, t, tk, schemaInput{Command: schemaAdd, Version: 2, Name: "t", Up: "CREATE TABLE t (id uuid DEFAULT uuidv7())"})
+	require.Empty(t, refusal)
+	findings, _ := out["findings"].([]any)
+	require.Len(t, findings, 1, "the version rules did not run, and the add says so")
+	first, _ := findings[0].(map[string]any)
+	assert.Equal(t, pglint.RuleTargetUnread, first["rule"])
+
+	tk, _ = schemaToolkit(&fakeLedger{exists: true, target: pglint.Target{Major: 18}}, baseConfig())
+	out, refusal = run(ctx, t, tk, schemaInput{Command: schemaAdd, Version: 2, Name: "t", Up: "CREATE TABLE t (id uuid DEFAULT uuidv7())"})
+	require.Empty(t, refusal)
+	assert.Empty(t, out["findings"], "18 has uuidv7")
+}
+
+func TestWithServerFindings(t *testing.T) {
+	plain := errors.New("plain")
+	assert.Equal(t, plain, withServerFindings(plain, nil))
+	failed := &RefusedError{Code: CodeFromZeroFailed, msg: "applied from zero: syntax error"}
+	assert.Equal(t, failed, withServerFindings(failed, []pglint.Finding{{Rule: "row_security_not_forced"}}))
+	got := withServerFindings(failed, []pglint.Finding{{Rule: pglint.RuleNeedsNewerServer, Statement: 1, Effect: "uses uuidv7()", Safe: "gen_random_uuid()"}})
+	var refused *RefusedError
+	require.ErrorAs(t, got, &refused)
+	assert.Equal(t, CodeFromZeroFailed, refused.Code)
+	assert.Contains(t, got.Error(), "syntax error. The review found: statement 1 uses uuidv7() (instead: gen_random_uuid())")
+}
+
+func TestReviewReadsTheSchemasRowSecurityAndVirtualColumns(t *testing.T) {
+	ctx := mcpcontext.WithCaller(context.Background(), mcpcontext.Caller{UserID: "u1", Email: "dev@example.com", IsAdmin: true})
+	tk, _ := schemaToolkit(&fakeLedger{exists: true, target: pglint.Target{
+		Major: 18, RowSecurity: map[string]bool{"notes": true}, Virtual: map[string]map[string]bool{"t": {"b": true}},
+	}}, baseConfig())
+	out, refusal := run(ctx, t, tk, schemaInput{
+		Command: schemaAdd, Version: 2, Name: "v",
+		Up: "CREATE VIEW mine AS SELECT id FROM notes;\nCREATE INDEX t_b ON t (b)",
+	})
+	require.Empty(t, refusal)
+	findings, _ := out["findings"].([]any)
+	rules := make([]string, 0, len(findings))
+	for _, raw := range findings {
+		f, _ := raw.(map[string]any)
+		rule, _ := f["rule"].(string)
+		rules = append(rules, rule)
+	}
+	assert.ElementsMatch(t, []string{"view_bypasses_row_security", pglint.RuleIndexVirtualColumn, pglint.RuleIndexLocks}, rules)
+
+	target, unread := tk.lintTarget(ctx, "nope", "public")
+	assert.Zero(t, target.Major)
+	assert.Nil(t, unread, "an unknown connection is refused by the add, not reported here")
 }

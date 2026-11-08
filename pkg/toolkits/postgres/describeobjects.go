@@ -164,6 +164,16 @@ WHERE n.nspname = $1 AND t.typtype = 'd' AND NOT EXISTS (SELECT 1 FROM pg_depend
 ORDER BY t.typname`
 
 // Words describe reports the catalog's codes as.
+const (
+	kwFunction  = "function"
+	kwProcedure = "procedure"
+	// float64Bits is the precision a number is read at.
+	float64Bits = 64
+)
+
+// optionTrue are the values that turn a boolean option on.
+var optionTrue = map[string]bool{"true": true, "on": true, "1": true, "yes": true}
+
 var (
 	functionKinds = map[string]string{"f": kwFunction, "p": kwProcedure}
 	volatilities  = map[string]string{"i": "immutable", "s": "stable", "v": "volatile"}

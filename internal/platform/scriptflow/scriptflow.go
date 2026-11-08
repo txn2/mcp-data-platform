@@ -148,6 +148,12 @@ type Node struct {
 	// API is what an api_invoke_endpoint or api_export call names, for the
 	// used-by index (#2485); nil on every other step. Not drawn.
 	API *APICall `json:"-"`
+	// Data is what a statement step reads and writes (#2539, #2540); nil on
+	// every other step. Not drawn.
+	Data *DataRef `json:"-"`
+	// Output is what an export, a data refresh, a notification or a channel
+	// post names (#2540); nil on every other step. Not drawn.
+	Output *OutputRef `json:"-"`
 }
 
 // APICall is the connection and operation an API step names. Each field is

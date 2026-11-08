@@ -77,6 +77,31 @@ describe("AppDBMigrationsCard", () => {
     expect(screen.getByRole("button", { name: /Plan/ })).toBeDisabled();
   });
 
+  it("lists the schemas no application holds, each with the call that adds it", () => {
+    renderCard(report);
+    expect(screen.getByTestId("appdb-application")).toHaveTextContent("In no application");
+    const unheld = screen.getByTestId("appdb-unheld-schemas");
+    expect(unheld).toHaveTextContent("Schemas in no application");
+    expect(unheld).toHaveTextContent("Migrations on these schemas are refused until an application holds them.");
+    expect(
+      screen.getByText("manage_application add_part application=<name> kind=schema part_id=acme-shop/public"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy the call that adds public" })).toBeInTheDocument();
+  });
+
+  it("names the application holding the schema, and lists no section when every schema is held", () => {
+    renderCard({ ...report, schema: "shop", application: "shop", unheld_schemas: [] });
+    expect(screen.getByTestId("appdb-application")).toHaveTextContent("Application: shop");
+    expect(screen.queryByTestId("appdb-unheld-schemas")).toBeNull();
+  });
+
+  it("says nothing of applications where the platform governs no schema", () => {
+    const { application: _a, unheld_schemas: _u, ...older } = report;
+    renderCard(older);
+    expect(screen.queryByTestId("appdb-application")).toBeNull();
+    expect(screen.queryByText("Schemas in no application")).toBeNull();
+  });
+
   it("says there are none yet", () => {
     renderCard({ ...report, migrations: [], events: [] });
     expect(screen.getByText(/No migrations yet/)).toBeInTheDocument();

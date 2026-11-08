@@ -373,6 +373,9 @@ func (r *Runner) connect(ctx context.Context, t *Target, sessionID string, reque
 	// The request's caller is what its application database statements'
 	// claims carry (#2403), never the author: a public endpoint's are empty.
 	serverCtx = scriptsession.WithEndpoint(serverCtx, endpointClaims(requester))
+	// The stamp read for this request names the script's application, so its
+	// statements find their run role without a query of their own (#2539).
+	serverCtx = scriptsession.WithRunAs(serverCtx, t.stamp.Application, t.stamp.AppConnection)
 	caller, cleanup, err := scriptsession.Connect(serverCtx, r.Server, clientLabel)
 	if err != nil {
 		return nil, nil, fmt.Errorf("opening the request's session: %w", err)

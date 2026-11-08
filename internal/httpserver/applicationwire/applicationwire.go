@@ -10,6 +10,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/application"
 	"github.com/txn2/mcp-data-platform/internal/application/apphttp"
+	"github.com/txn2/mcp-data-platform/internal/application/apprunrole"
 	"github.com/txn2/mcp-data-platform/internal/application/appstore"
 	"github.com/txn2/mcp-data-platform/internal/application/appsvc"
 	"github.com/txn2/mcp-data-platform/internal/application/appwire"
@@ -52,6 +53,9 @@ func Mount(mux *http.ServeMux, p *platform.Platform, wrap func(http.Handler) htt
 	if gate != nil {
 		d.SaveGate, d.Recordings = gate, gate.Recordings
 	}
+	if enc := p.RestEncryptor(); enc != nil {
+		d.Sealer = enc
+	}
 	lister := connreach.New(connreach.Deps{Toolkits: p.ToolkitRegistry(), Personas: p.PersonaRegistry(), Stored: platform.StoredConnections(p)})
 	src := databaseSources{
 		reach:   lister.ForPersona,
@@ -59,6 +63,7 @@ func Mount(mux *http.ServeMux, p *platform.Platform, wrap func(http.Handler) htt
 		schemas: readSchemas(func() *postgreskit.Toolkit { return appwire.Live(p.ToolkitRegistry()) }),
 		held:    appstore.New(p.DB()).List,
 	}
+	d.Reach = apprunrole.ReachVia(lister, func(roles []string) string { return personaOf(p, roles) })
 	register(mux, wrap, d, routes{
 		isAdmin: isAdmin, audit: p.Audit().Logger(), databases: src.choices,
 		viewAsset: assetViewer(p.PortalShareStore()),

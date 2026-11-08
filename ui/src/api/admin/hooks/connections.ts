@@ -393,6 +393,20 @@ export interface AppDBMigrationReport {
   migrations: AppDBMigration[];
   drift: { version: number; reason: string }[];
   events: AppDBMigrationEvent[];
+  /** The application holding the schema, "" for none (#2539). */
+  application?: string;
+  /**
+   * Every schema of the connection with migrations that no application holds,
+   * whose migrations are refused until one does; add_part is the one call
+   * that adds it.
+   */
+  unheld_schemas?: AppDBUnheldSchema[];
+}
+
+/** A schema with migrations that no application holds (#2539). */
+export interface AppDBUnheldSchema {
+  schema: string;
+  add_part: string;
 }
 
 // AppDBMigrationPlan is what applying the pending migrations would do, from a

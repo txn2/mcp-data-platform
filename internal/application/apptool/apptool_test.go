@@ -98,6 +98,34 @@ func (*store) Owning(context.Context, string, string) (*application.Application,
 	return nil, application.ErrNotFound
 }
 
+func (s *store) SetSchema(_ context.Context, id string, h application.HeldSchema) error {
+	a := s.apps[id]
+	a.Connection, a.Schema = h.Connection, h.Schema
+	a.Parts = append(a.Parts, application.Part{Kind: application.KindSchema, ID: application.SchemaPartID(h.Connection, h.Schema)})
+	return nil
+}
+
+func (*store) SetRunRole(context.Context, string, application.HeldSchema) error { return nil }
+
+func (s *store) ClearSchema(_ context.Context, id string) error {
+	a := s.apps[id]
+	a.Connection, a.Schema = "", ""
+	return nil
+}
+
+func (s *store) Holding(_ context.Context, connection, schema string) (*application.Application, error) {
+	for _, a := range s.apps {
+		if a.Connection == connection && a.Schema == schema {
+			return a, nil
+		}
+	}
+	return nil, application.ErrNotFound
+}
+
+func (*store) RunRoleOf(context.Context, string) (*application.RunRole, error) {
+	return nil, application.ErrNoRunRole
+}
+
 func (s *store) Releases(context.Context, string) ([]application.Release, error) {
 	return s.releases, nil
 }

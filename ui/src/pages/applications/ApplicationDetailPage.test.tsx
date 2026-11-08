@@ -41,7 +41,7 @@ describe("ApplicationDetailPage", () => {
 
     expect(screen.getByTestId("application-facts")).toHaveTextContent("sarah.chen@example.com");
     expect(screen.getByText("Release 3")).toBeInTheDocument();
-    expect(screen.getByTestId("parts-subtitle")).toHaveTextContent("4 parts. Release v3 pins the version of each.");
+    expect(screen.getByTestId("parts-subtitle")).toHaveTextContent("5 parts. Release v3 pins the version of each.");
     expect(screen.getByRole("group", { name: "Automations" })).toHaveTextContent("Automations · 2");
     const sales = screen.getByTestId("part-script-script-001");
     expect(sales).toHaveTextContent("Daily sales report");
@@ -114,7 +114,7 @@ describe("ApplicationDetailPage", () => {
     await loaded();
 
     expect(screen.getByRole("button", { name: "Add parts" })).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: /^Actions for / })).toHaveLength(4);
+    expect(screen.getAllByRole("button", { name: /^Actions for / })).toHaveLength(5);
     for (const name of ["Release", "Roll back", "Export"]) {
       expect(screen.queryByRole("button", { name }), name).toBeNull();
     }

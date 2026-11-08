@@ -30,8 +30,14 @@ const (
 	owner2404 = "acme-owner-key"
 )
 
-// schema2404 is a fresh schema name for one criterion.
-func schema2404(prefix string) string { return "acc2404_" + prefix + "_" + unique1579() }
+// schema2404 is a fresh schema name for one criterion, held by an application
+// of its own so its migrations are added and applied (#2539).
+func schema2404(t *testing.T, prefix string) string {
+	t.Helper()
+	schema := "acc2404_" + prefix + "_" + unique1579()
+	holdSchema(t, connect(t), conn2404, schema)
+	return schema
+}
 
 // threeMigrations2404 are the migrations most criteria apply.
 func threeMigrations2404() []map[string]any {
@@ -96,7 +102,7 @@ def main():
 
 func TestIssue2404_ThreeMigrationsAreAppliedAndRecorded(t *testing.T) {
 	admin := connect(t)
-	schema := schema2404("apply")
+	schema := schema2404(t, "apply")
 	addAll(admin, schema, threeMigrations2404())
 	before := schemaCall(admin, schema, map[string]any{"command": "status"})
 	if pending, _ := before["pending"].([]any); len(pending) != 3 {
@@ -128,7 +134,7 @@ func TestIssue2404_ThreeMigrationsAreAppliedAndRecorded(t *testing.T) {
 
 func TestIssue2404_PlanListsTheTableAndItsLockAndRollsBack(t *testing.T) {
 	admin := connect(t)
-	schema := schema2404("plan")
+	schema := schema2404(t, "plan")
 	addAll(admin, schema, threeMigrations2404()[:1])
 	schemaCall(admin, schema, map[string]any{"command": "apply"})
 	schemaCall(admin, schema, map[string]any{"command": "add", "version": 2, "name": "order note", "up": "ALTER TABLE shop_orders ADD COLUMN note text"})
@@ -167,7 +173,7 @@ func TestIssue2404_PlanListsTheTableAndItsLockAndRollsBack(t *testing.T) {
 
 func TestIssue2404_AnAppliedMigrationIsImmutableAndAnAlteredLedgerStopsTheApply(t *testing.T) {
 	admin := connect(t)
-	schema := schema2404("immutable")
+	schema := schema2404(t, "immutable")
 	migrations := threeMigrations2404()
 	addAll(admin, schema, migrations[:1])
 	schemaCall(admin, schema, map[string]any{"command": "apply"})
@@ -197,7 +203,7 @@ def main():
 
 func TestIssue2404_TwoConcurrentAppliesApplyEachVersionOnce(t *testing.T) {
 	admin := connect(t)
-	schema := schema2404("concurrent")
+	schema := schema2404(t, "concurrent")
 	addAll(admin, schema, threeMigrations2404())
 	clients := []*client{connect(t), connect(t)}
 	results := make([]string, 2)
@@ -235,7 +241,7 @@ func TestIssue2404_TwoConcurrentAppliesApplyEachVersionOnce(t *testing.T) {
 
 func TestIssue2404_AFailingMigrationLeavesNoChangeAndNoLedgerRow(t *testing.T) {
 	admin := connect(t)
-	schema := schema2404("fails")
+	schema := schema2404(t, "fails")
 	schemaCall(admin, schema, map[string]any{"command": "add", "version": 1, "name": "half", "up": "CREATE TABLE half_done (id int)"})
 	schemaCall(admin, schema, map[string]any{"command": "apply"})
 	// A row the live table holds and a new database does not: migration 2
@@ -270,7 +276,7 @@ def main():
 
 func TestIssue2404_DescribeListsTheSchemaAndSearchDoesNot(t *testing.T) {
 	admin := connect(t)
-	schema := schema2404("describe")
+	schema := schema2404(t, "describe")
 	addAll(admin, schema, threeMigrations2404())
 	schemaCall(admin, schema, map[string]any{"command": "apply"})
 	out := schemaCall(admin, schema, map[string]any{"command": "describe"})
@@ -312,7 +318,7 @@ func TestIssue2404_DescribeListsTheSchemaAndSearchDoesNot(t *testing.T) {
 
 func TestIssue2404_ApplyNeedsTheGrant(t *testing.T) {
 	owner := connectAs(t, owner2404)
-	schema := schema2404("grant")
+	schema := schema2404(t, "grant")
 	addAll(owner, schema, threeMigrations2404()[:1])
 	plan := schemaCall(owner, schema, map[string]any{"command": "plan"})
 	if plan["rolled_back"] != true {
@@ -330,7 +336,7 @@ func TestIssue2404_ApplyNeedsTheGrant(t *testing.T) {
 
 func TestIssue2404_AMigrationCannotEndItsOwnTransaction(t *testing.T) {
 	admin := connect(t)
-	schema := schema2404("commit")
+	schema := schema2404(t, "commit")
 	text := schemaRefused(t, admin, schema, map[string]any{
 		"command": "add", "version": 1, "name": "sneaky",
 		"up": "CREATE TABLE kept (id int); COMMIT; CREATE TABLE after_commit (id int)",

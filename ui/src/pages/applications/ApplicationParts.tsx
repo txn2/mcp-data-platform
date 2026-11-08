@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Boxes, CircleMinus, Copy, Ellipsis, ExternalLink, Plus } from "lucide-react";
 import {
   useRemoveApplicationPart,
   type ApplicationDetail,
   type ApplicationPartView,
+  type ApplicationSchemaView,
 } from "@/api/portal/hooks/applications";
 import { EmptyState } from "@/components/patterns/EmptyState";
 import { SectionCard } from "@/components/patterns/SectionCard";
@@ -24,8 +25,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { AddPartsDialog } from "./AddPartsDialog";
+import { ApplicationDiagram } from "./diagram/ApplicationDiagram";
+import { storePartsTab, storedPartsTab, type PartsTab } from "./diagram/diagramModel";
 import { PartTile } from "./PartTile";
 import {
   PART_GROUP_LABEL,
@@ -36,12 +40,16 @@ import {
   partName,
   partPath,
   partReference,
+  type SchemaContext,
 } from "./applicationFormat";
 
 // ApplicationParts is what an application is made of (#2411, #2527): each
 // part by name, grouped by kind, with the version its current release pins
 // and whether a newer one exists. The owner and administrators add and remove
-// parts; a part belongs to at most one application.
+// parts; a part belongs to at most one application. The schema part (#2539)
+// shows its migration version instead of a pin, and what its run role still
+// needs under its row. The card has two tabs (#2540): List, and Diagram, how
+// the parts fit together; the tab chosen is remembered per viewer.
 
 interface Props {
   detail: ApplicationDetail;
@@ -57,6 +65,12 @@ export function ApplicationParts({ detail, canEdit, isAdmin, onNavigate }: Props
   const pinned = new Map((detail.current_release?.pins ?? []).map((p) => [`${p.kind}/${p.part_id}`, p.version]));
   const parts = detail.parts ?? [];
   const behind = parts.filter((p) => isBehind(p, pinned.get(`${p.kind}/${p.id}`))).length;
+  const schemaCtx: SchemaContext = { schema: detail.schema, release: app.current_release };
+  const [tab, setTab] = useState<PartsTab>(storedPartsTab);
+  const chooseTab = (t: PartsTab) => {
+    setTab(t);
+    storePartsTab(t);
+  };
 
   return (
     <SectionCard
@@ -78,22 +92,42 @@ export function ApplicationParts({ detail, canEdit, isAdmin, onNavigate }: Props
       }
       data-testid="application-parts"
     >
-      {parts.length === 0 ? (
-        <EmptyState icon={Boxes}>No parts yet</EmptyState>
-      ) : (
-        <div className="-mx-4">
-          <PartGroups
-            parts={parts}
-            pinned={pinned}
-            isAdmin={isAdmin}
-            canEdit={canEdit}
-            onRemove={setRemoving}
-            onNavigate={onNavigate}
-          />
-          {behind > 0 && <BehindFooter behind={behind} release={app.current_release} />}
-        </div>
+      <Tabs value={tab} onValueChange={(v) => chooseTab(v as PartsTab)}>
+        <TabsList aria-label="Parts view">
+          <TabsTrigger value="list">List</TabsTrigger>
+          <TabsTrigger value="diagram">Diagram</TabsTrigger>
+        </TabsList>
+        <TabsContent value="list">
+          <NoPartsOr empty={parts.length === 0}>
+            <div className="-mx-4">
+              <PartGroups
+                parts={parts}
+                pinned={pinned}
+                schemaCtx={schemaCtx}
+                isAdmin={isAdmin}
+                canEdit={canEdit}
+                onRemove={setRemoving}
+                onNavigate={onNavigate}
+              />
+              {behind > 0 && <BehindFooter behind={behind} release={app.current_release} />}
+            </div>
+          </NoPartsOr>
+        </TabsContent>
+        <TabsContent value="diagram">
+          <NoPartsOr empty={parts.length === 0}>
+            <ApplicationDiagram detail={detail} onNavigate={onNavigate} />
+          </NoPartsOr>
+        </TabsContent>
+      </Tabs>
+      {adding && (
+        <AddPartsDialog
+          app={app.id}
+          appName={app.name}
+          heldSchema={app.schema ? `${app.connection}/${app.schema}` : null}
+          onNavigate={onNavigate}
+          onClose={() => setAdding(false)}
+        />
       )}
-      {adding && <AddPartsDialog app={app.id} appName={app.name} onNavigate={onNavigate} onClose={() => setAdding(false)} />}
       {removing && (
         <RemovePartDialog app={app.id} appName={app.name} part={removing} onClose={() => setRemoving(null)} />
       )}
@@ -101,10 +135,16 @@ export function ApplicationParts({ detail, canEdit, isAdmin, onNavigate }: Props
   );
 }
 
+/** NoPartsOr is a tab's content, or that the application has no parts yet. */
+function NoPartsOr({ empty, children }: { empty: boolean; children: ReactNode }) {
+  return empty ? <EmptyState icon={Boxes}>No parts yet</EmptyState> : <>{children}</>;
+}
+
 /** PartGroups lists the parts under a heading per kind, a kind with none left out. */
 function PartGroups({
   parts,
   pinned,
+  schemaCtx,
   isAdmin,
   canEdit,
   onRemove,
@@ -112,6 +152,7 @@ function PartGroups({
 }: {
   parts: ApplicationPartView[];
   pinned: Map<string, number>;
+  schemaCtx: SchemaContext;
   isAdmin: boolean;
   canEdit: boolean;
   onRemove: (part: ApplicationPartView) => void;
@@ -132,6 +173,7 @@ function PartGroups({
                 key={`${part.kind}/${part.id}`}
                 part={part}
                 pinned={pinned.get(`${part.kind}/${part.id}`)}
+                schemaCtx={schemaCtx}
                 path={part.state === "ok" ? partPath(part.kind, part.id, isAdmin) : null}
                 canEdit={canEdit}
                 onRemove={() => onRemove(part)}
@@ -172,14 +214,19 @@ function partsSummary(count: number, release: number): string {
   return release > 0 ? `${n} Release v${release} pins the version of each.` : `${n} No release published yet.`;
 }
 
-/** isBehind reports a part whose newest version is past the one its release pins. */
+/**
+ * isBehind reports a part whose newest version is past the one its release
+ * pins. A schema is not pinned: its pending migrations are the release's.
+ */
 function isBehind(p: ApplicationPartView, pinned: number | undefined): boolean {
+  if (p.kind === "schema") return false;
   return pinned !== undefined && p.latest_version !== null && p.latest_version > pinned;
 }
 
 function PartRow({
   part,
   pinned,
+  schemaCtx,
   path,
   canEdit,
   onRemove,
@@ -187,6 +234,7 @@ function PartRow({
 }: {
   part: ApplicationPartView;
   pinned: number | undefined;
+  schemaCtx: SchemaContext;
   path: string | null;
   canEdit: boolean;
   onRemove: () => void;
@@ -195,17 +243,18 @@ function PartRow({
   const [menuOpen, setMenuOpen] = useState(false);
   const ok = part.state === "ok";
   const hasMenu = canEdit || (ok && (path !== null || partReference(part.kind, part.id) !== null));
+  const schema = part.kind === "schema" && ok ? schemaCtx.schema : undefined;
   return (
     <div
       data-testid={`part-${part.kind}-${part.id}`}
       className={cn(
-        "grid grid-cols-[36px_minmax(0,1fr)_auto_36px] items-center gap-4 border-t px-4 py-3 transition-colors hover:bg-muted/40",
+        "grid grid-cols-[36px_minmax(0,1fr)_auto_36px] items-center gap-x-4 gap-y-1 border-t px-4 py-3 transition-colors hover:bg-muted/40",
         menuOpen && "bg-muted/40",
       )}
     >
       <PartTile kind={part.kind} muted={!ok} />
-      <PartNameCell part={part} path={path} onNavigate={onNavigate} />
-      <PartVersion part={part} pinned={pinned} />
+      <PartNameCell part={part} schemaCtx={schemaCtx} path={path} onNavigate={onNavigate} />
+      {part.kind === "schema" ? <SchemaVersion schema={schema} /> : <PartVersion part={part} pinned={pinned} />}
       {hasMenu ? (
         <PartMenu
           part={part}
@@ -219,6 +268,18 @@ function PartRow({
       ) : (
         <span />
       )}
+      {schema && <SchemaNote schema={schema} />}
+    </div>
+  );
+}
+
+/** SchemaNote is what the schema's run role still needs, or why its migrations could not be read. */
+function SchemaNote({ schema }: { schema: ApplicationSchemaView }) {
+  if (!schema.problem && !schema.note) return null;
+  return (
+    <div className="col-start-2 col-end-5 flex flex-col gap-0.5 text-xs" data-testid="schema-note">
+      {schema.problem && <p className="text-destructive">{schema.problem}</p>}
+      {schema.note && <p className="text-muted-foreground">{schema.note}</p>}
     </div>
   );
 }
@@ -226,15 +287,17 @@ function PartRow({
 /** PartNameCell is the part's name, a link where it opens, and its description line. */
 function PartNameCell({
   part,
+  schemaCtx,
   path,
   onNavigate,
 }: {
   part: ApplicationPartView;
+  schemaCtx: SchemaContext;
   path: string | null;
   onNavigate: (path: string) => void;
 }) {
   const name = partName(part);
-  const description = partDescription(part);
+  const description = partDescription(part, schemaCtx);
   return (
     <div className="flex min-w-0 flex-col gap-0.5">
       {path ? (
@@ -306,6 +369,24 @@ function CopyReferenceItem({ part }: { part: ApplicationPartView }) {
   );
 }
 
+/** SchemaVersion is the migration the schema has applied, and how many a release would apply. */
+function SchemaVersion({ schema }: { schema?: ApplicationSchemaView }) {
+  if (!schema || schema.problem) {
+    return <span className="text-[13px] text-muted-foreground">Not read</span>;
+  }
+  const label = schema.migration_version > 0 ? `Migration ${schema.migration_version}` : "No migrations";
+  if (schema.pending.length === 0) return <span className="text-[13px]">{label}</span>;
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <span className="text-[13px]">{label}</span>
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs text-amber-700 dark:text-amber-300">
+        <span aria-hidden="true" className="size-1.5 rounded-full bg-amber-500" />
+        {schema.pending.length} pending
+      </span>
+    </div>
+  );
+}
+
 function PartVersion({ part, pinned }: { part: ApplicationPartView; pinned: number | undefined }) {
   if (part.kind === "source") {
     return <span className="text-[13px] text-muted-foreground">Not versioned</span>;
@@ -358,7 +439,9 @@ function RemovePartDialog({
         <DialogHeader>
           <DialogTitle>Remove part</DialogTitle>
           <DialogDescription>
-            Remove {name} from {appName}? It stays in the portal; the next release no longer pins it.
+            {part.kind === "schema"
+              ? `Remove schema ${part.id} from ${appName}? The database role its automations log in as is dropped; the schema and its data stay.`
+              : `Remove ${name} from ${appName}? It stays in the portal; the next release no longer pins it.`}
           </DialogDescription>
         </DialogHeader>
         {failure && (

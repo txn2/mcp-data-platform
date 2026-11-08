@@ -237,7 +237,7 @@ func Read(ctx context.Context, q Querier, connection string, o Options) *Report 
 	if !r.Server.InRecovery {
 		rd.section(SectionReplication, replicationSQL, rd.replica)
 	}
-	rd.statements()
+	rd.statements(o)
 	return r
 }
 
@@ -333,7 +333,7 @@ func (rd *reader) replica(x row) {
 
 // statements reads pg_stat_statements when the database holds it. Installed
 // and not loaded is reported as such, not as a failure.
-func (rd *reader) statements() {
+func (rd *reader) statements(o Options) {
 	installed := false
 	for _, e := range rd.r.Extensions {
 		installed = installed || e.Name == statStatements
@@ -343,7 +343,7 @@ func (rd *reader) statements() {
 		rd.r.Statements.Note = statStatements + " is not installed in this database"
 		return
 	}
-	rows, err := query(rd.ctx, rd.q, rd.connection, statementsSQL)
+	rows, err := query(rd.ctx, rd.q, rd.connection, statementsSQL, rd.platformIDs(o))
 	if err != nil {
 		if strings.Contains(err.Error(), "55000") {
 			rd.r.Statements.Note = statStatements + " is installed and not loaded; add it to shared_preload_libraries"
@@ -359,6 +359,31 @@ func (rd *reader) statements() {
 		})
 	}
 	rd.section(SectionStatements, hiddenStatementsSQL, func(x row) { rd.r.Statements.HiddenOtherRoles = x.num("n") })
+}
+
+// platformIDs is the query id of every statement the platform runs on the
+// connection, which the ranking leaves out whatever text pg_stat_statements
+// first recorded for it (#2536), as a list for statementsSQL's $1. Empty when
+// the querier cannot read them; the tag still leaves out the statements
+// recorded with it.
+func (rd *reader) platformIDs(o Options) []any {
+	out := []any{}
+	ids, ok := rd.q.(QueryIDReader)
+	if !ok {
+		return out
+	}
+	own := []string{
+		serverSQL, extensionsSQL, connectionsSQL, tablesSQL, unusedIndexesSQL, duplicateIndexesSQL,
+		invalidIndexesSQL, sessionsSQL(o.LongRunning), blockingSQL, replicationSQL, statementsSQL, hiddenStatementsSQL,
+	}
+	got, err := ids.PlatformQueryIDs(rd.ctx, rd.connection, own)
+	if err != nil {
+		return out
+	}
+	for _, id := range got {
+		out = append(out, id)
+	}
+	return out
 }
 
 // Problem is one thing an application database's health card names (#2528):

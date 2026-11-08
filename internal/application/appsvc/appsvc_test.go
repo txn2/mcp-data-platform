@@ -3,6 +3,7 @@ package appsvc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"testing"
 
@@ -21,6 +22,8 @@ type memStore struct {
 	releases map[string][]application.Release
 	held     map[string]int // kind/id -> released version
 	failRec  error
+	runRoles map[string]application.RunRole
+	failSet  error
 }
 
 func newMem() *memStore {
@@ -137,8 +140,64 @@ func (m *memStore) Record(_ context.Context, id string, r application.Recorded) 
 	return &rel, nil
 }
 
+func (m *memStore) SetSchema(_ context.Context, id string, h application.HeldSchema) error {
+	if m.failSet != nil {
+		return m.failSet
+	}
+	for aid, a := range m.apps {
+		if a.Connection == h.Connection && a.Schema == h.Schema && aid != id {
+			return application.ErrSchemaHeld
+		}
+	}
+	a := m.apps[id]
+	if a.Schema != "" {
+		return application.ErrSchemaHeld
+	}
+	a.Connection, a.Schema, a.SchemaAdoptedVersion = h.Connection, h.Schema, h.AdoptedVersion
+	a.Parts = append(a.Parts, application.Part{Kind: application.KindSchema, ID: application.SchemaPartID(h.Connection, h.Schema), AddedBy: h.AddedBy})
+	return m.SetRunRole(context.Background(), id, h)
+}
+
+func (m *memStore) SetRunRole(_ context.Context, id string, h application.HeldSchema) error {
+	if m.runRoles == nil {
+		m.runRoles = map[string]application.RunRole{}
+	}
+	if h.Role != "" {
+		m.runRoles[id] = application.RunRole{ApplicationID: id, Connection: h.Connection, Schema: h.Schema, Role: h.Role, SealedPassword: h.SealedPassword}
+	}
+	return nil
+}
+
+func (m *memStore) ClearSchema(_ context.Context, id string) error {
+	a := m.apps[id]
+	if a.Schema == "" {
+		return application.ErrNoPart
+	}
+	a.Parts = slices.DeleteFunc(a.Parts, func(p application.Part) bool { return p.Kind == application.KindSchema })
+	a.Connection, a.Schema, a.SchemaAdoptedVersion = "", "", 0
+	delete(m.runRoles, id)
+	return nil
+}
+
+func (m *memStore) Holding(ctx context.Context, connection, schema string) (*application.Application, error) {
+	for id, a := range m.apps {
+		if a.Connection == connection && a.Schema == schema {
+			return m.Get(ctx, id)
+		}
+	}
+	return nil, application.ErrNotFound
+}
+
+func (m *memStore) RunRoleOf(_ context.Context, id string) (*application.RunRole, error) {
+	if r, ok := m.runRoles[id]; ok {
+		return &r, nil
+	}
+	return nil, application.ErrNoRunRole
+}
+
 type fakeScripts struct {
 	scripts map[string]*script.Script
+	sources map[string]string
 }
 
 func (f *fakeScripts) GetByID(_ context.Context, id string) (*script.Script, error) {
@@ -150,7 +209,11 @@ func (f *fakeScripts) GetVersion(_ context.Context, id string, v int) (*script.V
 	if sc == nil || v > sc.Version {
 		return nil, nil //nolint:nilnil // the version store's contract: nil, nil is no such version
 	}
-	return &script.Version{ScriptID: id, Version: v}, nil
+	src, ok := f.sources[fmt.Sprintf("%s@%d", id, v)]
+	if !ok {
+		src = f.sources[id]
+	}
+	return &script.Version{ScriptID: id, Version: v, Source: src}, nil
 }
 
 type fakeAssets struct {
@@ -242,8 +305,55 @@ func fixture() (*Service, *memStore, *fakeScripts, *fakeAssets, *fakeSchema) {
 	svc := &Service{
 		Store: store, Scripts: scripts, Assets: assets, AssetVersions: assets,
 		Sources: fakeSources{"orders-hook": true}, Schema: schema,
+		Roles: &fakeRoles{}, Sealer: fakeSealer{}, Reach: reachOnly("orders"),
 	}
 	return svc, store, scripts, assets, schema
+}
+
+// reachOnly is a Reach answering the connections named.
+func reachOnly(conns ...string) func(context.Context, application.Actor) ([]string, error) {
+	return func(context.Context, application.Actor) ([]string, error) { return slices.Clone(conns), nil }
+}
+
+// fakeRoles records the run roles made and dropped.
+type fakeRoles struct {
+	created, dropped, granted []string
+	failCreate, failDrop      error
+}
+
+func (f *fakeRoles) CreateRunRole(_ context.Context, connection, schema string) (role, password string, err error) {
+	if f.failCreate != nil {
+		return "", "", f.failCreate
+	}
+	f.created = append(f.created, connection+"/"+schema)
+	return schema + "_run", "pw-" + schema, nil
+}
+
+func (f *fakeRoles) GrantRunRole(_ context.Context, connection, schema string) (string, error) {
+	f.granted = append(f.granted, connection+"/"+schema)
+	return schema + "_write", nil
+}
+
+func (f *fakeRoles) DropRunRole(_ context.Context, connection, schema string) error {
+	if f.failDrop != nil {
+		return f.failDrop
+	}
+	f.dropped = append(f.dropped, connection+"/"+schema)
+	return nil
+}
+
+// fakeSealer seals by prefixing the binding, so a test reads what a value
+// was bound to.
+type fakeSealer struct{ disabled bool }
+
+func (f fakeSealer) Enabled() bool { return !f.disabled }
+
+func (fakeSealer) SealBound(binding, _ string) (string, error) {
+	return "sealed[" + binding + "]", nil
+}
+
+func (fakeSealer) OpenBound(string, string) (string, error) {
+	return "", errors.New("not opened in these tests")
 }
 
 func TestCreateAndEdit(t *testing.T) {

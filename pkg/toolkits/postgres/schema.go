@@ -178,6 +178,11 @@ func (t *Toolkit) runSchema(ctx context.Context, in schemaInput) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if migrates(in.Command) {
+		if err := t.held(ctx, in.Connection, in.Schema); err != nil {
+			return nil, err
+		}
+	}
 	switch in.Command {
 	case schemaStatus:
 		return t.schemaStatus(ctx, in)
@@ -194,6 +199,16 @@ func (t *Toolkit) runSchema(ctx context.Context, in schemaInput) (any, error) {
 	default:
 		return nil, fmt.Errorf("appdb: unknown command %q; the commands are status, add, plan, apply, down, history and describe", in.Command)
 	}
+}
+
+// migrates reports whether command adds, plans, applies or reverts
+// migrations, which only a schema an application holds may (#2539).
+func migrates(command string) bool {
+	switch command {
+	case schemaAdd, schemaPlan, schemaApply, schemaDown:
+		return true
+	}
+	return false
 }
 
 // schemaDescribe is describe: the schema read from the catalog, with the
@@ -289,7 +304,31 @@ func (t *Toolkit) schemaStatus(ctx context.Context, in schemaInput) (any, error)
 	if t.driftCheck != nil {
 		out["schema_drift"] = t.driftCheck(ctx, in.Connection, in.Schema)
 	}
+	if err := t.statusApplications(ctx, in, out); err != nil {
+		return nil, err
+	}
 	return out, nil
+}
+
+// statusApplications adds to status the application holding the schema and
+// every schema of the connection with migrations that none holds (#2539),
+// each with the call that adds it to one.
+func (t *Toolkit) statusApplications(ctx context.Context, in schemaInput, out map[string]any) error {
+	apps := t.applications()
+	if apps == nil {
+		return nil
+	}
+	holder, err := apps.Holder(ctx, in.Connection, in.Schema)
+	if err != nil {
+		return fmt.Errorf("appdb: reading which application holds schema %q: %w", in.Schema, err)
+	}
+	out["application"] = holder
+	unheld, err := t.unheldSchemas(ctx, in.Connection)
+	if err != nil {
+		return err
+	}
+	out["unheld_schemas"] = unheld
+	return nil
 }
 
 func nonNilDrift(d []Drift) []Drift {
@@ -526,7 +565,16 @@ func (t *Toolkit) schemaChange(ctx context.Context, c *conn, in schemaInput) (an
 	if err != nil {
 		return nil, &doneBeforeError{err: err, done: versionsOf(done)}
 	}
-	return map[string]any{keyConnection: in.Connection, keySchema: in.Schema, "command": in.Command, "done": refsOf(done)}, nil
+	out := map[string]any{keyConnection: in.Connection, keySchema: in.Schema, "command": in.Command, "done": refsOf(done)}
+	if in.Command == schemaApply && t.applications() != nil {
+		// The migration that defines the schema's write role is usually
+		// applied after the schema joined its application: its run role is
+		// granted it here, as a release grants it (#2539).
+		if granted, err := t.GrantRunRole(ctx, in.Connection, in.Schema); err == nil && granted != "" {
+			out["granted"] = granted + " to " + c.runRoleName(in.Schema)
+		}
+	}
+	return out, nil
 }
 
 func versionsOf(ms []Migration) []int {
@@ -628,6 +676,13 @@ type SchemaReport struct {
 	Migrations     []MigrationState `json:"migrations"`
 	Drift          []Drift          `json:"drift"`
 	Events         []MigrationEvent `json:"events"`
+	// Application is the application holding the schema, empty for none
+	// (#2539). UnheldSchemas is every schema of the connection with
+	// migrations that no application holds, whose migrations are refused
+	// until one does. UnheldSchemas is absent when the platform governs no
+	// schema, and [] when it does and every schema is held.
+	Application   string          `json:"application"`
+	UnheldSchemas *[]unheldSchema `json:"unheld_schemas,omitempty"`
 }
 
 // ErrNoMigrationStore is returned where the deployment keeps no migrations.
@@ -655,10 +710,21 @@ func (t *Toolkit) Report(ctx context.Context, connection, schema string) (*Schem
 	if err != nil {
 		return nil, fmt.Errorf("appdb: reading the history: %w", err)
 	}
-	return &SchemaReport{
+	report := &SchemaReport{
 		Connection: connection, Schema: schema, Ledger: c.ledger(), CurrentVersion: currentOf(applied),
 		Migrations: statesOf(migrations, applied, drift), Drift: nonNilDrift(drift), Events: events,
-	}, nil
+	}
+	if apps := t.applications(); apps != nil {
+		if report.Application, err = apps.Holder(ctx, connection, schema); err != nil {
+			return nil, fmt.Errorf("appdb: reading which application holds schema %q: %w", schema, err)
+		}
+		unheld, err := t.unheldSchemas(ctx, connection)
+		if err != nil {
+			return nil, err
+		}
+		report.UnheldSchemas = &unheld
+	}
+	return report, nil
 }
 
 // currentOf is the highest applied version, 0 for none.
@@ -700,6 +766,13 @@ func statesOf(migrations []Migration, applied []Applied, drift []Drift) []Migrat
 func (t *Toolkit) PendingPlan(ctx context.Context, connection, schema string) (*Plan, error) {
 	if t.migrations == nil {
 		return nil, ErrNoMigrationStore
+	}
+	if _, err := t.schemaConn(connection, schema); err != nil {
+		return nil, err
+	}
+	// The portal's plan is refused as manage_schema plan is (#2539).
+	if err := t.held(ctx, connection, schema); err != nil {
+		return nil, err
 	}
 	out, err := t.schemaPlan(ctx, nil, schemaInput{Command: schemaPlan, Connection: connection, Schema: schema})
 	if err != nil {

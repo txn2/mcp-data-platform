@@ -3,7 +3,12 @@
 An application database (a connection of kind `appdb`) is an application's
 own PostgreSQL database: the orders, customers and line items an application
 built in the platform commits. Scripts and endpoints read and write it; no
-agent tool reaches its data. Its schema is built with `manage_schema`.
+agent tool reaches its data. Its schema is built with `manage_schema`, and
+only inside the application that holds it: add the schema to an application
+first (`manage_application` `add_part`, `kind: "schema"`, `part_id:
+"<connection>/<schema>"`), and `manage_schema` adds, plans and applies its
+migrations. A schema no application holds is refused for migrations, and
+`manage_schema status` lists every such schema with the call that adds it.
 
 ```mermaid
 flowchart LR
@@ -304,12 +309,83 @@ the test fails naming the privilege.
 
 ## Who a statement runs for
 
-A connection's `persona_roles` maps a persona to a database login role. A
-run's statements log in as the role of the persona the script version's author
-holds (an endpoint request's too), so the database's own grants and row-level
-security apply on top of the platform's persona check. A persona the map does
-not name runs as the connection's `user`. The role logs in itself; it is never
-switched to with `SET ROLE`, so `RESET ROLE` in a statement changes nothing.
+An application's schema is owned by the connection's `user`, which runs its
+migrations (`manage_schema` and a release). The application's statements never
+run as the owner: when the schema is added to the application the platform
+creates the application's run role, a login role named for the schema (`<schema>_run_` and eight characters derived from the database's name), with no
+`SUPERUSER`, `BYPASSRLS`, `CREATEROLE` or `CREATEDB` and a password the
+platform generates, stores encrypted and never shows, and every statement of
+the application's scripts (a run, a draft, an endpoint request, a form, an
+event) logs in as it. Creating it needs `CREATEROLE` on the connection's user,
+which whoever runs the database server grants once (`ALTER ROLE <user>
+CREATEROLE`); without it adding the schema is refused naming that statement.
+Removing the schema from the application drops the role.
+
+The run role holds nothing until the application's migrations define what it
+may do (below); the platform grants it `<schema>_write` when the migrations
+define it, at the next release or `manage_schema apply`. A schema's own scripts
+reach it; any other script, of another application or of none, has no grant on
+it, and its statement is refused by the database, with an error naming the
+application that holds the schema: reach that data through the application's
+endpoints and exports. A script that reads or writes a schema another
+application holds is refused when it is added to an application.
+
+A script that is a part of no application logs in as the role of the persona
+its author holds, when the connection's `persona_roles` maps that persona to a
+login role (`persona_role_passwords` holds its password, encrypted), and as the
+connection's `user` otherwise. The connection's user owns the schemas, so where
+every script must be kept out of the applications' schemas, map each persona
+to a role of its own. A role logs in itself; it is never switched to with `SET
+ROLE`, so `RESET ROLE` in a statement changes nothing.
+
+## What the run role may do
+
+An application defines what its run role may do in its own migrations, with
+roles that cannot log in and whose names start with the schema's: roles belong
+to the whole server, and two applications must not collide. A migration that
+creates, alters, drops or grants to a role whose name does not start with
+`<schema>_`, or grants to `PUBLIC`, is refused when it is added. For most
+applications two roles are enough:
+
+    DO $$BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'shop_read') THEN CREATE ROLE shop_read NOLOGIN; END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'shop_write') THEN CREATE ROLE shop_write NOLOGIN IN ROLE shop_read; END IF;
+    END$$;
+    REVOKE ALL ON SCHEMA shop FROM PUBLIC;
+    GRANT USAGE ON SCHEMA shop TO shop_read;
+    GRANT SELECT ON ALL TABLES IN SCHEMA shop TO shop_read;
+    GRANT INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA shop TO shop_write;
+    GRANT USAGE ON ALL SEQUENCES IN SCHEMA shop TO shop_write;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA shop GRANT SELECT ON TABLES TO shop_read;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA shop GRANT INSERT, UPDATE, DELETE ON TABLES TO shop_write;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA shop GRANT USAGE ON SEQUENCES TO shop_write;
+
+The roles are created only when absent, because the platform applies an
+application's migrations from zero on a throwaway database on the same server
+before saving one, and a role made there is the server's. The down migration
+revokes and drops them: `DROP OWNED BY shop_write, shop_read; DROP ROLE
+shop_write; DROP ROLE shop_read;`. A role is never given a password in a
+migration; that migration is refused.
+
+Narrower when the data calls for it, as ordinary PostgreSQL practice has it:
+
+- Grant per table and per command instead of `ALL TABLES` when some tables are
+  append-only or read-only: an audit or ledger table gets `INSERT` and
+  `SELECT`, never `UPDATE` or `DELETE`.
+- Row-level security with `FORCE` and policies on the `mcp.*` claims (below)
+  for data that belongs to a caller.
+- A `SECURITY DEFINER` function with `SET search_path` pinned and `EXECUTE`
+  revoked from `PUBLIC` for the one privileged operation a role otherwise must
+  not have.
+- Never `SUPERUSER`, `BYPASSRLS`, `CREATEROLE` or grants to `PUBLIC` on an
+  application's roles, and no `TRUNCATE`, `REFERENCES` or `TRIGGER` unless the
+  application needs it.
+
+A schema already in use when it is added to an application keeps working: its
+run role is granted `<schema>_write` when the schema defines it, and until a
+migration does, the application's page names the grants its scripts need.
+
+## The claims a transaction carries
 
 Every transaction sets who it runs for as transaction-local settings, read
 with `current_setting(name, true)`:

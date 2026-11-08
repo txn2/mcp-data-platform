@@ -196,3 +196,40 @@ func mustJSON(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)
 }
+
+// TestSummarizeListsEachPersonOnce is #2537: a person holding two active
+// shares (one explicit, one made when they signed in through a public link)
+// is listed and counted once, keyed by user id where known and by address
+// otherwise, with the highest permission among their shares.
+func TestSummarizeListsEachPersonOnce(t *testing.T) {
+	soon, later := time.Now().Add(time.Hour), time.Now().Add(48*time.Hour)
+	viewer, editor := portaldomain.PermissionViewer, portaldomain.PermissionEditor
+	got := summarize([]portaldomain.Share{
+		{SharedWithEmail: "a@example.com", Permission: viewer},
+		{SharedWithEmail: "b@example.com", Permission: viewer},
+		{SharedWithEmail: "c@example.com", SharedWithUserID: "u-c", Permission: viewer, Origin: portaldomain.OriginExplicit, ExpiresAt: &soon},
+		{SharedWithEmail: "C@Example.com ", Permission: viewer, Origin: portaldomain.OriginPublicLinkLogin, ExpiresAt: &later},
+		{SharedWithUserID: "u-d", Permission: viewer},
+		{SharedWithUserID: "u-d", SharedWithEmail: "d@example.com", Permission: editor, ExpiresAt: &soon},
+		{SharedWithEmail: "d@example.com", Permission: viewer},
+		{SharedWithEmail: "e@example.com", Permission: viewer, ExpiresAt: &soon},
+		{SharedWithEmail: "e@example.com", Permission: viewer},
+		{SharedWithPersona: "finance", Permission: viewer},
+		{SharedWithPersona: "finance", Permission: editor},
+		{SharedWithEmail: "a@example.com", Permission: editor, Revoked: true},
+	})
+	require.Len(t, got.People, 5, "%+v", got.People)
+	assert.Equal(t, 6, got.Total, "distinct people, personas and links")
+	byEmail := map[string]personShare{}
+	for _, p := range got.People {
+		byEmail[strings.ToLower(p.Email)] = p
+	}
+	assert.Equal(t, viewer, byEmail["a@example.com"].Permission, "a revoked share grants nothing")
+	require.NotNil(t, byEmail["c@example.com"].ExpiresAt)
+	assert.Equal(t, later, *byEmail["c@example.com"].ExpiresAt, "the later expiry of two viewer shares")
+	assert.Equal(t, editor, byEmail["d@example.com"].Permission, "the highest permission, matched by user id then address")
+	require.NotNil(t, byEmail["d@example.com"].ExpiresAt)
+	assert.Equal(t, soon, *byEmail["d@example.com"].ExpiresAt, "the expiry of the share granting it")
+	assert.Nil(t, byEmail["e@example.com"].ExpiresAt, "no expiry ends last")
+	assert.Equal(t, []personaShare{{Persona: "finance", Permission: editor}}, got.Personas)
+}

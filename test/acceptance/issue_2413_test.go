@@ -107,20 +107,26 @@ func buildShop2413(t *testing.T) *shop2413 {
 	}
 	clean()
 	t.Cleanup(clean)
-	// The database administrator's part: the ordinary role the scripts'
-	// statements log in as, created outside any migration.
-	targetPSQL(t, "DO $$BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'shop_app') THEN "+
-		"CREATE ROLE shop_app LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD 'shop-app-2413'; END IF; END$$")
+	// The roles the page's last migration defines belong to the server, and
+	// outlive the schema's cleanup.
+	dropRolesLater(t, "shop_write", "shop_read")
 	s.conn = "acc-2413-" + stamp
 	path := "/api/v1/admin/connection-instances/appdb/" + s.conn
 	if status, out := admin.rest(http.MethodPut, path, jsonBody(t, map[string]any{"config": map[string]any{
 		"host": "localhost", "port": targetPort(), "database": "orders", "user": "orders_app", "password": "orders_secret",
 		"sslmode": "disable", "max_conns": 4,
-		"persona_roles": map[string]any{"admin": "shop_app"}, "persona_role_passwords": map[string]any{"admin": "shop-app-2413"},
 	}, "description": "Acceptance #2413: the shop's database"})); status != http.StatusOK && status != http.StatusCreated {
 		t.Fatalf("saving the shop's connection answered %d: %v", status, out)
 	}
 	t.Cleanup(func() { admin.rest(http.MethodDelete, path, http.NoBody) })
+	// 1. The application, holding its schema, before the first migration: the
+	// page's order (#2539). Adding the schema creates the run role the shop's
+	// scripts log in as.
+	admin.call("manage_application", map[string]any{"command": "create", "name": s.app, "description": "Acceptance #2413: the shop"})
+	t.Cleanup(func() {
+		_, _, _ = admin.callRaw("manage_application", map[string]any{"command": "delete", "application": s.app})
+	})
+	admin.call("manage_application", map[string]any{"command": "add_part", "application": s.app, "kind": "schema", "part_id": s.conn + "/" + shopSchema2413})
 	body := page2413(t, admin)
 	sqls, grants, pys := blocks2413(body, "sql"), blocks2413(body, "sql no-run"), blocks2413(body, "python")
 	if len(sqls) != 3 || len(grants) != 1 || len(pys) != 3 {
@@ -142,7 +148,10 @@ func buildShop2413(t *testing.T) *shop2413 {
 		schema(map[string]any{"command": "add", "version": i + 1, "name": fmt.Sprintf("page block %d", i+1), "up": up, "down": downs[i]})
 	}
 	schema(map[string]any{"command": "add", "version": 4, "template": "outbox", "capture": []string{"orders"}})
-	schema(map[string]any{"command": "add", "version": 5, "name": "the application's role", "up": grants[0], "down": "REVOKE ALL ON ALL TABLES IN SCHEMA shop FROM shop_app"})
+	schema(map[string]any{
+		"command": "add", "version": 5, "name": "the application's roles", "up": grants[0],
+		"down": "DROP OWNED BY shop_write, shop_read; DROP ROLE shop_write; DROP ROLE shop_read",
+	})
 	schema(map[string]any{"command": "add", "version": 6, "name": "products", "up": `INSERT INTO products (sku, name, price) VALUES ('mug', 'Mug', 12.50), ('tee', 'Tee', 20);
 INSERT INTO inventory (sku, on_hand) VALUES ('mug', 5), ('tee', 1);`, "down": "DELETE FROM inventory; DELETE FROM products"})
 
@@ -185,13 +194,6 @@ INSERT INTO inventory (sku, on_hand) VALUES ('mug', 5), ('tee', 1);`, "down": "D
 	})
 
 	// 7. The release: the application names its parts and applies the schema.
-	admin.call("manage_application", map[string]any{
-		"command": "create", "name": s.app, "connection": s.conn, "schema": shopSchema2413,
-		"description": "Acceptance #2413: the shop",
-	})
-	t.Cleanup(func() {
-		_, _, _ = admin.callRaw("manage_application", map[string]any{"command": "delete", "application": s.app})
-	})
 	for _, name := range []string{s.checkout, s.api, s.confirm, s.maintain} {
 		id, _ := admin.call("manage_script", map[string]any{"command": "get", "name": name})["id"].(string)
 		admin.call("manage_application", map[string]any{"command": "add_part", "application": s.app, "kind": "script", "part_id": id})

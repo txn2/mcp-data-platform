@@ -216,3 +216,48 @@ func TestStatements_LeavesOutThePlatformsOwn(t *testing.T) {
 	assert.Equal(t, int64(4), r.Statements.HiddenOtherRoles)
 	assert.NotNil(t, r.Findings, "findings are [] until judged, never null")
 }
+
+// idFake is a querier that also reads the platform's query ids (#2536).
+type idFake struct {
+	fake
+	ids   []string
+	err   error
+	extra []string
+}
+
+func (f *idFake) PlatformQueryIDs(_ context.Context, _ string, extra []string) ([]string, error) {
+	f.extra = extra
+	return f.ids, f.err
+}
+
+// TestStatements_LeaveOutThePlatformsQueryIDs is #2536: the ranking is sent
+// the query ids of every statement the platform runs, the report's own
+// among them, and is sent an empty list when they cannot be read.
+func TestStatements_LeaveOutThePlatformsQueryIDs(t *testing.T) {
+	assert.Contains(t, statementsSQL, "queryid::text <> ALL($1::text[])")
+	ranked := func(sent []postgres.Statement) postgres.Statement {
+		for _, s := range sent {
+			if strings.Contains(s.SQL, "max_exec_time") {
+				return s
+			}
+		}
+		t.Fatal("the ranking was not read")
+		return postgres.Statement{}
+	}
+
+	q := &idFake{ids: []string{"-5875789104165997195", "42"}}
+	q.answers = healthyAnswers()
+	Read(context.Background(), q, "shop", Options{LongRunning: 2 * time.Minute})
+	assert.Equal(t, []any{[]any{"-5875789104165997195", "42"}}, ranked(q.sent).Params)
+	assert.Contains(t, q.extra, statementsSQL, "the report's own statements are among them")
+	assert.Contains(t, q.extra, sessionsSQL(2*time.Minute), "with the long-running bound the report ran")
+
+	failing := &idFake{err: errors.New("down")}
+	failing.answers = healthyAnswers()
+	Read(context.Background(), failing, "shop", Options{})
+	assert.Equal(t, []any{[]any{}}, ranked(failing.sent).Params, "the tag alone filters when the ids cannot be read")
+
+	plain := &fake{answers: healthyAnswers()}
+	Read(context.Background(), plain, "shop", Options{})
+	assert.Equal(t, []any{[]any{}}, ranked(plain.sent).Params)
+}

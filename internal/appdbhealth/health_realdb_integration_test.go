@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/sqltag"
 	"github.com/txn2/mcp-data-platform/internal/testdb"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/postgres"
 )
@@ -171,5 +172,67 @@ func TestHealth_RealDB_DuplicateAndInvalidIndexes(t *testing.T) {
 		require.Len(t, r.Indexes.Invalid, 1)
 		assert.Equal(t, "items_id_unique", r.Indexes.Invalid[0].Name)
 		assert.Equal(t, 1, Summarize(r).InvalidIndexes)
+	})
+}
+
+// TestHealth_RealDB_StatementsRecordedBeforeTheTag is #2536: pg_stat_statements
+// keeps the text of an entry's first execution, and a comment does not change
+// the query id, so a platform statement first run before the platform tagged
+// its statements keeps its untagged text while every tagged run adds to it.
+// The ranking leaves those entries out by query id: the health report's own
+// server and table reads, each first run untagged, are absent after two
+// reads, and the application's statement is ranked. The toolkit's own
+// statements are held to the same by TestPlatformQueryIDs_RealDB.
+func TestHealth_RealDB_StatementsRecordedBeforeTheTag(t *testing.T) {
+	testdb.OnAppDBTargets(t, func(t *testing.T) {
+		db := testdb.AppDBTarget(t)
+		tk := realKit(t, db)
+		target := db.TargetDB(t)
+		_, err := target.Exec(`CREATE EXTENSION pg_stat_statements; CREATE TABLE t (id int); INSERT INTO t SELECT generate_series(1, 100)`)
+		require.NoError(t, err)
+		// This database's entries only: the servers are shared by the tests
+		// of every package running at once.
+		_, err = target.Exec(`SELECT pg_stat_statements_reset(0, (SELECT oid FROM pg_database WHERE datname = current_database()), 0)`)
+		require.NoError(t, err)
+
+		untagged := func(sql string) string { return strings.TrimSpace(strings.TrimPrefix(sql, sqltag.Platform)) }
+		_, err = target.Exec(untagged(serverSQL))
+		require.NoError(t, err)
+		_, err = target.Exec(untagged(tablesSQL))
+		require.NoError(t, err)
+		for range 3 {
+			_, err = target.Exec(`SELECT count(*), pg_sleep(0.02) FROM t WHERE id > 10`)
+			require.NoError(t, err)
+		}
+
+		ctx := context.Background()
+		_ = Read(ctx, tk, "shop", Options{})
+		r := Read(ctx, tk, "shop", Options{})
+		require.Empty(t, r.Errors)
+		require.True(t, r.Statements.Installed)
+
+		var stored []string
+		rows, err := target.Query(`SELECT query FROM pg_stat_statements WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+			 AND (query LIKE '%current_setting%' OR query LIKE '%pg_stat_user_tables%') AND query NOT LIKE '%EXPLAIN%'
+			 AND query NOT LIKE '%pg_stat_statements%'`)
+		require.NoError(t, err)
+		for rows.Next() {
+			var q string
+			require.NoError(t, rows.Scan(&q))
+			stored = append(stored, q)
+		}
+		require.NoError(t, rows.Err())
+		require.NotEmpty(t, stored)
+		for _, q := range stored {
+			assert.NotContains(t, q, sqltag.Platform, "the entries kept their first, untagged text: %v", stored)
+		}
+
+		app := false
+		for _, s := range r.Statements.Top {
+			assert.NotContains(t, s.Query, "current_setting", "the server read is the platform's own: %+v", s)
+			assert.NotContains(t, s.Query, "pg_stat_user_tables", "the table read is the platform's own: %+v", s)
+			app = app || strings.Contains(s.Query, "FROM t WHERE id >")
+		}
+		assert.True(t, app, "the application's statement is ranked: %+v", r.Statements.Top)
 	})
 }

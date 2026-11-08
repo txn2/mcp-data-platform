@@ -98,7 +98,9 @@ type Config struct {
 // Handle owns the assembled script layer. All accessors are nil-safe, so a
 // deployment without a database holds a Handle that registers nothing.
 type Handle struct {
-	store script.Store
+	// partFindings is what a save newly gives its application to find (#2540).
+	partFindings func(ctx context.Context, scriptID string, before int) []string
+	store        script.Store
 	// sources reads resource text (#2113, #2114); pending keeps a refused
 	// create to patch (#2114). Either may be nil.
 	sources    *scriptsrc.Reader
@@ -409,4 +411,10 @@ func (h *Handle) lookup(ctx context.Context, input manageScriptInput, anyOwner b
 // the owner more than it shows everyone else.
 func (h *Handle) ownsOrAdmin(ctx context.Context, sc *script.Script) bool {
 	return h.isAdminPersona(ctx) || sc.OwnedBy(resolveEmail(ctx))
+}
+
+// SetPartFindings installs the findings a save of a script over a version
+// introduced in its application (#2540).
+func (h *Handle) SetPartFindings(f func(ctx context.Context, scriptID string, before int) []string) {
+	h.partFindings = f
 }

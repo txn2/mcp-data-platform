@@ -165,6 +165,7 @@ func TestRolePools_BuiltReportedAndClosed(t *testing.T) {
 	plain := baseConfig()
 	plainTK := NewMulti(MultiConfig{DefaultName: "db", Instances: map[string]Config{"db": plain}})
 	pc, _ := plainTK.lookup("db")
-	assert.Nil(t, pc.roles, "a connection mapping no role builds no role pools")
+	require.NotNil(t, pc.roles, "every connection builds role pools: an application's run role needs one (#2539)")
+	assert.Empty(t, pc.allPools()[1:], "a connection mapping no role has built none")
 	_ = plainTK.Close()
 }

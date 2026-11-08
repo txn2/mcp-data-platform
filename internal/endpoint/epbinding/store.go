@@ -68,4 +68,9 @@ type Stamp struct {
 	// ApprovedVersion is the highest version approved for form_public, 0
 	// for none.
 	ApprovedVersion int
+	// Application is the id of the application the script is a part of and
+	// AppConnection the connection that application's schema is on, both ""
+	// for none (#2539). Read with the stamp, so a request learns the run role
+	// its statements log in as with no query of its own.
+	Application, AppConnection string
 }

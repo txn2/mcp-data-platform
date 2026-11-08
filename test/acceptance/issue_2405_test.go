@@ -27,6 +27,7 @@ CREATE TABLE customers (id bigint PRIMARY KEY)`
 func schemaWithBase2405(t *testing.T, c *client, prefix string) string {
 	t.Helper()
 	schema := "acc2405_" + prefix + "_" + unique1579()
+	holdSchema(t, c, conn2404, schema)
 	schemaCall(c, schema, map[string]any{"command": "add", "version": 1, "name": "base", "up": base2405})
 	schemaCall(c, schema, map[string]any{"command": "apply"})
 	return schema

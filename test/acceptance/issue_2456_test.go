@@ -25,6 +25,7 @@ import (
 func outbox2456(t *testing.T, admin *client, extra map[string]any) string {
 	t.Helper()
 	schema := "acc2456_" + unique1579()
+	holdSchema(t, admin, conn2404, schema)
 	schemaCall(admin, schema, map[string]any{
 		"command": "add", "version": 1, "name": "orders",
 		"up": "CREATE TABLE orders (id int PRIMARY KEY, total numeric(10,2) NOT NULL)",
@@ -83,6 +84,7 @@ func TestIssue2456_AnOutboxAddedWithoutNotifyOrWithNotifyTrueStillNotifies(t *te
 func TestIssue2456_NotifyWithoutTheOutboxTemplateIsRefused(t *testing.T) {
 	admin := connect(t)
 	schema := "acc2456_" + unique1579()
+	holdSchema(t, admin, conn2404, schema)
 	text := schemaRefused(t, admin, schema, map[string]any{
 		"command": "add", "version": 1, "name": "orders", "notify": false,
 		"up": "CREATE TABLE orders (id int PRIMARY KEY)", "down": "DROP TABLE orders",

@@ -270,15 +270,18 @@ func (s *Store) SweepFailures(ctx context.Context, cutoff time.Time) (int64, err
 }
 
 // Stamp reads when the binding a name serves and its script were last
-// written.
+// written, and the application the script is a part of.
 func (s *Store) Stamp(ctx context.Context, name string) (epbinding.Stamp, error) {
 	var st epbinding.Stamp
 	err := s.db.QueryRowContext(ctx, `
 		SELECT e.updated_at, s.updated_at,
 		       COALESCE((SELECT MAX(a.version) FROM approval_requests a
-		                  WHERE a.script_id = e.script_id AND a.purpose = 'form_public' AND a.status = 'approved'), 0)
+		                  WHERE a.script_id = e.script_id AND a.purpose = 'form_public' AND a.status = 'approved'), 0),
+		       COALESCE(app.id, ''), COALESCE(app.connection, '')
 		  FROM script_endpoints e JOIN scripts s ON s.id = e.script_id
-		 WHERE e.name = $1`, name).Scan(&st.Binding, &st.Script, &st.ApprovedVersion)
+		  LEFT JOIN application_parts p ON p.kind = 'script' AND p.part_id = e.script_id::text
+		  LEFT JOIN applications app ON app.id = p.application_id
+		 WHERE e.name = $1`, name).Scan(&st.Binding, &st.Script, &st.ApprovedVersion, &st.Application, &st.AppConnection)
 	if errors.Is(err, sql.ErrNoRows) {
 		return st, epbinding.ErrNotFound
 	}

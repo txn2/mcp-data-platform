@@ -27,6 +27,11 @@ type Identity struct {
 	// Source is mcp.source: "endpoint" for an endpoint request, "script" for
 	// a run.
 	Source string
+	// Application is the application whose run role the statement logs in as
+	// (#2539): set when the script running it is a part of an application
+	// holding a schema on the statement's connection. It wins over Persona's
+	// role, and is not a claim.
+	Application string
 }
 
 // The values Identity.Source takes.
@@ -73,6 +78,8 @@ type rolePools struct {
 	// build makes the pool of one persona's role from the connection's
 	// configuration with the role's user and password.
 	build func(cfg Config) (*pgxpool.Pool, error)
+	// q answers the run-role statements in place of the pool; a test's.
+	q roleQuerier
 }
 
 // poolFor is the pool a statement for persona runs on: its role's, or the
@@ -82,19 +89,11 @@ func (c *conn) poolFor(persona string) (*pgxpool.Pool, error) {
 	if !ok || c.roles == nil {
 		return c.pool, nil
 	}
-	c.roles.mu.Lock()
-	defer c.roles.mu.Unlock()
-	if p, ok := c.roles.pools[persona]; ok {
-		return p, nil
-	}
-	rc := c.cfg
-	rc.User, rc.Password = role, c.cfg.PersonaRolePasswords[persona]
-	p, err := c.roles.build(rc)
+	p, err := c.rolePool(persona, role, c.cfg.PersonaRolePasswords[persona])
 	if err != nil {
 		return nil, fmt.Errorf("appdb: building the pool of persona %q's role on connection %q: %w",
 			persona, c.cfg.ConnectionName, err)
 	}
-	c.roles.pools[persona] = p
 	return p, nil
 }
 

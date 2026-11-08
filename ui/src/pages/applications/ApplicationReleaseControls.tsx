@@ -60,7 +60,7 @@ export function ReleaseControls({ detail }: { detail: ApplicationDetail }) {
         >
           Roll back
         </Button>
-        <Button size="sm" disabled={detail.problems.length > 0} onClick={() => setOpen("release")}>
+        <Button size="sm" disabled={blockingProblems(detail).length > 0} onClick={() => setOpen("release")}>
           Release
         </Button>
       </div>
@@ -75,6 +75,15 @@ export function ReleaseControls({ detail }: { detail: ApplicationDetail }) {
       )}
     </div>
   );
+}
+
+/**
+ * blockingProblems is what refuses a release: every problem except the
+ * message of a diagram finding that does not block (#2540), which is advice.
+ */
+export function blockingProblems(detail: ApplicationDetail): string[] {
+  const advice = new Set((detail.findings ?? []).filter((f) => !f.blocks).map((f) => f.message));
+  return detail.problems.filter((p) => !advice.has(p));
 }
 
 function ReleaseDialog({ app, onClose }: { app: string; onClose: () => void }) {

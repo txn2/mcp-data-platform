@@ -102,7 +102,13 @@ const description = "Applications: one record naming what a system built on the 
 	"events and runs execute the pinned script version and the portal serves the pinned asset version, so saving " +
 	"a script or an asset changes nothing live until the next release. A release whose migration fails changes " +
 	"nothing. rollback restores an earlier release's pins and reverts the migrations since when each has a down " +
-	"migration. A part belongs to one application. Everyone signed in reads an application; its owner and " +
+	"migration. A part belongs to one application. The application database schema is a part too (kind schema), " +
+	"added at any time, also to an application that grew from scratch tables or files: add_part kind schema " +
+	"part_id \"<connection>/<schema>\" on an existing appdb connection you reach. A schema is migrated only " +
+	"inside the application holding it (manage_schema refuses one no application holds), migrations applied " +
+	"before it was added are adopted, and its scripts' statements run as a database role the platform creates " +
+	"for the application, so only the application's own scripts read and write its schema. Everyone signed in " +
+	"reads an application; its owner and " +
 	"administrators edit it and add parts they own; administrators release, roll back, export and import, and " +
 	"alone take out a part the current release pins or delete a released application. " +
 	"export writes a release as a bundle (a managed resource) carrying no secret value, credential, data row or " +
@@ -128,11 +134,11 @@ func schema() map[string]any {
 			"application": str("The application, by name or id (every command but create, list and import)."),
 			"name":        str("create: the application's name, a lowercase slug."),
 			keyDesc:       str("create, update: what the application is."),
-			"connection":  str("create: the application database connection its schema is on (with schema)."),
-			"schema":      str("create: the schema whose migrations a release applies (with connection)."),
+			"connection":  str("create: the application database connection its schema is on (with schema). Same as add_part kind schema afterwards."),
+			"schema":      str("create: the schema whose migrations a release applies (with connection). Same as add_part kind schema afterwards."),
 			"owner_email": str("update: move the application to another owner (administrators)."),
 			"kind":        map[string]any{keyType: typString, "enum": application.Kinds, keyDesc: "add_part, remove_part: the kind of part."},
-			"part_id":     str("add_part, remove_part: the script's id, the asset's id, or the webhook source's name."),
+			"part_id":     str("add_part, remove_part: the script's id, the asset's id, the webhook source's name, or for kind schema \"<connection>/<schema>\" (the schema alone when you reach one application database connection)."),
 			"note":        str("release: what the release is for."),
 			"to_release":  num("rollback: the release whose pins to restore; the one before the current release when omitted."),
 			"release":     num("export: the release to export; the current release when omitted."),

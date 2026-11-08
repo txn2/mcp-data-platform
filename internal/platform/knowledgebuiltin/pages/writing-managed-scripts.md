@@ -105,7 +105,10 @@ branch with `testing.answer(tool, args, error = {...})`.
   and each value is sent to PostgreSQL as a bound parameter read by its type.
   A list binds as one array, so write `= ANY(:ids)`, not `IN :ids`. The
   statements go straight to the database without a tool call, and
-  `platform.execute` there commits one statement. Statements that must
+  `platform.execute` there commits one statement. A script that is part of
+  an application holding a schema on that database runs its statements, in
+  a draft as in a run, as the application's run role; a table in a schema
+  another application holds is refused naming that application. Statements that must
   commit together go in `platform.transaction(connection, fn)`: `fn(tx)`
   runs them with `tx.query`, `tx.execute` and `tx.batch`, and the
   transaction commits when `fn` returns and rolls back when it fails.

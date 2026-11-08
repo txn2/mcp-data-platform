@@ -43,19 +43,45 @@ func New(db *sql.DB) *Store { return &Store{db: db} }
 func NewID() string { return "app_" + uuid.NewString() }
 
 const columns = `id, name, description, owner_email, connection, schema_name, current_release,
-	created_by, created_at, updated_at`
+	created_by, created_at, updated_at, schema_adopted_version, schema_added_by, schema_added_at`
 
 type rowScanner interface {
 	Scan(dest ...any) error
 }
 
-func scan(r rowScanner) (*application.Application, error) {
+// scanned is one application row and its schema part, which application
+// rows carry rather than application_parts (#2539).
+type scanned struct {
+	app        *application.Application
+	schemaPart *application.Part
+}
+
+func scan(r rowScanner) (scanned, error) {
 	a := &application.Application{Parts: []application.Part{}}
+	var addedBy string
+	var addedAt sql.NullTime
 	if err := r.Scan(&a.ID, &a.Name, &a.Description, &a.OwnerEmail, &a.Connection, &a.Schema,
-		&a.CurrentRelease, &a.CreatedBy, &a.CreatedAt, &a.UpdatedAt); err != nil {
-		return nil, err //nolint:wrapcheck // each caller says what it was reading
+		&a.CurrentRelease, &a.CreatedBy, &a.CreatedAt, &a.UpdatedAt, &a.SchemaAdoptedVersion, &addedBy, &addedAt); err != nil {
+		return scanned{}, err //nolint:wrapcheck // each caller says what it was reading
 	}
-	return a, nil
+	out := scanned{app: a}
+	if a.Schema != "" {
+		p := application.Part{Kind: application.KindSchema, ID: application.SchemaPartID(a.Connection, a.Schema), AddedBy: addedBy}
+		if addedAt.Valid {
+			p.AddedAt = addedAt.Time
+		}
+		out.schemaPart = &p
+	}
+	return out, nil
+}
+
+// withSchema is the application's parts with its schema part, which lists
+// last, as application.Kinds does.
+func (s scanned) withSchema(parts []application.Part) []application.Part {
+	if s.schemaPart != nil {
+		parts = append(parts, *s.schemaPart)
+	}
+	return parts
 }
 
 // violated is the unique constraint err violates, empty for none.
@@ -103,17 +129,20 @@ func (s *Store) GetByName(ctx context.Context, name string) (*application.Applic
 	return s.one(ctx, `SELECT `+columns+` FROM applications WHERE name = $1`, name)
 }
 
-func (s *Store) one(ctx context.Context, query, arg string) (*application.Application, error) {
-	a, err := scan(s.db.QueryRowContext(ctx, query, arg))
+func (s *Store) one(ctx context.Context, query string, args ...any) (*application.Application, error) {
+	row, err := scan(s.db.QueryRowContext(ctx, query, args...))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, application.ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read application: %w", err)
 	}
-	if a.Parts, err = s.parts(ctx, a.ID); err != nil {
+	a := row.app
+	parts, err := s.parts(ctx, a.ID)
+	if err != nil {
 		return nil, err
 	}
+	a.Parts = row.withSchema(parts)
 	return a, nil
 }
 
@@ -150,17 +179,25 @@ func (s *Store) List(ctx context.Context) ([]application.Application, error) {
 	}
 	defer func() { _ = rows.Close() }()
 	out := []application.Application{}
+	var rowsRead []scanned
 	for rows.Next() {
-		a, err := scan(rows)
+		row, err := scan(rows)
 		if err != nil {
 			return nil, fmt.Errorf("list applications: %w", err)
 		}
-		out = append(out, *a)
+		rowsRead = append(rowsRead, row)
+		out = append(out, *row.app)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("list applications: %w", err)
 	}
-	return out, s.listParts(ctx, out)
+	if err := s.listParts(ctx, out); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].Parts = rowsRead[i].withSchema(out[i].Parts)
+	}
+	return out, nil
 }
 
 // listParts fills each listed application's parts, in one statement.
@@ -549,4 +586,91 @@ func hold(ctx context.Context, tx *sql.Tx, applicationID string, number int) err
 		return fmt.Errorf("hold assets: %w", err)
 	}
 	return nil
+}
+
+// SetSchema makes the application hold a schema and stores its run role, in
+// one transaction. An application already holding one is refused with
+// ErrSchemaHeld, as is a schema another application holds.
+func (s *Store) SetSchema(ctx context.Context, applicationID string, h application.HeldSchema) error {
+	return s.withTx(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `
+			UPDATE applications SET connection = $2, schema_name = $3, schema_adopted_version = $4,
+			       schema_added_by = $5, schema_added_at = NOW(), updated_at = NOW()
+			 WHERE id = $1 AND connection = ''`,
+			applicationID, h.Connection, h.Schema, h.AdoptedVersion, h.AddedBy)
+		if violated(err) == schemaConstraint {
+			return application.ErrSchemaHeld
+		}
+		if err != nil {
+			return fmt.Errorf("set application schema: %w", err)
+		}
+		if affected(res) != nil {
+			return application.ErrSchemaHeld
+		}
+		return putRunRole(ctx, tx, applicationID, h)
+	})
+}
+
+// SetRunRole stores the run role of the schema the application holds.
+func (s *Store) SetRunRole(ctx context.Context, applicationID string, h application.HeldSchema) error {
+	if h.Role == "" {
+		return nil
+	}
+	return s.withTx(ctx, func(tx *sql.Tx) error { return putRunRole(ctx, tx, applicationID, h) })
+}
+
+func putRunRole(ctx context.Context, tx *sql.Tx, applicationID string, h application.HeldSchema) error {
+	if h.Role == "" {
+		return nil
+	}
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO application_run_roles (application_id, connection, schema_name, role_name, password_sealed)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (application_id) DO UPDATE SET connection = EXCLUDED.connection, schema_name = EXCLUDED.schema_name,
+		       role_name = EXCLUDED.role_name, password_sealed = EXCLUDED.password_sealed, created_at = NOW()`,
+		applicationID, h.Connection, h.Schema, h.Role, h.SealedPassword)
+	if err != nil {
+		return fmt.Errorf("store application run role: %w", err)
+	}
+	return nil
+}
+
+// ClearSchema takes the schema and its run role off the application.
+func (s *Store) ClearSchema(ctx context.Context, applicationID string) error {
+	return s.withTx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM application_run_roles WHERE application_id = $1`, applicationID); err != nil {
+			return fmt.Errorf("remove application run role: %w", err)
+		}
+		res, err := tx.ExecContext(ctx, `
+			UPDATE applications SET connection = '', schema_name = '', schema_adopted_version = 0,
+			       schema_added_by = '', schema_added_at = NULL, updated_at = NOW()
+			 WHERE id = $1 AND connection <> ''`, applicationID)
+		if err != nil {
+			return fmt.Errorf("clear application schema: %w", err)
+		}
+		if affected(res) != nil {
+			return application.ErrNoPart
+		}
+		return nil
+	})
+}
+
+// Holding is the application holding schema on connection.
+func (s *Store) Holding(ctx context.Context, connection, schema string) (*application.Application, error) {
+	return s.one(ctx, `SELECT `+columns+` FROM applications WHERE connection = $1 AND schema_name = $2`, connection, schema)
+}
+
+// RunRoleOf is the application's run role.
+func (s *Store) RunRoleOf(ctx context.Context, applicationID string) (*application.RunRole, error) {
+	r := &application.RunRole{ApplicationID: applicationID}
+	err := s.db.QueryRowContext(ctx, `
+		SELECT connection, schema_name, role_name, password_sealed FROM application_run_roles WHERE application_id = $1`,
+		applicationID).Scan(&r.Connection, &r.Schema, &r.Role, &r.SealedPassword)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, application.ErrNoRunRole
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read application run role: %w", err)
+	}
+	return r, nil
 }

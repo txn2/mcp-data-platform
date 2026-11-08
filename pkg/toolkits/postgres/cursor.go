@@ -205,7 +205,10 @@ func (k *Cursor) Close() {
 		return
 	}
 	var open bool
-	if err := k.tx.QueryRow(ctx, `/* mcp-data-platform */ SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_cursors WHERE name = $1)`, k.name).Scan(&open); err == nil && open {
+	if err := k.tx.QueryRow(ctx, cursorOpenSQL, k.name).Scan(&open); err == nil && open {
 		_, _ = k.tx.Exec(ctx, "CLOSE "+k.name)
 	}
 }
+
+// cursorOpenSQL asks whether a cursor is still open in the transaction.
+const cursorOpenSQL = `/* mcp-data-platform */ SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_cursors WHERE name = $1)`

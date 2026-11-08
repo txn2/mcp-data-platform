@@ -54,9 +54,24 @@ func runScript(t *testing.T, root string, args, env []string) (string, bool) {
 	t.Helper()
 	cmd := exec.CommandContext(t.Context(), "python3", append([]string{filepath.Join(root, args[0])}, args[1:]...)...) //nolint:gosec // a fixed script under a temp root this test wrote
 	cmd.Dir = root
-	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = append(scriptEnviron(), env...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err == nil
+}
+
+// scriptEnviron is this process's environment without the variables that
+// narrow a gate to the change since another tree. `make verify` exports
+// DELTA_BASE, a commit of this clone that no fixture repository holds, and a
+// test that wants one passes it in env.
+func scriptEnviron() []string {
+	out := []string{}
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "DELTA_BASE=") || strings.HasPrefix(kv, "VERIFY_FULL=") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
 }
 
 // expect is a gate's verdict and the lines it must and must not print.

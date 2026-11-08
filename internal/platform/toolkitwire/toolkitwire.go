@@ -14,11 +14,16 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/txn2/mcp-data-platform/internal/application"
+	"github.com/txn2/mcp-data-platform/internal/application/apprunrole"
 	"github.com/txn2/mcp-data-platform/internal/platform/migrationstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrefs"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
+	"github.com/txn2/mcp-data-platform/pkg/connview"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
+	"github.com/txn2/mcp-data-platform/pkg/persona"
+	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	postgreskit "github.com/txn2/mcp-data-platform/pkg/toolkits/postgres"
 )
@@ -43,22 +48,25 @@ func Metrics(toolkits []registry.Toolkit, m *observability.Metrics) {
 // database connection passes: that it did not reach the platform's database
 // (postgreskit.OwnDatabaseGuard), the store manage_schema keeps its
 // migrations in (#2404), and the saved scripts a migration's rename is
-// checked against (#2405). The platform runs it before any tool is registered,
+// checked against (#2405), and what it asks about the applications holding
+// its schemas (#2539). The platform runs it before any tool is registered,
 // so no statement runs on a connection the check has not seen and the toolkit
 // lists manage_schema when it registers. A deployment with no database has
 // nothing to protect and no store, and installs nothing.
-func PostgresGuard(toolkits []registry.Toolkit, platformDB *sql.DB) {
+func PostgresGuard(toolkits []registry.Toolkit, platformDB *sql.DB, sealer *fieldcrypt.RestFieldEncryptor) {
 	if platformDB == nil {
 		return
 	}
 	guard := postgreskit.OwnDatabaseGuard(platformDB)
 	store := migrationstore.New(platformDB)
 	refs := scriptrefs.Lookup(platformDB)
+	apps := apprunrole.Over(platformDB, sealer)
 	for _, tk := range toolkits {
 		if pg, ok := tk.(*postgreskit.Toolkit); ok {
 			pg.SetConnectGuard(guard)
 			pg.SetMigrationStore(store)
 			pg.SetScriptReferences(refs)
+			pg.SetApplications(apps.Holder, apps.RunRole)
 			pg.StartTestSweep(platformDB)
 		}
 	}
@@ -79,7 +87,13 @@ type connectionAuthorizer interface {
 //
 // adminPersona is the persona platform.maintain is allowed for on every
 // connection (#2410).
-func AppDB(all func() []registry.Toolkit, authn middleware.Authenticator, authz middleware.Authorizer, adminPersona string) {
+//
+// platformDB answers which application's run role a script's statements log
+// in as (#2539).
+func AppDB(all func() []registry.Toolkit, authn middleware.Authenticator, authz middleware.Authorizer, adminPersona string,
+	platformDB *sql.DB,
+) {
+	apps := apprunrole.SessionApplications(platformDB)
 	live := func() *postgreskit.Toolkit {
 		for _, tk := range all() {
 			if pg, ok := tk.(*postgreskit.Toolkit); ok {
@@ -96,7 +110,7 @@ func AppDB(all func() []registry.Toolkit, authn middleware.Authenticator, authz 
 	}
 	checker, _ := authz.(connectionAuthorizer)
 	scriptsession.InstallAppDB(scriptsession.AppDB{
-		Runner: runner, AdminPersona: adminPersona,
+		Runner: runner, AdminPersona: adminPersona, Applications: apps,
 		Authorize: func(ctx context.Context, connection string) (string, error) {
 			return authorize(ctx, authn, checker, connection)
 		},
@@ -201,4 +215,12 @@ func authorize(ctx context.Context, authn middleware.Authenticator, checker conn
 		return "", fmt.Errorf("application database %q is not allowed for this run: %s", connection, reason)
 	}
 	return persona, nil
+}
+
+// AppDBReach is the application database connections an actor may hold an
+// application's schema on (#2539): the appdb connections their persona
+// reaches, every one for an administrator.
+func AppDBReach(toolkits *registry.Registry, personas *persona.Registry, stored connview.StoreLister,
+) func(ctx context.Context, actor application.Actor) ([]string, error) {
+	return apprunrole.Reach(toolkits, personas, stored)
 }

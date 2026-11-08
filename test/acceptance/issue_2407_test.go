@@ -27,6 +27,7 @@ import (
 func users2407(t *testing.T, c *client) string {
 	t.Helper()
 	schema := "acc2407_" + unique1579()
+	holdSchema(t, c, conn2404, schema)
 	schemaCall(c, schema, map[string]any{
 		"command": "add", "version": 1, "name": "users",
 		"up": "CREATE TABLE users (id bigserial PRIMARY KEY, email text NOT NULL)",

@@ -97,7 +97,11 @@ FROM pg_stat_replication ORDER BY 1`
 // toolkit runs around a statement (its BEGIN with the SET LOCAL bounds, its
 // COMMIT or ROLLBACK, and the reset a released connection runs), and the
 // statements whose text this connection's role cannot read, which
-// hiddenStatementsSQL counts instead.
+// hiddenStatementsSQL counts instead. $1 is the query ids of the platform's
+// own statements (#2536): pg_stat_statements keeps the text of an entry's
+// first execution, and a statement first recorded before the platform tagged
+// its statements keeps its untagged text under the id every tagged execution
+// is added to.
 const statementsSQL = `/* mcp-data-platform */ SELECT queryid::text AS query_id, calls::int8 AS calls,
  total_exec_time::float8 AS total_ms, mean_exec_time::float8 AS mean_ms, max_exec_time::float8 AS max_ms,
  rows::int8 AS rows, query
@@ -118,5 +122,6 @@ WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
 const applicationStatements = `
  AND query <> '<insufficient privilege>'
  AND strpos(query, '/* mcp-data-platform */') = 0
+ AND queryid::text <> ALL($1::text[])
  AND query !~* '^\s*(BEGIN|START TRANSACTION|COMMIT|END|ROLLBACK|SET LOCAL |SET SESSION AUTHORIZATION DEFAULT|RESET ALL|DISCARD |CLOSE ALL|UNLISTEN \*|SAVEPOINT |RELEASE )'
  AND query !~* '^\s*SELECT pg_advisory_unlock_all\(\)'`

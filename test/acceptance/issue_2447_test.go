@@ -57,6 +57,7 @@ func byName2447(list any) map[string]map[string]any {
 func TestIssue2447_DescribeReportsTheServerExtensionsAndEveryObjectKind(t *testing.T) {
 	admin := connect(t)
 	schema := "acc2447_" + unique1579()
+	holdSchema(t, admin, conn2404, schema)
 	schemaCall(admin, schema, map[string]any{"command": "add", "version": 1, "name": "every kind", "up": everyKind2447})
 	schemaCall(admin, schema, map[string]any{"command": "apply"})
 	t.Cleanup(func() { targetPSQL(t, "DROP SCHEMA IF EXISTS "+schema+" CASCADE") })

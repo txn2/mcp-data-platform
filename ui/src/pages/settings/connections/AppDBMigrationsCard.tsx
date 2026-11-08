@@ -7,7 +7,9 @@ import {
   type AppDBMigrationEvent,
   type AppDBMigrationPlan,
   type AppDBMigrationReport,
+  type AppDBUnheldSchema,
 } from "@/api/admin/hooks";
+import { CopyButton } from "@/components/provenance/parts";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +19,10 @@ import { Button } from "@/components/ui/button";
 // ones the platform keeps for the connection's schema, which the target's
 // ledger records as applied, the plan of the pending ones, and the history.
 // Migrations are added and applied with manage_schema; this card reads them.
+// Where the platform governs schemas (#2539) it names the application holding
+// the schema, and lists the connection's schemas with migrations that no
+// application holds, whose migrations are refused until one does, each with
+// the call that adds it to an application.
 
 function formatWhen(value?: string): string {
   if (!value) return "";
@@ -119,6 +125,43 @@ function History({ events }: { events: AppDBMigrationEvent[] }) {
   );
 }
 
+function HolderLine({ data }: { data: AppDBMigrationReport }) {
+  if (data.application) {
+    return <p className="text-xs" data-testid="appdb-application">Application: {data.application}</p>;
+  }
+  if (!Array.isArray(data.unheld_schemas)) return null;
+  return (
+    <p className="text-xs text-muted-foreground" data-testid="appdb-application">
+      In no application
+    </p>
+  );
+}
+
+function UnheldSchemas({ schemas }: { schemas?: AppDBUnheldSchema[] }) {
+  if (!schemas || schemas.length === 0) return null;
+  return (
+    <div className="space-y-2" data-testid="appdb-unheld-schemas">
+      <div className="text-xs font-medium">Schemas in no application</div>
+      <p className="text-xs text-muted-foreground">
+        Migrations on these schemas are refused until an application holds them.
+      </p>
+      <ul className="space-y-2">
+        {schemas.map((u) => (
+          <li key={u.schema} className="space-y-1">
+            <div className="font-mono text-xs">{u.schema}</div>
+            <div className="flex items-start gap-2">
+              <pre className="min-w-0 flex-1 overflow-auto whitespace-pre-wrap rounded bg-muted p-2 font-mono text-[11px]">
+                {u.add_part}
+              </pre>
+              <CopyButton text={u.add_part} label={`Copy the call that adds ${u.schema}`} />
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function MigrationTable({ migrations }: { migrations: AppDBMigration[] }) {
   if (migrations.length === 0) {
     return (
@@ -162,6 +205,8 @@ function ReportBody({
         <span className="font-medium">{data.current_version}</span>, recorded in{" "}
         <span className="font-mono">{data.ledger}</span>.
       </p>
+      <HolderLine data={data} />
+      <UnheldSchemas schemas={data.unheld_schemas} />
       {data.drift.map((d) => (
         <Alert key={d.version} variant="destructive">
           <AlertCircle />

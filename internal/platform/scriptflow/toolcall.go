@@ -2,6 +2,7 @@ package scriptflow
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 
 	"go.starlark.net/syntax"
@@ -123,7 +124,7 @@ func (c *card) apiExport(n *Node, f map[string]syntax.Expr, conn string) {
 }
 
 func (c *card) trinoExecute(n *Node, f map[string]syntax.Expr, conn string) {
-	c.writeStatement(n, f["sql"], conn)
+	c.writeStatement(n, f[argSQL], conn)
 }
 
 // writeStatement is the card of a statement that changes state: its verb and
@@ -150,7 +151,7 @@ func (c *card) trinoQuery(n *Node, f map[string]syntax.Expr, conn string) {
 		conn = defaultConnection
 	}
 	n.Title = "Query " + conn
-	sql, sqlFull := c.value(f["sql"])
+	sql, sqlFull := c.value(f[argSQL])
 	tables := tablesIn(sql)
 	n.Detail = shortList(tables, maxDetail)
 	if hasHole(tables) {
@@ -183,5 +184,150 @@ func (c *card) genericTool(n *Node, f map[string]syntax.Expr, tool string) {
 	n.Role = RoleReads
 	if writeActions[action] || strings.HasPrefix(tool, "save_") {
 		n.Role = RoleWrites
+	}
+}
+
+// DataRef is what a statement step names of the data it reads and writes:
+// its connection and the tables, each as the SQL writes it ("orders",
+// "shop.orders"). It is not drawn; an application's diagram and the check
+// that a script stays inside its application's schema read it (#2539,
+// #2540).
+type DataRef struct {
+	// Connection is the connection the step names, empty when it names none
+	// (the default connection) or computes it (Computed).
+	Connection string
+	Reads      []string
+	Writes     []string
+	// Computed is true when the connection, or a table, is only known when
+	// the script runs: such a step's tables are never matched to a part.
+	Computed bool
+}
+
+// OutputRef is what an output step names: an export's or a data refresh's
+// output name, which is one asset per script (script.OutputIdentityKey), or
+// the channel a notification or a post goes to. Not drawn; an application's
+// diagram reads it (#2540).
+type OutputRef struct {
+	// Kind is the step's kind: KindExport, KindPublishData, KindNotify or
+	// KindPublish.
+	Kind string
+	// Name is the output name or the channel, as the source writes it.
+	Name string
+	// Computed is true when the name is only known when the script runs.
+	Computed bool
+	// Portal is true for an output that lands in the portal as an asset.
+	Portal bool
+}
+
+// OutputRefs is every output step of source, in source order.
+func OutputRefs(source string) []OutputRef {
+	out := []OutputRef{}
+	for _, n := range Derive(source).Nodes {
+		if n.Output != nil {
+			out = append(out, *n.Output)
+		}
+	}
+	return out
+}
+
+// DataRefs is every statement step of source with what it reads and writes,
+// in source order.
+func DataRefs(source string) []DataRef {
+	out := []DataRef{}
+	for _, n := range Derive(source).Nodes {
+		if n.Data != nil {
+			out = append(out, *n.Data)
+		}
+	}
+	return out
+}
+
+// dataRef is the reference of statements on one connection.
+func (c *card) dataRef(connExpr syntax.Expr, statements ...syntax.Expr) *DataRef {
+	ref := &DataRef{Reads: []string{}, Writes: []string{}}
+	if connExpr != nil {
+		conn, full := c.value(connExpr)
+		if full {
+			ref.Connection = conn
+		} else {
+			ref.Computed = true
+		}
+	}
+	for _, e := range statements {
+		reads, writes, computed := c.statementRefs(e)
+		ref.Reads, ref.Writes = union(ref.Reads, reads), union(ref.Writes, writes)
+		ref.Computed = ref.Computed || computed
+	}
+	return ref
+}
+
+// statementRefs is what one statement reads and writes. A statement given as
+// a dict is read by its sql.
+func (c *card) statementRefs(e syntax.Expr) (reads, writes []string, computed bool) {
+	if d, ok := e.(*syntax.DictExpr); ok {
+		e = dictFields(d)[argSQL]
+	}
+	if e == nil {
+		return nil, nil, true
+	}
+	sql, full := c.value(e)
+	if m := dmlRe.FindStringSubmatch(sql); m != nil {
+		writes = []string{m[2]}
+	}
+	for _, t := range tablesIn(sql) {
+		if !slices.Contains(writes, t) {
+			reads = append(reads, t)
+		}
+	}
+	computed = hasHole(reads) || hasHole(writes) || (!full && len(reads) == 0 && len(writes) == 0)
+	return reads, writes, computed
+}
+
+// txStatementExprs are the statements a transaction's function runs through
+// its tx parameter.
+func txStatementExprs(body []syntax.Stmt, tx string) []syntax.Expr {
+	var out []syntax.Expr
+	for _, stmt := range body {
+		syntax.Walk(stmt, func(node syntax.Node) bool {
+			call, ok := node.(*syntax.CallExpr)
+			if !ok {
+				return true
+			}
+			dot, ok := call.Fn.(*syntax.DotExpr)
+			if !ok || len(call.Args) == 0 {
+				return true
+			}
+			if recv, ok := dot.X.(*syntax.Ident); ok && recv.Name == tx && (dot.Name.Name == KindQuery || dot.Name.Name == memberExecute) {
+				out = append(out, call.Args[0])
+			}
+			return true
+		})
+	}
+	return out
+}
+
+// union is a with each of b it lacks.
+func union(a, b []string) []string {
+	for _, x := range b {
+		if !slices.Contains(a, x) {
+			a = append(a, x)
+		}
+	}
+	return a
+}
+
+// SchemaOf is the schema a table name written in SQL is in: its qualifier,
+// or public for an unqualified name, which is where an application
+// database's search path finds it. A three-part name's middle part is the
+// schema.
+func SchemaOf(table string) string {
+	parts := strings.Split(strings.Trim(table, `"`), ".")
+	switch len(parts) {
+	case 1:
+		return "public"
+	case 2:
+		return strings.Trim(parts[0], `"`)
+	default:
+		return strings.Trim(parts[len(parts)-2], `"`)
 	}
 }

@@ -16,6 +16,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/application"
 	"github.com/txn2/mcp-data-platform/internal/application/appbundle"
 	"github.com/txn2/mcp-data-platform/internal/application/appschema"
 	"github.com/txn2/mcp-data-platform/internal/application/appstore"
@@ -77,6 +78,12 @@ type Deps struct {
 	// export writes a script's test recordings out of and an import stores
 	// them in (#2476).
 	Recordings scriptrec.Store
+	// Sealer keeps an application's run-role password sealed (#2539); nil
+	// adds no schema.
+	Sealer appsvc.Sealer
+	// Reach lists the application database connections an actor may hold a
+	// schema on; nil adds no schema.
+	Reach func(ctx context.Context, actor application.Actor) ([]string, error)
 }
 
 // Service builds the application service over deps, nil without a database.
@@ -95,6 +102,13 @@ func Service(d Deps) *appsvc.Service {
 		// A connection named at create must be an application database
 		// one (#2491).
 		HasConnection: hasConnection(d.Toolkits),
+		Roles:         liveRoles{reg: d.Toolkits},
+		Reach:         d.Reach,
+		Members:       members(d.Toolkits),
+		Diagrams:      diagramDeps(d),
+	}
+	if d.Sealer != nil {
+		svc.Sealer = d.Sealer
 	}
 	// A nil store is left nil, never an interface holding a nil.
 	if d.Assets != nil {

@@ -3262,6 +3262,113 @@ definitions:
       updated_by:
         type: string
     type: object
+  appdiagram.Diagram:
+    properties:
+      compared_with:
+        type: string
+      findings:
+        items:
+          $ref: '#/definitions/appdiagram.Finding'
+        type: array
+      groups:
+        items:
+          $ref: '#/definitions/appdiagram.Group'
+        type: array
+      links:
+        items:
+          $ref: '#/definitions/appdiagram.Link'
+        type: array
+      nodes:
+        items:
+          $ref: '#/definitions/appdiagram.Node'
+        type: array
+      version:
+        description: 'Version is what was drawn: "current", "latest" or a release
+          number.'
+        type: string
+    type: object
+  appdiagram.Finding:
+    properties:
+      blocks:
+        description: Blocks is true for a finding a release refuses.
+        type: boolean
+      kind:
+        example: library_version
+        type: string
+      message:
+        type: string
+      node:
+        description: Node is the node it is about.
+        type: string
+    type: object
+  appdiagram.Group:
+    properties:
+      id:
+        type: string
+      label:
+        type: string
+      parent:
+        type: string
+    type: object
+  appdiagram.Link:
+    properties:
+      change:
+        description: |-
+          Change and WasDetail mark a compared diagram's link: a link whose
+          detail moved (a load's version) is changed, with what it said.
+        type: string
+      detail:
+        description: Detail is the version a load names, the endpoint an asset calls.
+        type: string
+      from:
+        type: string
+      kind:
+        example: reads
+        type: string
+      to:
+        type: string
+      was_detail:
+        type: string
+    type: object
+  appdiagram.Node:
+    properties:
+      change:
+        description: Change and WasVersion mark a compared diagram's node.
+        type: string
+      computed:
+        description: Computed is true for a name the source computes when it runs.
+        type: boolean
+      detail:
+        description: |-
+          Detail is what the node's card adds: a script's schedule and its
+          endpoint, a table's connection.
+        items:
+          type: string
+        type: array
+      group:
+        example: application
+        type: string
+      id:
+        example: script:5b0c...
+        type: string
+      kind:
+        example: script
+        type: string
+      label:
+        example: Nightly order sync
+        type: string
+      part:
+        description: Part is true for a part of the application, PartID its id.
+        type: boolean
+      part_id:
+        type: string
+      version:
+        description: Version is the part's version this diagram is drawn at, 0 for
+          none.
+        type: integer
+      was_version:
+        type: integer
+    type: object
   apphttp.DatabaseChoice:
     properties:
       connection:
@@ -3316,6 +3423,13 @@ definitions:
         $ref: '#/definitions/application.Application'
       current_release:
         $ref: '#/definitions/application.Release'
+      findings:
+        description: |-
+          Findings are the diagram's findings, each saying whether a release
+          refuses it.
+        items:
+          $ref: '#/definitions/appdiagram.Finding'
+        type: array
       migrations:
         allOf:
         - $ref: '#/definitions/appschema.State'
@@ -3337,7 +3451,9 @@ definitions:
           $ref: '#/definitions/application.PinChange'
         type: array
       problems:
-        description: 'Problems are parts a release would refuse: deleted, or unreadable.'
+        description: |-
+          Problems are parts a release would refuse (deleted, or unreadable),
+          and what the application's diagram finds (#2540).
         items:
           type: string
         type: array
@@ -3345,6 +3461,12 @@ definitions:
         items:
           $ref: '#/definitions/application.Release'
         type: array
+      schema:
+        allOf:
+        - $ref: '#/definitions/appsvc.SchemaView'
+        description: |-
+          Schema is the schema part (#2539): its migration version, the one the
+          current release recorded, and its run role; nil for none.
     type: object
   apphttp.importRequest:
     properties:
@@ -3429,6 +3551,13 @@ definitions:
       schema:
         example: shop
         type: string
+      schema_adopted_version:
+        description: |-
+          SchemaAdoptedVersion is the migration version the schema had applied
+          when it was added to the application (#2539): migrations no release
+          applied, which a rollback never reverts.
+        example: 0
+        type: integer
       updated_at:
         type: string
     type: object
@@ -3440,6 +3569,13 @@ definitions:
           reverted, in the order it ran them.
         items:
           type: integer
+        type: array
+      findings:
+        description: |-
+          Findings are what the application's diagram found at the release that
+          did not refuse it (#2540).
+        items:
+          type: string
         type: array
       migrations_kept:
         description: |-
@@ -3727,6 +3863,52 @@ definitions:
         example: ok
         type: string
       updated_at:
+        type: string
+    type: object
+  appsvc.SchemaView:
+    properties:
+      adopted_version:
+        description: |-
+          AdoptedVersion is the version applied when the schema was added; a
+          rollback reverts nothing at or below it.
+        example: 0
+        type: integer
+      connection:
+        example: orders
+        type: string
+      migration_version:
+        description: |-
+          MigrationVersion is the highest migration applied in the database;
+          ReleasedVersion the one the current release recorded; Pending the
+          versions a release would apply.
+        example: 7
+        type: integer
+      note:
+        description: Note says what the run role still needs, empty when nothing.
+        type: string
+      pending:
+        items:
+          type: integer
+        type: array
+      problem:
+        description: Problem says the migrations could not be read, empty when they
+          were.
+        type: string
+      released_version:
+        example: 6
+        type: integer
+      run_role:
+        description: |-
+          RunRole is the role the application's scripts log in as, empty when
+          it has none; WriteRole the role it is granted, empty while the
+          schema's migrations define none.
+        example: shop_run
+        type: string
+      schema:
+        example: shop
+        type: string
+      write_role:
+        example: shop_write
         type: string
     type: object
   assetrefapi.audience:
@@ -10923,6 +11105,14 @@ definitions:
     type: object
   postgres.SchemaReport:
     properties:
+      application:
+        description: |-
+          Application is the application holding the schema, empty for none
+          (#2539). UnheldSchemas is every schema of the connection with
+          migrations that no application holds, whose migrations are refused
+          until one does. UnheldSchemas is absent when the platform governs no
+          schema, and [] when it does and every schema is held.
+        type: string
       connection:
         type: string
       current_version:
@@ -10942,6 +11132,20 @@ definitions:
           $ref: '#/definitions/postgres.MigrationState'
         type: array
       schema:
+        type: string
+      unheld_schemas:
+        items:
+          $ref: '#/definitions/postgres.unheldSchema'
+        type: array
+    type: object
+  postgres.unheldSchema:
+    properties:
+      add_part:
+        description: AddPart is the one call that adds it to an application.
+        example: manage_application add_part application=<name> kind=schema part_id=orders/shop
+        type: string
+      schema:
+        example: shop
         type: string
     type: object
   postshttp.Post:
@@ -26738,8 +26942,10 @@ paths:
         the facts its row is described with, its newest version and its state: ok,
         deleted, or not_visible for an asset the caller cannot open, whose name is
         not told), its current release, what a release now would change (pending),
-        where its schema''s migrations stand, the parts a release would refuse (problems),
-        and its releases newest first with what each changed.'
+        its schema part (schema: its migration version, the version the current release
+        recorded, the pending migrations, and the role its scripts log in as), the
+        parts a release would refuse (problems), and its releases newest first with
+        what each changed.'
       parameters:
       - description: Application name or id
         in: path
@@ -26892,6 +27098,68 @@ paths:
       summary: Search parts to add to an application
       tags:
       - Applications
+  /portal/applications/{app}/diagram:
+    get:
+      description: 'How the application''s parts fit together at one version (#2540):
+        its parts and what they reach outside it as nodes (a part, a table in its
+        schema or on another store, a channel, a library, an output), and the links
+        between them (a webhook source starting a script, a script reading or writing
+        a table, loading a library at a version, exporting or refreshing an asset,
+        notifying a channel or submitting a form to its source, an asset calling an
+        endpoint or embedding a form), each read from the parts'' sources and stored
+        settings, never from a run: drawing one starts no run and makes no outbound
+        request. A name a source computes when it runs is a node marked computed and
+        is never matched to a part. findings names a script loading one of the application''s
+        libraries at a version other than the one the version drawn pins (which a
+        release refuses), a table of the application''s schema its scripts read and
+        no part writes, and a script using a schema the application does not hold.
+        version is current (the current release''s pins), latest (each part''s newest
+        version) or a release''s number; compare marks each node and link added, removed
+        or unchanged against that version. An asset the caller cannot open is drawn
+        unnamed and its content is not read.'
+      parameters:
+      - description: Application name or id
+        in: path
+        name: app
+        required: true
+        type: string
+      - description: current (default), latest, or a release's number
+        in: query
+        name: version
+        type: string
+      - description: current, latest, or a release's number to compare with
+        in: query
+        name: compare
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/appdiagram.Diagram'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Draw an application
+      tags:
+      - Applications
   /portal/applications/{app}/export:
     get:
       description: 'Answers one release as a bundle to download: its migrations, script
@@ -26950,9 +27218,15 @@ paths:
     post:
       consumes:
       - application/json
-      description: Adds a script (by id), an asset (by id) or a webhook source (by
-        name). A part belongs to at most one application; the caller must own the
-        part (a webhook source is added by an administrator).
+      description: Adds a script (by id), an asset (by id), a webhook source (by name),
+        or the application database schema (kind schema, by "<connection>/<schema>",
+        or the schema alone when the caller reaches one application database connection).
+        A part belongs to at most one application; the caller must own the part (a
+        webhook source is added by an administrator). A schema is on an existing application
+        database connection the caller's persona reaches; an application holds one
+        schema, and adding it creates the database role the application's scripts
+        log in as, which needs CREATEROLE on the connection's user. A script that
+        reads or writes a schema another application holds is refused.
       parameters:
       - description: Application name or id
         in: path
@@ -27004,19 +27278,21 @@ paths:
       - Applications
   /portal/applications/{app}/parts/{kind}/{id}:
     delete:
-      description: Removes the part; it runs or serves its newest version again.
+      description: Removes the part; it runs or serves its newest version again. Removing
+        the schema drops the database role the application's scripts log in as and
+        leaves the schema and its data; on a released application it is for administrators.
       parameters:
       - description: Application name or id
         in: path
         name: app
         required: true
         type: string
-      - description: script, asset or source
+      - description: script, asset, source or schema
         in: path
         name: kind
         required: true
         type: string
-      - description: The part's id, or a webhook source's name
+      - description: The part's id, a webhook source's name, or the schema (\
         in: path
         name: id
         required: true

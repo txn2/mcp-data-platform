@@ -19,9 +19,14 @@ flowchart LR
 
 A connection's `persona_roles` maps each persona to a login role, which the
 operator creates with a password the connection stores; a persona the map
-does not name runs as the connection's user. The application's migrations
+does not name runs as the connection's user. A script that is part of an
+application holding a schema on the connection runs as that application's
+run role instead, whoever calls it, and so does its draft
+(mcp:knowledge_page:platform-applications). The application's migrations
 grant each role what its persona may do, and nothing by default: a table a
-role was never granted is refused to it.
+role was never granted is refused to it. A role a migration creates or grants
+is named for the schema (`sec_` on schema `sec`), and the review refuses one
+that is not.
 
 ```sql
 CREATE ROLE sec_sales NOLOGIN;
@@ -78,7 +83,8 @@ COMMIT;
 
 A claim protects against a person who did not write the SQL, an endpoint's
 caller. A script's author can set any setting in their own statement; against
-the author, the boundary is their persona's login role and its grants.
+the author, the boundary is their persona's login role and its grants, or
+the application's run role and the grants its migrations give it.
 
 ## Views that keep the policies
 

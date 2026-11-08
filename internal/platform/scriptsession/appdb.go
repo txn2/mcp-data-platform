@@ -127,6 +127,10 @@ type AppDB struct {
 	// AdminPersona is the persona that is the platform's administrator,
 	// which platform.maintain is allowed for on every connection.
 	AdminPersona string
+	// Applications answers which application's run role a script's
+	// statements log in as, and which application holds a schema (#2539);
+	// its zero value answers none.
+	Applications Applications
 }
 
 //nolint:gochecknoglobals // installed once by the platform, read by every script session it opens
@@ -164,6 +168,9 @@ type appdbCaller struct {
 	// cursors are the session's open cursors by id, numbered by cursorSeq.
 	cursors   map[string]AppDBCursor
 	cursorSeq int
+	// apps is the application whose run role each connection's statements
+	// log in as (#2539), asked once per connection.
+	apps map[string]string
 }
 
 func newAppDBCaller(ctx context.Context) *appdbCaller {
@@ -171,7 +178,10 @@ func newAppDBCaller(ctx context.Context) *appdbCaller {
 	if a == nil {
 		return nil
 	}
-	return &appdbCaller{ctx: ctx, db: a, authorized: make(map[string]string), txs: make(map[string]AppDBTx), cursors: make(map[string]AppDBCursor)}
+	return &appdbCaller{
+		ctx: ctx, db: a, authorized: make(map[string]string), txs: make(map[string]AppDBTx),
+		cursors: make(map[string]AppDBCursor), apps: make(map[string]string),
+	}
 }
 
 // errNoAppDB is the refusal of every call on a deployment with no runner.
@@ -187,6 +197,31 @@ func (c *appdbCaller) call(ctx context.Context, name string, args map[string]any
 	if !c.served() {
 		return nil, NewRefusal(errNoAppDB, refusalEnv(postgres.CodeUnknownConnection, errNoAppDB))
 	}
+	out, err := c.dispatch(ctx, name, args)
+	if err != nil {
+		return nil, c.reword(c.connectionOf(args), err)
+	}
+	return out, nil
+}
+
+// connectionOf is the connection a call acts on: the one it names, or the
+// one of the transaction or cursor it names.
+func (c *appdbCaller) connectionOf(args map[string]any) string {
+	if conn, _ := args[argConnection].(string); conn != "" {
+		return conn
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if id, _ := args[argTransaction].(string); id != "" {
+		if tx, ok := c.txs[id]; ok {
+			return tx.Connection()
+		}
+	}
+	return ""
+}
+
+// dispatch runs one call by its name.
+func (c *appdbCaller) dispatch(ctx context.Context, name string, args map[string]any) (map[string]any, error) {
 	switch name {
 	case AppDBQuery, AppDBExecute:
 		return c.statement(ctx, name, args)
@@ -579,6 +614,7 @@ func (c *appdbCaller) identity(ctx context.Context, connection string) context.C
 	c.mu.Lock()
 	id := postgres.Identity{Persona: c.authorized[connection]}
 	c.mu.Unlock()
+	id.Application = c.runAs(connection)
 	if ep, ok := endpointOf(c.ctx); ok {
 		id.Source, id.UserID, id.Email = postgres.SourceEndpoint, ep.UserID, ep.Email
 	} else if u := middleware.GetPreAuthenticatedUser(c.ctx); u != nil {
