@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select";
 import { markdownToPlainText } from "@/lib/markdownText";
 import { useDebounced } from "@/lib/useDebounced";
+import { kindLabel } from "@/pages/settings/connections/constants";
 import { PageCapNotice } from "./governance";
 import { ListSkeleton } from "./primitives";
 import { byName } from "@/lib/sortByName";
@@ -73,7 +74,7 @@ export function CatalogList({ onOpen }: { onOpen: (ref: string) => void }) {
               <SelectItem value={ALL}>All connections</SelectItem>
               {conns.map((c) => (
                 <SelectItem key={`${c.kind}/${c.name}`} value={`${c.kind}/${c.name}`}>
-                  {c.name} ({c.kind})
+                  {c.name} ({kindLabel(c.kind)})
                 </SelectItem>
               ))}
             </SelectContent>

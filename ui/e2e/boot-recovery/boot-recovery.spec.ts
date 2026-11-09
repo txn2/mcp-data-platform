@@ -24,6 +24,18 @@ function countDocuments(page: Page): { loads: number } {
   return state;
 }
 
+/**
+ * A file the index.html the build wrote preloads. The bundler names and merges
+ * its shared chunks, so a name written here stops matching when the portal's
+ * imports change, and the case would then remove nothing.
+ */
+async function preloadedFile(page: Page): Promise<string> {
+  const html = await (await page.request.get("/portal/")).text();
+  const hrefs = [...html.matchAll(/<link rel="modulepreload"[^>]* href="([^"]+)"/g)].map((m) => m[1] as string);
+  expect(hrefs.length, "the portal's index.html preloads a file").toBeGreaterThan(0);
+  return hrefs[hrefs.length - 1] as string;
+}
+
 test("an entry script answering 404 reloads once, then shows the message", async ({ page }) => {
   await page.route(/\/portal\/assets\/index-[^/]+\.js$/, (route) =>
     route.fulfill({ status: 404, contentType: "text/plain", body: "404 page not found" }),
@@ -48,8 +60,10 @@ test("an entry script answering 404 reloads once, then shows the message", async
 });
 
 test("a modulepreload answering 404 is recovered the same way", async ({ page }) => {
-  await page.route(/\/portal\/assets\/client-[^/]+\.js$/, (route) =>
-    route.fulfill({ status: 404, contentType: "text/plain", body: "404 page not found" }),
+  const preloaded = await preloadedFile(page);
+  await page.route(
+    (url) => url.pathname === preloaded,
+    (route) => route.fulfill({ status: 404, contentType: "text/plain", body: "404 page not found" }),
   );
   const docs = countDocuments(page);
 

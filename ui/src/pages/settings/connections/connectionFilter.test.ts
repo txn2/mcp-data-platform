@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { EffectiveConnection } from "@/api/admin/types";
 import {
   filterConnections,
-  kindLabel,
   kindOptions,
   lacksCatalog,
   matches,
@@ -70,7 +69,7 @@ describe("connection filter (#2350)", () => {
     ]);
     const withOther = kindOptions([...list, conn("ldap", "dir")], ["trino"], "mcp");
     expect(withOther.map((o) => o.value)).toEqual(["", "trino", "api", "graphql", "ldap", "mcp", "s3"]);
-    expect(kindLabel("ldap")).toBe("ldap");
+    expect(withOther.find((o) => o.value === "ldap")?.label).toBe("ldap");
   });
 });
 

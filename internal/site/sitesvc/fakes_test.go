@@ -341,7 +341,7 @@ func (m *memStore) GrantLevel(_ context.Context, siteID, email string) (string, 
 	return m.grants[siteID][email].Level, nil
 }
 
-func (m *memStore) SetGrant(_ context.Context, siteID string, g site.Grant) error {
+func (m *memStore) SetGrant(_ context.Context, siteID string, g *site.Grant) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.failSet != nil {
@@ -350,7 +350,8 @@ func (m *memStore) SetGrant(_ context.Context, siteID string, g site.Grant) erro
 	if m.grants[siteID] == nil {
 		m.grants[siteID] = map[string]site.Grant{}
 	}
-	m.grants[siteID][g.Email] = g
+	g.CreatedAt = time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+	m.grants[siteID][g.Email] = *g
 	return nil
 }
 

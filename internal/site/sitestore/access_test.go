@@ -66,13 +66,14 @@ func TestGrantLevel(t *testing.T) {
 func TestSetGrant(t *testing.T) {
 	ctx := context.Background()
 	s, mock := newMock(t)
-	g := site.Grant{Email: "a@example.com", Level: site.LevelManage, GrantedBy: "jane@example.com"}
+	g := &site.Grant{Email: "a@example.com", Level: site.LevelManage, GrantedBy: "jane@example.com"}
 
-	mock.ExpectExec(q("ON CONFLICT (site_id, email) DO UPDATE")).WithArgs("site_1", g.Email, g.Level, g.GrantedBy).
-		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(q("ON CONFLICT (site_id, email) DO UPDATE")).WithArgs("site_1", g.Email, g.Level, g.GrantedBy).
+		WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(rowTime))
 	require.NoError(t, s.SetGrant(ctx, "site_1", g))
+	assert.Equal(t, rowTime, g.CreatedAt, "the row's time is read back")
 
-	mock.ExpectExec(q("INSERT INTO site_grants")).WillReturnError(errDown)
+	mock.ExpectQuery(q("INSERT INTO site_grants")).WillReturnError(errDown)
 	require.ErrorContains(t, s.SetGrant(ctx, "site_1", g), "set grant")
 }
 

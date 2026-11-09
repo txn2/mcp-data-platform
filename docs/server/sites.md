@@ -122,10 +122,12 @@ holding `manage_site`.
 Every request to `<site>.<pages_domain>`, on every path and for `HEAD`, is checked
 first, and a refusal holds nothing of the release.
 
-- With no sign-in it answers a sign-in page. Signing in hands the portal's session
-  across by a code good for a minute, once, bound to the browser that started it.
-  The address then keeps its own HttpOnly cookie, bound to that one site, for an
-  hour.
+- A `GET` or `HEAD` with no valid sign-in goes straight to the portal's sign-in and
+  comes back to the path it asked for, so someone already signed in to the portal
+  arrives with no click. Any other method gets a sign-in page, since it cannot be
+  carried across a redirect. Signing in hands the portal's session across by a
+  code good for a minute, once, bound to the browser that started it. The address
+  then keeps its own HttpOnly cookie, bound to that one site, for an hour.
 - Who may open it is read on every request, so removing someone takes effect on
   their next one. Files there are `Cache-Control: private, no-cache`, so a browser
   has to come back and be checked.

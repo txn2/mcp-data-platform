@@ -136,7 +136,9 @@ export function ThreadDetail({ threadId, canModerate, onBack, onDeleted }: Props
 
       <ThreadSubject thread={thread} />
 
-      {offersCapture(thread, canApply) && <CaptureInsightPanel threadId={threadId} />}
+      {offersCapture(thread, canApply) && (
+        <CaptureInsightPanel key={threadId} threadId={threadId} title={thread.title} events={events} loading={isLoading} />
+      )}
 
       {thread.insight_id && (
         <KnowledgeChainPanel threadId={threadId} insightId={thread.insight_id} />

@@ -26,6 +26,7 @@ import (
 const (
 	portalSites  = "/api/v1/portal/sites"
 	paramSite    = "site"
+	paramEmail   = "email"
 	paramEnv     = "environment"
 	maxBody      = 64 << 10
 	pathSite     = portalSites + "/{site}"
@@ -85,8 +86,8 @@ func (a *portalAPI) register(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+pathSite+"/domains", a.addDomain)
 	mux.HandleFunc("DELETE "+pathSite+"/domains/{hostname}", a.removeDomain)
 	mux.HandleFunc("GET "+pathSite+"/access", a.access)
-	mux.HandleFunc("PUT "+pathSite+"/access/{email}", a.grant)
-	mux.HandleFunc("DELETE "+pathSite+"/access/{email}", a.revoke)
+	mux.HandleFunc("PUT "+pathSite+"/access", a.grant)
+	mux.HandleFunc("DELETE "+pathSite+"/access", a.revoke)
 }
 
 // caller is who a portal request is from.

@@ -374,7 +374,7 @@ export function useGrantSite(site: string) {
   const invalidate = useInvalidate(site);
   return useMutation({
     mutationFn: (b: { email: string; level: SiteGrant["level"]; notify: boolean }) =>
-      apiFetch<SiteGrant>(`${one(site)}/access/${encodeURIComponent(b.email)}`, json("PUT", { level: b.level, notify: b.notify })),
+      apiFetch<SiteGrant>(`${one(site)}/access`, json("PUT", { email: b.email, level: b.level, notify: b.notify })),
     onSuccess: invalidate,
   });
 }
@@ -382,7 +382,7 @@ export function useGrantSite(site: string) {
 export function useRevokeSite(site: string) {
   const invalidate = useInvalidate(site);
   return useMutation({
-    mutationFn: (email: string) => noContent(`${one(site)}/access/${encodeURIComponent(email)}`, "DELETE"),
+    mutationFn: (email: string) => noContent(`${one(site)}/access?email=${encodeURIComponent(email)}`, "DELETE"),
     onSuccess: invalidate,
   });
 }

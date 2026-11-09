@@ -209,8 +209,8 @@ func TestPortal_NoUserIs401(t *testing.T) {
 		{http.MethodPost, siteBase + "/domains"},
 		{http.MethodDelete, siteBase + "/domains/a.example.org"},
 		{http.MethodGet, siteBase + "/access"},
-		{http.MethodPut, siteBase + "/access/a@b.example"},
-		{http.MethodDelete, siteBase + "/access/a@b.example"},
+		{http.MethodPut, siteBase + "/access"},
+		{http.MethodDelete, siteBase + "/access?email=a@b.example"},
 	}
 	for _, r := range routes {
 		t.Run(r.method+" "+r.target, func(t *testing.T) {
@@ -295,16 +295,18 @@ func TestPortal_WritesRefused(t *testing.T) {
 		{"access, stranger", http.MethodGet, siteBase + "/access", userStranger, nil, 403, "permission"},
 		{"access, viewer", http.MethodGet, siteBase + "/access", userViewer, nil, 403, "permission"},
 		{"access, unknown site", http.MethodGet, base + "/nope/access", userOwner, nil, 404, "no such site"},
-		{"grant, stranger", http.MethodPut, siteBase + "/access/x@example.com", userStranger, map[string]any{"level": "view"}, 403, "permission"},
-		{"grant, manager adding a manager", http.MethodPut, siteBase + "/access/x@example.com", userManager, map[string]any{"level": "manage"}, 403, "permission"},
-		{"grant, bad level", http.MethodPut, siteBase + "/access/x@example.com", userOwner, map[string]any{"level": "owner"}, 422, "level:"},
-		{"grant, not an email", http.MethodPut, siteBase + "/access/nobody", userOwner, map[string]any{"level": "view"}, 422, "email"},
-		{"grant, unknown site", http.MethodPut, base + "/nope/access/x@example.com", userOwner, map[string]any{"level": "view"}, 404, "no such site"},
-		{"grant, bad JSON", http.MethodPut, siteBase + "/access/x@example.com", userOwner, "{", 400, "not valid JSON"},
-		{"revoke, stranger", http.MethodDelete, siteBase + "/access/vi@client.example", userStranger, nil, 403, "permission"},
-		{"revoke, manager on a manager", http.MethodDelete, siteBase + "/access/mo@example.com", userManager, nil, 403, "permission"},
-		{"revoke, no such grant", http.MethodDelete, siteBase + "/access/none@example.com", userOwner, nil, 404, "no access"},
-		{"revoke, unknown site", http.MethodDelete, base + "/nope/access/x@example.com", userOwner, nil, 404, "no such site"},
+		{"grant, stranger", http.MethodPut, siteBase + "/access", userStranger, map[string]any{"email": "x@example.com", "level": "view"}, 403, "permission"},
+		{"grant, manager adding a manager", http.MethodPut, siteBase + "/access", userManager, map[string]any{"email": "x@example.com", "level": "manage"}, 403, "permission"},
+		{"grant, bad level", http.MethodPut, siteBase + "/access", userOwner, map[string]any{"email": "x@example.com", "level": "owner"}, 422, "level:"},
+		{"grant, not an email", http.MethodPut, siteBase + "/access", userOwner, map[string]any{"email": "nobody", "level": "view"}, 422, "email"},
+		{"grant, unknown site", http.MethodPut, base + "/nope/access", userOwner, map[string]any{"email": "x@example.com", "level": "view"}, 404, "no such site"},
+		{"grant, bad JSON", http.MethodPut, siteBase + "/access", userOwner, "{", 400, "not valid JSON"},
+		{"revoke, stranger", http.MethodDelete, siteBase + "/access?email=vi@client.example", userStranger, nil, 403, "permission"},
+		{"revoke, manager on a manager", http.MethodDelete, siteBase + "/access?email=mo@example.com", userManager, nil, 403, "permission"},
+		{"revoke, no such grant", http.MethodDelete, siteBase + "/access?email=none@example.com", userOwner, nil, 404, "no access"},
+		{"revoke, no email", http.MethodDelete, siteBase + "/access", userOwner, nil, 400, "email is required"},
+		{"grant, no email", http.MethodPut, siteBase + "/access", userOwner, map[string]any{"level": "view"}, 422, "email"},
+		{"revoke, unknown site", http.MethodDelete, base + "/nope/access?email=x@example.com", userOwner, nil, 404, "no such site"},
 		{"stop, stranger", http.MethodPost, siteBase + "/jobs/sjob_1/stop", userStranger, nil, 403, "permission"},
 		{"stop, unknown job", http.MethodPost, siteBase + "/jobs/none/stop", userOwner, nil, 404, "no such job"},
 		{"publish, stranger", http.MethodPost, siteBase + "/publish", userStranger, map[string]any{"archive": "a"}, 403, "permission"},
@@ -731,26 +733,27 @@ func TestPortal_AccessGrantRevoke(t *testing.T) {
 	assert.False(t, list.InternalView)
 	require.Len(t, list.Grants, 2)
 
-	got := decodeBody[site.Grant](t, f.statusIs(t, 200, route{http.MethodPut, siteBase + "/access/Pat@Client.Example", map[string]any{"level": "view"}}, userManager))
+	got := decodeBody[site.Grant](t, f.statusIs(t, 200, route{http.MethodPut, siteBase + "/access", map[string]any{"email": "Pat@Client.Example", "level": "view"}}, userManager))
 	assert.Equal(t, "pat@client.example", got.Email)
 	assert.Equal(t, userManager.Email, got.GrantedBy)
+	assert.False(t, got.CreatedAt.IsZero(), "the response carries the time the row was written")
 	assert.Empty(t, f.sharer.sent, "no email unless asked")
 	assert.Equal(t, "grant", f.audit.last().Parameters["command"])
 
-	f.statusIs(t, http.StatusNoContent, route{http.MethodDelete, siteBase + "/access/pat@client.example", nil}, userManager)
+	f.statusIs(t, http.StatusNoContent, route{http.MethodDelete, siteBase + "/access?email=pat@client.example", nil}, userManager)
 	assert.NotContains(t, f.store.grants[siteID], "pat@client.example")
 	assert.Equal(t, "revoke", f.audit.last().Parameters["command"])
 
 	f.external["ext@client.example"] = true
-	rec := f.statusIs(t, http.StatusUnprocessableEntity, route{http.MethodPut, siteBase + "/access/ext@client.example", map[string]any{"level": "manage"}}, userOwner)
+	rec := f.statusIs(t, http.StatusUnprocessableEntity, route{http.MethodPut, siteBase + "/access", map[string]any{"email": "ext@client.example", "level": "manage"}}, userOwner)
 	assert.Contains(t, rec.Body.String(), "internal")
-	f.statusIs(t, http.StatusOK, route{http.MethodPut, siteBase + "/access/ext@client.example", map[string]any{"level": "view"}}, userOwner)
+	f.statusIs(t, http.StatusOK, route{http.MethodPut, siteBase + "/access", map[string]any{"email": "ext@client.example", "level": "view"}}, userOwner)
 }
 
 func TestPortal_GrantNotifiesWhenAsked(t *testing.T) {
 	t.Run("the person is sent the site's address", func(t *testing.T) {
 		f := newFixture(t)
-		f.statusIs(t, 200, route{http.MethodPut, siteBase + "/access/pat@client.example", map[string]any{"level": "view", "notify": true}}, userOwner)
+		f.statusIs(t, 200, route{http.MethodPut, siteBase + "/access", map[string]any{"email": "pat@client.example", "level": "view", "notify": true}}, userOwner)
 		require.Equal(t, []string{"pat@client.example/share"}, f.sharer.sent)
 		assert.Equal(t, "https://marketing.pages.example.net", f.sharer.body[0].Link)
 		assert.Equal(t, siteName, f.sharer.body[0].ItemTitle)
@@ -759,19 +762,19 @@ func TestPortal_GrantNotifiesWhenAsked(t *testing.T) {
 	t.Run("a failed email leaves the grant standing", func(t *testing.T) {
 		f := newFixture(t)
 		f.sharer.err = errBoom
-		f.statusIs(t, 200, route{http.MethodPut, siteBase + "/access/pat@client.example", map[string]any{"level": "view", "notify": true}}, userOwner)
+		f.statusIs(t, 200, route{http.MethodPut, siteBase + "/access", map[string]any{"email": "pat@client.example", "level": "view", "notify": true}}, userOwner)
 		assert.Contains(t, f.store.grants[siteID], "pat@client.example")
 	})
 	t.Run("a canceled request's email is not logged as a failure", func(t *testing.T) {
 		f := newFixture(t)
 		f.sharer.err = context.Canceled
-		f.statusIs(t, 200, route{http.MethodPut, siteBase + "/access/pat@client.example", map[string]any{"level": "view", "notify": true}}, userOwner)
+		f.statusIs(t, 200, route{http.MethodPut, siteBase + "/access", map[string]any{"email": "pat@client.example", "level": "view", "notify": true}}, userOwner)
 	})
 	t.Run("no sharer sends nothing", func(t *testing.T) {
 		f := newFixture(t)
 		mux := http.NewServeMux()
 		(&portalAPI{d: PortalDeps{Runtime: f.rt, IsAdmin: func([]string) bool { return false }}}).register(mux)
-		req := httptest.NewRequestWithContext(portal.ContextWithUser(context.Background(), userOwner), http.MethodPut, siteBase+"/access/x@example.com", strings.NewReader(`{"level":"view","notify":true}`))
+		req := httptest.NewRequestWithContext(portal.ContextWithUser(context.Background(), userOwner), http.MethodPut, siteBase+"/access", strings.NewReader(`{"email":"x@example.com","level":"view","notify":true}`))
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 		assert.Equal(t, http.StatusOK, rec.Code, "and no audit logger records nothing")

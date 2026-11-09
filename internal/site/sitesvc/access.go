@@ -99,11 +99,11 @@ func (s *Service) Grant(ctx context.Context, actor Actor, ref, email, level stri
 	if err := s.checkGrant(ctx, st, email, level); err != nil {
 		return nil, err
 	}
-	g := site.Grant{Email: email, Level: level, GrantedBy: actor.Email}
+	g := &site.Grant{Email: email, Level: level, GrantedBy: actor.Email}
 	if err := s.Store.SetGrant(ctx, st.ID, g); err != nil {
 		return nil, err //nolint:wrapcheck // read by identity
 	}
-	return &g, nil
+	return g, nil
 }
 
 func (s *Service) checkGrant(ctx context.Context, st *site.Site, email, level string) error {

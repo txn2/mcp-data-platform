@@ -633,13 +633,22 @@ func (h *Handler) hiddenFrom(user *access.User, t *threads.Thread) bool {
 // decision is threadreach's, the same one that decides who a mention and a
 // reply notify (#2512), so the two cannot disagree about who can open a target.
 func (h *Handler) canAccessThreadTarget(w http.ResponseWriter, r *http.Request, user *access.User, t threadTarget) bool {
-	outcome := h.reach.Decide(r.Context(), user, true, t.kind, t.id())
-	if outcome == threadreach.Open {
+	status, msg := h.threadTargetRefusal(r, user, t)
+	if status == 0 {
 		return true
 	}
-	status, msg := targetRefusal(t.kind, outcome)
 	httpjson.WriteError(w, status, msg)
 	return false
+}
+
+// threadTargetRefusal is the answer a caller who cannot reach the thread's
+// target gets; status is 0 when the caller can reach it.
+func (h *Handler) threadTargetRefusal(r *http.Request, user *access.User, t threadTarget) (status int, msg string) {
+	outcome := h.reach.Decide(r.Context(), user, true, t.kind, t.id())
+	if outcome == threadreach.Open {
+		return 0, ""
+	}
+	return targetRefusal(t.kind, outcome)
 }
 
 // targetRefusal is the answer a refused target read gets, by what the

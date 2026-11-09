@@ -163,7 +163,7 @@ export function ConnectionViewer({
               variant="outline"
               size="icon-sm"
               onClick={() => setConfirmDelete(true)}
-              aria-label={`Delete ${connection.kind}/${connection.name}`}
+              aria-label={`Delete ${kindLabel(connection.kind)}/${connection.name}`}
               className="text-muted-foreground hover:border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
             >
               <Trash2 />
@@ -264,7 +264,7 @@ export function ConnectionViewer({
 
       {/* Metadata */}
       <div className="grid grid-cols-3 gap-4">
-        <InfoCard label="Kind" value={connection.kind} />
+        <InfoCard label="Kind" value={kindLabel(connection.kind)} />
         <InfoCard
           label="Created By"
           value={connection.created_by || "unknown"}
@@ -314,7 +314,7 @@ export function ConnectionViewer({
           <>
             Are you sure you want to delete{" "}
             <code className="font-mono">
-              {connection.kind}/{connection.name}
+              {kindLabel(connection.kind)}/{connection.name}
             </code>
             ? This cannot be undone.
           </>

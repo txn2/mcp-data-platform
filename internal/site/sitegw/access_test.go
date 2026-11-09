@@ -199,9 +199,49 @@ func assertRefusalHeaders(t *testing.T, rec *httptest.ResponseRecorder) {
 	assert.Equal(t, htmlType, rec.Header().Get(hdrType))
 }
 
-func TestAccess_NoSignInIs401OnEveryPathAndMethod(t *testing.T) {
+// assertGoesToSignIn is what a GET or HEAD with no valid sign-in gets: the
+// handoff, a state cookie, and nothing of the release.
+func assertGoesToSignIn(t *testing.T, ah *accessHarness, rec *httptest.ResponseRecorder, wantPath string) {
+	t.Helper()
+	require.Equal(t, http.StatusFound, rec.Code, rec.Body.String())
+	assertNoRelease(t, rec)
+	assert.Equal(t, noIndex, rec.Header().Get(hdrRobots))
+	assert.Equal(t, nosniff, rec.Header().Get(hdrNosniff))
+	assert.Equal(t, noStore, rec.Header().Get(hdrCache))
+	assert.Equal(t, noReferrer, rec.Header().Get(hdrReferer), "the site's address does not leave in a Referer")
+	assert.Empty(t, rec.Header().Get(headerETag))
+	loc, err := url.Parse(rec.Header().Get(headerLoc))
+	require.NoError(t, err)
+	assert.Equal(t, "portal.example.com", loc.Host)
+	assert.Equal(t, SiteHandoffPath, loc.Path)
+	assert.Equal(t, wantPath, loc.Query().Get(queryPath))
+	var state string
+	for _, c := range rec.Result().Cookies() { //nolint:bodyclose // a recorder's result has no body to close
+		if c.Name == ah.access.cookieName(cookieSiteState) {
+			state = c.Value
+		}
+	}
+	require.NotEmpty(t, state, "the state cookie is set")
+	assert.Equal(t, digest(state), loc.Query().Get("state"), "the portal learns only the digest")
+	assert.NotContains(t, loc.String(), state, "the raw state never leaves in the address")
+	assert.Zero(t, ah.objects.gets, "the release was never read")
+}
+
+func TestAccess_NoSignInGoesToTheSignInOnEveryPath(t *testing.T) {
 	paths := []string{"/", "/style.css", "/site.3f2a9c1b.js", "/missing", "/old", "/index.html", "/a/b/c?x=1"}
-	for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPost, http.MethodDelete} {
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		for _, target := range paths {
+			t.Run(method+" "+target, func(t *testing.T) {
+				ah := newAccessHarness()
+				assertGoesToSignIn(t, ah, ah.send(method, testOwnHost, target), target)
+			})
+		}
+	}
+}
+
+func TestAccess_AnotherMethodWithNoSignInIs401(t *testing.T) {
+	paths := []string{"/", "/style.css", "/missing", "/a/b/c?x=1"}
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
 		for _, target := range paths {
 			t.Run(method+" "+target, func(t *testing.T) {
 				ah := newAccessHarness()
@@ -210,28 +250,38 @@ func TestAccess_NoSignInIs401OnEveryPathAndMethod(t *testing.T) {
 				assertRefusalHeaders(t, rec)
 				assertNoRelease(t, rec)
 				assert.Empty(t, rec.Header().Get(headerLoc), "a refusal never redirects into the release")
-				assert.Empty(t, rec.Header().Get(headerETag))
-				if method == http.MethodHead {
-					assert.Empty(t, rec.Body.String(), "a HEAD has no body")
-				}
 				assert.Zero(t, ah.objects.gets, "the release was never read")
 			})
 		}
 	}
 }
 
+func TestAccess_ARequestLineThatWouldLeaveTheSiteReturnsToItsRoot(t *testing.T) {
+	ah := newAccessHarness()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "http://"+testOwnHost+"/", nil)
+	req.RequestURI = "//evil.example/"
+	req.URL.Path = "//evil.example/"
+	rec := httptest.NewRecorder()
+	ah.handler.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusFound, rec.Code, rec.Body.String())
+	loc, err := url.Parse(rec.Header().Get(headerLoc))
+	require.NoError(t, err)
+	assert.Equal(t, pathSep, loc.Query().Get(queryPath), "anything not local returns to the site's root")
+}
+
 func TestAccess_TheSignInPageCarriesTheAddressEscaped(t *testing.T) {
 	ah := newAccessHarness()
-	rec := ah.open(`/a?x="><script>alert(1)</script>`)
+	rec := ah.send(http.MethodPost, testOwnHost, `/a?x="><script>alert(1)</script>`)
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
 	body := rec.Body.String()
 	assert.Contains(t, body, "Sign in to view this preview")
 	assert.Contains(t, body, testOwnHost)
-	assert.Contains(t, body, `name="path"`)
+	assert.Contains(t, body, `href="/_signin?path=`, "a link, which form-action does not govern")
+	assert.NotContains(t, body, "<form", "the only form on this page was blocked in Chromium")
 	assert.NotContains(t, body, "<script>alert", "the requested address is escaped")
 }
 
-func TestAccess_ACookieThatIsNotGoodIs401(t *testing.T) {
+func TestAccess_ACookieThatIsNotGoodGoesToTheSignIn(t *testing.T) {
 	bytesOf := func(s string) []byte { return []byte(s) }
 	flip := func(s string) string {
 		b := bytesOf(s)
@@ -285,9 +335,7 @@ func TestAccess_ACookieThatIsNotGoodIs401(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			ah := newAccessHarness()
-			rec := ah.open("/", tc.cookie(ah))
-			assert.Equal(t, http.StatusUnauthorized, rec.Code)
-			assertNoRelease(t, rec)
+			assertGoesToSignIn(t, ah, ah.open("/", tc.cookie(ah)), "/")
 			assert.Zero(t, ah.db.reads, "a bad cookie reads no access")
 		})
 	}
@@ -298,9 +346,8 @@ func TestAccess_ATokenForOneSiteIsRefusedOnAnother(t *testing.T) {
 	ownerOfMarketing := ah.cookieFor(viewerOf(ownerMail))
 	require.Equal(t, http.StatusOK, ah.open("/", ownerOfMarketing).Code)
 
-	rec := ah.send(http.MethodGet, otherHost, "/", ownerOfMarketing)
-	assert.Equal(t, http.StatusUnauthorized, rec.Code, "the same cookie does not reach another site's address")
-	assertNoRelease(t, rec)
+	ah.objects.gets = nil
+	assertGoesToSignIn(t, ah, ah.send(http.MethodGet, otherHost, "/", ownerOfMarketing), "/")
 }
 
 func TestAccess_NoKeySignsNobodyIn(t *testing.T) {
@@ -308,7 +355,7 @@ func TestAccess_NoKeySignsNobodyIn(t *testing.T) {
 	assert.Nil(t, ah.access.viewerKey())
 	assert.Nil(t, ah.access.handoffKey())
 	rec := ah.open("/", ah.rawCookie("anything.at-all"))
-	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code, "no way to sign anyone in is said plainly")
 	assertNoRelease(t, rec)
 }
 
@@ -780,11 +827,16 @@ func TestSiteCompleteHandoff_Refusals(t *testing.T) {
 }
 
 func TestSiteSignOut(t *testing.T) {
-	t.Run("a POST forgets this hostname's sign-in", func(t *testing.T) {
+	t.Run("a POST forgets this hostname's sign-in and goes on by a page, not a redirect", func(t *testing.T) {
 		ah := newAccessHarness()
 		rec := ah.send(http.MethodPost, testOwnHost, pathSiteSignOut, ah.cookieFor(viewerOf(ownerMail)))
-		assert.Equal(t, http.StatusSeeOther, rec.Code)
-		assert.Equal(t, portalURL+"/portal/auth/logout", rec.Header().Get(headerLoc))
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Empty(t, rec.Header().Get(headerLoc), "form-action 'self' would block a redirect to the portal")
+		assertRefusalHeaders(t, rec)
+		next := portalURL + portalLogoutPath
+		body := rec.Body.String()
+		assert.Contains(t, body, `http-equiv="refresh" content="0;url=`+next+`"`)
+		assert.Contains(t, body, `href="`+next+`"`, "a link for a browser that does not follow the refresh")
 		cookies := rec.Result().Cookies() //nolint:bodyclose // a recorder's result has no body to close
 		require.Len(t, cookies, 1)
 		assert.Equal(t, cookieSiteViewer, cookies[0].Name)

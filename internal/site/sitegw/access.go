@@ -26,6 +26,9 @@ const (
 	pathSiteAuth    = "/_auth"
 	pathSiteSignIn  = "/_signin"
 	pathSiteSignOut = "/_signout"
+	// portalLogoutPath is the portal's own sign-out, where "Use another account"
+	// ends up.
+	portalLogoutPath = "/portal/auth/logout"
 	// SiteHandoffPath is the portal route that hands a signed-in person to a
 	// site's own address.
 	SiteHandoffPath = "/sites/handoff"
@@ -143,7 +146,7 @@ func (a *Access) allow(w http.ResponseWriter, r *http.Request, route *site.Route
 	}
 	v, ok := a.openViewer(r, route)
 	if !ok {
-		a.page(w, r, http.StatusUnauthorized, signInView{Host: site.NormalizeHost(r.Host), Target: r.URL.RequestURI()})
+		a.noSignIn(w, r, route)
 		return false
 	}
 	verdict, err := a.decide(r.Context(), route, v)
@@ -211,11 +214,30 @@ func byGrant(access *site.Access, v epform.Viewer) verdict {
 	return verdictOpen
 }
 
-// signIn starts the handoff: a state cookie on this hostname and a redirect
-// to the portal naming only its digest.
+// noSignIn answers a request that carries no valid sign-in for this site. A GET
+// or HEAD goes straight into the sign-in, so someone already signed in to the
+// portal never stops here. Any other method cannot be carried across a redirect
+// and gets the page.
+func (a *Access) noSignIn(w http.ResponseWriter, r *http.Request, route *site.Route) {
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		a.startSignIn(w, r, route, r.URL.RequestURI())
+		return
+	}
+	a.page(w, r, http.StatusUnauthorized, signInView{Host: site.NormalizeHost(r.Host), Target: r.URL.RequestURI()})
+}
+
+// signIn is the /_signin route: the sign-in, back to the path the query names.
 func (a *Access) signIn(w http.ResponseWriter, r *http.Request, route *site.Route) {
-	w.Header().Set(hdrCache, noStore)
-	target := r.URL.Query().Get(queryPath)
+	a.startSignIn(w, r, route, r.URL.Query().Get(queryPath))
+}
+
+// startSignIn starts the handoff: a state cookie on this hostname and a
+// redirect to the portal naming only its digest. A target that would leave the
+// site returns to its root.
+func (a *Access) startSignIn(w http.ResponseWriter, r *http.Request, route *site.Route, target string) {
+	h := w.Header()
+	h.Set(hdrCache, noStore)
+	h.Set(hdrReferer, noReferrer)
 	if !isLocalURL(target) {
 		target = pathSep
 	}
@@ -331,8 +353,10 @@ func (a *Access) setCookie(w http.ResponseWriter, base, value string, maxAge int
 	})
 }
 
-// signOut forgets this hostname's sign-in and offers the portal's sign-in, for
-// "Use another account".
+// signOut forgets this hostname's sign-in, for "Use another account", and
+// answers a page that goes on to the portal's sign-out. It is not a redirect:
+// the form posting here is held to form-action 'self', and Chromium applies
+// that to where a form submission is redirected.
 func (a *Access) signOut(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set(hdrCache, noStore)
 	if r.Method != http.MethodPost {
@@ -341,12 +365,16 @@ func (a *Access) signOut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.setCookie(w, cookieSiteViewer, "", -1)
-	http.Redirect(w, r, strings.TrimSuffix(a.PortalURL, pathSep)+"/portal/auth/logout", http.StatusSeeOther)
+	a.page(w, r, http.StatusOK, signedOutView{Next: strings.TrimSuffix(a.PortalURL, pathSep) + portalLogoutPath})
 }
 
-// signInView and noAccessView are the only pages a site's own address answers
-// to someone it does not open for.
+// signInView, noAccessView and signedOutView are the only pages a site's own
+// address answers to someone it does not open for.
 type signInView struct{ Host, Target string }
+
+// signedOutView names where the page goes next, read from configuration and
+// never from the request.
+type signedOutView struct{ Next string }
 
 type noAccessView struct {
 	Host, Email string
@@ -357,19 +385,21 @@ var (
 	signInPage = template.Must(template.New("signin").Parse(pageHead + `<title>Sign in to view this preview</title>` + pageOpen +
 		`<h1>Sign in to view this preview</h1><p class="m">{{.Host}}</p>` +
 		`<p>You need an account that the site's owner has given access.</p>` +
-		`<form method="get" action="` + pathSiteSignIn + `"><input type="hidden" name="path" value="{{.Target}}"><button>Sign in</button></form>` + pageClose))
+		`<a class="go" href="` + pathSiteSignIn + `?path={{.Target}}">Sign in</a>` + pageClose))
 	noAccessPage = template.Must(template.New("noaccess").Parse(pageHead + `<title>No access to this preview</title>` + pageOpen +
 		`<h1>You don't have access to this preview</h1><p class="m">{{.Host}}</p>` +
 		`{{if .Unverified}}<p>You are signed in as {{.Email}}, and your sign-in provider has not verified that email address. Ask your administrator to verify it, then sign in again.</p>` +
 		`{{else}}<p>You are signed in as {{.Email}}. Ask the person who sent you this link to give this account access.</p>{{end}}` +
 		`<form method="post" action="` + pathSiteSignOut + `"><button>Use another account</button></form>` + pageClose))
+	signedOutPage = template.Must(template.New("signedout").Parse(pageHead + `<meta http-equiv="refresh" content="0;url={{.Next}}"><title>Signing out</title>` + pageOpen +
+		`<h1>Signing out</h1><p>This site has forgotten your sign-in.</p><a class="go" href="{{.Next}}">Continue</a>` + pageClose))
 )
 
 const (
 	pageHead = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">` +
 		`<style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;font:14px/20px system-ui,sans-serif;background:#fff;color:#0f172a}` +
 		`main{width:100%;max-width:420px;padding:24px;border:1px solid #e2e8f0;border-radius:8px;box-sizing:border-box}h1{font-size:18px;line-height:24px;font-weight:600;margin:0 0 16px}p{margin:0 0 16px;color:#64748b;overflow-wrap:anywhere}.m{font-family:ui-monospace,monospace}` +
-		`button{width:100%;height:36px;border:0;border-radius:6px;background:#2563eb;color:#fff;font:inherit;font-weight:500;cursor:pointer}` +
+		`button,.go{display:block;width:100%;height:36px;padding:0;border:0;border-radius:6px;background:#2563eb;color:#fff;font:inherit;font-weight:500;line-height:36px;text-align:center;text-decoration:none;cursor:pointer}` +
 		`@media (prefers-color-scheme:dark){body{background:#020617;color:#f8fafc}main{border-color:#1e293b}p{color:#94a3b8}}</style>`
 	pageOpen  = `</head><body><main>`
 	pageClose = `</main></body></html>`
@@ -385,11 +415,19 @@ func (*Access) page(w http.ResponseWriter, r *http.Request, status int, view any
 	if r.Method == http.MethodHead {
 		return
 	}
-	tmpl := signInPage
-	if _, ok := view.(noAccessView); ok {
-		tmpl = noAccessPage
-	}
-	if err := tmpl.Execute(w, view); err != nil && !errors.Is(err, http.ErrHandlerTimeout) {
+	if err := pageTemplate(view).Execute(w, view); err != nil && !errors.Is(err, http.ErrHandlerTimeout) {
 		slog.WarnContext(r.Context(), "sites: writing a sign-in page failed", logKeyError, logsan.SanitizeForLog(err.Error()))
+	}
+}
+
+// pageTemplate is the page a view is written with.
+func pageTemplate(view any) *template.Template {
+	switch view.(type) {
+	case noAccessView:
+		return noAccessPage
+	case signedOutView:
+		return signedOutPage
+	default:
+		return signInPage
 	}
 }

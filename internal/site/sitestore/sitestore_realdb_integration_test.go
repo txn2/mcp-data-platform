@@ -311,8 +311,8 @@ func TestRealDB_GrantsAndSiteAccess(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, &site.Access{OwnerEmail: realOwner}, access, "no grant reads as no level")
 
-	require.NoError(t, s.SetGrant(ctx, st.ID, site.Grant{Email: "pat@client.example", Level: site.LevelView, GrantedBy: realOwner}))
-	require.NoError(t, s.SetGrant(ctx, st.ID, site.Grant{Email: "mo@example.com", Level: site.LevelManage, GrantedBy: realOwner}))
+	require.NoError(t, s.SetGrant(ctx, st.ID, &site.Grant{Email: "pat@client.example", Level: site.LevelView, GrantedBy: realOwner}))
+	require.NoError(t, s.SetGrant(ctx, st.ID, &site.Grant{Email: "mo@example.com", Level: site.LevelManage, GrantedBy: realOwner}))
 
 	access, err = s.SiteAccess(ctx, st.ID, "  PAT@Client.Example ")
 	require.NoError(t, err)
@@ -331,7 +331,7 @@ func TestRealDB_GrantsAndSiteAccess(t *testing.T) {
 	assert.Equal(t, "mo@example.com", grants[0].Email, "managers list first")
 	assert.False(t, grants[0].CreatedAt.IsZero())
 
-	require.NoError(t, s.SetGrant(ctx, st.ID, site.Grant{Email: "mo@example.com", Level: site.LevelView, GrantedBy: "admin@example.com"}))
+	require.NoError(t, s.SetGrant(ctx, st.ID, &site.Grant{Email: "mo@example.com", Level: site.LevelView, GrantedBy: "admin@example.com"}))
 	level, err = s.GrantLevel(ctx, st.ID, "mo@example.com")
 	require.NoError(t, err)
 	assert.Equal(t, site.LevelView, level, "a second write changes the level")
@@ -339,9 +339,9 @@ func TestRealDB_GrantsAndSiteAccess(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, grants, 2, "still one row a person")
 
-	require.Error(t, s.SetGrant(ctx, st.ID, site.Grant{Email: "UP@example.com", Level: site.LevelView, GrantedBy: realOwner}),
+	require.Error(t, s.SetGrant(ctx, st.ID, &site.Grant{Email: "UP@example.com", Level: site.LevelView, GrantedBy: realOwner}),
 		"the table holds an address in the form it is matched in")
-	require.Error(t, s.SetGrant(ctx, st.ID, site.Grant{Email: "x@example.com", Level: "owner", GrantedBy: realOwner}),
+	require.Error(t, s.SetGrant(ctx, st.ID, &site.Grant{Email: "x@example.com", Level: "owner", GrantedBy: realOwner}),
 		"the table holds only the two levels")
 
 	require.NoError(t, s.RemoveGrant(ctx, st.ID, "pat@client.example"))

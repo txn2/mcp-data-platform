@@ -2515,6 +2515,7 @@ Human feedback threads on portal assets connect to the knowledge loop: an agent 
 - **Markdown bodies (#2214)**: a thread event body renders as Markdown in the timeline (GFM, single newlines kept as breaks, raw HTML dropped, script links not followed, delivered mentions still chips read from `metadata.mentions`, a mention inside code left as written); the composer has Write and Preview; a comment, feedback or mention email renders the message through the same goldmark renderer channel bodies use, with each `@local(domain)` mention written as its address. List views show thread titles only, so no body excerpt is involved.
 - **@-mentions (#627)**: a thread comment body may address people with `@local(domain)` tokens (for example `@marcus.johnson(example.com)`). The parenthesized domain terminates the token, so a mention written before sentence punctuation is not swallowed by it, and the stored form is an address rather than a display name. On write (portal REST and `manage_feedback reply` alike) the named addresses are filtered to the people who can open the target, decided by internal/portal/threadreach with the portal's authorization core (#2512): each address is judged as the person it belongs to, with the roles the known-users directory last recorded and the persona they resolve to, so ownership, an email share, a persona share, a collection share and administration all admit; an address the directory does not hold is admitted only by a grant addressed to it, and a target open to every signed-in person (knowledge page, standalone channel, a prompt that is not personal) admits only known people. A thread event's comment fan-out reaches the owner, the grantees and the thread's participants (authors of its live messages and the people they mention), each filtered by the same decision at enqueue time. Eligible mentions are recorded on the event as `metadata.mentions` (a lower-cased address array, GIN-indexed) and notified in the `mention` category, which has its own per-user preference so muting comment activity still leaves a person reachable by name. A name outside the audience -- and the author's own address -- is kept as plain text: nothing is recorded, the timeline renders it unchipped (the client chips only what `metadata.mentions` records), and nothing is delivered, so a comment can never mail an item's title and an excerpt to someone who cannot open it. A share that names its recipient only by user id grants access but records no address anywhere, so such a person is outside the audience by construction. `GET /api/v1/portal/mention-candidates?target_type=&target_id=&q=` lists the audience for the composer's type-ahead (the caller must belong to it, or be an admin); `GET /api/v1/portal/worklist/mentions` is the caller's mentions inbox, re-checked against present-day access so a revoked share stops surfacing the item's threads.
 - **`GET /api/v1/portal/threads/{id}/chain`** returns a thread's resolved chain: its `insight_id` and the changesets that insight produced (each with `target_urn`, `change_type`, rollback state). The portal feedback panel renders this as a "Knowledge chain" section.
+- **Capture as insight in the portal (#2546)**: `POST /api/v1/portal/threads/{id}/insight` builds the text from the thread when no `content` is sent, and holds it to the 4,000-byte limit. When the default is over the limit the panel shows it in an editable field with a byte count and the reviewer shortens it; nothing is truncated. A refusal shows the server's message and is logged with the thread id and reason, never the text.
 
 ### Validation & sign-off (Phase 3)
 
@@ -6433,10 +6434,12 @@ holding `manage_site`.
 Every request to `<site>.<pages_domain>`, on every path and for `HEAD`, is checked
 first, and a refusal holds nothing of the release.
 
-- With no sign-in it answers a sign-in page. Signing in hands the portal's session
-  across by a code good for a minute, once, bound to the browser that started it.
-  The address then keeps its own HttpOnly cookie, bound to that one site, for an
-  hour.
+- A `GET` or `HEAD` with no valid sign-in goes straight to the portal's sign-in and
+  comes back to the path it asked for, so someone already signed in to the portal
+  arrives with no click. Any other method gets a sign-in page, since it cannot be
+  carried across a redirect. Signing in hands the portal's session across by a
+  code good for a minute, once, bound to the browser that started it. The address
+  then keeps its own HttpOnly cookie, bound to that one site, for an hour.
 - Who may open it is read on every request, so removing someone takes effect on
   their next one. Files there are `Cache-Control: private, no-cache`, so a browser
   has to come back and be checked.

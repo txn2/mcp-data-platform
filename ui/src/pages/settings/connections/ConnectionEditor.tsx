@@ -53,7 +53,7 @@ export function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }
       {/* Header */}
       <div className="flex items-center justify-between border-b bg-muted/10 px-6 py-3">
         <h2 className="text-sm font-semibold">
-          {connection ? `Edit: ${connection.kind}/${connection.name}` : "New Connection"}
+          {connection ? `Edit: ${kindLabel(connection.kind)}/${connection.name}` : "New Connection"}
         </h2>
         <div className="flex items-center gap-2">
           <Button type="button" variant="outline" size="sm" onClick={onCancel}>

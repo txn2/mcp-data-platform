@@ -262,13 +262,13 @@ func openUntil2559(t *testing.T, s *site2559, cookie, want string) pageResponse 
 
 func (s *site2559) grant(t *testing.T, key, email, level string) {
 	t.Helper()
-	status, got := rest2559(t, key, http.MethodPut, s.path("/access/"+url.PathEscape(email)), map[string]any{"level": level})
+	status, got := rest2559(t, key, http.MethodPut, s.path("/access"), map[string]any{"email": email, "level": level})
 	want2559(t, "granting "+level, status, http.StatusOK, got)
 }
 
 func (s *site2559) revoke(t *testing.T, key, email string) {
 	t.Helper()
-	status, got := rest2559(t, key, http.MethodDelete, s.path("/access/"+url.PathEscape(email)), nil)
+	status, got := rest2559(t, key, http.MethodDelete, s.path("/access?email="+url.QueryEscape(email)), nil)
 	want2559(t, "revoking", status, http.StatusNoContent, got)
 }
 
@@ -308,9 +308,9 @@ func TestIssue2559_APersonCreatesASiteUploadsAZipAndOpensItsOwnAddress(t *testin
 	s.publish(t, keyEngineer2559, "", "one")
 
 	r := onHost(t, s.host(), http.MethodGet, "/", nil, "")
-	refusedNoContent2559(t, r, http.StatusUnauthorized, "the address with no sign-in")
-	if !strings.Contains(r.body, "Sign in") {
-		t.Errorf("no sign-in page: %s", r.body)
+	refusedNoContent2559(t, r, http.StatusFound, "the address with no sign-in")
+	if !strings.Contains(r.header.Get("Location"), "/sites/handoff") {
+		t.Errorf("no sign-in redirect: %v", r.header.Get("Location"))
 	}
 
 	s.grant(t, keyEngineer2559, emailKCAnalyst, "view")
@@ -440,7 +440,7 @@ func TestIssue2559_SavingAPagesDomainAppliesOnEveryReplicaAndThePortalsOwnIsRefu
 	awaitPagesDomain2559(t, reps, "other-pages.localhost")
 	pollUntil2518(t, func() (pageResponse, bool) {
 		r := onHost(t, s.name+".other-pages.localhost", http.MethodGet, "/", nil, "")
-		return r, r.status == http.StatusUnauthorized
+		return r, r.status == http.StatusFound
 	})
 
 	refused := clone2559(restore)
@@ -505,8 +505,8 @@ func TestIssue2559_EveryRouteIsRefusedWithoutTheAreaAndForSomeoneNotGivenAccess(
 		{http.MethodPost, s.path("/domains"), map[string]any{"hostname": "x.example.test"}},
 		{http.MethodDelete, s.path("/domains/x.example.test"), nil},
 		{http.MethodGet, s.path("/access"), nil},
-		{http.MethodPut, s.path("/access/a@b.example"), map[string]any{"level": "view"}},
-		{http.MethodDelete, s.path("/access/a@b.example"), nil},
+		{http.MethodPut, s.path("/access"), map[string]any{"email": "a@b.example", "level": "view"}},
+		{http.MethodDelete, s.path("/access?email=a%40b.example"), nil},
 	}
 	for _, rt := range routes {
 		if status, got := rest2559(t, keyReporter2559, rt.method, rt.path, rt.body); status != http.StatusForbidden {
@@ -550,7 +550,7 @@ func TestIssue2559_EveryRouteIsRefusedWithoutTheAreaAndForSomeoneNotGivenAccess(
 	status, got := rest2559(t, keyDirector2559, http.MethodPost, s.path("/promote"), promote)
 	want2559(t, "promoting as someone who manages", status, http.StatusOK, got)
 
-	if status, got := rest2559(t, keyDirector2559, http.MethodPut, s.path("/access/someone@example.com"), map[string]any{"level": "manage"}); status != http.StatusForbidden {
+	if status, got := rest2559(t, keyDirector2559, http.MethodPut, s.path("/access"), map[string]any{"email": "someone@example.com", "level": "manage"}); status != http.StatusForbidden {
 		t.Errorf("adding someone who manages, as someone who manages: %d %v", status, got["_raw"])
 	}
 	if status, got := rest2559(t, keyDirector2559, http.MethodDelete, s.path(""), nil); status != http.StatusForbidden {
@@ -581,7 +581,7 @@ func TestIssue2559_AnExternalPersonOpensOnlyTheSiteTheyWereGivenAndLosesItOnRemo
 	}
 
 	// One site's cookie opens no other.
-	refusedNoContent2559(t, onHost(t, other.host(), http.MethodGet, "/", withCookie2559(cookie), ""), http.StatusUnauthorized, "a cookie for another site")
+	refusedNoContent2559(t, onHost(t, other.host(), http.MethodGet, "/", withCookie2559(cookie), ""), http.StatusFound, "a cookie for another site")
 
 	manual := &http.Client{Jar: hc.Jar, Timeout: hc.Timeout}
 	for _, p := range []string{portal2559, s.path("")} {
@@ -614,7 +614,11 @@ func TestIssue2559_EveryPathAndMethodIsGuardedAndARemovedPersonCannotRevalidate(
 		{http.MethodPost, "/"},
 	} {
 		r := onHost(t, s.host(), rt.method, rt.path, nil, "")
-		refusedNoContent2559(t, r, http.StatusUnauthorized, rt.method+" "+rt.path)
+		want := http.StatusFound
+		if rt.method == http.MethodPost {
+			want = http.StatusUnauthorized
+		}
+		refusedNoContent2559(t, r, want, rt.method+" "+rt.path)
 		if cc := r.header.Get("Cache-Control"); cc != "no-store" {
 			t.Errorf("%s %s: a refusal is cacheable: %q", rt.method, rt.path, cc)
 		}
@@ -673,7 +677,7 @@ func TestIssue2559_AnAPIKeySignsNobodyInAndAHandoffOpensOnce(t *testing.T) {
 		{"Cookie": "mcp_session=forged"},
 		{"Cookie": "site_viewer=forged"},
 	} {
-		refusedNoContent2559(t, onHost(t, s.host(), http.MethodGet, "/", h, ""), http.StatusUnauthorized, fmt.Sprintf("%v", h))
+		refusedNoContent2559(t, onHost(t, s.host(), http.MethodGet, "/", h, ""), http.StatusFound, fmt.Sprintf("%v", h))
 	}
 
 	start := onHost(t, s.host(), http.MethodGet, "/_signin?path=%2F", nil, "")

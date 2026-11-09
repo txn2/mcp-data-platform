@@ -460,23 +460,23 @@ func (a *portalAPI) access(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, AccessList{Owner: st.OwnerEmail, InternalView: st.InternalView, Grants: grants})
 }
 
-// grant handles PUT /api/v1/portal/sites/{site}/access/{email}.
+// grant handles PUT /api/v1/portal/sites/{site}/access. The email is in the
+// body, not the path: the API gateway refuses a path holding "@" (#2578).
 //
 // @Summary      Give someone access
 // @Description  Adds a person or changes their level. Anyone who manages the site shares view access; only its owner and administrators add or change someone who manages it, and that person must be internal.
 // @Tags         Sites
 // @Accept       json
 // @Produce      json
-// @Param        site   path      string     true  "Site name or id"
-// @Param        email  path      string     true  "Their email"
-// @Param        body   body      GrantBody  true  "The level"
-// @Success      200    {object}  site.Grant
-// @Failure      403    {object}  httpjson.ProblemDetail
-// @Failure      404    {object}  httpjson.ProblemDetail
-// @Failure      422    {object}  httpjson.ProblemDetail
+// @Param        site  path      string     true  "Site name or id"
+// @Param        body  body      GrantBody  true  "Who, and at what level"
+// @Success      200   {object}  site.Grant
+// @Failure      403   {object}  httpjson.ProblemDetail
+// @Failure      404   {object}  httpjson.ProblemDetail
+// @Failure      422   {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /portal/sites/{site}/access/{email} [put]
+// @Router       /portal/sites/{site}/access [put]
 func (a *portalAPI) grant(w http.ResponseWriter, r *http.Request) {
 	c, r, ok := a.who(w, r)
 	if !ok {
@@ -486,9 +486,8 @@ func (a *portalAPI) grant(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	email := r.PathValue("email")
-	g, err := a.svc().Grant(r.Context(), c.actor, r.PathValue(paramSite), email, in.Level)
-	a.record(r.Context(), c, sitetool.CmdGrant, map[string]any{paramSite: r.PathValue(paramSite), "email": email, "level": in.Level}, err)
+	g, err := a.svc().Grant(r.Context(), c.actor, r.PathValue(paramSite), in.Email, in.Level)
+	a.record(r.Context(), c, sitetool.CmdGrant, map[string]any{paramSite: r.PathValue(paramSite), paramEmail: in.Email, "level": in.Level}, err)
 	if err != nil {
 		fail(w, r, err)
 		return
@@ -518,27 +517,33 @@ func (a *portalAPI) share(ctx context.Context, c *caller, ref, email string) {
 	}
 }
 
-// revoke handles DELETE /api/v1/portal/sites/{site}/access/{email}.
+// revoke handles DELETE /api/v1/portal/sites/{site}/access?email=. The email is
+// in the query, not the path: the API gateway refuses a path holding "@" (#2578).
 //
 // @Summary      Remove someone's access
 // @Description  Takes effect on their next request. Anyone who manages the site removes someone who can view it; only its owner and administrators remove someone who manages it.
 // @Tags         Sites
-// @Param        site   path  string  true  "Site name or id"
-// @Param        email  path  string  true  "Their email"
+// @Param        site   path   string  true  "Site name or id"
+// @Param        email  query  string  true  "Their email"
 // @Success      204
+// @Failure      400  {object}  httpjson.ProblemDetail
 // @Failure      403  {object}  httpjson.ProblemDetail
 // @Failure      404  {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /portal/sites/{site}/access/{email} [delete]
+// @Router       /portal/sites/{site}/access [delete]
 func (a *portalAPI) revoke(w http.ResponseWriter, r *http.Request) {
 	c, r, ok := a.who(w, r)
 	if !ok {
 		return
 	}
-	email := r.PathValue("email")
+	email := r.URL.Query().Get(paramEmail)
+	if email == "" {
+		httpjson.WriteError(w, http.StatusBadRequest, "email is required")
+		return
+	}
 	err := a.svc().Revoke(r.Context(), c.actor, r.PathValue(paramSite), email)
-	a.record(r.Context(), c, sitetool.CmdRevoke, map[string]any{paramSite: r.PathValue(paramSite), "email": email}, err)
+	a.record(r.Context(), c, sitetool.CmdRevoke, map[string]any{paramSite: r.PathValue(paramSite), paramEmail: email}, err)
 	if err != nil {
 		fail(w, r, err)
 		return
