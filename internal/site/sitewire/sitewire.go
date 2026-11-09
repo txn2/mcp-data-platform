@@ -22,12 +22,12 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
+	"github.com/txn2/mcp-data-platform/internal/platform/settingsjson"
 	"github.com/txn2/mcp-data-platform/internal/site"
 	"github.com/txn2/mcp-data-platform/internal/site/sitecrawl"
 	"github.com/txn2/mcp-data-platform/internal/site/sitestore"
 	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
 	"github.com/txn2/mcp-data-platform/internal/site/sitetool"
-	"github.com/txn2/mcp-data-platform/internal/site/siteverify"
 	"github.com/txn2/mcp-data-platform/internal/unarchive"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
@@ -41,6 +41,9 @@ type Deps struct {
 	PortalURL string
 	// CookieDomain is the browser session cookie's Domain, empty for none.
 	CookieDomain string
+	// ReservedURLs are the other addresses the platform answers on itself; a
+	// domain may not claim their hostnames.
+	ReservedURLs []string
 	Approvals    *approval.Service
 	Sources      *scriptsrc.Reader
 }
@@ -51,6 +54,49 @@ type Runtime struct {
 	Store   *sitestore.Store
 	Config  siteconfig.Config
 	Apps    *appstore.Store
+	// Live is the configuration in force: the file's until a saved section
+	// replaces it.
+	Live *siteconfig.Live
+	// Settings is the section an administrator saves.
+	Settings *settingsjson.Section[siteconfig.Settings]
+	// Sources reads what a publish names by reference, and Crawler copies a
+	// site; nil where the deployment cannot.
+	Sources sitetool.Sources
+	Crawler sitetool.Crawler
+	// PortalURL and CookieDomain are what a saved pages domain is checked against.
+	PortalURL    string
+	CookieDomain string
+}
+
+// Refresh reads the saved settings into the configuration in force. A
+// deployment that has saved none keeps the file's values.
+func (rt *Runtime) Refresh(ctx context.Context) error {
+	stored, err := rt.Settings.Get(ctx)
+	if errors.Is(err, settingsjson.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("reading the sites settings: %w", err)
+	}
+	next := rt.Config.With(stored.Value)
+	if rt.Live.Get().PagesDomain != next.PagesDomain && rt.Service.Invalidate != nil {
+		defer rt.Service.Invalidate("")
+	}
+	rt.Live.Set(next)
+	return nil
+}
+
+// Save checks and stores the settings and applies them on this replica at once;
+// the others read them within their refresh interval.
+func (rt *Runtime) Save(ctx context.Context, s siteconfig.Settings, by string) error {
+	next := rt.Config.With(s)
+	if err := next.Check(rt.PortalURL, rt.CookieDomain); err != nil {
+		return &sitesvc.RefusedError{Msg: err.Error()}
+	}
+	if err := rt.Settings.Set(ctx, s, by); err != nil {
+		return fmt.Errorf("saving the sites settings: %w", err)
+	}
+	return rt.Refresh(ctx)
 }
 
 // Serving reports whether sites run here: the section is on, and there is a
@@ -72,9 +118,10 @@ func Register(server *mcp.Server, d Deps) (*Runtime, error) {
 	}
 	store := sitestore.New(d.DB)
 	apps := appstore.New(d.DB)
+	live := siteconfig.NewLive(d.Config)
 	svc := &sitesvc.Service{
-		Store: store, Bucket: d.Bucket, Config: d.Config, Apps: apps,
-		PortalHost: site.NormalizeHost(portal.Hostname()), CookieDomain: d.CookieDomain,
+		Store: store, Bucket: d.Bucket, Config: d.Config, Live: live, Apps: apps,
+		PortalHost: site.NormalizeHost(portal.Hostname()), ReservedHosts: append(reservedHosts(d.ReservedURLs), d.Config.ReservedHostnames...), CookieDomain: d.CookieDomain,
 		PublicScheme: scheme(portal), PublicPort: portal.Port(),
 	}
 	if d.Objects != nil && d.Config.IsEnabled() {
@@ -83,14 +130,9 @@ func Register(server *mcp.Server, d Deps) (*Runtime, error) {
 	if d.Approvals != nil {
 		svc.Approvals = d.Approvals
 	}
-	verifier, err := siteverify.New(d.Config.Verify)
-	if err != nil {
-		return nil, fmt.Errorf("sites: %w", err)
-	}
-	svc.Verifier = verifier
 	tool := &sitetool.Tool{Service: svc, PortalURL: d.PortalURL}
 	if d.Sources != nil {
-		tool.Sources = sources{reader: d.Sources, limits: d.Config.Limits()}
+		tool.Sources = sources{reader: d.Sources, live: live}
 	}
 	crawler, err := sitecrawl.New(d.Config.Crawl)
 	if err != nil {
@@ -98,7 +140,24 @@ func Register(server *mcp.Server, d Deps) (*Runtime, error) {
 	}
 	tool.Crawler = crawler
 	tool.Register(server)
-	return &Runtime{Service: svc, Store: store, Config: d.Config, Apps: apps}, nil
+	rt := &Runtime{
+		Service: svc, Store: store, Config: d.Config, Apps: apps, Live: live,
+		Settings: settingsjson.New[siteconfig.Settings](d.DB, siteconfig.SettingsSection),
+		Sources:  tool.Sources, Crawler: crawler, PortalURL: d.PortalURL, CookieDomain: d.CookieDomain,
+	}
+	err = rt.Refresh(context.Background())
+	return rt, err
+}
+
+// reservedHosts are the hostnames of the platform's other addresses.
+func reservedHosts(urls []string) []string {
+	out := make([]string, 0, len(urls))
+	for _, raw := range urls {
+		if u, err := url.Parse(strings.TrimSpace(raw)); err == nil && u.Hostname() != "" {
+			out = append(out, site.NormalizeHost(u.Hostname()))
+		}
+	}
+	return out
 }
 
 func parsePortal(raw string) *url.URL {
@@ -118,27 +177,53 @@ func scheme(u *url.URL) string {
 
 // PageAllowed reports why a script's endpoint cannot be a browser page.
 func (rt *Runtime) PageAllowed(ctx context.Context, scriptID string) error {
-	if rt.Config.PagesDomain == "" {
-		return errors.New("this deployment serves no browser pages: it has no sites.pages_domain")
+	if rt.Live.Get().PagesDomain == "" {
+		return errors.New("this deployment serves no browser pages: it has no pages domain")
 	}
-	a, err := rt.Apps.Owning(ctx, "script", scriptID)
+	_, err := rt.Apps.Owning(ctx, "script", scriptID)
 	if err != nil {
 		return fmt.Errorf("a page belongs to an application, and this script is a part of none: add it with manage_application add_part: %w", epbinding.ErrNotAllowed)
-	}
-	if strings.Contains(a.Name, site.PreviewSeparator) {
-		return fmt.Errorf("application %q cannot serve pages: a name holding %q is read as a site preview", a.Name, site.PreviewSeparator)
 	}
 	return nil
 }
 
+// PageAddress is where a script's browser page answers: its application's page
+// origin, "" for a script in no application or with no pages domain.
+func (rt *Runtime) PageAddress(ctx context.Context, scriptID string) string {
+	a, err := rt.Apps.Owning(ctx, "script", scriptID)
+	if err != nil {
+		return ""
+	}
+	return rt.Service.PageOrigin(a.Name)
+}
+
+// ApplicationAddresses is where an application answers: its page origin and the
+// domains mapped to it.
+func (rt *Runtime) ApplicationAddresses(ctx context.Context, name string) (origin string, domains []string, err error) {
+	if _, err := rt.Apps.GetByName(ctx, name); err != nil {
+		return "", nil, fmt.Errorf("application %q: %w", name, err)
+	}
+	all, err := rt.Store.Domains(ctx)
+	if err != nil {
+		return "", nil, fmt.Errorf("listing domains: %w", err)
+	}
+	domains = []string{}
+	for _, d := range all {
+		if d.Application == name {
+			domains = append(domains, d.Hostname)
+		}
+	}
+	return rt.Service.PageOrigin(name), domains, nil
+}
+
 // SiteOrigins are the browser origins of the sites an application holds: its
-// site parts' verified hostnames and previews, which its endpoints answer
-// without being listed in allowed_origins.
+// site parts' domains and own addresses, which its endpoints answer without
+// being listed in allowed_origins.
 func (rt *Runtime) SiteOrigins(ctx context.Context, applicationID string) []string {
 	if applicationID == "" {
 		return nil
 	}
-	hosts, err := rt.Store.ApplicationHosts(ctx, applicationID, rt.Config.PagesDomain)
+	hosts, err := rt.Store.ApplicationHosts(ctx, applicationID, rt.Live.Get().PagesDomain)
 	if err != nil {
 		return nil
 	}
@@ -152,17 +237,20 @@ func (rt *Runtime) SiteOrigins(ctx context.Context, applicationID string) []stri
 // sources reads what a publish names by reference, as its caller.
 type sources struct {
 	reader *scriptsrc.Reader
-	limits siteconfig.Config
+	live   *siteconfig.Live
 }
+
+func (s sources) limits() siteconfig.Config { return s.live.Get().Limits() }
 
 // Archive reads a zip or gzipped tar managed resource's files.
 func (s sources) Archive(ctx context.Context, ref string) ([]sitesvc.InputFile, error) {
+	limits := s.limits()
 	claims := resourcewrite.CallerClaims(ctx)
 	res, err := s.reader.Resolve(ctx, ref, claims)
 	if err != nil {
 		return nil, &sitesvc.RefusedError{Msg: err.Error()}
 	}
-	body, err := s.reader.Bytes(ctx, res, s.limits.MaxReleaseBytes)
+	body, err := s.reader.Bytes(ctx, res, limits.MaxReleaseBytes)
 	if err != nil {
 		return nil, &sitesvc.RefusedError{Msg: err.Error()}
 	}
@@ -174,7 +262,7 @@ func (s sources) Archive(ctx context.Context, ref string) ([]sitesvc.InputFile, 
 		return body[off:end], nil
 	}}
 	archive, err := unarchive.Open(ctx, src, "", unarchive.Limits{
-		MaxMemberBytes: s.limits.MaxFileBytes, MaxTotalBytes: s.limits.MaxReleaseBytes, MaxMembers: s.limits.MaxFiles + 1,
+		MaxMemberBytes: limits.MaxFileBytes, MaxTotalBytes: limits.MaxReleaseBytes, MaxMembers: limits.MaxFiles + 1,
 	})
 	if err != nil {
 		return nil, &sitesvc.RefusedError{Msg: "the archive cannot be published: " + err.Error()}
@@ -196,6 +284,7 @@ func (s sources) Archive(ctx context.Context, ref string) ([]sitesvc.InputFile, 
 
 // Folder reads a managed-resource folder's files.
 func (s sources) Folder(ctx context.Context, scope, scopeID, folder string) ([]sitesvc.InputFile, error) {
+	limits := s.limits()
 	claims := resourcewrite.CallerClaims(ctx)
 	lib := resource.ScopeFilter{Scope: resource.ScopeUser, ScopeID: claims.Sub}
 	if scope != "" && scope != string(resource.ScopeUser) {
@@ -209,10 +298,10 @@ func (s sources) Folder(ctx context.Context, scope, scopeID, folder string) ([]s
 	files := make([]sitesvc.InputFile, 0, len(listed))
 	for _, f := range listed {
 		total += f.Resource.SizeBytes
-		if total > s.limits.MaxReleaseBytes {
-			return nil, &sitesvc.RefusedError{Msg: fmt.Sprintf("the folder holds more than the %d bytes sites.max_release_bytes allows", s.limits.MaxReleaseBytes)}
+		if total > limits.MaxReleaseBytes {
+			return nil, &sitesvc.RefusedError{Msg: fmt.Sprintf("the folder holds more than the %d bytes sites.max_release_bytes allows", limits.MaxReleaseBytes)}
 		}
-		body, err := s.reader.Bytes(ctx, f.Resource, s.limits.MaxFileBytes)
+		body, err := s.reader.Bytes(ctx, f.Resource, limits.MaxFileBytes)
 		if err != nil {
 			return nil, &sitesvc.RefusedError{Msg: err.Error()}
 		}

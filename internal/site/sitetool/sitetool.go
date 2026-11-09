@@ -17,6 +17,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/site/sitecrawl"
 	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
+	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
@@ -38,21 +39,21 @@ const (
 	CmdReleases     = "releases"
 	CmdDeployments  = "deployments"
 	CmdAddDomain    = "add_domain"
-	CmdVerifyDomain = "verify_domain"
 	CmdRemoveDomain = "remove_domain"
 	CmdDomains      = "domains"
-	CmdHosts        = "hosts"
 	CmdCrawl        = "crawl"
+	CmdGrant        = "grant"
+	CmdRevoke       = "revoke"
 )
 
 // Commands is every command, in the order the schema lists them.
 var Commands = []string{
 	CmdCreate, CmdGet, CmdList, CmdUpdate, CmdDelete, CmdEnvironment, CmdPublish, CmdPromote, CmdRollback,
-	CmdReleases, CmdDeployments, CmdAddDomain, CmdVerifyDomain, CmdRemoveDomain, CmdDomains, CmdHosts, CmdCrawl,
+	CmdReleases, CmdDeployments, CmdAddDomain, CmdRemoveDomain, CmdDomains, CmdCrawl, CmdGrant, CmdRevoke,
 }
 
 // Reads is the commands that change nothing.
-var Reads = []string{CmdGet, CmdList, CmdReleases, CmdDeployments, CmdDomains, CmdHosts}
+var Reads = []string{CmdGet, CmdList, CmdReleases, CmdDeployments, CmdDomains}
 
 // allowedInRun is what a script run may do beyond reading: a build publishes
 // to an environment that needs no approval. Anything that changes what a
@@ -74,7 +75,11 @@ type Input struct {
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 	OwnerEmail  string `json:"owner_email,omitempty"`
-	Environment string `json:"environment,omitempty"`
+	// InternalView is a pointer so false can be told from unset.
+	InternalView *bool  `json:"internal_view,omitempty"`
+	Email        string `json:"email,omitempty"`
+	Level        string `json:"level,omitempty"`
+	Environment  string `json:"environment,omitempty"`
 	// RequiresApproval is a pointer so false can be told from unset.
 	RequiresApproval *bool  `json:"requires_approval,omitempty"`
 	From             string `json:"from,omitempty"`
@@ -115,19 +120,21 @@ type Tool struct {
 	PortalURL string
 }
 
-const description = "Static sites served by the platform on their own hostnames. A site has environments (dev, stage and " +
-	"prod to start, any name), each pointing at one immutable release. publish writes a new release (from files, an archive " +
-	"managed resource, or a resource folder; a _redirects file becomes its redirect map, a 404.html its not-found page) and " +
-	"answers with a preview URL. promote points an environment at another's release, and rollback at one it served before: " +
-	"neither copies a file, and both take effect at once. An environment that requires approval (prod) is reached only by " +
-	"promote: an administrator's promote records its own approval, anyone else's files a request in manage_approval and goes " +
-	"through when they promote again after it is approved. add_domain maps a hostname to a site environment or to an " +
-	"application's endpoints; verify_domain routes it once a DNS TXT record or a served token proves control, and hosts " +
-	"reports what the ingress needs (with a cert-manager Certificate). crawl copies an existing site into a release, keeping " +
-	"its URLs and turning its redirects into the redirect map. A site environment is a part of an application (add_part kind " +
-	"site, part_id \"<site>/<environment>\"), released and rolled back with it. Everyone reads a site; its owner and " +
-	"administrators publish and promote; administrators map hostnames and delete. Read fetch " +
-	"mcp:knowledge_page:platform-pages-and-sites first."
+const description = "Static sites served by the platform on their own hostnames. A new site has one environment, default, " +
+	"served at <site>.<pages domain> to people who sign in and have access. Every other environment is created by adding a " +
+	"domain to it (add_domain with hostname and environment), and answers on that domain to anyone; the site decides who may " +
+	"use it. An operator adds the ingress for each. An environment points at one immutable release. publish writes a new " +
+	"release (from files, an archive managed resource, or a resource folder; a _redirects file becomes its redirect map, a " +
+	"404.html its not-found page) and answers with the address. promote points an environment at another's release, and " +
+	"rollback at one it served before: neither copies a file, and both take effect at once. An environment that requires " +
+	"approval is reached only by promote: an administrator's promote records its own approval, anyone else's files a request " +
+	"in manage_approval and goes through when they promote again after it is approved. grant and revoke say who else reaches " +
+	"a site: manage (internal people only) publishes, promotes, rolls back, adds domains and shares view access; view opens " +
+	"the site's own address and gives nothing else. update with internal_view opens it to everyone internal. crawl copies an " +
+	"existing site into a release, keeping its URLs and turning its redirects into the redirect map. A site environment is a " +
+	"part of an application (add_part kind site, part_id \"<site>/<environment>\"), released and rolled back with it. The owner " +
+	"and administrators change the description, the owner and who manages; administrators delete a site and map a hostname " +
+	"to an application. Read fetch mcp:knowledge_page:platform-pages-and-sites first."
 
 const (
 	keyType   = "type"
@@ -144,12 +151,15 @@ func schema() map[string]any {
 		keyType: typObject, "required": []string{"command"},
 		"properties": map[string]any{
 			"command":           map[string]any{keyType: typString, "enum": Commands, keyDesc: "The operation."},
-			keySite:             str("The site, by name or id (every command but create, list, domains, hosts)."),
+			keySite:             str("The site, by name or id (every command but create, list and domains)."),
 			"name":              str("create: the site's name, a lowercase slug."),
 			keyDesc:             str("create, update: what the site is."),
 			"owner_email":       str("update: move the site to another owner."),
-			"environment":       str("publish: where it lands (default dev). rollback, set_environment, add_domain, deployments: the environment."),
-			"requires_approval": map[string]any{keyType: "boolean", keyDesc: "set_environment: promotions here go through the Approvals queue."},
+			"internal_view":     map[string]any{keyType: "boolean", keyDesc: "update: let everyone whose persona is not external open the site's own address."},
+			"email":             str("grant, revoke: the person, by the email they sign in with."),
+			"level":             map[string]any{keyType: typString, "enum": []string{site.LevelManage, site.LevelView}, keyDesc: "grant: manage publishes, promotes, rolls back, adds domains and shares view access (internal people only); view opens the site's own address and nothing else."},
+			"environment":       str("publish: where it lands (default the default environment). rollback, set_environment, deployments: the environment. add_domain: the environment the hostname serves, created when it does not exist."),
+			"requires_approval": map[string]any{keyType: "boolean", keyDesc: "set_environment, or add_domain creating an environment: promotions here go through the Approvals queue."},
 			"from":              str("promote: the environment whose release moves."),
 			"to":                str("promote: the environment that moves."),
 			"release":           num("promote: a release number instead of from. rollback: the release to return to (default the one before)."),
@@ -166,7 +176,7 @@ func schema() map[string]any {
 			"folder":      str("publish: a managed-resource folder path."),
 			"scope":       str("publish with folder: the library's scope (user, persona, global; default user)."),
 			"scope_id":    str("publish with folder: the persona name or user subject."),
-			"hostname":    str("add_domain, verify_domain, remove_domain: the hostname."),
+			"hostname":    str("add_domain, remove_domain: the hostname."),
 			"application": str("add_domain: the application whose endpoints and pages the hostname serves, in place of site and environment."),
 			"url":         str("crawl: the site to copy."),
 			"form_map": map[string]any{
@@ -195,7 +205,8 @@ func actorOf(ctx context.Context) sitesvc.Actor {
 	if pc == nil {
 		return sitesvc.Actor{}
 	}
-	return sitesvc.Actor{Email: pc.UserEmail, Admin: pc.IsAdmin, Persona: pc.PersonaName}
+	verified, stated := pc.UserClaims[browsersession.ClaimEmailVerified].(bool)
+	return sitesvc.Actor{Email: pc.UserEmail, Admin: pc.IsAdmin, Persona: pc.PersonaName, EmailUnverified: stated && !verified}
 }
 
 func insideRun(ctx context.Context) bool {
@@ -230,14 +241,21 @@ func (t *Tool) handlers() map[string]handler {
 		CmdCreate: func(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
 			return s.Create(ctx, a, in.Name, in.Description)
 		},
-		CmdGet: func(ctx context.Context, _ sitesvc.Actor, in Input) (any, error) { return t.get(ctx, in.Site) },
+		CmdGet: t.get,
 		CmdList: func(ctx context.Context, _ sitesvc.Actor, _ Input) (any, error) {
 			list, err := s.Store.List(ctx)
 			total := len(list)
 			return map[string]any{"sites": list, "total": total}, err //nolint:wrapcheck // the caller's message
 		},
 		CmdUpdate: func(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
-			return s.Update(ctx, a, in.Site, in.Description, in.OwnerEmail)
+			u := sitesvc.UpdateRequest{InternalView: in.InternalView}
+			if in.Description != "" {
+				u.Description = &in.Description
+			}
+			if in.OwnerEmail != "" {
+				u.Owner = &in.OwnerEmail
+			}
+			return s.Update(ctx, a, in.Site, u)
 		},
 		CmdDelete: func(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
 			return map[string]any{"deleted": in.Site}, s.Delete(ctx, a, in.Site)
@@ -255,10 +273,10 @@ func (t *Tool) handlers() map[string]handler {
 		CmdReleases:    t.releases,
 		CmdDeployments: t.deployments,
 		CmdAddDomain: func(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
-			return s.AddDomain(ctx, a, sitesvc.DomainRequest{Hostname: in.Hostname, Site: in.Site, Environment: in.Environment, Application: in.Application})
-		},
-		CmdVerifyDomain: func(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
-			return s.VerifyDomain(ctx, a, in.Hostname)
+			return s.AddDomain(ctx, a, sitesvc.DomainRequest{
+				Hostname: in.Hostname, Site: in.Site, Environment: in.Environment, Application: in.Application,
+				RequiresApproval: in.RequiresApproval != nil && *in.RequiresApproval,
+			})
 		},
 		CmdRemoveDomain: func(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
 			return map[string]any{"removed": in.Hostname}, s.RemoveDomain(ctx, a, in.Hostname)
@@ -267,22 +285,38 @@ func (t *Tool) handlers() map[string]handler {
 			list, err := s.Store.Domains(ctx)
 			return map[string]any{"domains": list}, err //nolint:wrapcheck // the caller's message
 		},
-		CmdHosts: func(ctx context.Context, _ sitesvc.Actor, _ Input) (any, error) { return s.Hosts(ctx) },
 		CmdCrawl: t.crawl,
+		CmdGrant: func(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
+			return s.Grant(ctx, a, in.Site, in.Email, in.Level)
+		},
+		CmdRevoke: func(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
+			return map[string]any{"revoked": in.Email}, s.Revoke(ctx, a, in.Site, in.Email)
+		},
 	}
 }
 
-// get is a site with where each environment answers.
-func (t *Tool) get(ctx context.Context, ref string) (any, error) {
-	st, err := t.Service.Find(ctx, ref)
+// get is a site with where each environment answers and, for someone who
+// manages it, who has access.
+func (t *Tool) get(ctx context.Context, actor sitesvc.Actor, in Input) (any, error) {
+	st, err := t.Service.Find(ctx, in.Site)
 	if err != nil {
 		return nil, err //nolint:wrapcheck // the caller's message
 	}
-	previews := make(map[string]string, len(st.Environments))
+	addresses := make(map[string]string, len(st.Environments))
 	for _, e := range st.Environments {
-		previews[e.Name] = t.Service.PreviewURL(st.Name, e.Name)
+		addresses[e.Name] = t.Service.Address(ctx, st, e.Name)
 	}
-	return map[string]any{keySite: st, "preview_urls": previews}, nil
+	out := map[string]any{keySite: st, "addresses": addresses}
+	perms, err := t.Service.PermissionsOf(ctx, actor, st)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // the caller's message
+	}
+	if perms.Manage {
+		if out["grants"], err = t.Service.Store.Grants(ctx, st.ID); err != nil {
+			return nil, fmt.Errorf("listing grants: %w", err)
+		}
+	}
+	return out, nil
 }
 
 func (t *Tool) releases(ctx context.Context, _ sitesvc.Actor, in Input) (any, error) {
@@ -369,19 +403,22 @@ func (t *Tool) crawl(ctx context.Context, actor sitesvc.Actor, in Input) (any, e
 	if t.Crawler == nil {
 		return nil, &sitesvc.RefusedError{Msg: "this deployment cannot crawl a site"}
 	}
+	if err := t.Service.MayPublish(ctx, actor, in.Site, in.Environment); err != nil {
+		return nil, err //nolint:wrapcheck // the caller's message
+	}
 	got, err := t.Crawler.Crawl(ctx, sitecrawl.Request{Start: in.URL, FormMap: in.FormMap, PortalURL: t.PortalURL})
 	if err != nil {
 		return nil, err //nolint:wrapcheck // the caller's message
 	}
 	pub, err := t.Service.Publish(ctx, actor, sitesvc.PublishRequest{
-		Site: in.Site, Environment: in.Environment, Source: "crawl " + in.URL, Note: in.Note, Files: got.Files,
+		Site: in.Site, Environment: in.Environment, Source: "crawl " + sitecrawl.SourceOf(in.URL), Note: in.Note, Files: got.Files,
 	})
 	if err != nil {
 		return nil, err //nolint:wrapcheck // the caller's message
 	}
 	skipped := got.Skipped
 	if skipped == nil {
-		skipped = []string{}
+		skipped = []site.Skipped{}
 	}
 	return map[string]any{"published": pub, "pages": got.Pages, "redirects": got.Redirects, "skipped": skipped}, nil
 }

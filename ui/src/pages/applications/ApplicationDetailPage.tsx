@@ -1,5 +1,6 @@
 import { Boxes } from "lucide-react";
 import { useApplication, type Application } from "@/api/portal/hooks/applications";
+import { useApplicationAddresses } from "@/api/portal/hooks/sites";
 import { PageHeader } from "@/components/patterns/PageHeader";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -73,11 +74,14 @@ function ApplicationFacts({
   application: Application;
   migrations?: { applied: number; pending: number[] };
 }) {
+  const addresses = useApplicationAddresses(a.name);
   return (
     <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-3" data-testid="application-facts">
       <Fact label="Owner" value={a.owner_email} />
       {a.connection && <Fact label="Schema" value={`${a.connection} / ${a.schema}`} />}
       {migrations && <Fact label="Migrations" value={String(migrations.applied)} />}
+      {addresses.data?.page_origin && <Fact label="Page address" value={addresses.data.page_origin.replace(/^https?:\/\//, "")} />}
+      {(addresses.data?.domains.length ?? 0) > 0 && <Fact label="Domains" value={addresses.data!.domains.join(", ")} />}
     </dl>
   );
 }

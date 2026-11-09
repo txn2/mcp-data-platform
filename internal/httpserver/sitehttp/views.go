@@ -1,0 +1,52 @@
+package sitehttp
+
+import (
+	"github.com/txn2/mcp-data-platform/internal/site"
+	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
+)
+
+// SiteLimits is what a release may hold, shown before an upload.
+type SiteLimits struct {
+	MaxFiles        int   `json:"max_release_files" example:"20000"`
+	MaxFileBytes    int64 `json:"max_file_bytes" example:"67108864"`
+	MaxReleaseBytes int64 `json:"max_release_bytes" example:"2147483648"`
+	CrawlMaxPages   int   `json:"crawl_max_pages" example:"2000"`
+	CrawlMaxBytes   int64 `json:"crawl_max_bytes" example:"536870912"`
+}
+
+// SiteView is a site as the portal shows it.
+type SiteView struct {
+	site.Site
+	// Address is the site's own address, "" with no pages domain.
+	Address string        `json:"address"`
+	Domains []site.Domain `json:"domains"`
+	// Permissions is what the caller may do to this site.
+	Permissions sitesvc.Permissions `json:"permissions"`
+}
+
+// SiteList is the Sites page.
+type SiteList struct {
+	Sites []SiteView `json:"sites"`
+	Total int        `json:"total"`
+	// PagesDomain is "" when the deployment has none, so sites have no address
+	// of their own.
+	PagesDomain string     `json:"pages_domain"`
+	Limits      SiteLimits `json:"limits"`
+	// CanCreate is whether the caller's persona may create a site.
+	CanCreate bool `json:"can_create"`
+	// Admin is whether the caller is an administrator.
+	Admin bool `json:"admin"`
+}
+
+// SiteRequest creates a site.
+type SiteRequest struct {
+	Name        string `json:"name" example:"careers"`
+	Description string `json:"description"`
+}
+
+// SiteUpdate changes a site's record; a field left out is left alone.
+type SiteUpdate struct {
+	Description  *string `json:"description,omitempty"`
+	Owner        *string `json:"owner_email,omitempty"`
+	InternalView *bool   `json:"internal_view,omitempty"`
+}

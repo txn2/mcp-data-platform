@@ -444,7 +444,7 @@ func buildPersonaResolver(pr *persona.Registry, tr *registry.Registry) portal.Pe
 		info := &portal.PersonaInfo{Name: per.Name, SharingDenied: !per.SharingAllowed()}
 		if tr != nil {
 			filter := persona.NewToolFilter(pr)
-			info.Tools = filter.FilterTools(per, tr.AllTools())
+			info.Tools = filter.FilterTools(per, append(tr.AllTools(), persona.ToolManageSite))
 			info.ReachesCatalogRef = func(reference string) bool {
 				names := connscope.RefConnections(tr.All(), reference)
 				if len(names) == 0 {

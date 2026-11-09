@@ -41,6 +41,9 @@ func SignSession(claims SessionClaims, cfg *CookieConfig) (string, error) {
 	if claims.IDToken != "" {
 		mc["idt"] = claims.IDToken
 	}
+	if claims.EmailVerified != nil {
+		mc[claimEmailVerifiedJWT] = *claims.EmailVerified
+	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, mc)
 
@@ -99,12 +102,11 @@ func extractSessionClaims(mc jwt.MapClaims) (*SessionClaims, error) {
 		}
 	}
 
-	return &SessionClaims{
-		UserID:  sub,
-		Email:   email,
-		Roles:   roles,
-		IDToken: idToken,
-	}, nil
+	out := &SessionClaims{UserID: sub, Email: email, Roles: roles, IDToken: idToken}
+	if v, ok := mc[claimEmailVerifiedJWT].(bool); ok {
+		out.EmailVerified = &v
+	}
+	return out, nil
 }
 
 // SetCookie writes the session JWT as an HTTP-only cookie.

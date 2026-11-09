@@ -64,8 +64,13 @@ function piecesOf(p: ApplicationPartView, ctx?: SchemaContext): string[] {
     case "schema":
       return ctx?.schema ? schemaPieces(ctx.schema, ctx.release) : [];
     case "site":
-      return [];
+      return sitePieces(p);
   }
+}
+
+function sitePieces(p: ApplicationPartView): string[] {
+  const environment = `Site environment ${p.id.split("/")[1] ?? ""}`;
+  return p.latest_version ? [environment, `release ${p.latest_version}`] : [environment];
 }
 
 function schemaPieces(v: ApplicationSchemaView, release: number): string[] {
@@ -144,8 +149,10 @@ export function partPath(kind: ApplicationPartKind, id: string, isAdmin: boolean
     case "source":
       // A webhook source's page is the administrator's.
       return isAdmin ? `/admin/webhooks/${encodeURIComponent(id)}` : null;
-    case "schema":
     case "site":
+      // "<site>/<environment>": the part opens on the site's page.
+      return `/sites/${encodeURIComponent(id.split("/")[0] ?? id)}`;
+    case "schema":
       return null;
   }
 }

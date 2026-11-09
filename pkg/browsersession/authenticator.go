@@ -60,10 +60,14 @@ func (a *Authenticator) AuthenticateHTTP(r *http.Request) (*middleware.UserInfo,
 		roles = admitted
 	}
 
-	return &middleware.UserInfo{
+	info := &middleware.UserInfo{
 		UserID:   claims.UserID,
 		Email:    claims.Email,
 		Roles:    roles,
 		AuthType: "browser_session",
-	}, nil
+	}
+	if claims.EmailVerified != nil && !*claims.EmailVerified {
+		info.Claims = map[string]any{ClaimEmailVerified: false}
+	}
+	return info, nil
 }

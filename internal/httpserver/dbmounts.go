@@ -40,6 +40,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/flowhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/postshttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/submissionshttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/sitehttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/thumbwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/userkeywire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/versionhttp"
@@ -197,6 +198,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	// one there instead of rendering the public page (#1473).
 	deps.PortalAppAdmits = portalAppAdmitter(p, uiAvailable)
 
+	deps.SitesRegistrar = sitehttp.Registrar(p, deps.PersonaResolver, notify) // #2559
 	wrap := portalAuthChain(portalAuth, portalAccessGate(p, deps.PersonaResolver))
 
 	handler := portal.NewHandler(deps, wrap)

@@ -16,6 +16,7 @@ export const SETTINGS_SECTIONS = [
   { id: "storage", label: "Storage", group: "Alerts" },
   { id: "application-databases", label: "Application databases", group: "Alerts" },
   { id: "maps", label: "Maps", group: "Content" },
+  { id: "sites", label: "Sites", group: "Content" },
   { id: "embed-hosts", label: "Embed hosts", group: "Content" },
   { id: "bot-checks", label: "Bot checks", group: "Endpoints" },
   { id: "access-requests", label: "Access requests", group: "Access" },

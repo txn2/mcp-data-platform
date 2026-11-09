@@ -60,7 +60,7 @@ func (pa *Authenticator) Authenticate(r *http.Request) (*User, error) {
 			if verr == nil {
 				return &User{
 					UserID: info.UserID, Email: info.Email, Roles: info.Roles,
-					FromCookie: true, AuthType: info.AuthType,
+					FromCookie: true, AuthType: info.AuthType, Claims: info.Claims,
 				}, nil
 			}
 			csrfErr = fmt.Errorf("portal cookie csrf: %w", verr)

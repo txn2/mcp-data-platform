@@ -176,13 +176,14 @@ func wireSites(deps Deps, endpoints *epwire.Endpoints) (*sitewire.Runtime, error
 	}
 	rt, err := sitewire.Register(deps.Server, sitewire.Deps{
 		DB: deps.DB, Objects: objectsOf(deps), Bucket: deps.Bucket, Config: deps.Sites, PortalURL: deps.PortalURL,
-		CookieDomain: deps.CookieDomain, Approvals: endpoints.Approvals, Sources: deps.Sources,
+		CookieDomain: deps.CookieDomain, ReservedURLs: deps.ReservedURLs, Approvals: endpoints.Approvals, Sources: deps.Sources,
 	})
 	if err != nil {
 		return nil, err //nolint:wrapcheck // the configuration's own sentence
 	}
 	if rt != nil && endpoints.Commands != nil {
 		endpoints.Commands.PageAllowed = rt.PageAllowed
+		endpoints.Commands.PageAddress = rt.PageAddress
 	}
 	return rt, nil
 }
@@ -278,6 +279,8 @@ type Deps struct {
 	// cookie's Domain (#2517, #2518).
 	Sites        siteconfig.Config
 	CookieDomain string
+	// ReservedURLs are the platform's other addresses, which no domain may claim.
+	ReservedURLs []string
 	Bucket       string
 	Prefix       string
 	FollowTables func(ctx context.Context, assetID string, version int) []string

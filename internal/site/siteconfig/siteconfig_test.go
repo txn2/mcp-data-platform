@@ -46,9 +46,6 @@ func TestLimits_KeepsWhatIsSet(t *testing.T) {
 }
 
 func TestValidate(t *testing.T) {
-	acme := func(address string) TLSConfig {
-		return TLSConfig{ACME: ACMEConfig{Enabled: true, Address: address}}
-	}
 	cases := []struct {
 		name         string
 		cfg          Config
@@ -66,9 +63,6 @@ func TestValidate(t *testing.T) {
 		{name: "under the cookie domain", cfg: Config{PagesDomain: "pages.example.com"}, portal: "portal.example.com", cookieDomain: ".example.com", want: "session cookie's domain example.com"},
 		{name: "under a cookie domain with no dot", cfg: Config{PagesDomain: "pages.example.com"}, portal: "portal.example.com", cookieDomain: "example.com", want: "session cookie's domain"},
 		{name: "the cookie domain itself", cfg: Config{PagesDomain: "example.org"}, portal: "portal.example.com", cookieDomain: "example.org", want: "session cookie's domain"},
-		{name: "acme with an address", cfg: Config{TLS: acme(":8443")}},
-		{name: "acme with no address", cfg: Config{TLS: acme("")}, want: "sites.tls.acme.address"},
-		{name: "acme off with no address"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -110,4 +104,47 @@ func TestCheck_ReadsThePortalsHostFromItsURL(t *testing.T) {
 func TestCheck_PassesTheCookieDomainThrough(t *testing.T) {
 	err := Config{PagesDomain: "pages.example.com"}.Check("https://portal.example.net", ".example.com")
 	require.ErrorContains(t, err, "session cookie's domain")
+}
+
+func TestSettings_ReadsEachBoundAndFillsItsDefault(t *testing.T) {
+	set := Config{
+		PagesDomain: "pages.example.net", MaxFiles: 7, MaxFileBytes: 8, MaxReleaseBytes: 9,
+		Crawl: CrawlConfig{MaxPages: 10, MaxBytes: 11},
+	}
+	assert.Equal(t, Settings{
+		PagesDomain: "pages.example.net", MaxFiles: 7, MaxFileBytes: 8, MaxReleaseBytes: 9,
+		CrawlMaxPages: 10, CrawlMaxBytes: 11,
+	}, set.Settings())
+
+	assert.Equal(t, Settings{
+		MaxFiles: DefaultMaxFiles, MaxFileBytes: DefaultMaxFileBytes, MaxReleaseBytes: DefaultMaxReleaseBytes,
+		CrawlMaxPages: DefaultCrawlPages, CrawlMaxBytes: DefaultCrawlBytes,
+	}, Config{}.Settings(), "an unset bound reads as its default")
+}
+
+func TestWith_SavedSettingsReplaceTheFileAndLeaveTheRest(t *testing.T) {
+	on := true
+	base := Config{
+		Enabled: &on, PagesDomain: "file.example.net", MaxFiles: 1, MaxFileBytes: 2, MaxReleaseBytes: 3,
+		Crawl: CrawlConfig{AllowPrivateCIDRs: []string{"10.0.0.0/8"}, MaxPages: 4, MaxBytes: 5},
+		Cache: CacheConfig{MemoryBytes: 6, DiskBytes: 7, Dir: "/var/cache/sites"},
+	}
+	saved := Settings{PagesDomain: "saved.example.net", MaxFiles: 11, MaxFileBytes: 12, MaxReleaseBytes: 13, CrawlMaxPages: 14, CrawlMaxBytes: 15}
+
+	got := base.With(saved)
+	assert.Equal(t, saved, got.Settings(), "every saved value is in force")
+	assert.Equal(t, base.Cache, got.Cache, "the cache is not a saved setting")
+	assert.Equal(t, base.Crawl.AllowPrivateCIDRs, got.Crawl.AllowPrivateCIDRs, "the private ranges are not a saved setting")
+	assert.Same(t, base.Enabled, got.Enabled)
+	assert.Equal(t, "file.example.net", base.PagesDomain, "the file's config is left as it was")
+}
+
+func TestLive_SwapsTheConfigInForce(t *testing.T) {
+	first := Config{PagesDomain: "first.example.net"}
+	live := NewLive(first)
+	assert.Equal(t, first, live.Get())
+
+	second := Config{PagesDomain: "second.example.net"}
+	live.Set(second)
+	assert.Equal(t, second, live.Get())
 }

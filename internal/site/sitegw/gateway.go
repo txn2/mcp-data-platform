@@ -59,9 +59,9 @@ const (
 // Store reads what a hostname serves.
 type Store interface {
 	RouteHost(ctx context.Context, hostname string) (*site.Route, error)
-	RoutePreview(ctx context.Context, siteName, environment string) (*site.Route, error)
+	RouteOwn(ctx context.Context, siteName string) (*site.Route, error)
 	Files(ctx context.Context, releaseID string) ([]site.File, error)
-	VerifiedHosts(ctx context.Context) ([]string, error)
+	Hosts(ctx context.Context) ([]string, error)
 }
 
 // Objects reads a release's stored files.
@@ -76,10 +76,14 @@ type Deps struct {
 	Objects Objects
 	Bucket  string
 	Config  siteconfig.Config
+	// Live, when set, is the configuration in force and Config only its seed.
+	Live *siteconfig.Live
 	// PortalHost is the portal's own hostname, passed through without a look.
 	PortalHost string
 	// Pages serves an application's page origin; nil serves none.
 	Pages *Pages
+	// Access guards a site's own address; with none, no such address answers.
+	Access *Access
 }
 
 // Gateway routes by Host.
@@ -118,6 +122,14 @@ func New(d Deps) *Gateway {
 	return g
 }
 
+// pagesDomain is the pages domain in force.
+func (g *Gateway) pagesDomain() string {
+	if g.deps.Live != nil {
+		return g.deps.Live.Get().PagesDomain
+	}
+	return g.deps.Config.PagesDomain
+}
+
 // Invalidate forgets every route this replica holds, so a move it made shows
 // on its very next request.
 func (g *Gateway) Invalidate(string) {
@@ -140,10 +152,10 @@ func (g *Gateway) Wrap(next http.Handler) http.Handler {
 	})
 }
 
-// serves reports whether host is under the pages domain or a verified domain.
+// serves reports whether host is under the pages domain or an added domain.
 // It answers from memory: the portal's own traffic costs no query here.
 func (g *Gateway) serves(ctx context.Context, host string) bool {
-	if site.SameOrUnder(host, g.deps.Config.PagesDomain) {
+	if site.SameOrUnder(host, g.pagesDomain()) {
 		return true
 	}
 	g.mu.Lock()
@@ -159,9 +171,9 @@ func (g *Gateway) serves(ctx context.Context, host string) bool {
 func (g *Gateway) refreshHosts(ctx context.Context) map[string]bool {
 	shared := context.WithoutCancel(ctx)
 	v, _, _ := g.group.Do("hosts", func() (any, error) {
-		list, err := g.deps.Store.VerifiedHosts(shared)
+		list, err := g.deps.Store.Hosts(shared)
 		if err != nil {
-			slog.WarnContext(ctx, "sites: reading the verified hostnames failed", logKeyError, logsan.SanitizeForLog(err.Error()))
+			slog.WarnContext(ctx, "sites: reading the added hostnames failed", logKeyError, logsan.SanitizeForLog(err.Error()))
 			g.mu.Lock()
 			defer g.mu.Unlock()
 			return g.hosts, nil
@@ -181,7 +193,7 @@ func (g *Gateway) refreshHosts(ctx context.Context) map[string]bool {
 
 // serve answers a request for a served hostname.
 func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, host string) {
-	if host == g.deps.Config.PagesDomain {
+	if host == g.pagesDomain() {
 		http.NotFound(w, r)
 		return
 	}
@@ -202,6 +214,15 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, host string) {
 		}
 		g.deps.Pages.serve(w, r, route.Application)
 		return
+	}
+	if route.Private {
+		if g.deps.Access == nil {
+			http.NotFound(w, r)
+			return
+		}
+		if !g.deps.Access.allow(w, r, route) {
+			return
+		}
 	}
 	g.serveSite(w, r, route)
 }
@@ -230,21 +251,24 @@ func (g *Gateway) route(ctx context.Context, host string) (*site.Route, error) {
 	return route, err
 }
 
-// lookup reads a hostname's route: a label under the pages domain is an
-// environment's preview when it holds the separator and an application's page
-// origin otherwise; anything else is a verified domain.
+// lookup reads a hostname's route. A label under the pages domain is an
+// application's page origin or a site's own address; a site and an application
+// cannot be created with one name, and a pair from before that rule goes to the
+// application so that nobody takes over a live page origin by creating a site.
+// Anything else is an added domain.
 func (g *Gateway) lookup(ctx context.Context, host string) (*site.Route, error) {
-	label, under := strings.CutSuffix(host, "."+g.deps.Config.PagesDomain)
-	if !under || g.deps.Config.PagesDomain == "" {
+	domain := g.pagesDomain()
+	label, under := strings.CutSuffix(host, "."+domain)
+	if !under || domain == "" {
 		return g.deps.Store.RouteHost(ctx, host) //nolint:wrapcheck // read by identity
 	}
 	if strings.Contains(label, ".") {
 		return nil, site.ErrNoDomain
 	}
-	if env, siteName, ok := strings.Cut(label, site.PreviewSeparator); ok {
-		return g.deps.Store.RoutePreview(ctx, siteName, env) //nolint:wrapcheck // read by identity
+	if g.deps.Pages != nil && g.deps.Pages.application(ctx, label) != nil {
+		return &site.Route{Application: label}, nil
 	}
-	return &site.Route{Application: label}, nil
+	return g.deps.Store.RouteOwn(ctx, label) //nolint:wrapcheck // read by identity
 }
 
 // manifestOf is a release's files by path, held per release: a release never
@@ -442,7 +466,9 @@ func (g *Gateway) serveFile(w http.ResponseWriter, r *http.Request, route *site.
 	key := sitesvc.ObjectKey(route.SiteID, route.Release.ID, enc, f.Path)
 	cacheKey := f.SHA256 + pathSep + enc
 	if status != http.StatusOK {
-		h.Set(hdrCache, "no-cache")
+		if !route.Private {
+			h.Set(hdrCache, "no-cache")
+		}
 		body, err := g.bytes(r.Context(), cacheKey, key)
 		if err != nil {
 			g.unreadable(w, r, err)
@@ -455,9 +481,12 @@ func (g *Gateway) serveFile(w http.ResponseWriter, r *http.Request, route *site.
 		return
 	}
 	h.Set("ETag", `"`+f.SHA256+suffix(enc)+`"`)
-	if fingerprinted(path.Base(f.Path)) {
+	switch {
+	case route.Private:
+		h.Set(hdrCache, cachePrivate)
+	case fingerprinted(path.Base(f.Path)):
 		h.Set(hdrCache, cacheImmutable)
-	} else {
+	default:
 		h.Set(hdrCache, cacheRevalidate)
 	}
 	content, closer, err := g.open(r.Context(), cacheKey, key, sizeOf(f, enc))
@@ -516,24 +545,6 @@ func (g *Gateway) bytesFrom(ctx context.Context, bucket, cacheKey, objectKey str
 	}
 	body, _ := v.([]byte)
 	return body, nil
-}
-
-// Exists reports whether a certificate may be ordered for host: a verified
-// hostname, an environment that exists, or an application that does. Any
-// other name under the pages domain is refused, so a request naming a random
-// label can never make the platform order a certificate.
-func (g *Gateway) Exists(ctx context.Context, host string) bool {
-	if !g.serves(ctx, host) || host == g.deps.Config.PagesDomain {
-		return false
-	}
-	route, err := g.route(ctx, host)
-	if err != nil {
-		return false
-	}
-	if route.Application != "" {
-		return g.deps.Pages != nil && g.deps.Pages.application(ctx, route.Application) != nil
-	}
-	return true
 }
 
 // minHashLen is the shortest name segment read as a content hash.

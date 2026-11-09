@@ -33,12 +33,8 @@ const MyPromptsPage = lazy(() =>
 const PromptViewerPage = lazy(() =>
   import("@/pages/prompts/PromptViewerPage").then((m) => ({ default: m.PromptViewerPage })),
 );
-const PortalScriptRoutes = lazy(() =>
-  import("@/pages/scripts/ScriptRoutes").then((m) => ({ default: m.PortalScriptRoutes })),
-);
-const ApplicationRoutes = lazy(() =>
-  import("@/pages/applications/ApplicationRoutes").then((m) => ({ default: m.ApplicationRoutes })),
-);
+const PortalScriptRoutes = lazy(() => import("@/pages/scripts/ScriptRoutes").then((m) => ({ default: m.PortalScriptRoutes })));
+const ApplicationRoutes = lazy(() => import("@/pages/applications/ApplicationRoutes").then((m) => ({ default: m.ApplicationRoutes })));
 const AssetViewerPage = lazy(() =>
   import("@/pages/viewer/AssetViewerPage").then((m) => ({ default: m.AssetViewerPage })),
 );
@@ -103,6 +99,7 @@ const pageTitles: Record<string, string> = {
   "/": "Assets",
   "/apis": "APIs",
   "/applications": "Applications",
+  "/sites": "Sites",
   "/approvals": "Approvals",
   "/collections": "Collections",
   "/resources": "Resources",
@@ -120,6 +117,7 @@ const pageTitles: Record<string, string> = {
   "/admin/tools": "Tools",
   "/admin/audit": "Dashboard",
   "/admin/description": "Description",
+  "/admin/domains": "Domains",
   "/admin/agent-instructions": "Agent Instructions",
   "/admin/api-catalogs": "API Catalogs",
   "/admin/api-reference": "API Reference",
@@ -151,6 +149,7 @@ const detailTitles: readonly { prefix: string; title: string }[] = [
   { prefix: "/automations/", title: "Automation" },
   // One application (#2411).
   { prefix: "/applications/", title: "Application" },
+  { prefix: "/sites/", title: "Site" },
   { prefix: "/admin/automations/endpoints/", title: "Endpoint" },
   { prefix: "/admin/automations/", title: "Automation" },
   { prefix: "/admin/collections/", title: "Collection" },
@@ -561,7 +560,7 @@ export function AppShell() {
               onBack={() => navigate("/prompts")}
             />
           )}
-          {!adminRoute && (isInSection(route, "/applications") || route === "/approvals") && (
+          {!adminRoute && (isInSection(route, "/applications") || isInSection(route, "/sites") || route === "/approvals") && (
             <ApplicationRoutes route={route} onNavigate={navigate} />
           )}
           {!adminRoute && isInSection(route, "/automations") && (

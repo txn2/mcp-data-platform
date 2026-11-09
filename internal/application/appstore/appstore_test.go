@@ -2,6 +2,7 @@ package appstore
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"testing"
 	"time"
@@ -56,6 +57,8 @@ func TestCreate(t *testing.T) {
 
 	mock.ExpectQuery("INSERT INTO applications").WillReturnError(unique(nameConstraint))
 	require.ErrorIs(t, s.Create(ctx, &application.Application{Name: "shop"}), application.ErrNameTaken)
+	mock.ExpectQuery("INSERT INTO applications").WillReturnError(sql.ErrNoRows)
+	require.ErrorIs(t, s.Create(ctx, &application.Application{Name: "blog"}), application.ErrNameTaken, "a site holding the name inserts no row: both answer on the pages domain")
 	mock.ExpectQuery("INSERT INTO applications").WillReturnError(unique(schemaConstraint))
 	require.ErrorIs(t, s.Create(ctx, &application.Application{Name: "x"}), application.ErrSchemaHeld)
 	mock.ExpectQuery("INSERT INTO applications").WillReturnError(errors.New("down"))

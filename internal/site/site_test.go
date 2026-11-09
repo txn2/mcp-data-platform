@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -75,7 +74,7 @@ func TestValidateEnvironment(t *testing.T) {
 
 func TestSiteValidate(t *testing.T) {
 	good := func() *Site {
-		return &Site{Name: "marketing", Environments: []Environment{{Name: EnvDev}, {Name: EnvProd}}}
+		return &Site{Name: "marketing", Environments: []Environment{{Name: EnvDefault}, {Name: "prod"}}}
 	}
 	require.NoError(t, good().Validate())
 
@@ -102,18 +101,37 @@ func TestSiteValidate(t *testing.T) {
 }
 
 func TestSiteEnvironment(t *testing.T) {
-	s := &Site{Environments: []Environment{{Name: EnvDev, Release: 1}, {Name: EnvProd, Release: 3}}}
-	got := s.Environment(EnvProd)
+	s := &Site{Environments: []Environment{{Name: EnvDefault, Release: 1}, {Name: "prod", Release: 3}}}
+	got := s.Environment("prod")
 	require.NotNil(t, got)
 	assert.Equal(t, 3, got.Release)
 	assert.Same(t, &s.Environments[1], got, "the environment read is the site's own, not a copy")
 	assert.Nil(t, s.Environment("stage"))
-	assert.Nil(t, (&Site{}).Environment(EnvDev))
+	assert.Nil(t, (&Site{}).Environment(EnvDefault))
 }
 
-func TestDomainVerified(t *testing.T) {
-	assert.False(t, Domain{}.Verified())
-	assert.True(t, Domain{VerifiedAt: new(time.Unix(1700000000, 0))}.Verified())
+func TestValidLevel(t *testing.T) {
+	cases := map[string]bool{
+		LevelManage: true, LevelView: true,
+		"": false, "owner": false, "MANAGE": false,
+	}
+	for level, want := range cases {
+		assert.Equal(t, want, ValidLevel(level), "%q", level)
+	}
+	assert.False(t, ValidLevel(LevelManage+" "), "a level with a space is not a level")
+}
+
+func TestNormalizeEmail(t *testing.T) {
+	cases := map[string]string{
+		"pat@client.example":        "pat@client.example",
+		"PAT@Client.Example":        "pat@client.example",
+		"  pat@client.example \t\n": "pat@client.example",
+		"":                          "",
+		"   ":                       "",
+	}
+	for in, want := range cases {
+		assert.Equal(t, want, NormalizeEmail(in), "%q", in)
+	}
 }
 
 func TestNormalizeHost(t *testing.T) {

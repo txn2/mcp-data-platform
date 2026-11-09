@@ -2,6 +2,7 @@ package sitesvc
 
 import (
 	"bytes"
+	"cmp"
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
@@ -11,6 +12,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"github.com/andybalholm/brotli"
@@ -181,7 +183,7 @@ type built struct {
 func (s *Service) prepare(in []InputFile) (*built, error) {
 	b := &built{redirects: []site.Redirect{}}
 	seen := make(map[string]bool, len(in))
-	limits := s.Config.Limits()
+	limits := s.cfg().Limits()
 	for _, f := range in {
 		if isJunk(f.Path) {
 			continue
@@ -235,8 +237,9 @@ func (b *built) checkTotals(limits siteconfig.Config) error {
 
 // store writes every file and its compressed variants under the release's own
 // prefix, a few at a time.
-func (s *Service) store(ctx context.Context, siteID, releaseID string, b *built) ([]site.File, error) {
+func (s *Service) store(ctx context.Context, siteID, releaseID string, b *built, req PublishRequest) ([]site.File, error) {
 	files := make([]site.File, len(b.inputs))
+	var done atomic.Int64
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(parallelUploads)
 	for i, in := range b.inputs {
@@ -246,6 +249,9 @@ func (s *Service) store(ctx context.Context, siteID, releaseID string, b *built)
 				return fmt.Errorf("storing %s: %w", in.Path, err)
 			}
 			files[i] = *f
+			if req.Progress != nil {
+				req.Progress(int(done.Add(1)), len(b.inputs))
+			}
 			return nil
 		})
 	}
@@ -305,13 +311,18 @@ type PublishRequest struct {
 	Source      string
 	Note        string
 	Files       []InputFile
+	// Progress is told each time a file is stored, and Phase when the work
+	// moves on; nil reports nothing.
+	Progress func(done, total int)
+	Phase    func(phase string)
 }
 
 // Published is what a publish answers.
 type Published struct {
-	Release    *site.Release `json:"release"`
-	Env        string        `json:"environment"`
-	PreviewURL string        `json:"preview_url"`
+	Release *site.Release `json:"release"`
+	Env     string        `json:"environment"`
+	// Address is where the environment answers, "" before it has one.
+	Address string `json:"address"`
 }
 
 // Publish writes a new release and points the environment at it. An
@@ -321,7 +332,7 @@ func (s *Service) Publish(ctx context.Context, actor Actor, req PublishRequest) 
 	if err != nil {
 		return nil, err
 	}
-	if err := mayEdit(actor, st); err != nil {
+	if err := s.mayEdit(ctx, actor, st); err != nil {
 		return nil, err
 	}
 	env, err := s.publishTarget(st, req)
@@ -336,11 +347,14 @@ func (s *Service) Publish(ctx context.Context, actor Actor, req PublishRequest) 
 	if err != nil {
 		return nil, err
 	}
+	if req.Phase != nil {
+		req.Phase("Switching " + env.Name + " to the new release")
+	}
 	if err := s.move(ctx, actor, repoint{st: st, env: env, to: rel.Number, action: site.ActionPublish}); err != nil {
 		return nil, err
 	}
 	rel.Files = nil
-	return &Published{Release: rel, Env: env.Name, PreviewURL: s.PreviewURL(st.Name, env.Name)}, nil
+	return &Published{Release: rel, Env: env.Name, Address: s.Address(ctx, st, env.Name)}, nil
 }
 
 // publishTarget is the environment a publish lands in, or why it cannot.
@@ -348,10 +362,7 @@ func (s *Service) publishTarget(st *site.Site, req PublishRequest) (*site.Enviro
 	if s.Objects == nil || s.Bucket == "" {
 		return nil, refused("this deployment serves no sites: it has no portal bucket, or sites.enabled is false")
 	}
-	name := req.Environment
-	if name == "" {
-		name = site.EnvDev
-	}
+	name := cmp.Or(req.Environment, site.EnvDefault)
 	env := st.Environment(name)
 	if env == nil {
 		return nil, noEnvironment(name)
@@ -369,7 +380,7 @@ func (s *Service) publishTarget(st *site.Site, req PublishRequest) (*site.Enviro
 // row, which is what numbers it: two publishes at once never share a prefix.
 func (s *Service) record(ctx context.Context, actor Actor, st *site.Site, req PublishRequest, b *built) (*site.Release, error) {
 	id := sitestore.NewReleaseID()
-	files, err := s.store(ctx, st.ID, id, b)
+	files, err := s.store(ctx, st.ID, id, b, req)
 	if err != nil {
 		return nil, err
 	}

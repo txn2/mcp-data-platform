@@ -630,9 +630,9 @@ func toPersonaDetail(p *persona.Persona, tools []string) personaDetail {
 		Source:           p.Source,
 		APIRoutes:        p.APIRoutes,
 		ServiceAccount:   p.ServiceAccount,
-		Portal:           p.StoredPortal(tools),
-		EffectivePortal:  p.PortalPermissions(tools),
-		CappedByExternal: persona.Differs(p.StoredPortal(tools), p.PortalPermissions(tools)),
+		Portal:           p.StoredPortal(persona.PortalGrants(p, tools)),
+		EffectivePortal:  p.PortalPermissions(persona.PortalGrants(p, tools)),
+		CappedByExternal: persona.Differs(p.StoredPortal(persona.PortalGrants(p, tools)), p.PortalPermissions(persona.PortalGrants(p, tools))),
 		External:         p.External,
 		// The stored choice, which External overrides without changing.
 		AllowSharing: p.AllowSharing == nil || *p.AllowSharing,

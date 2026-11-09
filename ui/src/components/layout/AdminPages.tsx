@@ -22,6 +22,11 @@ const ResourceViewerPage = lazy(() =>
     default: m.ResourceViewerPage,
   })),
 );
+const AdminDomainsPage = lazy(() =>
+  import("@/pages/sites/AdminDomainsPage").then((m) => ({
+    default: m.AdminDomainsPage,
+  })),
+);
 const AdminAssetsPage = lazy(() =>
   import("@/pages/assets/AdminAssetsPage").then((m) => ({
     default: m.AdminAssetsPage,
@@ -168,6 +173,10 @@ const EXACT_PAGES: ReadonlyMap<string, (p: PageContext) => ReactNode> = new Map(
       (p: PageContext) => (
         <ToolsPage key={p.currentPath} initialTab={p.initialTab} />
       ),
+    ],
+    [
+      "/admin/domains",
+      (p: PageContext) => <AdminDomainsPage onNavigate={p.navigate} />,
     ],
     [
       "/admin/description",

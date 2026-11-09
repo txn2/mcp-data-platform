@@ -137,3 +137,25 @@ func TestSanitizeParametersRedactsAPasswordInSQL(t *testing.T) {
 	assert.Equal(t, []any{"ALTER USER r WITH PASSWORD '[REDACTED]'", plain}, got["statements"])
 	assert.Equal(t, plain, got["name"], "SQL with no credential is kept as sent")
 }
+
+// A site copy's address keeps no credentials or query in the audit row (#2559).
+func TestSanitizeParametersCopiedSiteAddress(t *testing.T) {
+	cases := map[string]struct{ in, want string }{
+		"a password":      {"https://user:hunter2@old.example/a", "https://old.example/a"},
+		"a query token":   {"https://old.example/?token=s3cr3t", "https://old.example/"},
+		"a plain address": {"https://old.example/a/", "https://old.example/a/"},
+		"not parseable":   {"http://[bad", redactedSentinel},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := SanitizeParameters(map[string]any{"command": "crawl", "url": tc.in})
+			if got["url"] != tc.want {
+				t.Fatalf("url = %v, want %q", got["url"], tc.want)
+			}
+		})
+	}
+	other := SanitizeParameters(map[string]any{"command": "fetch", "url": "https://a.example/?q=1"})
+	if other["url"] != "https://a.example/?q=1" {
+		t.Fatalf("another command's url was changed: %v", other["url"])
+	}
+}

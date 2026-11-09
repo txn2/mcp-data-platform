@@ -144,6 +144,13 @@ export const SECTION_INTROS: SectionIntroCopy[] = [
     storageKey: "portal.intro.scripts",
   },
   {
+    path: "/sites",
+    summary: "Web pages this platform serves, each on an address of its own.",
+    about:
+      "A site is a set of web pages with environments. Its default environment answers at the site's own address to the people given access; any other environment answers on the domains added to it. A release is a set of files, and promoting or rolling back only changes which release an environment serves.",
+    storageKey: "portal.intro.sites",
+  },
+  {
     path: "/applications",
     summary: "Systems built on the platform, each released as one unit.",
     about:

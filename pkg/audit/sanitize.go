@@ -56,7 +56,24 @@ func SanitizeParameters(params map[string]any) map[string]any {
 	}
 	s := sanitizer{secretValue: callSetsSecret(params)}
 	out, _ := s.value(params).(map[string]any)
-	return out
+	return withoutCopiedURLSecrets(out)
+}
+
+// withoutCopiedURLSecrets keeps a site copy's address to its scheme, host and
+// path (#2559): a user name, a password or a token in the query is not a value
+// the sensitive-key rules can see, since the key is only "url".
+func withoutCopiedURLSecrets(params map[string]any) map[string]any {
+	raw, isText := params["url"].(string)
+	if params["command"] != "crawl" || !isText {
+		return params
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		params["url"] = redactedSentinel
+		return params
+	}
+	params["url"] = (&url.URL{Scheme: u.Scheme, Host: u.Host, Path: u.Path}).String()
+	return params
 }
 
 // sanitizer walks one call's arguments.

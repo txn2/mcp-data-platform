@@ -1,6 +1,7 @@
 package persona
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -51,6 +52,43 @@ func TestPortalPermissionsKeepWhatTheBlockSets(t *testing.T) {
 
 	var none *Persona
 	assert.Equal(t, PortalRead, none.PortalPermissions(nil).Knowledge, "a nil persona resolves with no tool")
+}
+
+// The Sites section follows the tool an area is reached through: on with
+// manage_site, off without it, and a block's own setting wins.
+func TestPortalPermissionsSitesFollowManageSite(t *testing.T) {
+	on, off := true, false
+	cases := []struct {
+		name    string
+		persona *Persona
+		granted []string
+		want    bool
+	}{
+		{"unset with manage_site", &Persona{Name: "p"}, []string{"manage_site", "search"}, true},
+		{"unset without it", &Persona{Name: "p"}, []string{"search"}, false},
+		{"no tools at all", &Persona{Name: "p"}, nil, false},
+		{"a nil persona", nil, []string{"manage_site"}, true},
+		{"set on without the tool", &Persona{Name: "p", Portal: &PortalAccess{Sites: &on}}, nil, true},
+		{"set off with the tool", &Persona{Name: "p", Portal: &PortalAccess{Sites: &off}}, []string{"manage_site"}, false},
+		{"external with the tool", &Persona{Name: "p", External: true}, []string{"manage_site"}, false},
+		{"external, set on", &Persona{Name: "p", External: true, Portal: &PortalAccess{Sites: &on}}, []string{"manage_site"}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := c.persona.PortalPermissions(c.granted)
+			require.NotNil(t, got.Sites, "every switch is set")
+			assert.Equal(t, c.want, *got.Sites)
+		})
+	}
+	assert.True(t, On(FullPortalAccess().Sites), "an administrator has the section")
+}
+
+func TestToolOr(t *testing.T) {
+	on, off := true, false
+	assert.Same(t, &on, toolOr(&on, false), "what is set is returned")
+	assert.Same(t, &off, toolOr(&off, true))
+	assert.True(t, *toolOr(nil, true), "unset follows the tool")
+	assert.False(t, *toolOr(nil, false))
 }
 
 func TestPortalValidateRefusesALevelTheAreaDoesNotHave(t *testing.T) {
@@ -226,4 +264,26 @@ func TestRegistryIsAdminName(t *testing.T) {
 	assert.False(t, r.IsAdminName("admin", "admin"))
 	var none *Registry
 	assert.False(t, none.IsAdminName("admin", "admin"))
+}
+
+// The Sites area reads from a tool registered on the platform, so a persona's
+// toolkit tools alone do not say whether it was granted (#2559).
+func TestPortalGrants(t *testing.T) {
+	allowed := &Persona{Name: "builder", Tools: ToolRules{Allow: []string{"*"}}}
+	denied := &Persona{Name: "viewer", Tools: ToolRules{Allow: []string{"trino_*"}}}
+	input := []string{"trino_query"}
+
+	got := PortalGrants(allowed, input)
+	if !slices.Contains(got, ToolManageSite) || !slices.Contains(got, "trino_query") {
+		t.Fatalf("allowed: %v", got)
+	}
+	if slices.Contains(input, ToolManageSite) {
+		t.Fatal("the caller's slice was changed")
+	}
+	if got := PortalGrants(denied, input); slices.Contains(got, ToolManageSite) {
+		t.Fatalf("denied: %v", got)
+	}
+	if !On(allowed.PortalPermissions(PortalGrants(allowed, nil)).Sites) || On(denied.PortalPermissions(PortalGrants(denied, nil)).Sites) {
+		t.Fatal("the Sites area does not follow the grant")
+	}
 }

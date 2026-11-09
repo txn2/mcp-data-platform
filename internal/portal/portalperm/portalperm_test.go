@@ -13,7 +13,7 @@ func TestRefusedNamesTheAreaAPersonaLacks(t *testing.T) {
 	off := false
 	lacking := persona.PortalAccess{
 		Assets: persona.PortalShared, Knowledge: persona.PortalRead, Catalog: persona.PortalNone, APIs: persona.PortalNone,
-		Feedback: &off, Prompts: &off, Automations: &off, Search: &off, Memory: &off, Download: &off,
+		Feedback: &off, Prompts: &off, Automations: &off, Sites: &off, Search: &off, Memory: &off, Download: &off,
 	}
 	full := persona.FullPortalAccess()
 	cases := []struct {
@@ -35,6 +35,10 @@ func TestRefusedNamesTheAreaAPersonaLacks(t *testing.T) {
 		{http.MethodGet, "/api/v1/portal/applications", AreaAutomations},
 		{http.MethodGet, "/api/v1/portal/application-databases", AreaAutomations},
 		{http.MethodPost, "/api/v1/portal/approvals/apr_1/decide", AreaAutomations},
+		{http.MethodGet, "/api/v1/portal/sites", AreaSites},
+		{http.MethodPost, "/api/v1/portal/sites", AreaSites},
+		{http.MethodGet, "/api/v1/portal/sites/marketing/releases", AreaSites},
+		{http.MethodPut, "/api/v1/portal/sites/marketing/access/a@b.example", AreaSites},
 		{http.MethodGet, "/api/v1/portal/search", AreaSearch},
 		{http.MethodGet, "/api/v1/portal/memory/records", AreaMemory},
 		{http.MethodGet, "/api/v1/portal/knowledge/insights", AreaMemory},

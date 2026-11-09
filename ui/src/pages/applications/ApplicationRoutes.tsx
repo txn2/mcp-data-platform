@@ -1,4 +1,5 @@
 import { ApprovalsPage } from "@/pages/approvals/ApprovalsPage";
+import { SiteRoutes } from "@/pages/sites/SiteRoutes";
 import { ApplicationDetailPage } from "./ApplicationDetailPage";
 import { ApplicationsPage } from "./ApplicationsPage";
 
@@ -13,6 +14,7 @@ export function ApplicationRoutes({
   route: string;
   onNavigate: (path: string) => void;
 }) {
+  if (route === "/sites" || route.startsWith("/sites/")) return <SiteRoutes route={route} onNavigate={onNavigate} />;
   if (route === "/applications") return <ApplicationsPage onNavigate={onNavigate} />;
   if (route === "/approvals") return <ApprovalsPage onNavigate={onNavigate} />;
   const detail = route.match(/^\/applications\/([^/]+)$/);

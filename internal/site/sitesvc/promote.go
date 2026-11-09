@@ -23,7 +23,7 @@ type PromoteRequest struct {
 type Promoted struct {
 	Environment string            `json:"environment"`
 	Release     int               `json:"release"`
-	URL         string            `json:"preview_url,omitempty"`
+	URL         string            `json:"address,omitempty"`
 	Status      string            `json:"status" example:"promoted"`
 	Approval    *approval.Request `json:"approval,omitempty"`
 }
@@ -43,7 +43,7 @@ func (s *Service) Promote(ctx context.Context, actor Actor, req PromoteRequest) 
 	if err != nil {
 		return nil, err
 	}
-	if err := mayEdit(actor, st); err != nil {
+	if err := s.mayEdit(ctx, actor, st); err != nil {
 		return nil, err
 	}
 	target := st.Environment(req.To)
@@ -70,7 +70,7 @@ func (s *Service) Promote(ctx context.Context, actor Actor, req PromoteRequest) 
 	if err := s.move(ctx, actor, repoint{st: st, env: target, to: rel.Number, action: site.ActionPromote}); err != nil {
 		return nil, err
 	}
-	out.URL = s.PreviewURL(st.Name, target.Name)
+	out.URL = s.Address(ctx, st, target.Name)
 	return out, nil
 }
 
@@ -121,7 +121,7 @@ func (s *Service) Rollback(ctx context.Context, actor Actor, ref, environment st
 	if err != nil {
 		return nil, err
 	}
-	if err := mayEdit(actor, st); err != nil {
+	if err := s.mayEdit(ctx, actor, st); err != nil {
 		return nil, err
 	}
 	env := st.Environment(environment)
@@ -139,7 +139,7 @@ func (s *Service) Rollback(ctx context.Context, actor Actor, ref, environment st
 	if err := s.move(ctx, actor, repoint{st: st, env: env, to: target, action: site.ActionRollback}); err != nil {
 		return nil, err
 	}
-	return &Promoted{Environment: env.Name, Release: target, URL: s.PreviewURL(st.Name, env.Name), Status: site.ActionRollback}, nil
+	return &Promoted{Environment: env.Name, Release: target, URL: s.Address(ctx, st, env.Name), Status: site.ActionRollback}, nil
 }
 
 func rollbackTarget(env *site.Environment, history []site.Deployment, to int) (int, error) {

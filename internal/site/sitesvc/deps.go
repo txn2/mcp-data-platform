@@ -25,10 +25,5 @@ type Approvals interface {
 	RecordReleaseSelfApproval(ctx context.Context, actor approval.Actor, in approval.SubmitRelease) error
 }
 
-// Verifier decides whether a hostname's verification step is done.
-type Verifier interface {
-	Verify(ctx context.Context, hostname, token string) error
-}
-
 // Invalidate tells this replica's gateway a route changed; nil does nothing.
 type Invalidate func(hostOrSite string)

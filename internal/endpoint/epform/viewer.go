@@ -37,6 +37,9 @@ type Viewer struct {
 	AuthType string `json:"t,omitempty"`
 	Persona  string `json:"p,omitempty"`
 	Admin    bool   `json:"a,omitempty"`
+	// EmailUnverified is true when the identity provider said it has not
+	// verified Email (a site's own address, #2559).
+	EmailUnverified bool `json:"v,omitempty"`
 }
 
 // viewerBody is what a viewer token carries, signed.

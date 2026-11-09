@@ -1,3 +1,4 @@
+import { siteRoutes } from "./route-sites";
 import { type ScreenshotRoute } from "./route-types";
 
 // Applications (#2411): the listing, and one released application with its
@@ -33,4 +34,5 @@ export const applicationRoutes: ScreenshotRoute[] = [
     path: "/portal/approvals",
     category: "user",
   },
+  ...siteRoutes,
 ];

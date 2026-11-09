@@ -5,7 +5,7 @@ import { EditorSection } from "./sections";
 import type { PersonaDraft } from "./types";
 
 type Leveled = "assets" | "resources" | "knowledge" | "catalog" | "apis" | "scratch_tables" | "external_files";
-type Switch = "feedback" | "prompts" | "automations" | "search" | "memory" | "download" | "history";
+type Switch = "feedback" | "prompts" | "automations" | "sites" | "search" | "memory" | "download" | "history";
 
 // The leveled areas, each with the choices its dropdown offers, lowest first,
 // and the line naming what governs the AI side of it (#2225, #2257).
@@ -84,6 +84,7 @@ const SWITCHES: { key: Switch; label: string; help: string }[] = [
   { key: "feedback", label: "Feedback", help: "Threads, comments and sign-off" },
   { key: "prompts", label: "Prompts", help: "The prompt library. An AI client's MCP prompts are not governed by this." },
   { key: "automations", label: "Automations", help: "Automations in the portal. The AI assistant runs them through run_script, a tool." },
+  { key: "sites", label: "Sites", help: "Sites in the portal. Someone given view access to a site opens it without this." },
   { key: "search", label: "Search", help: "The portal's search" },
   { key: "memory", label: "Memory", help: "Memory and insights in the portal. memory_manage is a tool." },
   { key: "download", label: "PDF export", help: "Export an asset or a file as PDF" },

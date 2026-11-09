@@ -235,6 +235,72 @@ func TestVerifySessionInvalidJWT(t *testing.T) {
 	}
 }
 
+// A cookie that can carry the __Host- prefix does, so a script on a sibling
+// hostname cannot plant the session.
+func TestEffectiveName_HostPrefix(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  CookieConfig
+		want string
+	}{
+		{"secure, default name, no domain, root path", CookieConfig{Secure: true}, hostPrefix + DefaultCookieName},
+		{"secure, root path written out", CookieConfig{Secure: true, Path: "/"}, hostPrefix + DefaultCookieName},
+		{"secure, a custom name", CookieConfig{Secure: true, Name: "custom"}, hostPrefix + "custom"},
+		{"a name already prefixed is not doubled", CookieConfig{Secure: true, Name: hostPrefix + "custom"}, hostPrefix + "custom"},
+		{"not secure", CookieConfig{}, DefaultCookieName},
+		{"not secure, a custom name", CookieConfig{Name: "custom"}, "custom"},
+		{"a domain cannot carry the prefix", CookieConfig{Secure: true, Domain: ".example.com"}, DefaultCookieName},
+		{"a path other than the root cannot carry it", CookieConfig{Secure: true, Path: "/portal"}, DefaultCookieName},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.cfg.effectiveName(); got != tc.want {
+				t.Errorf("effectiveName() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// On a host-only deployment a cookie of the bare name is never read, however
+// valid its signature: that is the point of the prefix.
+func TestHostPrefixedSession_TheBareNameIsNotRead(t *testing.T) {
+	secure := &CookieConfig{Key: testKey(), Secure: true}
+	token, err := SignSession(SessionClaims{UserID: "u1", Email: "a@example.com"}, secure)
+	if err != nil {
+		t.Fatalf("SignSession: %v", err)
+	}
+	a := NewAuthenticator(*secure)
+
+	planted := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
+	planted.AddCookie(&http.Cookie{Name: DefaultCookieName, Value: token}) // #nosec G124 -- a request's cookie: name and value are all it sends
+	if info, _ := a.AuthenticateHTTP(planted); info != nil {
+		t.Errorf("a session in the bare cookie name was accepted: %+v", info)
+	}
+
+	request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
+	request.AddCookie(&http.Cookie{Name: hostPrefix + DefaultCookieName, Value: token}) // #nosec G124 -- a request's cookie: name and value are all it sends
+	info, err := a.AuthenticateHTTP(request)
+	if err != nil || info == nil {
+		t.Fatalf("the prefixed cookie was refused: info=%v err=%v", info, err)
+	}
+	if info.UserID != "u1" {
+		t.Errorf("UserID = %q", info.UserID)
+	}
+}
+
+func TestSetCookie_CarriesTheHostPrefixWhenItCan(t *testing.T) {
+	cfg := &CookieConfig{Key: testKey(), Secure: true}
+	rec := httptest.NewRecorder()
+	SetCookie(rec, cfg, "token")
+	c := rec.Result().Cookies()[0] //nolint:bodyclose // a recorder's result has no body to close
+	if c.Name != hostPrefix+DefaultCookieName {
+		t.Errorf("Name = %q", c.Name)
+	}
+	if !c.Secure || c.Domain != "" || c.Path != "/" {
+		t.Errorf("a __Host- cookie needs Secure, no Domain and path /: %+v", c)
+	}
+}
+
 func TestCookieConfigDefaults(t *testing.T) {
 	cfg := &CookieConfig{}
 

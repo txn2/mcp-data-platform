@@ -1,7 +1,7 @@
 // Package site is the record of a static site served by the platform (#2518):
 // a site with named environments, each pointing at one immutable release (a
 // built file set under its own object-storage prefix), and the hostnames that
-// route to an environment or to an application's endpoints once verified.
+// route to an environment or to an application's endpoints.
 //
 // Publishing adds a release. Promoting and rolling back only move an
 // environment's pointer, so no file is copied and the move takes effect on
@@ -19,12 +19,9 @@ import (
 	"time"
 )
 
-// The environment a publish lands in when none is named, and the one created
-// requiring approval.
-const (
-	EnvDev  = "dev"
-	EnvProd = "prod"
-)
+// EnvDefault is the environment a new site starts with: the one its own
+// address serves and a publish that names none lands in.
+const EnvDefault = "default"
 
 // The actions a deployment records.
 const (
@@ -34,9 +31,9 @@ const (
 	ActionApplication = "application"
 )
 
-// PreviewSeparator divides a preview hostname's first label into environment
-// and site. Neither name may contain it, so the label reads one way.
-const PreviewSeparator = "--"
+// reservedHyphens is refused in a name: a DNS label with hyphens there is read
+// as an encoded international name.
+const reservedHyphens = "--"
 
 // Limits on a record's fields.
 const (
@@ -57,14 +54,19 @@ var (
 	ErrStale         = errors.New("another change to the environment was recorded first")
 	ErrNoDomain      = errors.New("no such domain")
 	ErrDomainTaken   = errors.New("that hostname is already mapped")
+	ErrNoGrant       = errors.New("that person has no access to this site")
+	ErrNoJob         = errors.New("no such job")
 )
 
 // Site is the record.
 type Site struct {
-	ID           string        `json:"id" example:"site_01J9"`
-	Name         string        `json:"name" example:"marketing"`
-	Description  string        `json:"description"`
-	OwnerEmail   string        `json:"owner_email" example:"jane@example.com"`
+	ID          string `json:"id" example:"site_01J9"`
+	Name        string `json:"name" example:"marketing"`
+	Description string `json:"description"`
+	OwnerEmail  string `json:"owner_email" example:"jane@example.com"`
+	// InternalView lets everyone whose persona is not external open the
+	// site's own address: a company intranet.
+	InternalView bool          `json:"internal_view"`
 	Environments []Environment `json:"environments"`
 	CreatedBy    string        `json:"created_by"`
 	CreatedAt    time.Time     `json:"created_at"`
@@ -127,12 +129,25 @@ type Store interface {
 	AddDomain(ctx context.Context, d *Domain) error
 	Domain(ctx context.Context, hostname string) (*Domain, error)
 	Domains(ctx context.Context) ([]Domain, error)
-	MarkVerified(ctx context.Context, hostname, by string) error
+	SiteDomains(ctx context.Context, siteID string) ([]Domain, error)
 	RemoveDomain(ctx context.Context, hostname string) error
-	// RouteHost is what a verified hostname serves, ErrNoDomain for none.
+	// RouteHost is what an added hostname serves, ErrNoDomain for none.
 	RouteHost(ctx context.Context, hostname string) (*Route, error)
-	// RoutePreview is what an environment's preview hostname serves.
-	RoutePreview(ctx context.Context, siteName, environment string) (*Route, error)
+	// RouteOwn is what a site's own address serves, ErrNoDomain for none.
+	RouteOwn(ctx context.Context, siteName string) (*Route, error)
+	Grants(ctx context.Context, siteID string) ([]Grant, error)
+	GrantLevel(ctx context.Context, siteID, email string) (string, error)
+	// SetGrant adds a person or changes their level.
+	SetGrant(ctx context.Context, siteID string, g Grant) error
+	RemoveGrant(ctx context.Context, siteID, email string) error
+	CreateJob(ctx context.Context, j *Job) error
+	Job(ctx context.Context, id string) (*Job, error)
+	ActiveJobs(ctx context.Context, siteID string) ([]Job, error)
+	// ReportJob records a running job's progress and says whether it was asked
+	// to stop.
+	ReportJob(ctx context.Context, id string, p JobProgress) (stop bool, err error)
+	FinishJob(ctx context.Context, id string, r JobResult) error
+	StopJob(ctx context.Context, id string) error
 }
 
 var (
@@ -143,7 +158,7 @@ var (
 
 // ValidateName checks a site's name.
 func ValidateName(name string) error {
-	if !nameRE.MatchString(name) || strings.Contains(name, PreviewSeparator) || strings.HasSuffix(name, "-") {
+	if !nameRE.MatchString(name) || strings.Contains(name, reservedHyphens) || strings.HasSuffix(name, "-") {
 		return fmt.Errorf("site name %q: a lowercase letter, then lowercase letters, digits and single hyphens, at most 63", name)
 	}
 	return nil
@@ -151,7 +166,7 @@ func ValidateName(name string) error {
 
 // ValidateEnvironment checks an environment's name.
 func ValidateEnvironment(name string) error {
-	if !envRE.MatchString(name) || strings.Contains(name, PreviewSeparator) || strings.HasSuffix(name, "-") {
+	if !envRE.MatchString(name) || strings.Contains(name, reservedHyphens) || strings.HasSuffix(name, "-") {
 		return fmt.Errorf("environment name %q: a lowercase letter, then lowercase letters, digits and single hyphens, at most 32", name)
 	}
 	return nil

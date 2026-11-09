@@ -360,6 +360,18 @@ personas:
         You are helping an ACME store manager access store-level data.
         Focus on daily sales, inventory, and employee scheduling.
 
+  # A client reviewing work (#2559): external, reaching assets shared with them
+  # and no Sites area. A view grant alone opens one site's own address.
+  client:
+    display_name: "Client reviewer"
+    roles: ["client", "dp_client"]
+    external: true
+    tools:
+      allow: ["platform_info"]
+    connections:
+      # Names no connection: this persona reaches none, and says so.
+      allow: ["no-connection"]
+
   role_mapping:
     oidc_to_persona:
       "dp_admin": "admin"
@@ -707,17 +719,8 @@ scripts:
 # stack's fixtures are on private addresses, which production refuses.
 sites:
   pages_domain: pages.localhost
-  verify:
-    dns_server: "127.0.0.1:${DEV_CHALLTEST_DNS_PORT:-8053}"
   crawl:
     allow_private_cidrs: ["127.0.0.0/8", "::1/128"]
-  tls:
-    acme:
-      enabled: true
-      address: "0.0.0.0:${DEV_SITES_ACME_PORT:-5443}"
-      email: "ops@example.com"
-      directory_url: "https://127.0.0.1:${DEV_PEBBLE_PORT:-14000}/dir"
-      ca_file: "dev/pebble/pebble.minica.pem"
 
 webhooks:
   receiver:

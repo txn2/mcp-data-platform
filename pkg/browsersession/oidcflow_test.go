@@ -1445,3 +1445,34 @@ func TestSanitizeReturnTo(t *testing.T) {
 		}
 	}
 }
+
+func TestEmailVerifiedClaim(t *testing.T) {
+	cases := []struct {
+		name  string
+		value any
+		want  *bool
+	}{
+		{"absent", nil, nil},
+		{"true", true, new(true)},
+		{"false", false, new(false)},
+		{"the string true, any case", "TRUE", new(true)},
+		{"the string false", "false", new(false)},
+		{"a string that is neither is not true", "maybe", new(false)},
+		{"another type is no statement", 1, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			claims := map[string]any{}
+			if tc.value != nil {
+				claims[ClaimEmailVerified] = tc.value
+			}
+			got := emailVerified(claims)
+			switch {
+			case (got == nil) != (tc.want == nil):
+				t.Fatalf("emailVerified = %v, want %v", got, tc.want)
+			case got != nil && *got != *tc.want:
+				t.Errorf("emailVerified = %v, want %v", *got, *tc.want)
+			}
+		})
+	}
+}
