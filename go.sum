@@ -376,8 +376,8 @@ github.com/twpayne/go-geom v1.6.1 h1:iLE+Opv0Ihm/ABIcvQFGIiFBXd76oBIar9drAwHFhR4
 github.com/twpayne/go-geom v1.6.1/go.mod h1:Kr+Nly6BswFsKM5sd31YaoWS5PeDDH2NftJTK7Gd028=
 github.com/txn2/mcp-s3 v1.5.1 h1:Kix4axZvt8p1WsvMBD8AU0CxHF6mbxLzjrrb4MTgW3o=
 github.com/txn2/mcp-s3 v1.5.1/go.mod h1:x2iu4CDs1S7H2hyvUydMAJY5X0dnYF03XWURSyc3nUk=
-github.com/txn2/mcp-trino v1.8.0 h1:7wrhie2mSp9XlExzwhCs1BVIrLbPDvRPRIaPfGyT0uA=
-github.com/txn2/mcp-trino v1.8.0/go.mod h1:27fPphmFk2HIhpbmuxz/Drypd6OnPIDAO/DP6QkBgH4=
+github.com/txn2/mcp-trino v1.9.0 h1:PJTEFkp4HVsE5cPUCFfSbpQQKyDXlhMDiV3XtqwleA0=
+github.com/txn2/mcp-trino v1.9.0/go.mod h1:mz3rrt4jegIsXAp/at4KESRycR20eXmfm0a7kHAuGus=
 github.com/vektah/gqlparser/v2 v2.5.64 h1:N32yM6hQ6Kd5RdjCCEJsUrbCebVoA9yLLMOIa88Mkk0=
 github.com/vektah/gqlparser/v2 v2.5.64/go.mod h1:nILRSUbsWDTuf8hSmAgFxuYh0SaMZdkvl6JSEbkJX8g=
 github.com/wneessen/go-mail v0.8.1 h1:tVcncj02/QySVFw3zr/kXOzZcuFQqBNT6K+Rbgm/pcM=
