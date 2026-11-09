@@ -65,14 +65,22 @@ export function VisibilityChoice({
   value,
   onChange,
   disabled,
+  labelledBy,
 }: {
   value: ThreadVisibility;
   onChange: (v: ThreadVisibility) => void;
   disabled?: boolean;
+  /** labelledBy names a visible label; without one the group labels itself. */
+  labelledBy?: string;
 }) {
   const name = useId();
   return (
-    <div role="radiogroup" aria-label="Visibility" className="flex items-center gap-3 text-xs">
+    <div
+      role="radiogroup"
+      aria-label={labelledBy ? undefined : "Visibility"}
+      aria-labelledby={labelledBy}
+      className="flex items-center gap-3 text-xs"
+    >
       {(["internal", "shared"] as const).map((v) => (
         <label key={v} className="flex items-center gap-1">
           <input

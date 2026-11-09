@@ -5,11 +5,18 @@
 // Connection kinds the create form offers. Kind is immutable after creation.
 export const AVAILABLE_KINDS = ["trino", "s3", "mcp", "api", "graphql", "appdb"];
 
-// What a kind is called where a person reads it. A kind with no entry is shown
-// as its identifier. appdb is an application's own PostgreSQL database, reached
-// from scripts and endpoints, not a data source (#2428).
-const KIND_LABELS: Record<string, string> = {
-  appdb: "Application database",
+// What a kind is called wherever a person reads it (#2551), the one map every
+// surface uses. A kind with no entry is shown as its identifier, which is
+// unchanged in routes, configuration, tools and API responses. appdb is an
+// application's own PostgreSQL database, reached from scripts and endpoints,
+// not a data source (#2428).
+export const KIND_LABELS: Record<string, string> = {
+  trino: "Trino",
+  s3: "S3",
+  mcp: "MCP",
+  api: "API",
+  graphql: "GraphQL",
+  appdb: "AppDB",
 };
 
 export function kindLabel(kind: string): string {

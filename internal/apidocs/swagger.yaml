@@ -15434,6 +15434,9 @@ definitions:
     type: object
   sitehttp.GrantBody:
     properties:
+      email:
+        example: pat@example.com
+        type: string
       level:
         example: view
         type: string
@@ -36934,6 +36937,42 @@ paths:
       tags:
       - Sites
   /portal/sites/{site}/access:
+    delete:
+      description: Takes effect on their next request. Anyone who manages the site
+        removes someone who can view it; only its owner and administrators remove
+        someone who manages it.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: Their email
+        in: query
+        name: email
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Remove someone's access
+      tags:
+      - Sites
     get:
       description: The owner, the people who can manage the site and the people who
         can view it. Open to those who manage it.
@@ -36964,39 +37003,6 @@ paths:
       summary: Who has access to a site
       tags:
       - Sites
-  /portal/sites/{site}/access/{email}:
-    delete:
-      description: Takes effect on their next request. Anyone who manages the site
-        removes someone who can view it; only its owner and administrators remove
-        someone who manages it.
-      parameters:
-      - description: Site name or id
-        in: path
-        name: site
-        required: true
-        type: string
-      - description: Their email
-        in: path
-        name: email
-        required: true
-        type: string
-      responses:
-        "204":
-          description: No Content
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Remove someone's access
-      tags:
-      - Sites
     put:
       consumes:
       - application/json
@@ -37009,12 +37015,7 @@ paths:
         name: site
         required: true
         type: string
-      - description: Their email
-        in: path
-        name: email
-        required: true
-        type: string
-      - description: The level
+      - description: Who, and at what level
         in: body
         name: body
         required: true

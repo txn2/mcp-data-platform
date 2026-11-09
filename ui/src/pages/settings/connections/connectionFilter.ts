@@ -1,5 +1,6 @@
 import type { EffectiveConnection } from "@/api/admin/types";
 import { sortNames } from "@/lib/sortByName";
+import { kindLabel } from "./constants";
 
 // The Connections page's search and kind filter (#2350): what a connection is
 // matched on, the kinds offered, and how both are kept in the page's address
@@ -9,20 +10,6 @@ import { sortNames } from "@/lib/sortByName";
 
 export const SEARCH_PARAM = "q";
 export const TYPE_PARAM = "type";
-
-/** KIND_LABELS names a connection kind as people say it. */
-export const KIND_LABELS: Record<string, string> = {
-  trino: "Trino",
-  s3: "S3",
-  api: "API",
-  graphql: "GraphQL",
-  mcp: "MCP",
-};
-
-/** kindLabel names a kind, the raw kind for one the list does not know. */
-export function kindLabel(kind: string): string {
-  return KIND_LABELS[kind] ?? kind;
-}
 
 export interface ConnectionFilter {
   q: string;

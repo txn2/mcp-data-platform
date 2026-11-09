@@ -1,9 +1,11 @@
 package feedbackapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
@@ -260,3 +262,109 @@ var (
 	kpAdmin  = &access.User{UserID: "admin-1", Email: "admin@example.com", Roles: []string{"admin"}}
 	kpViewer = &access.User{UserID: "viewer-1", Email: "viewer@example.com", Roles: []string{"analyst"}}
 )
+
+// captureLog collects what the package logs while a test runs.
+func captureLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	return &buf
+}
+
+func longFeedbackThread(body string) *mockThreadStore {
+	return &mockThreadStore{
+		getResult: &threads.Thread{ID: "thr_1", TargetType: portaldomain.TargetTypeStandalone, Kind: threads.ThreadKindCorrection},
+		events:    []threads.ThreadEvent{{ID: "evt_1", EventType: threads.EventTypeComment, Body: body}},
+	}
+}
+
+func TestCaptureThreadInsight_DefaultOverTheLimitIsRefusedAndNotCut(t *testing.T) {
+	log := captureLog(t)
+	secret := "acc-marker-" + strings.Repeat("x", memory.MaxContentLen)
+	store := longFeedbackThread(secret)
+	writer := &mockMemoryWriter{}
+	w := doThreadReq(t, newCaptureHandler(store, writer, kpAdmin), "POST", "/api/v1/portal/threads/thr_1/insight", nil)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (body %s)", w.Code, w.Body.String())
+	}
+	want := "content must be at most 4000 bytes (got 4011)"
+	if !strings.Contains(w.Body.String(), want) {
+		t.Errorf("the refusal does not say why: %s", w.Body.String())
+	}
+	if writer.inserted != nil {
+		t.Errorf("an insight was written: %d bytes", len(writer.inserted.Content))
+	}
+	if store.linkedInsightID != "" {
+		t.Errorf("the thread was resolved against %q", store.linkedInsightID)
+	}
+	got := log.String()
+	if !strings.Contains(got, want) || !strings.Contains(got, "thr_1") {
+		t.Errorf("the log does not hold the reason: %s", got)
+	}
+	if strings.Contains(got, "acc-marker") {
+		t.Errorf("the log holds the feedback's text: %s", got)
+	}
+}
+
+func TestCaptureThreadInsight_ShortenedTextIsCapturedAsSent(t *testing.T) {
+	store := longFeedbackThread(strings.Repeat("x", memory.MaxContentLen+1))
+	writer := &mockMemoryWriter{}
+	shortened := strings.Repeat("y", memory.MaxContentLen)
+	w := doThreadReq(t, newCaptureHandler(store, writer, kpAdmin), "POST", "/api/v1/portal/threads/thr_1/insight",
+		map[string]any{"content": "  " + shortened + "\n"})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201 (body %s)", w.Code, w.Body.String())
+	}
+	if writer.inserted == nil || writer.inserted.Content != shortened {
+		t.Fatalf("the insight does not hold the reviewer's text")
+	}
+	if store.linkedInsightID != writer.inserted.ID {
+		t.Errorf("the thread was not linked: %q", store.linkedInsightID)
+	}
+}
+
+func TestCaptureThreadInsight_TextOverTheLimitIsRefused(t *testing.T) {
+	writer := &mockMemoryWriter{}
+	w := doThreadReq(t, newCaptureHandler(&mockThreadStore{getResult: standaloneThread()}, writer, kpAdmin),
+		"POST", "/api/v1/portal/threads/thr_1/insight",
+		map[string]any{"content": strings.Repeat("é", memory.MaxContentLen/2+1)})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+	if writer.inserted != nil {
+		t.Error("text over the limit was written")
+	}
+}
+
+func TestCaptureThreadInsight_EveryRefusalIsLogged(t *testing.T) {
+	cases := []struct {
+		name string
+		h    http.Handler
+		code int
+		text string
+	}{
+		{"unauthenticated", newCaptureHandler(&mockThreadStore{}, &mockMemoryWriter{}, nil), http.StatusUnauthorized, errAuthRequired},
+		{"without apply_knowledge", newCaptureHandler(&mockThreadStore{getResult: standaloneThread()}, &mockMemoryWriter{}, kpViewer), http.StatusForbidden, "requires apply_knowledge"},
+		{"unknown thread, with the cause", newCaptureHandler(&mockThreadStore{getErr: errors.New("db gone")}, &mockMemoryWriter{}, kpAdmin), http.StatusNotFound, "db gone"},
+		{"unreachable target", newCaptureHandler(&mockThreadStore{getResult: &threads.Thread{ID: "thr_1", TargetType: portaldomain.TargetTypeKnowledgePage, KnowledgePageID: "kp1"}}, &mockMemoryWriter{}, kpAdmin), http.StatusServiceUnavailable, "knowledge pages not configured"},
+		{"failed write, with the cause", newCaptureHandler(&mockThreadStore{getResult: standaloneThread()}, &mockMemoryWriter{err: errors.New("insert broke")}, kpAdmin), http.StatusInternalServerError, "insert broke"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			log := captureLog(t)
+			w := doThreadReq(t, tc.h, "POST", "/api/v1/portal/threads/thr_1/insight", map[string]any{"content": "a correction worth keeping"})
+			if w.Code != tc.code {
+				t.Fatalf("status = %d, want %d (body %s)", w.Code, tc.code, w.Body.String())
+			}
+			if got := log.String(); !strings.Contains(got, "capture as insight refused") || !strings.Contains(got, tc.text) {
+				t.Errorf("the log does not hold %q: %s", tc.text, got)
+			}
+			if strings.Contains(log.String(), "a correction worth keeping") {
+				t.Errorf("the log holds the insight's text: %s", log.String())
+			}
+		})
+	}
+}

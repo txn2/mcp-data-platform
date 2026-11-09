@@ -8,6 +8,7 @@ import {
   useSaveCatalogSettings,
 } from "@/api/admin/hooks";
 import type { CatalogScan } from "@/api/admin/types";
+import { kindLabel } from "@/pages/settings/connections/constants";
 import { EmptyState } from "@/components/patterns/EmptyState";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -143,7 +144,7 @@ function ScansTable({ scans }: { scans: CatalogScan[] }) {
           {scans.map((s) => (
             <TableRow key={`${s.connection_kind}/${s.connection}`}>
               <TableCell className="font-medium">{s.connection}</TableCell>
-              <TableCell>{s.connection_kind}</TableCell>
+              <TableCell>{kindLabel(s.connection_kind)}</TableCell>
               <TableCell>{new Date(s.finished_at).toLocaleString()}</TableCell>
               <TableCell className="text-right tabular-nums">
                 {s.datasets.toLocaleString()}

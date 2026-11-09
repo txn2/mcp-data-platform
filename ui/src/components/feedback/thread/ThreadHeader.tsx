@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { ArrowLeft, Quote, Trash2 } from "lucide-react";
 import type { Thread } from "@/api/portal/types";
 import { Button } from "@/components/ui/button";
@@ -6,8 +7,9 @@ import { useUpdateThread } from "@/api/portal/hooks";
 import { usePortalAccess } from "@/hooks/usePortalAccess";
 import { formatRelative } from "../meta";
 
-// ThreadHeader is the way back out, what the thread is, and — for a moderator —
-// the way to remove it.
+// ThreadHeader is the way back out, what the thread is, and, for a moderator,
+// the way to remove it. The Internal / Shared choice has a row of its own so the
+// header fits the 448px drawer and a phone (#2580).
 export function ThreadHeader({
   thread,
   mayModerate,
@@ -25,36 +27,46 @@ export function ThreadHeader({
   statusControl?: React.ReactNode;
 }) {
   // Whoever moderates the thread changes who sees it; an external person
-  // cannot (#2227).
+  // cannot (#2227). Anyone offered the choice reads the value from it.
   const update = useUpdateThread();
   const { external } = usePortalAccess();
+  const labelId = useId();
+  const offersVisibility = mayModerate && !external;
   return (
-    <div className="flex items-center gap-2 border-b p-3">
-      <Button variant="ghost" size="icon-sm" onClick={onBack} aria-label="Back to list">
-        <ArrowLeft />
-      </Button>
-      <ThreadKindBadge kind={thread.kind} />
-      {statusControl ?? <ThreadStatusBadge status={thread.status} />}
-      <ThreadVisibilityBadge visibility={thread.visibility} />
-      {mayModerate && !external && (
-        <VisibilityChoice
-          value={thread.visibility ?? "internal"}
-          disabled={update.isPending}
-          onChange={(visibility) => update.mutate({ id: thread.id, visibility })}
-        />
-      )}
-      {mayModerate && (
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={onDelete}
-          disabled={deleting}
-          className="ml-auto text-destructive hover:bg-destructive/10 hover:text-destructive"
-          aria-label="Delete thread"
-          title="Delete"
-        >
-          <Trash2 />
+    <div className="border-b p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="ghost" size="icon-sm" onClick={onBack} aria-label="Back to list">
+          <ArrowLeft />
         </Button>
+        <ThreadKindBadge kind={thread.kind} />
+        {statusControl ?? <ThreadStatusBadge status={thread.status} />}
+        {!offersVisibility && <ThreadVisibilityBadge visibility={thread.visibility} />}
+        {mayModerate && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={onDelete}
+            disabled={deleting}
+            className="ml-auto text-destructive hover:bg-destructive/10 hover:text-destructive"
+            aria-label="Delete thread"
+            title="Delete"
+          >
+            <Trash2 />
+          </Button>
+        )}
+      </div>
+      {offersVisibility && (
+        <div className="mt-2 flex items-center gap-3 pl-10">
+          <span id={labelId} className="text-xs text-muted-foreground">
+            Visibility
+          </span>
+          <VisibilityChoice
+            labelledBy={labelId}
+            value={thread.visibility ?? "internal"}
+            disabled={update.isPending}
+            onChange={(visibility) => update.mutate({ id: thread.id, visibility })}
+          />
+        </div>
       )}
     </div>
   );

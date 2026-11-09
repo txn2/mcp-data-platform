@@ -12,7 +12,7 @@ import { EmptyState } from "@/components/patterns/EmptyState";
 import { DISCARD_PROMPT, useUnsavedChangesGuard } from "@/lib/navigationGuard";
 import { FilterSelect } from "@/components/patterns/FilterSelect";
 import { SearchInput } from "@/components/patterns/SearchInput";
-import { AVAILABLE_KINDS } from "./connections/constants";
+import { AVAILABLE_KINDS, kindLabel } from "./connections/constants";
 import {
   filterConnections,
   kindOptions,
@@ -212,7 +212,7 @@ export function ConnectionsPanel() {
             .sort(([a], [b]) => compareNames(a, b))
             .map(([kind, items]) => (
               <div key={kind}>
-                <DetailListGroupLabel>{kind}</DetailListGroupLabel>
+                <DetailListGroupLabel>{kindLabel(kind)}</DetailListGroupLabel>
                 {items.map((c) => {
                   const key = `${c.kind}/${c.name}`;
                   return (

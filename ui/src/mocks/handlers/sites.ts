@@ -163,15 +163,15 @@ export const siteHandlers = [
     if (!s) return missing();
     return HttpResponse.json({ owner_email: s.owner_email, internal_view: s.internal_view, grants: grants[s.name] ?? [] });
   }),
-  http.put(`${base}/:site/access/:email`, async ({ params, request }) => {
-    const b = (await request.json()) as { level: SiteGrant["level"] };
+  http.put(`${base}/:site/access`, async ({ params, request }) => {
+    const b = (await request.json()) as { email: string; level: SiteGrant["level"] };
     const list = (grants[params.site as string] ??= []);
-    const g: SiteGrant = { email: decodeURIComponent(params.email as string), level: b.level, granted_by: "admin@example.com", created_at: at };
+    const g: SiteGrant = { email: b.email, level: b.level, granted_by: "admin@example.com", created_at: at };
     list.push(g);
     return HttpResponse.json(g);
   }),
-  http.delete(`${base}/:site/access/:email`, ({ params }) => {
-    const email = decodeURIComponent(params.email as string);
+  http.delete(`${base}/:site/access`, ({ params, request }) => {
+    const email = new URL(request.url).searchParams.get("email");
     grants[params.site as string] = (grants[params.site as string] ?? []).filter((g) => g.email !== email);
     return new HttpResponse(null, { status: 204 });
   }),

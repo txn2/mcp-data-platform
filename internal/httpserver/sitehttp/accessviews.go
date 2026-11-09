@@ -13,6 +13,7 @@ type DomainBody struct {
 
 // GrantBody gives a person access.
 type GrantBody struct {
+	Email string `json:"email" example:"pat@example.com"`
 	Level string `json:"level" example:"view"`
 	// Notify emails them the site's address.
 	Notify bool `json:"notify,omitempty"`

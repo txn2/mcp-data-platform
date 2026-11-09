@@ -28186,9 +28186,7 @@ const docTemplate = `{
                         }
                     }
                 }
-            }
-        },
-        "/portal/sites/{site}/access/{email}": {
+            },
             "put": {
                 "security": [
                     {
@@ -28218,14 +28216,7 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "type": "string",
-                        "description": "Their email",
-                        "name": "email",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "The level",
+                        "description": "Who, and at what level",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -28287,13 +28278,19 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Their email",
                         "name": "email",
-                        "in": "path",
+                        "in": "query",
                         "required": true
                     }
                 ],
                 "responses": {
                     "204": {
                         "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
                     },
                     "403": {
                         "description": "Forbidden",
@@ -52149,6 +52146,10 @@ const docTemplate = `{
         "sitehttp.GrantBody": {
             "type": "object",
             "properties": {
+                "email": {
+                    "type": "string",
+                    "example": "pat@example.com"
+                },
                 "level": {
                     "type": "string",
                     "example": "view"

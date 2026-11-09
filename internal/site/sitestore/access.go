@@ -44,12 +44,14 @@ func (s *Store) GrantLevel(ctx context.Context, siteID, email string) (string, e
 	return level, nil
 }
 
-// SetGrant adds a person or changes their level.
-func (s *Store) SetGrant(ctx context.Context, siteID string, g site.Grant) error {
-	if _, err := s.db.ExecContext(ctx, `
+// SetGrant adds a person or changes their level, and fills in g.CreatedAt from
+// the row it wrote.
+func (s *Store) SetGrant(ctx context.Context, siteID string, g *site.Grant) error {
+	if err := s.db.QueryRowContext(ctx, `
 		INSERT INTO site_grants (site_id, email, level, granted_by) VALUES ($1, $2, $3, $4)
-		ON CONFLICT (site_id, email) DO UPDATE SET level = EXCLUDED.level, granted_by = EXCLUDED.granted_by, created_at = NOW()`,
-		siteID, g.Email, g.Level, g.GrantedBy); err != nil {
+		ON CONFLICT (site_id, email) DO UPDATE SET level = EXCLUDED.level, granted_by = EXCLUDED.granted_by, created_at = NOW()
+		RETURNING created_at`,
+		siteID, g.Email, g.Level, g.GrantedBy).Scan(&g.CreatedAt); err != nil {
 		return fmt.Errorf("set grant: %w", err)
 	}
 	return nil

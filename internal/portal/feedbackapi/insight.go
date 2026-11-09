@@ -12,6 +12,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/portal/access"
 	"github.com/txn2/mcp-data-platform/pkg/portal/threads"
 )
@@ -62,35 +63,36 @@ type captureInsightResponse struct {
 func (h *Handler) captureThreadInsight(w http.ResponseWriter, r *http.Request) {
 	user := access.GetUser(r.Context())
 	if user == nil {
-		httpjson.WriteError(w, http.StatusUnauthorized, errAuthRequired)
+		refuseCapture(w, r, http.StatusUnauthorized, errAuthRequired, nil)
 		return
 	}
 	// Only reviewers (apply_knowledge holders, or admins) promote feedback into
 	// the insight queue, the same capability that reviews and applies it.
 	if !h.access.HasApplyKnowledge(user) {
-		httpjson.WriteError(w, http.StatusForbidden, "capturing feedback as an insight requires apply_knowledge access")
+		refuseCapture(w, r, http.StatusForbidden, "capturing feedback as an insight requires apply_knowledge access", nil)
 		return
 	}
 
 	thread, err := h.cfg.Threads.GetThread(r.Context(), r.PathValue(pathKeyID))
 	if err != nil {
-		httpjson.WriteError(w, http.StatusNotFound, errThreadNotFound)
+		refuseCapture(w, r, http.StatusNotFound, errThreadNotFound, err)
 		return
 	}
 	// The capturer must be able to see the thread's target.
-	if !h.canAccessThreadTarget(w, r, user, threadTarget{
+	if status, msg := h.threadTargetRefusal(r, user, threadTarget{
 		thread.TargetType, thread.AssetID, thread.CollectionID, thread.PromptID, thread.KnowledgePageID,
-	}) {
+	}); status != 0 {
+		refuseCapture(w, r, status, msg, nil)
 		return
 	}
 
 	rec, status, msg := h.buildThreadInsightRecord(r, thread, user)
 	if status != 0 {
-		httpjson.WriteError(w, status, msg)
+		refuseCapture(w, r, status, msg, nil)
 		return
 	}
 	if err := h.cfg.MemoryWriter.Insert(r.Context(), rec); err != nil {
-		httpjson.WriteError(w, http.StatusInternalServerError, "failed to create insight")
+		refuseCapture(w, r, http.StatusInternalServerError, "failed to create insight", err)
 		return
 	}
 
@@ -98,7 +100,7 @@ func (h *Handler) captureThreadInsight(w http.ResponseWriter, r *http.Request) {
 	// undo the insight; the insight already exists in the review queue.
 	linked, err := h.cfg.Threads.LinkInsight(r.Context(), []string{thread.ID}, rec.ID, user.UserID, user.Email)
 	if err != nil {
-		slog.Warn("portal: failed to link insight to thread", "insight_id", rec.ID, "thread_id", thread.ID, logKeyError, err)
+		slog.Warn("portal: failed to link insight to thread", "insight_id", rec.ID, "thread_id", logsan.SanitizeForLog(thread.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
 	}
 
 	httpjson.WriteJSON(w, http.StatusCreated, captureInsightResponse{
@@ -106,6 +108,19 @@ func (h *Handler) captureThreadInsight(w http.ResponseWriter, r *http.Request) {
 		Status:    memory.InsightStatusPending,
 		Linked:    len(linked) > 0,
 	})
+}
+
+// refuseCapture answers a capture the handler will not carry out and records
+// why, so an operator can find the reason the portal showed (#2546). It logs the
+// thread, the status and the refusal, whose text gives sizes and never the
+// insight's content.
+func refuseCapture(w http.ResponseWriter, r *http.Request, status int, msg string, cause error) {
+	attrs := []any{"thread_id", logsan.SanitizeForLog(r.PathValue(pathKeyID)), "status", status, "reason", logsan.SanitizeForLog(msg)}
+	if cause != nil {
+		attrs = append(attrs, logKeyError, logsan.SanitizeForLog(cause.Error()))
+	}
+	slog.Warn("portal: capture as insight refused", attrs...)
+	httpjson.WriteError(w, status, msg)
 }
 
 // buildThreadInsightRecord parses the optional override payload, derives and

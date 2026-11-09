@@ -959,7 +959,8 @@ func TestGrant_Matrix(t *testing.T) {
 				got, err := svc.Grant(ctx, actor.who, "marketing", row.target.email, row.level)
 				if row.allowed(actor.name) {
 					require.NoError(t, err)
-					assert.Equal(t, site.Grant{Email: row.target.email, Level: row.level, GrantedBy: actor.who.Email}, *got)
+					assert.Equal(t, site.Grant{Email: row.target.email, Level: row.level, GrantedBy: actor.who.Email, CreatedAt: store.grants[siteID][row.target.email].CreatedAt}, *got)
+					assert.False(t, got.CreatedAt.IsZero(), "the time the store wrote is what is returned")
 					assert.Equal(t, row.level, store.grants[siteID][row.target.email].Level)
 					return
 				}

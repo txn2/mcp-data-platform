@@ -5,6 +5,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatBytes } from "@/lib/format";
+import { kindLabel } from "@/pages/settings/connections/constants";
 
 // DocumentsTab lists each connection's schema document as the catalog scan
 // last read it (#1918): an API connection's OpenAPI spec, a GraphQL
@@ -41,7 +42,7 @@ export function DocumentsTab() {
           {(docs ?? []).map((d) => (
             <TableRow key={d.reference}>
               <TableCell className="font-medium">{d.connection}</TableCell>
-              <TableCell>{d.connection_kind}</TableCell>
+              <TableCell>{kindLabel(d.connection_kind)}</TableCell>
               <TableCell className="font-mono text-xs">{d.filename}</TableCell>
               <TableCell className="text-right tabular-nums">{formatBytes(d.size_bytes)}</TableCell>
               <TableCell className="text-right tabular-nums">{d.version}</TableCell>

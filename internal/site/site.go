@@ -138,7 +138,7 @@ type Store interface {
 	Grants(ctx context.Context, siteID string) ([]Grant, error)
 	GrantLevel(ctx context.Context, siteID, email string) (string, error)
 	// SetGrant adds a person or changes their level.
-	SetGrant(ctx context.Context, siteID string, g Grant) error
+	SetGrant(ctx context.Context, siteID string, g *Grant) error
 	RemoveGrant(ctx context.Context, siteID, email string) error
 	CreateJob(ctx context.Context, j *Job) error
 	Job(ctx context.Context, id string) (*Job, error)

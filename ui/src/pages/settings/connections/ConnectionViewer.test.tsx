@@ -40,7 +40,7 @@ describe("ConnectionViewer edit and delete affordances", () => {
     renderViewer(connection({ file_declared: true }));
 
     expect(
-      screen.queryByLabelText("Delete trino/acme-warehouse"),
+      screen.queryByLabelText("Delete Trino/acme-warehouse"),
     ).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
     expect(
@@ -55,7 +55,7 @@ describe("ConnectionViewer edit and delete affordances", () => {
     renderViewer(connection({ source: "both" }));
 
     expect(
-      screen.getByLabelText("Delete trino/acme-warehouse"),
+      screen.getByLabelText("Delete Trino/acme-warehouse"),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
     expect(
@@ -72,7 +72,7 @@ describe("ConnectionViewer edit and delete affordances", () => {
     renderViewer(connection({ source: "database" }));
 
     expect(
-      screen.getByLabelText("Delete trino/acme-warehouse"),
+      screen.getByLabelText("Delete Trino/acme-warehouse"),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
   });
@@ -167,14 +167,15 @@ describe("ConnectionViewer for an api connection with no catalog", () => {
 describe("ConnectionViewer kind label", () => {
   // An application database is an application's own store, not a data
   // source; the badge says what it is rather than its kind identifier (#2428).
-  it("names an appdb connection an application database", () => {
+  it("names an appdb connection AppDB", () => {
     renderViewer(connection({ kind: "appdb", name: "orders", connection: "orders", tools: [] }));
-    expect(screen.getByText("Application database")).toBeInTheDocument();
+    expect(screen.getAllByText("AppDB").length).toBeGreaterThan(0);
   });
 
-  it("shows any other kind as its identifier", () => {
+  it("names every other kind the same way", () => {
     renderViewer(connection());
-    expect(screen.queryByText("Application database")).not.toBeInTheDocument();
-    expect(screen.getAllByText("trino").length).toBeGreaterThan(0);
+    expect(screen.queryByText("AppDB")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Trino").length).toBeGreaterThan(0);
+    expect(screen.queryByText("trino")).not.toBeInTheDocument();
   });
 });
