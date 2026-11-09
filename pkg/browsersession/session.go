@@ -13,9 +13,15 @@ import (
 
 // Default configuration values.
 const (
-	DefaultCookieName = "mcp_session"
-	DefaultCookiePath = "/"
-	DefaultTTL        = 8 * time.Hour
+	// ClaimEmailVerified is the identity provider's claim, carried on a
+	// session's user only when it says false.
+	ClaimEmailVerified = "email_verified"
+	hostPrefix         = "__Host-"
+	// claimEmailVerifiedJWT is where the session cookie carries the claim.
+	claimEmailVerifiedJWT = "ev"
+	DefaultCookieName     = "mcp_session"
+	DefaultCookiePath     = "/"
+	DefaultTTL            = 8 * time.Hour
 )
 
 // SessionClaims holds the claims stored in the session JWT cookie.
@@ -24,6 +30,9 @@ type SessionClaims struct {
 	Email   string   `json:"email,omitempty"`
 	Roles   []string `json:"roles"`
 	IDToken string   `json:"idt,omitempty"` // raw id_token for logout id_token_hint
+	// EmailVerified is the identity provider's email_verified claim, nil when
+	// it does not send one (#2559).
+	EmailVerified *bool `json:"ev,omitempty"`
 
 	// FirstName and LastName are derived from the id_token at login and used to
 	// record the person in the known-users directory (#614). They are NOT
@@ -58,12 +67,25 @@ type CookieConfig struct {
 	Key []byte
 }
 
-// effectiveName returns the cookie name, applying the default if empty.
+// hostOnly reports whether the cookie can carry the __Host- prefix, which is
+// what stops a script on a sibling hostname from setting it (#2559): served
+// over https, with no Domain and on the root path.
+func (c *CookieConfig) hostOnly() bool {
+	return c.Secure && c.Domain == "" && (c.Path == "" || c.Path == DefaultCookiePath)
+}
+
+// effectiveName returns the cookie name, applying the default if empty and
+// the __Host- prefix where the cookie can carry it. The bare name is never read
+// on such a deployment, or a planted cookie of that name would still arrive.
 func (c *CookieConfig) effectiveName() string {
-	if c.Name == "" {
-		return DefaultCookieName
+	name := c.Name
+	if name == "" {
+		name = DefaultCookieName
 	}
-	return c.Name
+	if c.hostOnly() && !strings.HasPrefix(name, hostPrefix) {
+		return hostPrefix + name
+	}
+	return name
 }
 
 // effectivePath returns the cookie path, applying the default if empty.

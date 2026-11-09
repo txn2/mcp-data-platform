@@ -2,8 +2,6 @@ package sitesvc
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -17,98 +15,26 @@ type DomainRequest struct {
 	Hostname    string
 	Site        string
 	Environment string
-	Application string
+	// RequiresApproval is applied when the request creates the environment.
+	RequiresApproval bool
+	Application      string
 }
 
-// AddDomain records a hostname, unverified, and says how to verify it.
+// AddDomain maps a hostname to one of a site's environments, creating the
+// environment when it does not exist, or to an application. It routes as soon
+// as it is added; the platform does not check who owns the name. A site's
+// owner and the people who manage it add its domains, and only an
+// administrator maps one to an application.
 func (s *Service) AddDomain(ctx context.Context, actor Actor, req DomainRequest) (*site.Domain, error) {
-	if !actor.Admin {
-		return nil, errNeedsAdmin
-	}
 	host := site.NormalizeHost(req.Hostname)
 	if err := s.claimable(host); err != nil {
 		return nil, err
 	}
-	d := &site.Domain{Hostname: host, Token: newToken(), CreatedBy: actor.Email}
-	if err := s.target(ctx, d, req); err != nil {
+	d := &site.Domain{Hostname: host, CreatedBy: actor.Email}
+	if err := s.target(ctx, actor, d, req); err != nil {
 		return nil, err
 	}
 	if err := s.Store.AddDomain(ctx, d); err != nil {
-		return nil, err //nolint:wrapcheck // read by identity
-	}
-	return s.Store.Domain(ctx, host) //nolint:wrapcheck // read by identity
-}
-
-// claimable refuses a hostname that is not a plain name, is the platform's
-// own, or sits where a served page would receive the session cookie.
-func (s *Service) claimable(host string) error {
-	if err := site.ValidateHostname(host); err != nil {
-		return refused("%s", err.Error())
-	}
-	switch {
-	case site.SameOrUnder(host, s.Config.PagesDomain):
-		return refused("%s is under the pages domain, which the platform assigns", host)
-	case host == s.PortalHost:
-		return refused("%s is the portal's own hostname", host)
-	case site.SameOrUnder(host, strings.TrimPrefix(s.CookieDomain, ".")):
-		return refused("%s is under the session cookie's domain %s, so its pages would receive the portal's session", host, s.CookieDomain)
-	}
-	return nil
-}
-
-func (s *Service) target(ctx context.Context, d *site.Domain, req DomainRequest) error {
-	switch {
-	case (req.Site == "") == (req.Application == ""):
-		return refused("a hostname maps to a site and environment, or to an application")
-	case req.Application != "":
-		if s.Apps == nil {
-			return refused("this deployment has no applications")
-		}
-		a, err := s.Apps.GetByName(ctx, req.Application)
-		if err != nil {
-			return fmt.Errorf("application %q: %w", req.Application, err)
-		}
-		d.ApplicationID = a.ID
-		return nil
-	}
-	st, err := s.Find(ctx, req.Site)
-	if err != nil {
-		return err
-	}
-	if st.Environment(req.Environment) == nil {
-		return noEnvironment(req.Environment)
-	}
-	d.SiteID, d.Environment = st.ID, req.Environment
-	return nil
-}
-
-func newToken() string {
-	var b [16]byte
-	_, _ = rand.Read(b[:])
-	return "platform-site-verify=" + hex.EncodeToString(b[:])
-}
-
-// VerifyDomain runs the hostname's verification step and, when it passes,
-// starts routing it.
-func (s *Service) VerifyDomain(ctx context.Context, actor Actor, hostname string) (*site.Domain, error) {
-	if !actor.Admin {
-		return nil, errNeedsAdmin
-	}
-	host := site.NormalizeHost(hostname)
-	d, err := s.Store.Domain(ctx, host)
-	if err != nil {
-		return nil, err //nolint:wrapcheck // read by identity
-	}
-	if s.Verifier == nil {
-		return nil, refused("this deployment cannot verify domains")
-	}
-	if err := s.Verifier.Verify(ctx, host, d.Token); err != nil {
-		if r, ok := errors.AsType[*RefusedError](err); ok {
-			return nil, r
-		}
-		return nil, fmt.Errorf("verifying %s: %w", host, err)
-	}
-	if err := s.Store.MarkVerified(ctx, host, actor.Email); err != nil {
 		return nil, err //nolint:wrapcheck // read by identity
 	}
 	if s.Invalidate != nil {
@@ -117,12 +43,104 @@ func (s *Service) VerifyDomain(ctx context.Context, actor Actor, hostname string
 	return s.Store.Domain(ctx, host) //nolint:wrapcheck // read by identity
 }
 
-// RemoveDomain stops routing a hostname.
-func (s *Service) RemoveDomain(ctx context.Context, actor Actor, hostname string) error {
+// claimable refuses a hostname that is not a plain name, is one the platform
+// answers on itself, or sits where a served page would receive the session
+// cookie. The gateway answers an added hostname before the platform's routes,
+// so a name the platform uses must never be added.
+func (s *Service) claimable(host string) error {
+	if err := site.ValidateHostname(host); err != nil {
+		return refused("%s", err.Error())
+	}
+	switch {
+	case site.SameOrUnder(host, s.cfg().PagesDomain):
+		return refused("%s is under the pages domain, which the platform assigns", host)
+	case host == s.PortalHost || s.reserved(host):
+		return refused("%s is a hostname this platform answers on itself", host)
+	case site.SameOrUnder(host, strings.TrimPrefix(s.CookieDomain, ".")):
+		return refused("%s is under the session cookie's domain %s, so its pages would receive the portal's session", host, s.CookieDomain)
+	}
+	return nil
+}
+
+func (s *Service) reserved(host string) bool {
+	return slices.ContainsFunc(s.ReservedHosts, func(r string) bool { return site.SameOrUnder(host, site.NormalizeHost(r)) })
+}
+
+func (s *Service) target(ctx context.Context, actor Actor, d *site.Domain, req DomainRequest) error {
+	switch {
+	case (req.Site == "") == (req.Application == ""):
+		return refused("a domain maps to a site and environment, or to an application")
+	case req.Application != "":
+		return s.applicationTarget(ctx, actor, d, req)
+	}
+	st, err := s.Find(ctx, req.Site)
+	if err != nil {
+		return err
+	}
+	if err := s.mayEdit(ctx, actor, st); err != nil {
+		return err
+	}
+	if req.Environment == site.EnvDefault {
+		return refused("the default environment is served only at the site's own address; choose another environment")
+	}
+	if err := s.unclaimed(ctx, d.Hostname); err != nil {
+		return err
+	}
+	if err := s.ensureEnvironment(ctx, actor, st, req); err != nil {
+		return err
+	}
+	d.SiteID, d.Environment = st.ID, req.Environment
+	return nil
+}
+
+// unclaimed refuses a hostname already mapped, before an environment is made
+// for it.
+func (s *Service) unclaimed(ctx context.Context, hostname string) error {
+	_, err := s.Store.Domain(ctx, hostname)
+	switch {
+	case err == nil:
+		return fmt.Errorf("hostname %s: %w", hostname, site.ErrDomainTaken)
+	case errors.Is(err, site.ErrNoDomain):
+		return nil
+	}
+	return fmt.Errorf("reading the domain: %w", err)
+}
+
+func (s *Service) ensureEnvironment(ctx context.Context, actor Actor, st *site.Site, req DomainRequest) error {
+	if st.Environment(req.Environment) != nil {
+		return nil
+	}
+	if err := site.ValidateEnvironment(req.Environment); err != nil {
+		return refused("%s", err.Error())
+	}
+	return s.Store.SetEnvironment(ctx, st.ID, req.Environment, req.RequiresApproval, actor.Email) //nolint:wrapcheck // read by identity
+}
+
+func (s *Service) applicationTarget(ctx context.Context, actor Actor, d *site.Domain, req DomainRequest) error {
 	if !actor.Admin {
 		return errNeedsAdmin
 	}
+	if s.Apps == nil {
+		return refused("this deployment has no applications")
+	}
+	a, err := s.Apps.GetByName(ctx, req.Application)
+	if err != nil {
+		return fmt.Errorf("application %q: %w", req.Application, err)
+	}
+	d.ApplicationID = a.ID
+	return nil
+}
+
+// RemoveDomain stops routing a hostname.
+func (s *Service) RemoveDomain(ctx context.Context, actor Actor, hostname string) error {
 	host := site.NormalizeHost(hostname)
+	d, err := s.Store.Domain(ctx, host)
+	if err != nil {
+		return err //nolint:wrapcheck // read by identity
+	}
+	if err := s.mayRemoveDomain(ctx, actor, d); err != nil {
+		return err
+	}
 	if err := s.Store.RemoveDomain(ctx, host); err != nil {
 		return err //nolint:wrapcheck // read by identity
 	}
@@ -132,49 +150,25 @@ func (s *Service) RemoveDomain(ctx context.Context, actor Actor, hostname string
 	return nil
 }
 
-// HostReport is what the deployment's ingress needs to serve the verified
-// hostnames: each name, and a cert-manager Certificate covering them.
-type HostReport struct {
-	Hostnames  []string `json:"hostnames"`
-	Unverified []string `json:"unverified"`
-	// PagesDomain is the wildcard the pages and previews need, "" for none.
-	PagesWildcard string `json:"pages_wildcard,omitempty"`
-	// CertManager is a Certificate manifest for the hostnames.
-	CertManager string `json:"cert_manager"`
-}
-
-// Hosts reports the hostnames and the certificate they need.
-func (s *Service) Hosts(ctx context.Context) (*HostReport, error) {
-	domains, err := s.Store.Domains(ctx)
-	if err != nil {
-		return nil, err //nolint:wrapcheck // read by identity
-	}
-	rep := &HostReport{Hostnames: []string{}, Unverified: []string{}}
-	for _, d := range domains {
-		if d.Verified() {
-			rep.Hostnames = append(rep.Hostnames, d.Hostname)
-		} else {
-			rep.Unverified = append(rep.Unverified, d.Hostname)
+func (s *Service) mayRemoveDomain(ctx context.Context, actor Actor, d *site.Domain) error {
+	if d.SiteID == "" {
+		if !actor.Admin {
+			return errNeedsAdmin
 		}
+		return nil
 	}
-	names := slices.Clone(rep.Hostnames)
-	if s.Config.PagesDomain != "" {
-		rep.PagesWildcard = "*." + s.Config.PagesDomain
-		names = append(names, rep.PagesWildcard)
+	st, err := s.Store.Get(ctx, d.SiteID)
+	if err != nil {
+		return err //nolint:wrapcheck // read by identity
 	}
-	rep.CertManager = certManifest(names)
-	return rep, nil
-}
-
-// certManifest is a cert-manager Certificate for names. The names passed
-// ValidateHostname or are the configured pages domain, so each is a plain DNS
-// name in a YAML scalar.
-func certManifest(names []string) string {
-	var b strings.Builder
-	_, _ = b.WriteString("apiVersion: cert-manager.io/v1\nkind: Certificate\nmetadata:\n  name: platform-sites\nspec:\n" +
-		"  secretName: platform-sites-tls\n  issuerRef:\n    kind: ClusterIssuer\n    name: letsencrypt\n  dnsNames:\n")
-	for _, n := range names {
-		_, _ = b.WriteString("    - \"" + n + "\"\n")
+	if err := s.mayEdit(ctx, actor, st); err != nil {
+		return err
 	}
-	return b.String()
+	// Moving the name off an environment that requires approval and onto one
+	// that does not would publish to it unapproved, so like taking the rule
+	// off, it is an administrator's.
+	if env := st.Environment(d.Environment); env != nil && env.RequiresApproval && !actor.Admin {
+		return fmt.Errorf("an administrator removes a domain from an environment that requires approval: %w", site.ErrNotAllowed)
+	}
+	return nil
 }

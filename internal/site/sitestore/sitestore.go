@@ -77,11 +77,11 @@ func (s *Store) Create(ctx context.Context, st *site.Site) error {
 	})
 }
 
-const siteColumns = `id, name, description, owner_email, created_by, created_at, updated_at`
+const siteColumns = `id, name, description, owner_email, internal_view, created_by, created_at, updated_at`
 
 func scanSite(row interface{ Scan(...any) error }) (*site.Site, error) {
 	st := &site.Site{Environments: []site.Environment{}}
-	err := row.Scan(&st.ID, &st.Name, &st.Description, &st.OwnerEmail, &st.CreatedBy, &st.CreatedAt, &st.UpdatedAt)
+	err := row.Scan(&st.ID, &st.Name, &st.Description, &st.OwnerEmail, &st.InternalView, &st.CreatedBy, &st.CreatedAt, &st.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, site.ErrNotFound
 	}
@@ -160,11 +160,12 @@ func (s *Store) List(ctx context.Context) ([]site.Site, error) {
 	return out, nil
 }
 
-// Update writes the description and owner.
+// Update writes the description, the owner and whether everyone internal may
+// view the site.
 func (s *Store) Update(ctx context.Context, st *site.Site) error {
 	res, err := s.db.ExecContext(ctx, `
-		UPDATE sites SET description = $2, owner_email = $3, updated_at = NOW() WHERE id = $1`,
-		st.ID, st.Description, st.OwnerEmail)
+		UPDATE sites SET description = $2, owner_email = $3, internal_view = $4, updated_at = NOW() WHERE id = $1`,
+		st.ID, st.Description, st.OwnerEmail, st.InternalView)
 	if err != nil {
 		return fmt.Errorf("update site: %w", err)
 	}
@@ -387,12 +388,12 @@ func (s *Store) Deployments(ctx context.Context, siteID, environment string, lim
 	return out, nil
 }
 
-// AddDomain records a hostname, unverified.
+// AddDomain records a hostname, which routes at once.
 func (s *Store) AddDomain(ctx context.Context, d *site.Domain) error {
 	err := s.db.QueryRowContext(ctx, `
-		INSERT INTO site_domains (hostname, site_id, environment, application_id, token, created_by)
-		VALUES ($1, NULLIF($2, ''), $3, NULLIF($4, ''), $5, $6) RETURNING created_at`,
-		d.Hostname, d.SiteID, d.Environment, d.ApplicationID, d.Token, d.CreatedBy).Scan(&d.CreatedAt)
+		INSERT INTO site_domains (hostname, site_id, environment, application_id, created_by)
+		VALUES ($1, NULLIF($2, ''), $3, NULLIF($4, ''), $5) RETURNING created_at`,
+		d.Hostname, d.SiteID, d.Environment, d.ApplicationID, d.CreatedBy).Scan(&d.CreatedAt)
 	if isUnique(err) {
 		return site.ErrDomainTaken
 	}
@@ -404,25 +405,19 @@ func (s *Store) AddDomain(ctx context.Context, d *site.Domain) error {
 
 const domainSelect = `
 	SELECT d.hostname, COALESCE(d.site_id, ''), COALESCE(s.name, ''), d.environment, COALESCE(d.application_id, ''),
-	       COALESCE(a.name, ''), d.token, d.verified_at, d.verified_by, d.created_by, d.created_at
+	       COALESCE(a.name, ''), d.created_by, d.created_at
 	  FROM site_domains d
 	  LEFT JOIN sites s ON s.id = d.site_id
 	  LEFT JOIN applications a ON a.id = d.application_id`
 
 func scanDomain(row interface{ Scan(...any) error }) (*site.Domain, error) {
 	d := &site.Domain{}
-	var verified sql.NullTime
-	err := row.Scan(&d.Hostname, &d.SiteID, &d.Site, &d.Environment, &d.ApplicationID, &d.Application, &d.Token,
-		&verified, &d.VerifiedBy, &d.CreatedBy, &d.CreatedAt)
+	err := row.Scan(&d.Hostname, &d.SiteID, &d.Site, &d.Environment, &d.ApplicationID, &d.Application, &d.CreatedBy, &d.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, site.ErrNoDomain
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read domain: %w", err)
-	}
-	if verified.Valid {
-		at := verified.Time
-		d.VerifiedAt = &at
 	}
 	return d, nil
 }
@@ -434,7 +429,16 @@ func (s *Store) Domain(ctx context.Context, hostname string) (*site.Domain, erro
 
 // Domains lists every mapping.
 func (s *Store) Domains(ctx context.Context) ([]site.Domain, error) {
-	rows, err := s.db.QueryContext(ctx, domainSelect+` ORDER BY d.hostname`)
+	return s.listDomains(ctx, domainSelect+` ORDER BY d.hostname`)
+}
+
+// SiteDomains lists the hostnames added to one site.
+func (s *Store) SiteDomains(ctx context.Context, siteID string) ([]site.Domain, error) {
+	return s.listDomains(ctx, domainSelect+` WHERE d.site_id = $1 ORDER BY d.hostname`, siteID)
+}
+
+func (s *Store) listDomains(ctx context.Context, query string, args ...any) ([]site.Domain, error) {
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list domains: %w", err)
 	}
@@ -453,16 +457,6 @@ func (s *Store) Domains(ctx context.Context) ([]site.Domain, error) {
 	return out, nil
 }
 
-// MarkVerified records that a hostname's verification passed.
-func (s *Store) MarkVerified(ctx context.Context, hostname, by string) error {
-	res, err := s.db.ExecContext(ctx, `
-		UPDATE site_domains SET verified_at = NOW(), verified_by = $2 WHERE hostname = $1`, hostname, by)
-	if err != nil {
-		return fmt.Errorf("verify domain: %w", err)
-	}
-	return oneRow(res, site.ErrNoDomain)
-}
-
 // RemoveDomain deletes a mapping.
 func (s *Store) RemoveDomain(ctx context.Context, hostname string) error {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM site_domains WHERE hostname = $1`, hostname)
@@ -477,14 +471,11 @@ const routeSelect = `
 	SELECT s.id, s.name, e.name, COALESCE(e.release_number, 0)
 	  FROM site_environments e JOIN sites s ON s.id = e.site_id`
 
-// RouteHost is what a verified hostname serves.
+// RouteHost is what an added hostname serves.
 func (s *Store) RouteHost(ctx context.Context, hostname string) (*site.Route, error) {
 	d, err := s.Domain(ctx, hostname)
 	if err != nil {
 		return nil, err
-	}
-	if !d.Verified() {
-		return nil, site.ErrNoDomain
 	}
 	if d.ApplicationID != "" {
 		return &site.Route{Application: d.Application, Hostname: d.Hostname}, nil
@@ -492,9 +483,15 @@ func (s *Store) RouteHost(ctx context.Context, hostname string) (*site.Route, er
 	return s.routeOf(ctx, routeSelect+` WHERE s.id = $1 AND e.name = $2`, d.SiteID, d.Environment)
 }
 
-// RoutePreview is what an environment's preview hostname serves.
-func (s *Store) RoutePreview(ctx context.Context, siteName, environment string) (*site.Route, error) {
-	return s.routeOf(ctx, routeSelect+` WHERE s.name = $1 AND e.name = $2`, siteName, environment)
+// RouteOwn is what a site's own address serves: its default environment, to
+// the people who may open it.
+func (s *Store) RouteOwn(ctx context.Context, siteName string) (*site.Route, error) {
+	r, err := s.routeOf(ctx, routeSelect+` WHERE s.name = $1 AND e.name = $2`, siteName, site.EnvDefault)
+	if err != nil {
+		return nil, err
+	}
+	r.Private = true
+	return r, nil
 }
 
 func (s *Store) routeOf(ctx context.Context, query, a, b string) (*site.Route, error) {
@@ -515,11 +512,11 @@ func (s *Store) routeOf(ctx context.Context, query, a, b string) (*site.Route, e
 	return r, nil
 }
 
-// VerifiedHosts lists every hostname that routes.
-func (s *Store) VerifiedHosts(ctx context.Context) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT hostname FROM site_domains WHERE verified_at IS NOT NULL`)
+// Hosts lists every hostname that routes.
+func (s *Store) Hosts(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT hostname FROM site_domains`)
 	if err != nil {
-		return nil, fmt.Errorf("list verified hostnames: %w", err)
+		return nil, fmt.Errorf("list hostnames: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 	out := []string{}
@@ -531,25 +528,25 @@ func (s *Store) VerifiedHosts(ctx context.Context) ([]string, error) {
 		out = append(out, h)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list verified hostnames: %w", err)
+		return nil, fmt.Errorf("list hostnames: %w", err)
 	}
 	return out, nil
 }
 
 // ApplicationHosts lists the hostnames of the site environments an
-// application holds as parts: each verified domain, and the environment's
-// preview under pagesDomain.
+// application holds as parts: each added domain, and the site's own address
+// under pagesDomain where the part is its default environment.
 func (s *Store) ApplicationHosts(ctx context.Context, applicationID, pagesDomain string) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT d.hostname
 		  FROM application_parts p
 		  JOIN sites st ON st.name = split_part(p.part_id, '/', 1)
-		  JOIN site_domains d ON d.site_id = st.id AND d.environment = split_part(p.part_id, '/', 2) AND d.verified_at IS NOT NULL
+		  JOIN site_domains d ON d.site_id = st.id AND d.environment = split_part(p.part_id, '/', 2)
 		 WHERE p.application_id = $1 AND p.kind = 'site'
 		UNION ALL
-		SELECT split_part(p.part_id, '/', 2) || $3 || split_part(p.part_id, '/', 1) || '.' || $2
+		SELECT split_part(p.part_id, '/', 1) || '.' || $2
 		  FROM application_parts p
-		 WHERE p.application_id = $1 AND p.kind = 'site' AND $2 <> ''`, applicationID, pagesDomain, site.PreviewSeparator)
+		 WHERE p.application_id = $1 AND p.kind = 'site' AND split_part(p.part_id, '/', 2) = $3 AND $2 <> ''`, applicationID, pagesDomain, site.EnvDefault)
 	if err != nil {
 		return nil, fmt.Errorf("list application hosts: %w", err)
 	}

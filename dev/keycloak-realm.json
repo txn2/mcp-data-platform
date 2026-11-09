@@ -16,9 +16,22 @@
   "offlineSessionMaxLifespanEnabled": false,
   "roles": {
     "realm": [
-      { "name": "dp_admin", "description": "Platform administrator (matches role_prefix dp_)" },
-      { "name": "dp_analyst", "description": "Data analyst persona" },
-      { "name": "dp_engineer", "description": "Data engineer persona" }
+      {
+        "name": "dp_admin",
+        "description": "Platform administrator (matches role_prefix dp_)"
+      },
+      {
+        "name": "dp_analyst",
+        "description": "Data analyst persona"
+      },
+      {
+        "name": "dp_engineer",
+        "description": "Data engineer persona"
+      },
+      {
+        "name": "dp_client",
+        "description": "A client reviewing work, on an external persona"
+      }
     ]
   },
   "users": [
@@ -36,7 +49,9 @@
           "temporary": false
         }
       ],
-      "realmRoles": ["dp_admin"]
+      "realmRoles": [
+        "dp_admin"
+      ]
     },
     {
       "username": "analyst@example.com",
@@ -52,7 +67,45 @@
           "temporary": false
         }
       ],
-      "realmRoles": ["dp_analyst"]
+      "realmRoles": [
+        "dp_analyst"
+      ]
+    },
+    {
+      "username": "client@client.example",
+      "email": "client@client.example",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Client",
+      "lastName": "Dev",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "client-password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "dp_client"
+      ]
+    },
+    {
+      "username": "unverified@example.com",
+      "email": "unverified@example.com",
+      "emailVerified": false,
+      "enabled": true,
+      "firstName": "Unverified",
+      "lastName": "Dev",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "unverified-password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "dp_analyst"
+      ]
     }
   ],
   "clients": [
@@ -79,8 +132,15 @@
       "attributes": {
         "post.logout.redirect.uris": "http://localhost:8080/portal/##http://localhost:5173/portal/"
       },
-      "defaultClientScopes": ["openid", "profile", "email", "roles"],
-      "optionalClientScopes": ["offline_access"],
+      "defaultClientScopes": [
+        "openid",
+        "profile",
+        "email",
+        "roles"
+      ],
+      "optionalClientScopes": [
+        "offline_access"
+      ],
       "protocolMappers": [
         {
           "name": "realm roles in id_token",
@@ -113,7 +173,12 @@
       "attributes": {
         "access.token.lifespan": "1"
       },
-      "defaultClientScopes": ["openid", "profile", "email", "roles"],
+      "defaultClientScopes": [
+        "openid",
+        "profile",
+        "email",
+        "roles"
+      ],
       "protocolMappers": [
         {
           "name": "portal audience",
@@ -131,7 +196,7 @@
     {
       "clientId": "oauth-mcp-dev",
       "name": "MCP gateway fixture connection",
-      "description": "OAuth client used by the oauth-mcp-dev connection (MCP gateway → upstream MCP server).",
+      "description": "OAuth client used by the oauth-mcp-dev connection (MCP gateway \u2192 upstream MCP server).",
       "enabled": true,
       "publicClient": false,
       "secret": "oauth-mcp-dev-secret",
@@ -148,13 +213,19 @@
         "http://localhost:8080",
         "http://localhost:5173"
       ],
-      "defaultClientScopes": ["openid", "profile", "email"],
-      "optionalClientScopes": ["offline_access"]
+      "defaultClientScopes": [
+        "openid",
+        "profile",
+        "email"
+      ],
+      "optionalClientScopes": [
+        "offline_access"
+      ]
     },
     {
       "clientId": "oauth-api-dev",
       "name": "HTTP API gateway fixture connection",
-      "description": "OAuth client used by the oauth-api-dev connection (API gateway → api-test fixture).",
+      "description": "OAuth client used by the oauth-api-dev connection (API gateway \u2192 api-test fixture).",
       "enabled": true,
       "publicClient": false,
       "secret": "oauth-api-dev-secret",
@@ -171,8 +242,14 @@
         "http://localhost:8080",
         "http://localhost:5173"
       ],
-      "defaultClientScopes": ["openid", "profile", "email"],
-      "optionalClientScopes": ["offline_access"]
+      "defaultClientScopes": [
+        "openid",
+        "profile",
+        "email"
+      ],
+      "optionalClientScopes": [
+        "offline_access"
+      ]
     }
   ]
 }

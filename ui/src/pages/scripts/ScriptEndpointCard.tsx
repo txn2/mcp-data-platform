@@ -21,6 +21,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuthStore } from "@/stores/auth";
 import { ACCESS_LABELS, PUBLIC_NOTE, accessLabel, callersSummary } from "./endpoints/endpointLabels";
 import { FormEmbed } from "./endpoints/FormEmbed";
+import { Unbound } from "./endpoints/Unbound";
+import { PageFields, pageFacts } from "./endpoints/PageFields";
 import { FormPublish, approvedVersion } from "./endpoints/FormPublish";
 import { useApprovals } from "@/api/portal/hooks/approvals";
 import { FormStorageFields, formStorage } from "./endpoints/FormStorageFields";
@@ -105,19 +107,6 @@ function BoundFormEmbed({ endpoint }: { endpoint: ScriptEndpoint }) {
   );
 }
 
-function Unbound({ isAdmin, isForm }: { isAdmin: boolean; isForm: boolean }) {
-  let text = "Only an administrator can bind a script to an endpoint.";
-  if (!isAdmin && isForm) {
-    text = "This form is not published. Preview it first, then publish it for the signed-in people of this deployment.";
-  }
-  if (isAdmin) {
-    text = isForm
-      ? "This form answers no requests. Bind it to an endpoint to show it at /forms/{name} and store each accepted submission."
-      : "This script answers no HTTP requests. Bind it to an endpoint to run handle(req) on each request to /endpoints/{name}.";
-  }
-  return <p className="text-sm text-muted-foreground">{text}</p>;
-}
-
 function endpointSummary(e?: ScriptEndpoint): string | undefined {
   if (!e) return undefined;
   if (!e.bound) return "Not bound";
@@ -140,6 +129,8 @@ const DEFAULTS = {
   max_memory_bytes: 64 << 20,
   max_body_bytes: 1 << 20,
   allowed_origins: [] as string[],
+  response_mode: "api" as "api" | "page",
+  page_cdns: [] as string[],
   rate_limit: 600,
   caller_rate_limit: 120,
 };
@@ -172,6 +163,7 @@ function factsOf(endpoint: ScriptEndpoint): [string, string][] {
     ["Rate limit", perReplica(e.rate_limit)],
   );
   if (e.auth_mode === "authenticated") rows.push(["Per-caller limit", perReplica(e.caller_rate_limit)]);
+  rows.push(...pageFacts(e));
   rows.push(["Allowed origins", e.allowed_origins.join(", ") || "None"]);
   if (e.form) {
     rows.push(
@@ -254,6 +246,8 @@ interface formState {
   rateLimit: string;
   callerRateLimit: string;
   origins: string;
+  responseMode: "api" | "page";
+  pageCdns: string;
   // connection and decryptPersonas are a form's (#2178, #2179).
   connection: string;
   decryptPersonas: string[];
@@ -276,6 +270,8 @@ function initialForm(endpoint: ScriptEndpoint): formState {
     rateLimit: String(e.rate_limit),
     callerRateLimit: String(e.caller_rate_limit),
     origins: e.allowed_origins.join("\n"),
+    responseMode: e.response_mode,
+    pageCdns: e.page_cdns.join("\n"),
     connection: e.form?.connection ?? (e.form_connections?.length === 1 ? (e.form_connections[0] ?? "") : ""),
     decryptPersonas: e.form?.decrypt_personas ?? [],
   };
@@ -295,6 +291,8 @@ function toInput(f: formState, endpoint: ScriptEndpoint): ScriptEndpointInput {
     rate_limit: Number(f.rateLimit),
     caller_rate_limit: Number(f.callerRateLimit),
     allowed_origins: f.origins.split("\n").map((o) => o.trim()).filter(Boolean),
+    response_mode: f.responseMode,
+    page_cdns: f.responseMode === "page" ? f.pageCdns.split("\n").map((o) => o.trim()).filter(Boolean) : [],
   };
 }
 
@@ -416,6 +414,7 @@ function EndpointForm({
           onDecryptPersonas={(v) => set("decryptPersonas", v)}
         />
       )}
+      <PageFields endpoint={endpoint} responseMode={form.responseMode} pageCdns={form.pageCdns} onMode={(v) => set("responseMode", v)} onCdns={(v) => set("pageCdns", v)} />
       <Field id="endpoint-origins" label="Allowed origins">
         <Textarea
           id="endpoint-origins"

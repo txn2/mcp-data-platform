@@ -20,6 +20,7 @@ const PORTAL_AREAS: { label: string; open: (p: ResolvedPortal) => boolean }[] = 
   { label: "Feedback", open: (p) => p.feedback },
   { label: "Prompts", open: (p) => p.prompts },
   { label: "Automations", open: (p) => p.automations },
+  { label: "Sites", open: (p) => p.sites },
   { label: "Search", open: (p) => p.search },
   { label: "Memory", open: (p) => p.memory },
   { label: "PDF export", open: (p) => p.download },

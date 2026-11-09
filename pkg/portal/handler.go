@@ -249,6 +249,8 @@ type Deps struct {
 	// (internal/httpserver/catalogapi) so the feature lives in its own package;
 	// nil leaves the /api/v1/portal/catalog/* routes unregistered.
 	CatalogRegistrar func(*http.ServeMux)
+	// SitesRegistrar, when set, registers the Sites section's routes (#2559).
+	SitesRegistrar func(*http.ServeMux)
 	// OnAssetDeleted, when set, is called after an asset is deleted so the
 	// tables registered over its file are dropped (#1327). A delete is soft
 	// and leaves the object in place, so a table still pointing at it would
@@ -628,6 +630,9 @@ func (h *Handler) registerRoutes() {
 	// stays in its own package.
 	if h.deps.CatalogRegistrar != nil {
 		h.deps.CatalogRegistrar(h.mux)
+	}
+	if h.deps.SitesRegistrar != nil {
+		h.deps.SitesRegistrar(h.mux)
 	}
 
 	// Feedback: threads, activity, worklists, sign-off, validation, and

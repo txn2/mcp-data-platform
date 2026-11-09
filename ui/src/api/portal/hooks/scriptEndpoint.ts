@@ -53,6 +53,12 @@ export interface ScriptEndpoint {
   max_memory_bytes?: number;
   max_body_bytes?: number;
   allowed_origins?: string[];
+  response_mode?: "api" | "page";
+  page_cdns?: string[];
+  /** Where the page answers; absent for a script in no application. */
+  page_address?: string;
+  /** Why the script cannot be a page, when it cannot. */
+  page_problem?: string;
   rate_limit?: number;
   caller_rate_limit?: number;
   updated_by?: string;
@@ -95,6 +101,10 @@ export interface ScriptEndpointInput {
   max_memory_bytes?: number;
   max_body_bytes?: number;
   allowed_origins?: string[];
+  /** Whether the endpoint answers with JSON or text, or serves a browser page (#2517). */
+  response_mode?: "api" | "page";
+  /** The https origins a page may load from besides its own. */
+  page_cdns?: string[];
   rate_limit?: number;
   caller_rate_limit?: number;
   /** connection is where a form's source is made, named once (#2178). */

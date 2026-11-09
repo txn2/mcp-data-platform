@@ -9,7 +9,7 @@ script.
 flowchart LR
   B["Browser"] -- "Host" --> G{"Serving layer"}
   G -- "application.pages_domain" --> P["Page origin<br/>pages, static files, endpoints"]
-  G -- "env--site.pages_domain<br/>or a verified hostname" --> R["The release an<br/>environment points at"]
+  G -- "site.pages_domain, signed in<br/>or an added domain" --> R["The release an<br/>environment points at"]
   G -- "any other host" --> M["The platform's routes"]
   S["manage_site publish"] --> R
   A["manage_application release"] -. "pins" .-> P & R
@@ -70,26 +70,40 @@ all of them together.
 
 ## A static site
 
-`manage_site` makes a site with `dev`, `stage` and `prod` environments, each
-pointing at one immutable release.
+`manage_site` makes a site with one environment, `default`, pointing at one
+immutable release. A person does the same from the portal's Sites section.
 
 ```
 manage_site command=create name=marketing
 manage_site command=publish site=marketing files=[{"path":"index.html","content":"<h1>Hello</h1>"}]
-manage_site command=promote site=marketing from=dev to=stage
+manage_site command=add_domain site=marketing hostname=dev.example.com environment=dev
+manage_site command=promote site=marketing from=default to=dev
 ```
 
 `publish` takes `files` inline, an `archive` (a zip or gzipped tar managed
 resource), or a `folder` of managed resources, which is how a script's build
-output reaches a site. It answers with a preview URL,
-`https://<environment>--<site>.<pages_domain>/`, public to anyone with the
-address. `promote` and `rollback` only move an environment's pointer: no file is
-copied and the change shows at once. `rollback` returns to a release that
-environment served before.
+output reaches a site. With no `environment` it lands in `default`. `promote` and
+`rollback` only move an environment's pointer: no file is copied and the change
+shows at once. `rollback` returns to a release that environment served before.
 
-`prod` requires approval. It is reached only by `promote`: an administrator's
+The site's own address, `https://<site>.<pages_domain>/`, serves `default` to
+people who sign in and have access. Every other environment is created by adding
+a domain to it, and answers there to anyone: who may use a domain is the site's
+own business.
+
+An environment can require approval (`requires_approval` on `add_domain` or
+`set_environment`). It is then reached only by `promote`: an administrator's
 promote records its own approval, and anyone else's files a request in
 `manage_approval` and goes through when they promote again after it is approved.
+
+### Who has access
+
+`grant` and `revoke` take `email` and `level`. `manage` publishes, promotes, rolls
+back, adds domains and shares view access; it is for internal people, and only the
+owner or an administrator adds it. `view` opens the site's own address and gives
+nothing else, so a client on an external persona can have it, and anyone who
+manages the site can give it. `update internal_view=true` opens the address to
+everyone internal, for an intranet.
 
 ### What a release holds
 
@@ -105,14 +119,14 @@ immutable. Dotted paths other than `.well-known` are refused, so a source tree's
 `.env` or `.git` cannot become a public address. Text files are compressed with
 gzip and brotli when published.
 
-### Hostnames
+### Domains
 
-An administrator maps a hostname with `add_domain` to a site and environment, or
-to an application's endpoints and pages with `application`. It routes once
-`verify_domain` finds the token it was given, in a DNS TXT record at
-`_platform-site-verify.<hostname>` or served at
-`http://<hostname>/.well-known/platform-site-verify`. `hosts` reports what the
-ingress needs, with a cert-manager `Certificate`.
+`add_domain` maps a hostname to an environment, creating the environment when it
+does not exist, or an administrator's `application` maps it to an application's
+endpoints and pages. It routes as soon as it is added. The platform does not check
+DNS, certificates or who owns the name; a system administrator adds the ingress,
+and whoever owns the domain points its DNS at the deployment. `default` cannot have
+a domain, since a domain is public.
 
 ### Moving a site here
 
@@ -125,6 +139,9 @@ page's `<form>` elements.
 manage_site command=crawl site=marketing url=https://www.example.com/
   form_map={"/contact":"contact-form"}
 ```
+
+A URL holding a user name or password is refused, and a release records only the
+address it was copied from, without a query string.
 
 A public or bot-checked endpoint answers the sites its application holds without
 listing them in `allowed_origins`, and a public form may be framed by them.

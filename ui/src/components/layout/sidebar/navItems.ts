@@ -28,6 +28,7 @@ import {
   Boxes,
   type LucideIcon,
   BadgeCheck,
+  Globe,
 } from "lucide-react";
 
 export interface NavItem {
@@ -57,6 +58,7 @@ export const portalMoreNavItems: NavItem[] = [
   { path: "/prompts", label: "Prompts", icon: MessageSquare },
   { path: "/scratch-tables", label: "Scratch Tables", icon: Table2 },
   { path: "/settings", label: "Settings", icon: Settings },
+  { path: "/sites", label: "Sites", icon: Globe },
 ];
 
 /** Every portal section, in rail order. */
@@ -79,6 +81,7 @@ export const adminNavItems: NavItem[] = [
   { path: "/admin/changelog", label: "Change Log", icon: Clock },
   { path: "/admin/connections", label: "Connections", icon: Cable },
   { path: "/admin/description", label: "Description", icon: FileText },
+  { path: "/admin/domains", label: "Domains", icon: Globe },
   { path: "/admin/keys", label: "Keys", icon: KeyRound },
   { path: "/admin/personas", label: "Personas", icon: Users },
   { path: "/admin/prompts", label: "Prompts", icon: MessageSquare },

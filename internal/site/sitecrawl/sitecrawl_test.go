@@ -77,6 +77,14 @@ func crawler(s *siteServer) *Crawler {
 	return &Crawler{Client: client, MaxPages: 100, MaxBytes: 1 << 20}
 }
 
+func addresses(skipped []site.Skipped) []string {
+	out := make([]string, 0, len(skipped))
+	for _, sk := range skipped {
+		out = append(out, sk.Address)
+	}
+	return out
+}
+
 func files(r *Result) map[string]string {
 	out := map[string]string{}
 	for _, f := range r.Files {
@@ -108,7 +116,7 @@ func TestCrawl_PagesAreFiledToAnswerAtTheSameAddress(t *testing.T) {
 	assert.Equal(t, "<urlset/>", byPath["sitemap.xml"], "the sitemap comes along")
 	assert.Equal(t, 7, got.Pages)
 	assert.Zero(t, got.Redirects)
-	assert.Equal(t, []string{"/favicon.ico"}, got.Skipped, "what did not answer is reported")
+	assert.Equal(t, []site.Skipped{{Address: "/favicon.ico", Reason: "answered 404"}}, got.Skipped, "what did not answer is reported, with why")
 }
 
 func TestFilePath(t *testing.T) {
@@ -175,7 +183,7 @@ func TestCrawl_ARedirectThatCannotBeRecordedIsSkipped(t *testing.T) {
 			s := serve(t, map[string]answer{"/": page(`<a href="/r">r</a>`), "/r": a})
 			got, err := crawler(s).Crawl(context.Background(), Request{Start: s.URL})
 			require.NoError(t, err)
-			assert.Contains(t, got.Skipped, "/r")
+			assert.Contains(t, addresses(got.Skipped), "/r")
 			assert.NotContains(t, files(got), "_redirects")
 		})
 	}
@@ -191,7 +199,7 @@ func TestCrawl_TheRedirectMapIsBounded(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = res.Body.Close() }()
 	r.redirected("/r", res)
-	assert.Equal(t, []string{"/r"}, r.skipped)
+	assert.Equal(t, []site.Skipped{{Address: "/r", Reason: "the site has more redirects than a release can hold"}}, r.skipped)
 	assert.Len(t, r.redirects, redirectsMax)
 }
 
@@ -334,6 +342,112 @@ func TestCrawl_RefusesAnAddressThatIsNotHTTP(t *testing.T) {
 	}
 }
 
+func TestCrawl_RefusesAnAddressHoldingCredentials(t *testing.T) {
+	c := &Crawler{Client: &http.Client{Transport: failing{}}, MaxPages: 10, MaxBytes: 100}
+	for _, start := range []string{"https://user:s3cret@example.com/", "https://user@example.com/"} {
+		_, err := c.Crawl(context.Background(), Request{Start: start})
+		var r *sitesvc.RefusedError
+		require.ErrorAs(t, err, &r, start)
+		assert.NotContains(t, err.Error(), "s3cret", "the refusal does not repeat the address")
+		assert.NotContains(t, err.Error(), "user@", "the refusal does not repeat the address")
+	}
+}
+
+func TestCrawl_ARefusedAddressIsNotRepeated(t *testing.T) {
+	c := &Crawler{Client: http.DefaultClient}
+	_, err := c.Crawl(context.Background(), Request{Start: "ftp://example.com/?token=s3cret"})
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "s3cret")
+}
+
+func TestSourceOf_KeepsOnlySchemeHostAndPath(t *testing.T) {
+	cases := map[string]string{
+		"https://example.com/blog/":             "https://example.com/blog/",
+		"https://example.com/blog?token=s3cret": "https://example.com/blog",
+		"https://example.com/a#fragment":        "https://example.com/a",
+		"https://user:s3cret@example.com/a":     "https://example.com/a",
+		"http://[bad":                           "",
+	}
+	for in, want := range cases {
+		assert.Equal(t, want, SourceOf(in), in)
+	}
+}
+
+func TestCrawl_ProgressReportsAndCanStop(t *testing.T) {
+	routes := map[string]answer{"/": page(`<a href="/a">a</a><a href="/b">b</a>`), "/a": page("a"), "/b": page("b")}
+
+	t.Run("told after each address", func(t *testing.T) {
+		s := serve(t, routes)
+		var pages, known []int
+		got, err := crawler(s).Crawl(context.Background(), Request{Start: s.URL, Progress: func(c sitesvc.CopyStats) bool {
+			p, k := c.Pages, c.Known
+			pages, known = append(pages, p), append(known, k)
+			return false
+		}})
+		require.NoError(t, err)
+		require.NotEmpty(t, pages)
+		assert.Equal(t, got.Pages, pages[len(pages)-1], "the last report is the final count")
+		assert.GreaterOrEqual(t, known[0], pages[0])
+	})
+
+	t.Run("stops when told to", func(t *testing.T) {
+		s := serve(t, routes)
+		calls := 0
+		got, err := crawler(s).Crawl(context.Background(), Request{Start: s.URL, Progress: func(sitesvc.CopyStats) bool {
+			calls++
+			return true
+		}})
+		require.ErrorIs(t, err, ErrStopped)
+		assert.Nil(t, got)
+		assert.Equal(t, 1, calls)
+		assert.Zero(t, s.count("/a"), "nothing after the stop was fetched")
+	})
+}
+
+func TestCrawl_TheRequestsBoundsOverrideTheCrawlers(t *testing.T) {
+	routes := map[string]answer{"/": page(`<a href="/a">a</a>`), "/a": page("a")}
+
+	t.Run("pages", func(t *testing.T) {
+		s := serve(t, routes)
+		got, err := crawler(s).Crawl(context.Background(), Request{Start: s.URL, MaxPages: 1})
+		require.NoError(t, err)
+		assert.Equal(t, 1, got.Pages)
+	})
+	t.Run("bytes", func(t *testing.T) {
+		s := serve(t, routes)
+		_, err := crawler(s).Crawl(context.Background(), Request{Start: s.URL, MaxBytes: 2})
+		var r *sitesvc.RefusedError
+		require.ErrorAs(t, err, &r)
+		assert.Contains(t, err.Error(), "the 2 bytes")
+	})
+}
+
+func TestRedirected_EachReasonIsNamed(t *testing.T) {
+	cases := []struct {
+		name   string
+		header http.Header
+		want   string
+	}{
+		{"no usable address", http.Header{}, "redirected with no usable address"},
+		{"somewhere a release cannot point", http.Header{"Location": {"javascript:alert(1)"}}, "redirected somewhere a release cannot point"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &run{root: mustRoot(t, "https://example.com"), seen: map[string]bool{}}
+			res := &http.Response{StatusCode: http.StatusFound, Header: tc.header, Request: &http.Request{URL: mustRoot(t, "https://example.com/r")}}
+			r.redirected("/r", res)
+			assert.Equal(t, []site.Skipped{{Address: "/r", Reason: tc.want}}, r.skipped)
+		})
+	}
+}
+
+func TestCrawl_APathAReleaseCannotHoldIsSkippedWithItsReason(t *testing.T) {
+	s := serve(t, map[string]answer{"/": page(`<a href="/.htaccess">h</a>`), "/.htaccess": {status: http.StatusOK, ctype: "text/plain", body: "deny"}})
+	got, err := crawler(s).Crawl(context.Background(), Request{Start: s.URL})
+	require.NoError(t, err)
+	assert.Contains(t, got.Skipped, site.Skipped{Address: "/.htaccess", Reason: "a release cannot hold a file at this path"})
+}
+
 func TestCrawl_AStartPathIsWhereTheWalkBegins(t *testing.T) {
 	s := serve(t, map[string]answer{"/blog/": page("blog")})
 	got, err := crawler(s).Crawl(context.Background(), Request{Start: s.URL + "/blog/"})
@@ -347,14 +461,18 @@ func TestCrawl_NothingAnsweringIsAResultOfSkippedAddresses(t *testing.T) {
 	got, err := c.Crawl(context.Background(), Request{Start: "https://example.com"})
 	require.NoError(t, err)
 	assert.Empty(t, got.Files)
-	assert.Equal(t, []string{"/", "/sitemap.xml", "/robots.txt", "/favicon.ico"}, got.Skipped)
+	assert.Equal(t, []string{"/", "/sitemap.xml", "/robots.txt", "/favicon.ico"}, addresses(got.Skipped))
+	for _, sk := range got.Skipped {
+		assert.Equal(t, "the address did not answer, or is not one a copy may reach", sk.Reason)
+		assert.NotContains(t, sk.Reason, "egress guard", "what the guard said stays out of the reason")
+	}
 }
 
 func TestCrawl_ServerErrorsAreSkipped(t *testing.T) {
 	s := serve(t, map[string]answer{"/": page(`<a href="/boom">b</a>`), "/boom": {status: http.StatusInternalServerError, body: "oops"}})
 	got, err := crawler(s).Crawl(context.Background(), Request{Start: s.URL})
 	require.NoError(t, err)
-	assert.Contains(t, got.Skipped, "/boom")
+	assert.Contains(t, got.Skipped, site.Skipped{Address: "/boom", Reason: "answered 500"})
 	assert.NotContains(t, files(got), "boom.html")
 }
 
@@ -364,7 +482,7 @@ func TestCrawl_ABodyThatBreaksOffIsSkipped(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, got.Files)
 	assert.Zero(t, got.Pages)
-	assert.Contains(t, got.Skipped, "/")
+	assert.Contains(t, got.Skipped, site.Skipped{Address: "/", Reason: "the answer broke off"})
 }
 
 func TestCrawl_ACancelledContextSkipsRatherThanHangs(t *testing.T) {

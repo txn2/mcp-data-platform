@@ -4,6 +4,8 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"regexp"
 	"strings"
@@ -18,6 +20,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/application/appstore"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
+	"github.com/txn2/mcp-data-platform/internal/platform/settingsjson"
 	"github.com/txn2/mcp-data-platform/internal/site"
 	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
 	"github.com/txn2/mcp-data-platform/internal/site/sitestore"
@@ -40,11 +43,27 @@ func newDB(t *testing.T) (*Runtime, sqlmock.Sqlmock) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
+	cfg := siteconfig.Config{PagesDomain: pagesDomain}
 	return &Runtime{
 		Service: &sitesvc.Service{PublicScheme: "https"},
 		Store:   sitestore.New(db), Apps: appstore.New(db),
-		Config: siteconfig.Config{PagesDomain: pagesDomain},
+		Config: cfg, Live: siteconfig.NewLive(cfg),
+		Settings:  settingsjson.New[siteconfig.Settings](db, siteconfig.SettingsSection),
+		PortalURL: portalBase,
 	}, mock
+}
+
+const settingsQuery = "SELECT value, updated_by, updated_at FROM platform_settings"
+
+// expectNoSettings is a deployment that has saved no sites settings.
+func expectNoSettings(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(regexp.QuoteMeta(settingsQuery)).WithArgs(siteconfig.SettingsSection).WillReturnError(sql.ErrNoRows)
+}
+
+func expectSettings(mock sqlmock.Sqlmock, s siteconfig.Settings) {
+	raw, _ := json.Marshal(s) //nolint:errchkjson // a struct of plain fields
+	mock.ExpectQuery(regexp.QuoteMeta(settingsQuery)).WithArgs(siteconfig.SettingsSection).
+		WillReturnRows(sqlmock.NewRows([]string{"value", "updated_by", "updated_at"}).AddRow(raw, "admin@example.com", time.Now()))
 }
 
 func expectOwningApplication(mock sqlmock.Sqlmock, name string) {
@@ -61,9 +80,9 @@ func expectOwningApplication(mock sqlmock.Sqlmock, name string) {
 
 func TestPageAllowed_NoPagesDomain(t *testing.T) {
 	rt, mock := newDB(t)
-	rt.Config.PagesDomain = ""
+	rt.Live.Set(siteconfig.Config{})
 	err := rt.PageAllowed(context.Background(), scriptRef)
-	require.ErrorContains(t, err, "no sites.pages_domain")
+	require.ErrorContains(t, err, "no pages domain")
 	assert.NoError(t, mock.ExpectationsWereMet(), "no query is made")
 }
 
@@ -74,14 +93,6 @@ func TestPageAllowed_AScriptInNoApplication(t *testing.T) {
 	err := rt.PageAllowed(context.Background(), scriptRef)
 	require.ErrorIs(t, err, epbinding.ErrNotAllowed)
 	assert.ErrorContains(t, err, "manage_application add_part")
-}
-
-func TestPageAllowed_AnApplicationNameHoldingTheSeparator(t *testing.T) {
-	rt, mock := newDB(t)
-	expectOwningApplication(mock, "shop--eu")
-	err := rt.PageAllowed(context.Background(), scriptRef)
-	require.ErrorContains(t, err, `application "shop--eu" cannot serve pages`)
-	assert.ErrorContains(t, err, "site preview")
 }
 
 func TestPageAllowed_AScriptInAnApplication(t *testing.T) {
@@ -126,10 +137,17 @@ func TestSiteOrigins(t *testing.T) {
 	})
 	t.Run("each hostname as a browser origin", func(t *testing.T) {
 		rt, mock := newDB(t)
-		mock.ExpectQuery("SELECT d.hostname").WithArgs("app_1", pagesDomain, site.PreviewSeparator).
-			WillReturnRows(sqlmock.NewRows([]string{"hostname"}).AddRow("www.client.example").AddRow("dev--marketing." + pagesDomain))
+		mock.ExpectQuery("SELECT d.hostname").WithArgs("app_1", pagesDomain, site.EnvDefault).
+			WillReturnRows(sqlmock.NewRows([]string{"hostname"}).AddRow("www.client.example").AddRow("marketing." + pagesDomain))
 		got := rt.SiteOrigins(context.Background(), "app_1")
-		assert.Equal(t, []string{"https://www.client.example", "https://dev--marketing." + pagesDomain}, got)
+		assert.Equal(t, []string{"https://www.client.example", "https://marketing." + pagesDomain}, got)
+	})
+	t.Run("the pages domain in force is the one asked about", func(t *testing.T) {
+		rt, mock := newDB(t)
+		rt.Live.Set(siteconfig.Config{PagesDomain: "saved.example.net"})
+		mock.ExpectQuery("SELECT d.hostname").WithArgs("app_1", "saved.example.net", site.EnvDefault).
+			WillReturnRows(sqlmock.NewRows([]string{"hostname"}).AddRow("marketing.saved.example.net"))
+		assert.Equal(t, []string{"https://marketing.saved.example.net"}, rt.SiteOrigins(context.Background(), "app_1"))
 	})
 	t.Run("a store failure is none", func(t *testing.T) {
 		rt, mock := newDB(t)
@@ -158,28 +176,34 @@ func TestRegister_RefusesAPagesDomainHoldingThePortal(t *testing.T) {
 }
 
 func TestRegister_AssemblesTheService(t *testing.T) {
-	db, _, err := sqlmock.New()
+	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
+	expectNoSettings(mock)
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "1"}, nil)
 	rt, err := Register(server, Deps{
 		DB: db, Objects: nullObjects{}, Bucket: "sites", PortalURL: "http://Portal.example.com:8443",
-		Config: siteconfig.Config{PagesDomain: pagesDomain},
+		ReservedURLs: []string{" https://MCP.Example.org:443/path ", "not a url at all", ""},
+		Config:       siteconfig.Config{PagesDomain: pagesDomain},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, rt)
 	assert.Equal(t, []string{sitetool.ToolName}, toolNames(t, server))
 	assert.True(t, rt.Serving())
+	assert.Equal(t, []string{"mcp.example.org"}, rt.Service.ReservedHosts, "only an address with a hostname is reserved, as a request's Host names it")
+	assert.Equal(t, pagesDomain, rt.Live.Get().PagesDomain)
+	assert.NotNil(t, rt.Crawler)
 	assert.Equal(t, "portal.example.com", rt.Service.PortalHost)
 	assert.Equal(t, "http", rt.Service.PublicScheme)
 	assert.Equal(t, "8443", rt.Service.PublicPort)
 }
 
 func TestRegister_SitesTurnedOffHoldsNoObjectClient(t *testing.T) {
-	db, _, err := sqlmock.New()
+	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
+	expectNoSettings(mock)
 
 	off := false
 	rt, err := Register(mcp.NewServer(&mcp.Implementation{Name: "t", Version: "1"}, nil), Deps{
@@ -191,9 +215,10 @@ func TestRegister_SitesTurnedOffHoldsNoObjectClient(t *testing.T) {
 }
 
 func TestRegister_APortalAddressThatCannotBeReadIsHTTPS(t *testing.T) {
-	db, _, err := sqlmock.New()
+	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
+	expectNoSettings(mock)
 
 	rt, err := Register(mcp.NewServer(&mcp.Implementation{Name: "t", Version: "1"}, nil), Deps{DB: db, PortalURL: "not a url at all"})
 	require.NoError(t, err)
@@ -254,7 +279,7 @@ func (l *library) GetObject(_ context.Context, _, key string) (data []byte, cont
 func newSources(l *library) sources {
 	return sources{
 		reader: scriptsrc.New(l, l, "resources", "mcp"),
-		limits: siteconfig.Config{}.Limits(),
+		live:   siteconfig.NewLive(siteconfig.Config{}),
 	}
 }
 
@@ -349,7 +374,7 @@ func TestSourcesArchive_Refusals(t *testing.T) {
 func TestSourcesArchive_AMemberPastTheLimitIsRefused(t *testing.T) {
 	body := zipOf(t, map[string]string{indexPage: strings.Repeat("x", 4096)})
 	s := newSources(archiveLibrary(body))
-	s.limits.MaxFileBytes = 1
+	s.live.Set(siteconfig.Config{MaxFileBytes: 1})
 	_, err := s.Archive(ownerCtx(), "mcp:resource:res_1")
 	assert.Contains(t, refusedMessage(t, err), "cannot be published")
 }
@@ -386,8 +411,8 @@ func TestSourcesFolder_Refusals(t *testing.T) {
 		{name: "a persona the caller is not in", scope: "persona", scopeID: "finance", want: "no managed resource"},
 		{name: "a listing that fails", adjust: func(l *library, _ *sources) { l.listErr = errors.New("db down") }, want: "db down"},
 		{name: "a file that cannot be read", adjust: func(l *library, _ *sources) { l.getErr = errors.New("bucket is gone") }, want: "bucket is gone"},
-		{name: "a folder past the release limit", adjust: func(_ *library, s *sources) { s.limits.MaxReleaseBytes = 5 }, want: "sites.max_release_bytes"},
-		{name: "a file past the file limit", adjust: func(_ *library, s *sources) { s.limits.MaxFileBytes = 5 }, want: "more than"},
+		{name: "a folder past the release limit", adjust: func(_ *library, s *sources) { s.live.Set(siteconfig.Config{MaxReleaseBytes: 5}) }, want: "sites.max_release_bytes"},
+		{name: "a file past the file limit", adjust: func(_ *library, s *sources) { s.live.Set(siteconfig.Config{MaxFileBytes: 5}) }, want: "more than"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -407,4 +432,188 @@ func TestSourcesFolder_Refusals(t *testing.T) {
 			assert.Contains(t, refusedMessage(t, err), tt.want)
 		})
 	}
+}
+
+func TestRegister_ASettingsReadThatFailsIsSaid(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	mock.ExpectQuery(regexp.QuoteMeta(settingsQuery)).WillReturnError(errors.New("db down"))
+
+	_, err = Register(mcp.NewServer(&mcp.Implementation{Name: "t", Version: "1"}, nil), Deps{DB: db})
+	require.ErrorContains(t, err, "reading the sites settings")
+}
+
+func TestRegister_SavedSettingsAreInForceAtStart(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	expectSettings(mock, siteconfig.Settings{PagesDomain: "saved.example.net", MaxFiles: 3})
+
+	rt, err := Register(mcp.NewServer(&mcp.Implementation{Name: "t", Version: "1"}, nil), Deps{
+		DB: db, PortalURL: portalBase, Config: siteconfig.Config{PagesDomain: pagesDomain},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "saved.example.net", rt.Live.Get().PagesDomain)
+	assert.Equal(t, "https://marketing.saved.example.net", rt.Service.OwnAddress("marketing"), "the service reads the configuration in force")
+}
+
+func TestReservedHosts(t *testing.T) {
+	assert.Equal(t, []string{}, reservedHosts(nil), "none is [], never null")
+	assert.Equal(t, []string{"a.example.org", "b.example.org"}, reservedHosts([]string{"https://A.example.org/x", "http://b.example.org.:8080", "::bad", ""}))
+}
+
+func TestRefresh(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("none saved keeps the file's", func(t *testing.T) {
+		rt, mock := newDB(t)
+		expectNoSettings(mock)
+		require.NoError(t, rt.Refresh(ctx))
+		assert.Equal(t, pagesDomain, rt.Live.Get().PagesDomain)
+	})
+	t.Run("a read that fails leaves the configuration in force", func(t *testing.T) {
+		rt, mock := newDB(t)
+		mock.ExpectQuery(regexp.QuoteMeta(settingsQuery)).WillReturnError(errors.New("db down"))
+		require.ErrorContains(t, rt.Refresh(ctx), "reading the sites settings")
+		assert.Equal(t, pagesDomain, rt.Live.Get().PagesDomain)
+	})
+	t.Run("a saved pages domain replaces the file's and drops the routes", func(t *testing.T) {
+		rt, mock := newDB(t)
+		var invalidated []string
+		rt.Service.Invalidate = func(h string) { invalidated = append(invalidated, h) }
+		expectSettings(mock, siteconfig.Settings{PagesDomain: "saved.example.net", MaxFiles: 7})
+		require.NoError(t, rt.Refresh(ctx))
+		assert.Equal(t, "saved.example.net", rt.Live.Get().PagesDomain)
+		assert.Equal(t, 7, rt.Live.Get().MaxFiles)
+		assert.Equal(t, []string{""}, invalidated, "every cached route is dropped")
+	})
+	t.Run("the same pages domain keeps the routes", func(t *testing.T) {
+		rt, mock := newDB(t)
+		var invalidated []string
+		rt.Service.Invalidate = func(h string) { invalidated = append(invalidated, h) }
+		expectSettings(mock, siteconfig.Settings{PagesDomain: pagesDomain, MaxFiles: 9})
+		require.NoError(t, rt.Refresh(ctx))
+		assert.Equal(t, 9, rt.Live.Get().MaxFiles)
+		assert.Empty(t, invalidated)
+	})
+	t.Run("a changed domain with no gateway to tell", func(t *testing.T) {
+		rt, mock := newDB(t)
+		expectSettings(mock, siteconfig.Settings{PagesDomain: "saved.example.net"})
+		require.NoError(t, rt.Refresh(ctx))
+	})
+}
+
+func TestSave(t *testing.T) {
+	ctx := context.Background()
+	saved := siteconfig.Settings{PagesDomain: "saved.example.net", MaxFiles: 7}
+
+	t.Run("stores and applies on this replica", func(t *testing.T) {
+		rt, mock := newDB(t)
+		mock.ExpectExec("INSERT INTO platform_settings").WithArgs(siteconfig.SettingsSection, sqlmock.AnyArg(), "admin@example.com").
+			WillReturnResult(sqlmock.NewResult(0, 1))
+		expectSettings(mock, saved)
+		require.NoError(t, rt.Save(ctx, saved, "admin@example.com"))
+		assert.Equal(t, "saved.example.net", rt.Live.Get().PagesDomain)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+	refusals := []struct {
+		name         string
+		settings     siteconfig.Settings
+		cookieDomain string
+		want         string
+	}{
+		{name: "not a DNS name", settings: siteconfig.Settings{PagesDomain: "*.example.net"}, want: "sites.pages_domain:"},
+		{name: "holding the portal", settings: siteconfig.Settings{PagesDomain: "example.com"}, want: "holds the portal's host"},
+		{name: "under the session cookie's domain", settings: siteconfig.Settings{PagesDomain: "pages.example.org"}, cookieDomain: ".example.org", want: "session cookie's domain"},
+	}
+	for _, tc := range refusals {
+		t.Run(tc.name, func(t *testing.T) {
+			rt, mock := newDB(t)
+			rt.CookieDomain = tc.cookieDomain
+			err := rt.Save(ctx, tc.settings, "admin@example.com")
+			assert.Contains(t, refusedMessage(t, err), tc.want)
+			assert.Equal(t, pagesDomain, rt.Live.Get().PagesDomain, "a refusal changes nothing")
+			assert.NoError(t, mock.ExpectationsWereMet(), "and writes nothing")
+		})
+	}
+	t.Run("a write that fails is said", func(t *testing.T) {
+		rt, mock := newDB(t)
+		mock.ExpectExec("INSERT INTO platform_settings").WillReturnError(errors.New("db down"))
+		require.ErrorContains(t, rt.Save(ctx, saved, "a"), "saving the sites settings")
+		assert.Equal(t, pagesDomain, rt.Live.Get().PagesDomain)
+	})
+}
+
+func TestSources_TheLimitsInForceAreRead(t *testing.T) {
+	body := zipOf(t, map[string]string{indexPage: "home"})
+	s := newSources(archiveLibrary(body))
+	_, err := s.Archive(ownerCtx(), "mcp:resource:res_1")
+	require.NoError(t, err)
+
+	s.live.Set(siteconfig.Config{MaxFileBytes: 1})
+	_, err = s.Archive(ownerCtx(), "mcp:resource:res_1")
+	assert.Contains(t, refusedMessage(t, err), "cannot be published", "a saved limit applies on the next publish")
+}
+
+func expectApplicationNamed(mock sqlmock.Sqlmock, query, name string) {
+	now := time.Now()
+	mock.ExpectQuery(query).WillReturnRows(sqlmock.NewRows([]string{
+		"id", "name", "description", "owner_email", "connection", "schema_name", "current_release",
+		"created_by", "created_at", "updated_at", "schema_adopted_version", "schema_added_by", "schema_added_at",
+	}).AddRow("app_1", name, "", "jane@example.com", "", "", 0, "jane@example.com", now, now, 0, "", nil))
+	mock.ExpectQuery("SELECT kind, part_id").WillReturnRows(sqlmock.NewRows([]string{"kind", "part_id", "added_by", "added_at"}))
+}
+
+func TestPageAddress(t *testing.T) {
+	t.Run("the application's page origin", func(t *testing.T) {
+		rt, mock := newDB(t)
+		rt.Service.Live = rt.Live
+		expectOwningApplication(mock, "shop")
+		assert.Equal(t, "https://shop."+pagesDomain, rt.PageAddress(context.Background(), scriptRef))
+	})
+	t.Run("a script in no application has none", func(t *testing.T) {
+		rt, mock := newDB(t)
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT application_id FROM application_parts")).WillReturnRows(sqlmock.NewRows([]string{"application_id"}))
+		assert.Empty(t, rt.PageAddress(context.Background(), scriptRef))
+	})
+}
+
+func TestApplicationAddresses(t *testing.T) {
+	ctx := context.Background()
+	t.Run("its page origin and the domains mapped to it", func(t *testing.T) {
+		rt, mock := newDB(t)
+		rt.Service.Live = rt.Live
+		expectApplicationNamed(mock, "FROM applications WHERE name", "shop")
+		mock.ExpectQuery("ORDER BY d.hostname").WillReturnRows(sqlmock.NewRows([]string{
+			"hostname", "site_id", "name", "environment", "application_id", "application", "created_by", "created_at",
+		}).AddRow("shop.client.example", "", "", "", "app_1", "shop", "a", time.Now()).
+			AddRow("www.client.example", "site_1", "marketing", "prod", "", "", "a", time.Now()))
+
+		origin, domains, err := rt.ApplicationAddresses(ctx, "shop")
+		require.NoError(t, err)
+		assert.Equal(t, "https://shop."+pagesDomain, origin)
+		assert.Equal(t, []string{"shop.client.example"}, domains)
+	})
+	t.Run("none mapped is [], never null", func(t *testing.T) {
+		rt, mock := newDB(t)
+		expectApplicationNamed(mock, "FROM applications WHERE name", "shop")
+		mock.ExpectQuery("ORDER BY d.hostname").WillReturnRows(sqlmock.NewRows([]string{"hostname"}))
+		_, domains, err := rt.ApplicationAddresses(ctx, "shop")
+		require.NoError(t, err)
+		assert.Equal(t, []string{}, domains)
+	})
+	t.Run("no such application", func(t *testing.T) {
+		rt, mock := newDB(t)
+		mock.ExpectQuery("FROM applications WHERE name").WillReturnError(sql.ErrNoRows)
+		_, _, err := rt.ApplicationAddresses(ctx, "nope")
+		require.ErrorContains(t, err, `application "nope"`)
+	})
+	t.Run("domains that cannot be read", func(t *testing.T) {
+		rt, mock := newDB(t)
+		expectApplicationNamed(mock, "FROM applications WHERE name", "shop")
+		mock.ExpectQuery("ORDER BY d.hostname").WillReturnError(errors.New("db down"))
+		_, _, err := rt.ApplicationAddresses(ctx, "shop")
+		require.ErrorContains(t, err, "listing domains")
+	})
 }

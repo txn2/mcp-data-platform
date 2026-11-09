@@ -504,37 +504,6 @@ services:
       MP_SMTP_AUTH_ACCEPT_ANY: "1"
       MP_SMTP_AUTH_ALLOW_INSECURE: "1"
 
-  # challtestsrv and pebble: the DNS and the ACME server a site's domain is
-  # verified against and certified by (#2518). Both are Let's Encrypt's own test
-  # servers. Pebble validates against this DNS, whose answers the acceptance
-  # criteria set over its management port, and reaches the platform's ACME
-  # listener at the host's address.
-  challtestsrv:
-    image: ghcr.io/letsencrypt/pebble-challtestsrv:2.8.0@sha256:c6ea5f6193517b3c7a02431b928234caf9db29a7a8abca4c0b337403468b650d
-    container_name: acme-dev-challtestsrv
-    command: ["-http01", "", "-https01", "", "-tlsalpn01", "", "-doh", "", "-dns01", ":8053", "-management", ":8055", "-defaultIPv4", "", "-defaultIPv6", ""]
-    ports:
-      - "127.0.0.1:${DEV_CHALLTEST_DNS_PORT:-8053}:8053/udp"
-      - "127.0.0.1:${DEV_CHALLTEST_DNS_PORT:-8053}:8053/tcp"
-      - "127.0.0.1:${DEV_CHALLTEST_MGMT_PORT:-8055}:8055"
-
-  pebble:
-    image: ghcr.io/letsencrypt/pebble:2.8.0@sha256:d9080f68f6cb6af8d82134ab26de0aaaf312ac9cba42aecc6d3aede6cb63007b
-    container_name: acme-dev-pebble
-    command: ["-config", "/etc/pebble/config.json", "-dnsserver", "challtestsrv:8053"]
-    environment:
-      PEBBLE_VA_NOSLEEP: "1"
-      PEBBLE_WFE_NONCEREJECT: "0"
-    volumes:
-      - ./pebble/config.json:/etc/pebble/config.json:ro
-    ports:
-      - "127.0.0.1:${DEV_PEBBLE_PORT:-14000}:14000"
-      - "127.0.0.1:${DEV_PEBBLE_MGMT_PORT:-15000}:15000"
-    depends_on:
-      - challtestsrv
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
   # mattermost: the chat upstream a notification channel of the mattermost
   # kind posts to (#1720). The preview image bundles its own database, so it
   # shares nothing with the platform's and can be reset on its own.

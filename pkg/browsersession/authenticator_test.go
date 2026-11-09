@@ -221,3 +221,40 @@ func TestAuthenticateHTTP_AdmitJudgesTheSession(t *testing.T) {
 		t.Fatalf("refused: %+v %v, want unauthenticated", info, err)
 	}
 }
+
+// A session whose provider sent no claim, or a yes, carries nothing: a reader
+// sees absence and a yes as the same.
+func TestAuthenticator_EmailVerifiedClaim(t *testing.T) {
+	yes, no := true, false
+	cases := []struct {
+		name    string
+		claim   *bool
+		present bool
+	}{
+		{"not sent", nil, false},
+		{"verified", &yes, false},
+		{"said not verified", &no, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := CookieConfig{Key: testKey()}
+			token, err := SignSession(SessionClaims{UserID: "u1", Email: "a@example.com", EmailVerified: tc.claim}, &cfg)
+			if err != nil {
+				t.Fatalf("SignSession: %v", err)
+			}
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
+			req.AddCookie(&http.Cookie{Name: DefaultCookieName, Value: token}) // #nosec G124 -- a request's cookie: name and value are all it sends
+			info, err := NewAuthenticator(cfg).AuthenticateHTTP(req)
+			if err != nil {
+				t.Fatalf("AuthenticateHTTP: %v", err)
+			}
+			got, ok := info.Claims[ClaimEmailVerified]
+			if ok != tc.present {
+				t.Fatalf("claim present = %v, want %v (%v)", ok, tc.present, info.Claims)
+			}
+			if verified, _ := got.(bool); tc.present && verified {
+				t.Errorf("claim = %v, want false", got)
+			}
+		})
+	}
+}

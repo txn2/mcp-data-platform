@@ -2,7 +2,6 @@
 package siteconfig
 
 import (
-	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -28,17 +27,20 @@ type Config struct {
 	// Enabled is on wherever there is a database and a portal bucket.
 	Enabled *bool `yaml:"enabled"`
 	// PagesDomain is the parent of every application's page origin
-	// (<app>.<pages_domain>) and every environment's preview
-	// (<env>--<site>.<pages_domain>). Empty serves neither. It should be a
+	// (<app>.<pages_domain>) and every site's own address
+	// (<site>.<pages_domain>). Empty serves neither. It should be a
 	// registrable domain of its own: a sibling of the portal is same-site.
 	PagesDomain     string      `yaml:"pages_domain"`
 	MaxFiles        int         `yaml:"max_release_files"`
 	MaxFileBytes    int64       `yaml:"max_file_bytes"`
 	MaxReleaseBytes int64       `yaml:"max_release_bytes"`
 	Cache           CacheConfig `yaml:"cache"`
-	Verify          NetConfig   `yaml:"verify"`
 	Crawl           CrawlConfig `yaml:"crawl"`
-	TLS             TLSConfig   `yaml:"tls"`
+	// ReservedHostnames are hostnames, and everything under them, that no
+	// domain may claim, because the deployment answers on them itself: an
+	// internal service name or a second address for the platform. A domain is
+	// answered ahead of the platform's own routes.
+	ReservedHostnames []string `yaml:"reserved_hostnames"`
 }
 
 // CacheConfig bounds a replica's cache of served files.
@@ -47,13 +49,6 @@ type CacheConfig struct {
 	// Dir is the on-disk cache's directory; empty uses the system's.
 	Dir       string `yaml:"dir"`
 	DiskBytes int64  `yaml:"disk_bytes"`
-}
-
-// NetConfig is what a server-side check of a hostname may reach.
-type NetConfig struct {
-	AllowPrivateCIDRs []string `yaml:"allow_private_cidrs"`
-	// DNSServer is the host:port TXT lookups go to, empty for the system's.
-	DNSServer string `yaml:"dns_server"`
 }
 
 // CrawlConfig bounds the migration crawl.
@@ -117,9 +112,6 @@ func (c Config) Validate(portalHost, cookieDomain string) error {
 		if d := strings.TrimPrefix(cookieDomain, "."); site.SameOrUnder(c.PagesDomain, d) {
 			return fmt.Errorf("sites.pages_domain %s is under the session cookie's domain %s, so pages would receive the portal's session", c.PagesDomain, d)
 		}
-	}
-	if c.TLS.ACME.Enabled && c.TLS.ACME.Address == "" {
-		return errors.New("sites.tls.acme.address: the listener's address is required when acme is enabled")
 	}
 	return nil
 }

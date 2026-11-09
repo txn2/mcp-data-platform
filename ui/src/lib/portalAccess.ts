@@ -25,6 +25,8 @@ export interface PortalAccess {
   feedback?: boolean;
   prompts?: boolean;
   automations?: boolean;
+  /** The Sites section (#2559). */
+  sites?: boolean;
   search?: boolean;
   memory?: boolean;
   /** Exporting an asset or a file as PDF; the editor names it PDF export (#2257). */
@@ -52,6 +54,7 @@ export const FULL_PORTAL: ResolvedPortal = {
   feedback: true,
   prompts: true,
   automations: true,
+  sites: true,
   search: true,
   memory: true,
   download: true,
@@ -92,6 +95,7 @@ const SECTION_VISIBLE: Record<string, (p: ResolvedPortal) => boolean> = {
   "/applications": (p) => p.automations,
   // A form's public use is approved here (#2494): forms are automations.
   "/approvals": (p) => p.automations,
+  "/sites": (p) => p.sites,
   "/feedback": (p) => p.feedback,
   "/prompts": (p) => p.prompts,
   "/knowledge": (p) => p.knowledge !== "none" || p.catalog !== "none" || p.memory || p.search,
@@ -99,7 +103,7 @@ const SECTION_VISIBLE: Record<string, (p: ResolvedPortal) => boolean> = {
 
 /** The section a route belongs to, when an area governs it. */
 export function portalSectionOf(route: string): string | null {
-  for (const section of ["/resources", "/apis", "/scratch-tables", "/automations", "/applications", "/approvals", "/feedback", "/prompts", "/knowledge"]) {
+  for (const section of ["/resources", "/apis", "/scratch-tables", "/automations", "/applications", "/approvals", "/sites", "/feedback", "/prompts", "/knowledge"]) {
     if (route === section || route.startsWith(section + "/")) return section;
   }
   return null;

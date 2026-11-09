@@ -55,7 +55,8 @@ the parts fit.
 
 First the application and its schema:
 
-1. `manage_application` `create` with `name: "shop"`.
+1. `manage_application` `create` with `name: "shop"`. A site and an application
+   cannot share a name, because both answer under the pages domain.
 2. `add_part` with `application: "shop"`, `kind: "schema"` and `part_id:
    "orders/shop"`: the schema `shop` on the application database connection
    `orders`. The connection must be an existing application database

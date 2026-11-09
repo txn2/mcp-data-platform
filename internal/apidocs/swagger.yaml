@@ -8844,6 +8844,11 @@ definitions:
       search:
         description: Search is the portal's unified search.
         type: boolean
+      sites:
+        description: |-
+          Sites is the portal's Sites section (#2559). A person the owner gave
+          view access opens that site's own address without it.
+        type: boolean
       uploads:
         description: |-
           Uploads lets the people of an external persona upload files to their
@@ -15097,23 +15102,660 @@ definitions:
         example: editor
         type: string
     type: object
-  sitesvc.HostReport:
+  site.Deployment:
     properties:
-      cert_manager:
-        description: CertManager is a Certificate manifest for the hostnames.
+      action:
+        example: promote
         type: string
-      hostnames:
+      actor:
+        type: string
+      created_at:
+        type: string
+      environment:
+        type: string
+      from_release:
+        type: integer
+      to_release:
+        type: integer
+    type: object
+  site.Domain:
+    properties:
+      application:
+        example: shop
+        type: string
+      application_id:
+        description: |-
+          ApplicationID and Application name the application whose endpoints the
+          hostname serves.
+        type: string
+      created_at:
+        type: string
+      created_by:
+        type: string
+      environment:
+        example: prod
+        type: string
+      hostname:
+        example: www.example.com
+        type: string
+      site:
+        example: marketing
+        type: string
+      site_id:
+        type: string
+    type: object
+  site.Environment:
+    properties:
+      name:
+        example: prod
+        type: string
+      release:
+        description: Release is the number of the release served, 0 before the first.
+        example: 3
+        type: integer
+      requires_approval:
+        description: RequiresApproval makes a promotion here a request in the Approvals
+          queue.
+        type: boolean
+      updated_at:
+        type: string
+      updated_by:
+        type: string
+    type: object
+  site.File:
+    properties:
+      brotli_size:
+        type: integer
+      content_type:
+        example: text/css
+        type: string
+      gzip_size:
+        description: |-
+          GzipSize and BrotliSize are the stored variants' sizes, 0 for a file
+          with no such variant.
+        type: integer
+      path:
+        example: css/site.3f2a9c1b.css
+        type: string
+      sha256:
+        type: string
+      size:
+        type: integer
+    type: object
+  site.Grant:
+    properties:
+      created_at:
+        type: string
+      email:
+        example: pat@client.example
+        type: string
+      granted_by:
+        example: jane@example.com
+        type: string
+      level:
+        example: view
+        type: string
+    type: object
+  site.Job:
+    properties:
+      bytes:
+        description: |-
+          Bytes is what a copy has downloaded; SkippedCount the addresses it could
+          not bring across so far, listed in Skipped when it ends.
+        type: integer
+      created_at:
+        type: string
+      created_by:
+        type: string
+      done:
+        description: Done and Total count the files written, or the pages copied.
+        type: integer
+      environment:
+        example: default
+        type: string
+      error:
+        type: string
+      id:
+        example: sjob_01J9
+        type: string
+      kind:
+        example: publish
+        type: string
+      pages:
+        type: integer
+      phase:
+        example: Writing files
+        type: string
+      redirects:
+        type: integer
+      release:
+        type: integer
+      site_id:
+        type: string
+      skipped:
+        items:
+          $ref: '#/definitions/site.Skipped'
+        type: array
+      skipped_count:
+        type: integer
+      source:
+        type: string
+      status:
+        example: running
+        type: string
+      total:
+        type: integer
+      updated_at:
+        type: string
+    type: object
+  site.Redirect:
+    properties:
+      from:
+        example: /old/*
+        type: string
+      status:
+        example: 301
+        type: integer
+      to:
+        example: /new/:splat
+        type: string
+    type: object
+  site.Site:
+    properties:
+      created_at:
+        type: string
+      created_by:
+        type: string
+      description:
+        type: string
+      environments:
+        items:
+          $ref: '#/definitions/site.Environment'
+        type: array
+      id:
+        example: site_01J9
+        type: string
+      internal_view:
+        description: |-
+          InternalView lets everyone whose persona is not external open the
+          site's own address: a company intranet.
+        type: boolean
+      name:
+        example: marketing
+        type: string
+      owner_email:
+        example: jane@example.com
+        type: string
+      updated_at:
+        type: string
+    type: object
+  site.Skipped:
+    properties:
+      address:
+        example: /old/report.pdf
+        type: string
+      reason:
+        example: answered 404
+        type: string
+    type: object
+  siteconfig.Settings:
+    properties:
+      crawl_max_bytes:
+        example: 536870912
+        type: integer
+      crawl_max_pages:
+        example: 2000
+        type: integer
+      max_file_bytes:
+        example: 67108864
+        type: integer
+      max_release_bytes:
+        example: 2147483648
+        type: integer
+      max_release_files:
+        example: 20000
+        type: integer
+      pages_domain:
+        example: pages.example.net
+        type: string
+    type: object
+  sitehttp.AccessList:
+    properties:
+      grants:
+        items:
+          $ref: '#/definitions/site.Grant'
+        type: array
+      internal_view:
+        type: boolean
+      owner_email:
+        type: string
+    type: object
+  sitehttp.AddressList:
+    properties:
+      addresses:
+        items:
+          $ref: '#/definitions/sitehttp.DeploymentAddress'
+        type: array
+    type: object
+  sitehttp.AdminDomainBody:
+    properties:
+      application:
+        type: string
+      environment:
+        type: string
+      hostname:
+        example: shop.example.com
+        type: string
+      requires_approval:
+        type: boolean
+      site:
+        type: string
+    type: object
+  sitehttp.ApplicationAddresses:
+    properties:
+      domains:
         items:
           type: string
         type: array
-      pages_wildcard:
-        description: PagesDomain is the wildcard the pages and previews need, "" for
-          none.
+      page_origin:
         type: string
-      unverified:
+    type: object
+  sitehttp.CopyBody:
+    properties:
+      environment:
+        example: default
+        type: string
+      form_map:
+        additionalProperties:
+          type: string
+        description: FormMap names, for a page path, the platform form that replaces
+          its forms.
+        type: object
+      max_bytes:
+        type: integer
+      max_pages:
+        type: integer
+      note:
+        type: string
+      url:
+        example: https://www.example.com
+        type: string
+    type: object
+  sitehttp.DeploymentAddress:
+    properties:
+      application:
+        type: string
+      created_at:
+        type: string
+      created_by:
+        type: string
+      environment:
+        example: default
+        type: string
+      hostname:
+        example: marketing.pages.example.net
+        type: string
+      kind:
+        example: site_address
+        type: string
+      site:
+        example: marketing
+        type: string
+    type: object
+  sitehttp.DeploymentList:
+    properties:
+      deployments:
+        items:
+          $ref: '#/definitions/site.Deployment'
+        type: array
+    type: object
+  sitehttp.DomainBody:
+    properties:
+      environment:
+        example: dev
+        type: string
+      hostname:
+        example: dev.example.com
+        type: string
+      requires_approval:
+        type: boolean
+    type: object
+  sitehttp.EnvironmentBody:
+    properties:
+      requires_approval:
+        type: boolean
+    type: object
+  sitehttp.FormList:
+    properties:
+      forms:
         items:
           type: string
         type: array
+    type: object
+  sitehttp.GrantBody:
+    properties:
+      level:
+        example: view
+        type: string
+      notify:
+        description: Notify emails them the site's address.
+        type: boolean
+    type: object
+  sitehttp.JobList:
+    properties:
+      jobs:
+        items:
+          $ref: '#/definitions/site.Job'
+        type: array
+    type: object
+  sitehttp.PromoteBody:
+    properties:
+      from:
+        example: stage
+        type: string
+      reason:
+        type: string
+      release:
+        type: integer
+      to:
+        example: prod
+        type: string
+    type: object
+  sitehttp.PublishBody:
+    properties:
+      archive:
+        type: string
+      environment:
+        example: default
+        type: string
+      folder:
+        type: string
+      note:
+        type: string
+      scope:
+        type: string
+      scope_id:
+        type: string
+      source:
+        description: |-
+          Source is what the release says it came from, the file's name when
+          given; only ever displayed.
+        example: site-1108.zip
+        type: string
+    type: object
+  sitehttp.ReleaseDetail:
+    properties:
+      created_at:
+        type: string
+      created_by:
+        type: string
+      file_count:
+        type: integer
+      files:
+        items:
+          $ref: '#/definitions/site.File'
+        type: array
+      id:
+        type: string
+      manifest_sha256:
+        description: |-
+          ManifestSHA256 fixes the file set: the digest of every path and content
+          digest, in path order.
+        type: string
+      note:
+        type: string
+      number:
+        example: 3
+        type: integer
+      redirects:
+        items:
+          $ref: '#/definitions/site.Redirect'
+        type: array
+      served_in:
+        items:
+          type: string
+        type: array
+      site_id:
+        type: string
+      source:
+        type: string
+      total_bytes:
+        type: integer
+    type: object
+  sitehttp.ReleaseList:
+    properties:
+      releases:
+        items:
+          $ref: '#/definitions/sitehttp.ReleaseView'
+        type: array
+    type: object
+  sitehttp.ReleaseView:
+    properties:
+      created_at:
+        type: string
+      created_by:
+        type: string
+      file_count:
+        type: integer
+      files:
+        description: Files is filled by a read that asks for them.
+        items:
+          $ref: '#/definitions/site.File'
+        type: array
+      id:
+        type: string
+      manifest_sha256:
+        description: |-
+          ManifestSHA256 fixes the file set: the digest of every path and content
+          digest, in path order.
+        type: string
+      note:
+        type: string
+      number:
+        example: 3
+        type: integer
+      redirects:
+        items:
+          $ref: '#/definitions/site.Redirect'
+        type: array
+      served_in:
+        items:
+          type: string
+        type: array
+      site_id:
+        type: string
+      source:
+        type: string
+      total_bytes:
+        type: integer
+    type: object
+  sitehttp.RollbackBody:
+    properties:
+      environment:
+        example: prod
+        type: string
+      release:
+        type: integer
+    type: object
+  sitehttp.SiteLimits:
+    properties:
+      crawl_max_bytes:
+        example: 536870912
+        type: integer
+      crawl_max_pages:
+        example: 2000
+        type: integer
+      max_file_bytes:
+        example: 67108864
+        type: integer
+      max_release_bytes:
+        example: 2147483648
+        type: integer
+      max_release_files:
+        example: 20000
+        type: integer
+    type: object
+  sitehttp.SiteList:
+    properties:
+      admin:
+        description: Admin is whether the caller is an administrator.
+        type: boolean
+      can_create:
+        description: CanCreate is whether the caller's persona may create a site.
+        type: boolean
+      limits:
+        $ref: '#/definitions/sitehttp.SiteLimits'
+      pages_domain:
+        description: |-
+          PagesDomain is "" when the deployment has none, so sites have no address
+          of their own.
+        type: string
+      sites:
+        items:
+          $ref: '#/definitions/sitehttp.SiteView'
+        type: array
+      total:
+        type: integer
+    type: object
+  sitehttp.SiteRequest:
+    properties:
+      description:
+        type: string
+      name:
+        example: careers
+        type: string
+    type: object
+  sitehttp.SiteSettings:
+    properties:
+      crawl_max_bytes:
+        example: 536870912
+        type: integer
+      crawl_max_pages:
+        example: 2000
+        type: integer
+      max_file_bytes:
+        example: 67108864
+        type: integer
+      max_release_bytes:
+        example: 2147483648
+        type: integer
+      max_release_files:
+        example: 20000
+        type: integer
+      pages_domain:
+        example: pages.example.net
+        type: string
+      updated_at:
+        type: string
+      updated_by:
+        type: string
+    type: object
+  sitehttp.SiteUpdate:
+    properties:
+      description:
+        type: string
+      internal_view:
+        type: boolean
+      owner_email:
+        type: string
+    type: object
+  sitehttp.SiteView:
+    properties:
+      address:
+        description: Address is the site's own address, "" with no pages domain.
+        type: string
+      created_at:
+        type: string
+      created_by:
+        type: string
+      description:
+        type: string
+      domains:
+        items:
+          $ref: '#/definitions/site.Domain'
+        type: array
+      environments:
+        items:
+          $ref: '#/definitions/site.Environment'
+        type: array
+      id:
+        example: site_01J9
+        type: string
+      internal_view:
+        description: |-
+          InternalView lets everyone whose persona is not external open the
+          site's own address: a company intranet.
+        type: boolean
+      name:
+        example: marketing
+        type: string
+      owner_email:
+        example: jane@example.com
+        type: string
+      permissions:
+        allOf:
+        - $ref: '#/definitions/sitesvc.Permissions'
+        description: Permissions is what the caller may do to this site.
+      updated_at:
+        type: string
+    type: object
+  sitesvc.Comparison:
+    properties:
+      added:
+        items:
+          type: string
+        type: array
+      changed:
+        items:
+          type: string
+        type: array
+      from:
+        example: 9
+        type: integer
+      redirects_added:
+        items:
+          $ref: '#/definitions/site.Redirect'
+        type: array
+      redirects_removed:
+        items:
+          $ref: '#/definitions/site.Redirect'
+        type: array
+      removed:
+        items:
+          type: string
+        type: array
+      to:
+        example: 11
+        type: integer
+    type: object
+  sitesvc.Permissions:
+    properties:
+      delete:
+        description: Delete removes the site.
+        type: boolean
+      manage:
+        description: Manage publishes, promotes, rolls back, adds domains and shares
+          view access.
+        type: boolean
+      own:
+        description: |-
+          Own edits the description, moves the owner, and adds or removes the
+          people who manage.
+        type: boolean
+    type: object
+  sitesvc.Promoted:
+    properties:
+      address:
+        type: string
+      approval:
+        $ref: '#/definitions/approval.Request'
+      environment:
+        type: string
+      release:
+        type: integer
+      status:
+        example: promoted
+        type: string
     type: object
   smtp.SettingsInput:
     properties:
@@ -25240,6 +25882,64 @@ paths:
       summary: Update scheduled-run failure alert settings
       tags:
       - Settings
+  /admin/settings/sites:
+    get:
+      description: The pages domain and the limits a release is held to, as saved,
+        or the configuration file's where none are.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sitehttp.SiteSettings'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: The sites settings
+      tags:
+      - Sites
+    put:
+      consumes:
+      - application/json
+      description: Applies on every replica without a restart. A pages domain holding
+        the portal's own host, or under its session cookie's domain, is refused.
+      parameters:
+      - description: The settings
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/siteconfig.Settings'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sitehttp.SiteSettings'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Save the sites settings
+      tags:
+      - Sites
   /admin/settings/smtp:
     get:
       description: Returns the stored SMTP configuration. The password is never returned;
@@ -25472,26 +26172,97 @@ paths:
       summary: Update webhook alert settings
       tags:
       - Settings
-  /admin/sites/hosts:
+  /admin/sites/domains:
     get:
-      description: Lists the verified hostnames sites and application pages answer
-        on, those awaiting verification, the wildcard the pages domain needs, and
-        a cert-manager Certificate covering them.
+      description: 'Each hostname the deployment answers on for a site or an application:
+        a site''s own address and every domain added. A system administrator adds
+        an ingress rule for each.'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/sitesvc.HostReport'
+            $ref: '#/definitions/sitehttp.AddressList'
         "401":
           description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
           schema:
             $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
-      summary: The hostnames the ingress needs for sites
+      summary: Every site address and domain
+      tags:
+      - Sites
+    post:
+      consumes:
+      - application/json
+      description: Maps a hostname to a site environment or to an application. It
+        routes as soon as it is added.
+      parameters:
+      - description: The domain
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/sitehttp.AdminDomainBody'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/site.Domain'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Map a hostname
+      tags:
+      - Sites
+  /admin/sites/domains/{hostname}:
+    delete:
+      description: Stops routing a hostname.
+      parameters:
+      - description: Hostname
+        in: path
+        name: hostname
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Remove a hostname
       tags:
       - Sites
   /admin/storage:
@@ -26841,6 +27612,32 @@ paths:
       summary: Revoke one of my API keys
       tags:
       - API Keys
+  /portal/application-addresses/{name}:
+    get:
+      description: The application's page origin and the domains mapped to it.
+      parameters:
+      - description: Application name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sitehttp.ApplicationAddresses'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Where an application answers
+      tags:
+      - Sites
   /portal/application-databases:
     get:
       description: The application database connections (kind appdb) the caller's
@@ -35974,6 +36771,837 @@ paths:
       summary: Change a share's permission
       tags:
       - Shares
+  /portal/sites:
+    get:
+      description: Every site with its environments, its own address and its domains,
+        what the caller may do to each, the pages domain and the limits a release
+        is held to.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sitehttp.SiteList'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List sites
+      tags:
+      - Sites
+    post:
+      consumes:
+      - application/json
+      description: Creates a site with its default environment. The caller, whose
+        persona must hold manage_site, is its owner.
+      parameters:
+      - description: The site
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/sitehttp.SiteRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/sitehttp.SiteView'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Create a site
+      tags:
+      - Sites
+  /portal/sites/{site}:
+    delete:
+      description: Deletes a site, its releases and its domains. Administrators only.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete a site
+      tags:
+      - Sites
+    get:
+      description: One site with its environments, addresses and what the caller may
+        do to it.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sitehttp.SiteView'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Read a site
+      tags:
+      - Sites
+    patch:
+      consumes:
+      - application/json
+      description: Changes the description and the owner (owner and administrators),
+        or whether everyone internal may open the site's own address (anyone who manages
+        it).
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: The change
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/sitehttp.SiteUpdate'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/site.Site'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Change a site
+      tags:
+      - Sites
+  /portal/sites/{site}/access:
+    get:
+      description: The owner, the people who can manage the site and the people who
+        can view it. Open to those who manage it.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sitehttp.AccessList'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Who has access to a site
+      tags:
+      - Sites
+  /portal/sites/{site}/access/{email}:
+    delete:
+      description: Takes effect on their next request. Anyone who manages the site
+        removes someone who can view it; only its owner and administrators remove
+        someone who manages it.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: Their email
+        in: path
+        name: email
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Remove someone's access
+      tags:
+      - Sites
+    put:
+      consumes:
+      - application/json
+      description: Adds a person or changes their level. Anyone who manages the site
+        shares view access; only its owner and administrators add or change someone
+        who manages it, and that person must be internal.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: Their email
+        in: path
+        name: email
+        required: true
+        type: string
+      - description: The level
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/sitehttp.GrantBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/site.Grant'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Give someone access
+      tags:
+      - Sites
+  /portal/sites/{site}/compare:
+    get:
+      description: The files changed, added and removed and the redirects added and
+        removed by moving from one release to another, read from each release's file
+        digests.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: The release served now; 0 or absent for none
+        in: query
+        name: from
+        type: integer
+      - description: The release that would be served
+        in: query
+        name: to
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sitesvc.Comparison'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Compare two releases
+      tags:
+      - Sites
+  /portal/sites/{site}/copy:
+    post:
+      consumes:
+      - application/json
+      description: Copies a site into a new release, in the background, keeping its
+        URLs. The destination is held to the egress guard, so a private address is
+        refused. Bounds may be lowered, never raised past the deployment's.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: What to copy
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/sitehttp.CopyBody'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/site.Job'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Copy an existing site
+      tags:
+      - Sites
+  /portal/sites/{site}/deployments:
+    get:
+      description: Every move of the site's environments, newest first, or of one
+        environment.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: One environment
+        in: query
+        name: environment
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sitehttp.DeploymentList'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: A site's history
+      tags:
+      - Sites
+  /portal/sites/{site}/domains:
+    post:
+      consumes:
+      - application/json
+      description: Maps a hostname to one of the site's environments, creating the
+        environment when it does not exist. It routes as soon as it is added; the
+        deployment's administrator adds the ingress.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: The domain
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/sitehttp.DomainBody'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/site.Domain'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Add a domain
+      tags:
+      - Sites
+  /portal/sites/{site}/domains/{hostname}:
+    delete:
+      description: Stops routing a hostname. The environment and its release do not
+        change.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: Hostname
+        in: path
+        name: hostname
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Remove a domain
+      tags:
+      - Sites
+  /portal/sites/{site}/environments/{name}:
+    put:
+      consumes:
+      - application/json
+      description: Creates the environment, or changes whether promoting to it needs
+        approval. Only an administrator can take the rule off.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: Environment
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: The rule
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/sitehttp.EnvironmentBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/site.Site'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Set an environment's approval rule
+      tags:
+      - Sites
+  /portal/sites/{site}/forms:
+    get:
+      description: The endpoints of this deployment that are forms, for someone who
+        manages the site.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sitehttp.FormList'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Forms a copied site can post to
+      tags:
+      - Sites
+  /portal/sites/{site}/jobs:
+    get:
+      description: The publishes and copies still running on the site.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sitehttp.JobList'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: A site's running jobs
+      tags:
+      - Sites
+  /portal/sites/{site}/jobs/{id}:
+    get:
+      description: Its phase and counts while it runs; its release, what it could
+        not copy and why, or its error once it ends.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: Job id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/site.Job'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: A publish or copy
+      tags:
+      - Sites
+  /portal/sites/{site}/jobs/{id}/stop:
+    post:
+      description: Asks a running copy to stop; it stops at its next address.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: Job id
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Stop a copy
+      tags:
+      - Sites
+  /portal/sites/{site}/promote:
+    post:
+      consumes:
+      - application/json
+      description: Points an environment at another environment's release, or a numbered
+        one. Where the environment requires approval, a non-administrator's promote
+        files a request and is finished by promoting again once it is approved.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: The move
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/sitehttp.PromoteBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sitesvc.Promoted'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Promote a release
+      tags:
+      - Sites
+  /portal/sites/{site}/publish:
+    post:
+      consumes:
+      - application/json
+      description: Publishes a managed-resource archive or folder as a new release,
+        in the background. The answer is the job to follow; it continues if the caller
+        goes away.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: What to publish
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/sitehttp.PublishBody'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/site.Job'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Publish a release
+      tags:
+      - Sites
+  /portal/sites/{site}/releases:
+    get:
+      description: Newest first, each with the environments serving it.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sitehttp.ReleaseList'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List a site's releases
+      tags:
+      - Sites
+  /portal/sites/{site}/releases/{number}:
+    get:
+      description: The release's file list and redirect map. Its files are served
+        only on the site's own origins, never by this route.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: Release number
+        in: path
+        name: number
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sitehttp.ReleaseDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Read a release
+      tags:
+      - Sites
+  /portal/sites/{site}/rollback:
+    post:
+      consumes:
+      - application/json
+      description: Points an environment at a release it served before, the one before
+        the current when none is named.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: The move
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/sitehttp.RollbackBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sitesvc.Promoted'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Roll back an environment
+      tags:
+      - Sites
   /portal/threads:
     get:
       description: Lists feedback threads scoped to a single target (asset_id, collection_id,

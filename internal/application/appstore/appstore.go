@@ -100,10 +100,14 @@ func (s *Store) Create(ctx context.Context, a *application.Application) error {
 	}
 	err := s.db.QueryRowContext(ctx, `
 		INSERT INTO applications (id, name, description, owner_email, connection, schema_name, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		SELECT $1, $2, $3, $4, $5, $6, $7
+		 WHERE NOT EXISTS (SELECT 1 FROM sites WHERE name = $2)
 		RETURNING created_at, updated_at`,
 		a.ID, a.Name, a.Description, a.OwnerEmail, a.Connection, a.Schema, a.CreatedBy,
 	).Scan(&a.CreatedAt, &a.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) { // a site holds the name: both answer on the pages domain
+		return application.ErrNameTaken
+	}
 	switch violated(err) {
 	case nameConstraint:
 		return application.ErrNameTaken

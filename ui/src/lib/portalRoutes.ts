@@ -38,6 +38,7 @@ const KNOWN_ROUTES: readonly string[] = [
   "/scratch-tables",
   "/automations",
   "/applications",
+  "/sites",
   "/approvals",
   "/admin",
   "/admin/assets",
@@ -54,6 +55,7 @@ const KNOWN_ROUTES: readonly string[] = [
   "/admin/prompts",
   "/admin/resources",
   "/admin/automations",
+  "/admin/domains",
   "/admin/sessions",
   "/admin/calls",
   "/admin/keys",
@@ -72,6 +74,9 @@ const KNOWN_ROUTES: readonly string[] = [
 // a page that loads and reports "no such record" is a better answer to a
 // mistyped id than a not-found page that never asked.
 const KNOWN_PATTERNS: readonly RegExp[] = [
+  // A site, one of its tabs, and one release (#2559).
+  /^\/sites\/[^/]+(\/(environments|releases|access|domains|history))?$/,
+  /^\/sites\/[^/]+\/releases\/\d+$/,
   /^\/assets\/.+$/,
   /^\/shared\/assets\/.+$/,
   /^\/activity\/sessions\/.+$/,

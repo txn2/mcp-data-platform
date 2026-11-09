@@ -99,14 +99,15 @@ type Pages struct {
 	Server   PageServer
 	// Authenticate reads the portal session on the handoff route.
 	Authenticate Authenticate
-	// RouteHost says what a verified hostname serves.
+	// RouteHost says what an added hostname serves.
 	RouteHost func(ctx context.Context, host string) (*site.Route, error)
 	// UseHandoff records a code's hash and reports false when it was used.
 	UseHandoff func(ctx context.Context, codeHash string, expires time.Time) (bool, error)
 	// FormKey is what the two token keys derive from; nil signs nobody in.
-	FormKey     []byte
-	PortalURL   string
-	PagesDomain string
+	FormKey   []byte
+	PortalURL string
+	// PagesDomain is the pages domain in force.
+	PagesDomain func() string
 	// PublicPort is the port the origins answer on, "" for the scheme's own.
 	PublicPort string
 	// Secure is whether the origins are https, which their cookies follow.
@@ -347,7 +348,7 @@ func isLocalURL(p string) bool {
 // from the request, which only selects it. Empty when host is not one of that
 // application's origins.
 func (p *Pages) originHost(ctx context.Context, host, app string) string {
-	if !hostShape.MatchString(host) || app == "" || strings.Contains(app, site.PreviewSeparator) {
+	if !hostShape.MatchString(host) || app == "" {
 		return ""
 	}
 	entry := p.application(ctx, app)
@@ -364,7 +365,7 @@ func (p *Pages) originHost(ctx context.Context, host, app string) string {
 // storedHost is the record naming h as an origin of the application, "" for
 // none.
 func (p *Pages) storedHost(ctx context.Context, h, app string) string {
-	if pageHost := app + "." + p.PagesDomain; h == pageHost {
+	if pageHost := app + "." + p.PagesDomain(); h == pageHost {
 		return pageHost
 	}
 	if p.RouteHost == nil {

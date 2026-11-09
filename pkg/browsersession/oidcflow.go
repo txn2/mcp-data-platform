@@ -606,7 +606,22 @@ func (f *Flow) parseIDToken(idToken string) (*SessionClaims, error) {
 		Roles:     roles,
 		FirstName: first,
 		LastName:  last,
+
+		EmailVerified: emailVerified(claims),
 	}, nil
+}
+
+// emailVerified reads the email_verified claim, which some providers send as a
+// string; nil when there is none.
+func emailVerified(claims map[string]any) *bool {
+	switch v := claims[ClaimEmailVerified].(type) {
+	case bool:
+		return &v
+	case string:
+		b := strings.EqualFold(v, "true")
+		return &b
+	}
+	return nil
 }
 
 // extractName pulls a first and last name from id_token claims, delegating to

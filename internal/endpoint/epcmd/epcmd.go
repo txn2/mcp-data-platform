@@ -130,6 +130,8 @@ type Handler struct {
 	// PageAllowed reports why a script's endpoint cannot be a browser page
 	// (#2517); nil refuses every page.
 	PageAllowed func(ctx context.Context, scriptID string) error
+	// PageAddress is where a script's page answers, "" when it has none.
+	PageAddress func(ctx context.Context, scriptID string) string
 
 	// forms makes a form's webhook source (SetForms); nil makes none.
 	forms atomic.Pointer[FormSources]
@@ -237,6 +239,23 @@ func (h *Handler) set(ctx context.Context, req Request) (map[string]any, error) 
 	return out, nil
 }
 
+// addPageState reports where a script's page answers and, when it could not be
+// a page, why, for the portal's endpoint card (#2559).
+func (h *Handler) addPageState(ctx context.Context, out map[string]any, scriptID string) {
+	if h.PageAddress != nil {
+		if address := h.PageAddress(ctx, scriptID); address != "" {
+			out["page_address"] = address
+		}
+	}
+	if h.PageAllowed == nil {
+		out["page_problem"] = "This deployment has no pages domain."
+		return
+	}
+	if err := h.PageAllowed(ctx, scriptID); err != nil {
+		out["page_problem"] = err.Error()
+	}
+}
+
 // pageAllowed refuses making an endpoint a page where no page origin serves
 // it: a deployment with no pages domain, or a script in no application.
 func (h *Handler) pageAllowed(ctx context.Context, b *epbinding.Binding) error {
@@ -294,6 +313,7 @@ func (h *Handler) one(ctx context.Context, sc *script.Script) (map[string]any, e
 	b, err := h.Store.Get(ctx, sc.ID)
 	if errors.Is(err, epbinding.ErrNotFound) {
 		out := map[string]any{fieldName: sc.Name, "bound": false}
+		h.addPageState(ctx, out, sc.ID)
 		return out, h.describeForm(ctx, sc, out)
 	}
 	if err != nil {
@@ -305,6 +325,7 @@ func (h *Handler) one(ctx context.Context, sc *script.Script) (map[string]any, e
 	}
 	out := h.fields(sc.Name, b)
 	out["bound"] = true
+	h.addPageState(ctx, out, b.ScriptID)
 	out["failures"] = failures
 	if err := h.describeForm(ctx, sc, out); err != nil {
 		return nil, err

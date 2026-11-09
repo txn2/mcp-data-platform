@@ -1,3 +1,4 @@
+import { useSite, useSiteCompare } from "@/api/portal/hooks/sites";
 import { useState } from "react";
 import {
   useApprovals,
@@ -121,7 +122,25 @@ function SiteRequest({ request: r }: { request: ApprovalRequest }) {
         Serve this release in {r.target}. Asked by {r.requester_email} {formatWhen(r.created_at)}.
       </p>
       {r.reason && <p className="text-sm text-muted-foreground">“{r.reason}”</p>}
+      {r.site_name && <SiteRequestChanges site={r.site_name} target={r.target ?? ""} release={r.version} />}
     </>
+  );
+}
+
+// SiteRequestChanges is what approving would change on the environment (#2559),
+// read from the two releases' file digests.
+function SiteRequestChanges({ site, target, release }: { site: string; target: string; release: number }) {
+  const data = useSite(site).data;
+  const from = data?.environments.find((e) => e.name === target)?.release ?? 0;
+  const cmp = useSiteCompare(site, from, data ? release : 0).data;
+  if (!cmp) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Badge variant="info">{cmp.changed.length} files changed</Badge>
+      <Badge variant="success">{cmp.added.length} added</Badge>
+      <Badge variant="danger">{cmp.removed.length} removed</Badge>
+      <Badge variant="muted">{cmp.redirects_added.length} redirects added</Badge>
+    </div>
   );
 }
 

@@ -90,6 +90,8 @@ const (
 	NameReloadBus          = "reload_bus"
 	// NameSiteHandoffSweep removes used page sign-in codes past their expiry.
 	NameSiteHandoffSweep = "site_handoff_sweep"
+	// NameSiteSettingsRefresh reads the sites settings another replica saved.
+	NameSiteSettingsRefresh = "site_settings_refresh"
 
 	// LISTEN connections (Listen). The two pglisten channels report under
 	// "listen_" + their channel name.

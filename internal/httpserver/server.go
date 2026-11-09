@@ -255,8 +255,8 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	storagewire.Mount(mux, p, storage, func() func(http.Handler) http.Handler { return buildAdminAuth(p) })
 	appdbwire.Mount(ctx, mux, p, notify, appdbwire.Admin{Auth: func() func(http.Handler) http.Handler { return buildAdminAuth(p) }, Actor: adminEmail}) // application databases (#2406, #2409)
 
-	endpointwire.Mount(mux, p, func() func(http.Handler) http.Handler { return buildAdminAuth(p) }, adminEmail) // endpoints (#2170)
-	sites, err := sitehttp.Build(mux, p, func() func(http.Handler) http.Handler { return buildAdminAuth(p) })   // sites and pages (#2517, #2518)
+	endpointwire.Mount(mux, p, func() func(http.Handler) http.Handler { return buildAdminAuth(p) }, adminEmail)           // endpoints (#2170)
+	sites, err := sitehttp.Build(mux, p, func() func(http.Handler) http.Handler { return buildAdminAuth(p) }, adminEmail) // sites and pages (#2517, #2518)
 	if err != nil {
 		return err //nolint:wrapcheck // the configuration's own sentence
 	}

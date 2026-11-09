@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
@@ -21,6 +20,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
 	"github.com/txn2/mcp-data-platform/internal/site/sitecrawl"
 	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
+	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
@@ -32,20 +32,25 @@ const (
 	testHost   = "www.client.example"
 )
 
-// memStore is a site.Store over maps.
+// memStore is a site.Store over maps. The embedded interface is nil: the job
+// methods manage_site never calls panic if something starts to.
 type memStore struct {
+	site.Store
 	mu          sync.Mutex
 	sites       map[string]*site.Site
 	releases    map[string][]site.Release
 	deployments map[string][]site.Deployment
 	domains     map[string]*site.Domain
+	grants      map[string]map[string]site.Grant
 	err         error
+	failGrants  error
 }
 
 func newMemStore() *memStore {
 	return &memStore{
 		sites: map[string]*site.Site{}, releases: map[string][]site.Release{},
 		deployments: map[string][]site.Deployment{}, domains: map[string]*site.Domain{},
+		grants: map[string]map[string]site.Grant{},
 	}
 }
 
@@ -229,14 +234,6 @@ func (m *memStore) Domains(context.Context) ([]site.Domain, error) {
 	return out, nil
 }
 
-func (m *memStore) MarkVerified(_ context.Context, hostname, by string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	now := time.Now()
-	m.domains[hostname].VerifiedAt, m.domains[hostname].VerifiedBy = &now, by
-	return nil
-}
-
 func (m *memStore) RemoveDomain(_ context.Context, hostname string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -248,8 +245,56 @@ func (*memStore) RouteHost(context.Context, string) (*site.Route, error) {
 	return nil, site.ErrNoDomain
 }
 
-func (*memStore) RoutePreview(context.Context, string, string) (*site.Route, error) {
+func (*memStore) RouteOwn(context.Context, string) (*site.Route, error) {
 	return nil, site.ErrNoDomain
+}
+
+func (m *memStore) SiteDomains(_ context.Context, siteID string) ([]site.Domain, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := []site.Domain{}
+	for _, d := range m.domains {
+		if d.SiteID == siteID {
+			out = append(out, *d)
+		}
+	}
+	return out, nil
+}
+
+func (m *memStore) Grants(_ context.Context, siteID string) ([]site.Grant, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.failGrants != nil {
+		return nil, m.failGrants
+	}
+	out := []site.Grant{}
+	for _, g := range m.grants[siteID] {
+		out = append(out, g)
+	}
+	return out, nil
+}
+
+func (m *memStore) GrantLevel(_ context.Context, siteID, email string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.grants[siteID][email].Level, nil
+}
+
+func (m *memStore) SetGrant(_ context.Context, siteID string, g site.Grant) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.grants[siteID] == nil {
+		m.grants[siteID] = map[string]site.Grant{}
+	}
+	m.grants[siteID][g.Email] = g
+	return nil
+}
+
+func (m *memStore) RemoveGrant(_ context.Context, siteID, email string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.grants[siteID], email)
+	return nil
 }
 
 type memObjects struct {
@@ -270,10 +315,6 @@ func (o *memObjects) PutObject(_ context.Context, _, key string, data []byte, _ 
 	o.puts[key] = data
 	return nil
 }
-
-type allowVerifier struct{ err error }
-
-func (v allowVerifier) Verify(context.Context, string, string) error { return v.err }
 
 type memApprovals struct {
 	selfApproved, submitted int
@@ -348,7 +389,7 @@ func newFixture() *fixture {
 		sources: &memSources{}, crawler: &memCrawler{},
 	}
 	svc := &sitesvc.Service{
-		Store: f.store, Objects: f.objects, Bucket: testBucket, Apps: memApps{}, Approvals: f.approvals, Verifier: allowVerifier{},
+		Store: f.store, Objects: f.objects, Bucket: testBucket, Apps: memApps{}, Approvals: f.approvals,
 		Config: siteconfig.Config{PagesDomain: "pages.example.com"}, PublicScheme: "https",
 	}
 	f.tool = &Tool{Service: svc, Sources: f.sources, Crawler: f.crawler, PortalURL: "https://portal.example.com"}
@@ -403,6 +444,13 @@ func createSite(t *testing.T, f *fixture) {
 	call(t, f, admin(), Input{Command: CmdCreate, Name: siteName, Description: "the site"})
 }
 
+// requireApproval adds a prod environment that requires approval.
+func requireApproval(t *testing.T, f *fixture, ctx context.Context) { //nolint:revive // the fixture leads
+	t.Helper()
+	yes := true
+	call(t, f, ctx, Input{Command: CmdEnvironment, Site: siteName, Environment: "prod", RequiresApproval: &yes})
+}
+
 func publishTo(t *testing.T, f *fixture, env string) {
 	t.Helper()
 	call(t, f, admin(), Input{Command: CmdPublish, Site: siteName, Environment: env, Files: files(indexName)})
@@ -431,60 +479,59 @@ func TestHandle_EveryCommandDispatches(t *testing.T) {
 	assert.Equal(t, adminEmail, created["owner_email"])
 
 	got := do(Input{Command: CmdGet, Site: siteName})
-	previews, ok := got["preview_urls"].(map[string]any)
+	addresses, ok := got["addresses"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "https://dev--marketing.pages.example.com", previews["dev"])
+	assert.Equal(t, "https://marketing.pages.example.com", addresses[site.EnvDefault])
+	assert.Equal(t, []any{}, got["grants"], "someone who manages the site sees who has access, [] when no one")
 
 	byID := call(t, f, admin(), Input{Command: CmdGet, Site: stored(f).ID})
-	assert.NotEmpty(t, byID["preview_urls"], "a site is read by id too")
+	assert.NotEmpty(t, byID["addresses"], "a site is read by id too")
 
 	assert.EqualValues(t, 1, do(Input{Command: CmdList})["total"])
 
-	updated := do(Input{Command: CmdUpdate, Site: siteName, Description: "second", OwnerEmail: "jane@example.com"})
+	internal := true
+	updated := do(Input{Command: CmdUpdate, Site: siteName, Description: "second", OwnerEmail: "jane@example.com", InternalView: &internal})
 	assert.Equal(t, "second", updated["description"])
 	assert.Equal(t, "jane@example.com", updated["owner_email"])
+	assert.Equal(t, true, updated["internal_view"])
 
 	requires := true
 	do(Input{Command: CmdEnvironment, Site: siteName, Environment: "qa", RequiresApproval: &requires})
 	assert.True(t, stored(f).Environment("qa").RequiresApproval)
+	do(Input{Command: CmdEnvironment, Site: siteName, Environment: "stage"})
 
 	published := do(Input{Command: CmdPublish, Site: siteName, Files: files(indexName), Note: "first"})
-	assert.Equal(t, site.EnvDev, published["environment"])
-	assert.Equal(t, "https://dev--marketing.pages.example.com", published["preview_url"])
-	assert.Equal(t, 1, stored(f).Environment(site.EnvDev).Release)
+	assert.Equal(t, site.EnvDefault, published["environment"])
+	assert.Equal(t, "https://marketing.pages.example.com", published["address"])
+	assert.Equal(t, 1, stored(f).Environment(site.EnvDefault).Release)
 
 	releases, ok := do(Input{Command: CmdReleases, Site: siteName})["releases"].([]any)
 	require.True(t, ok)
 	assert.Len(t, releases, 1)
 
-	deployments, ok := do(Input{Command: CmdDeployments, Site: siteName, Environment: site.EnvDev})["deployments"].([]any)
+	deployments, ok := do(Input{Command: CmdDeployments, Site: siteName, Environment: site.EnvDefault})["deployments"].([]any)
 	require.True(t, ok)
 	assert.Len(t, deployments, 1)
 
-	promoted := do(Input{Command: CmdPromote, Site: siteName, From: site.EnvDev, To: "stage"})
+	promoted := do(Input{Command: CmdPromote, Site: siteName, From: site.EnvDefault, To: "stage"})
 	assert.Equal(t, sitesvc.StatusPromoted, promoted["status"])
 	assert.Equal(t, 1, stored(f).Environment("stage").Release)
 
-	publishTo(t, f, site.EnvDev)
-	require.Equal(t, 2, stored(f).Environment(site.EnvDev).Release)
-	rolled := do(Input{Command: CmdRollback, Site: siteName, Environment: site.EnvDev})
+	publishTo(t, f, site.EnvDefault)
+	require.Equal(t, 2, stored(f).Environment(site.EnvDefault).Release)
+	rolled := do(Input{Command: CmdRollback, Site: siteName, Environment: site.EnvDefault})
 	assert.EqualValues(t, 1, rolled["release"])
-	assert.Equal(t, 1, stored(f).Environment(site.EnvDev).Release)
+	assert.Equal(t, 1, stored(f).Environment(site.EnvDefault).Release)
 
-	added := do(Input{Command: CmdAddDomain, Hostname: testHost, Site: siteName, Environment: "prod"})
+	added := do(Input{Command: CmdAddDomain, Hostname: testHost, Site: siteName, Environment: "prod", RequiresApproval: &requires})
 	assert.Equal(t, testHost, added["hostname"])
-	assert.NotEmpty(t, added["token"])
-
-	verified := do(Input{Command: CmdVerifyDomain, Hostname: testHost})
-	assert.NotEmpty(t, verified["verified_at"])
+	require.NotNil(t, stored(f).Environment("prod"), "adding a domain creates its environment")
+	assert.True(t, stored(f).Environment("prod").RequiresApproval)
+	assert.Contains(t, do(Input{Command: CmdGet, Site: siteName})["addresses"], "prod")
 
 	domains, ok := do(Input{Command: CmdDomains})["domains"].([]any)
 	require.True(t, ok)
 	assert.Len(t, domains, 1)
-
-	hosts := do(Input{Command: CmdHosts})
-	assert.Equal(t, []any{testHost}, hosts["hostnames"])
-	assert.Equal(t, "*.pages.example.com", hosts["pages_wildcard"])
 
 	assert.Equal(t, testHost, do(Input{Command: CmdRemoveDomain, Hostname: testHost})["removed"])
 	assert.Empty(t, f.store.domains)
@@ -495,6 +542,11 @@ func TestHandle_EveryCommandDispatches(t *testing.T) {
 	assert.EqualValues(t, 2, crawled["redirects"])
 	assert.Equal(t, []any{}, crawled["skipped"], "an empty list is [], never null")
 	assert.Equal(t, sitecrawl.Request{Start: "https://old.example/", FormMap: map[string]string{"/contact": "form"}, PortalURL: "https://portal.example.com"}, f.crawler.asked)
+
+	granted := do(Input{Command: CmdGrant, Site: siteName, Email: "Pat@Client.example", Level: site.LevelView})
+	assert.Equal(t, "pat@client.example", granted["email"])
+	assert.Equal(t, "pat@client.example", do(Input{Command: CmdRevoke, Site: siteName, Email: "pat@client.example"})["revoked"])
+	assert.Empty(t, f.store.grants[stored(f).ID])
 
 	assert.Equal(t, siteName, do(Input{Command: CmdDelete, Site: siteName})["deleted"])
 	assert.Empty(t, f.store.sites)
@@ -541,7 +593,7 @@ func TestHandle_PublishAndReadsAreAllowedInsideAScriptRun(t *testing.T) {
 	run := ctxAs(adminEmail, true, middleware.SourceScript)
 
 	published := call(t, f, run, Input{Command: CmdPublish, Site: siteName, Files: files(indexName)})
-	assert.Equal(t, site.EnvDev, published["environment"])
+	assert.Equal(t, site.EnvDefault, published["environment"])
 	for _, cmd := range Reads {
 		t.Run(cmd, func(t *testing.T) {
 			call(t, f, run, Input{Command: cmd, Site: siteName})
@@ -643,7 +695,8 @@ func TestPublish_NoManagedResourcesRefusesAReference(t *testing.T) {
 func TestPublish_AnEnvironmentThatRequiresApprovalIsNotPublishedTo(t *testing.T) {
 	f := newFixture()
 	createSite(t, f)
-	msg := refusal(t, f, admin(), Input{Command: CmdPublish, Site: siteName, Environment: site.EnvProd, Files: files(indexName)})
+	requireApproval(t, f, admin())
+	msg := refusal(t, f, admin(), Input{Command: CmdPublish, Site: siteName, Environment: "prod", Files: files(indexName)})
 	assert.Contains(t, msg, "requires approval")
 }
 
@@ -656,35 +709,37 @@ func TestPublish_ADotfileIsRefused(t *testing.T) {
 func TestPromote_ToAnEnvironmentThatRequiresApproval(t *testing.T) {
 	f := newFixture()
 	createSite(t, f)
-	publishTo(t, f, site.EnvDev)
+	requireApproval(t, f, admin())
+	publishTo(t, f, site.EnvDefault)
 
-	promoted := call(t, f, admin(), Input{Command: CmdPromote, Site: siteName, From: site.EnvDev, To: site.EnvProd})
+	promoted := call(t, f, admin(), Input{Command: CmdPromote, Site: siteName, From: site.EnvDefault, To: "prod"})
 	assert.Equal(t, sitesvc.StatusPromoted, promoted["status"])
 	assert.Equal(t, 1, f.approvals.selfApproved)
-	assert.Equal(t, 1, stored(f).Environment(site.EnvProd).Release)
+	assert.Equal(t, 1, stored(f).Environment("prod").Release)
 }
 
 func TestPromote_AnOwnersPromotionToProdWaits(t *testing.T) {
 	f := newFixture()
 	owner := ctxAs("owner@example.com", false, "")
 	call(t, f, owner, Input{Command: CmdCreate, Name: siteName})
+	requireApproval(t, f, owner)
 	call(t, f, owner, Input{Command: CmdPublish, Site: siteName, Files: files(indexName)})
 
-	promoted := call(t, f, owner, Input{Command: CmdPromote, Site: siteName, From: site.EnvDev, To: site.EnvProd, Reason: "ship"})
+	promoted := call(t, f, owner, Input{Command: CmdPromote, Site: siteName, From: site.EnvDefault, To: "prod", Reason: "ship"})
 	assert.Equal(t, sitesvc.StatusAwaitingApproval, promoted["status"])
 	assert.Equal(t, 1, f.approvals.submitted)
-	assert.Zero(t, stored(f).Environment(site.EnvProd).Release, "nothing moves until it is approved")
+	assert.Zero(t, stored(f).Environment("prod").Release, "nothing moves until it is approved")
 }
 
 func TestHandle_AdministratorCommandsAreRefusedToAnOwner(t *testing.T) {
 	f := newFixture()
 	owner := ctxAs("owner@example.com", false, "")
 	call(t, f, owner, Input{Command: CmdCreate, Name: siteName})
+	call(t, f, admin(), Input{Command: CmdAddDomain, Hostname: testHost, Application: "shop"})
 
 	for _, in := range []Input{
 		{Command: CmdDelete, Site: siteName},
-		{Command: CmdAddDomain, Hostname: testHost, Site: siteName, Environment: "prod"},
-		{Command: CmdVerifyDomain, Hostname: testHost},
+		{Command: CmdAddDomain, Hostname: "other.client.example", Application: "shop"},
 		{Command: CmdRemoveDomain, Hostname: testHost},
 	} {
 		t.Run(in.Command, func(t *testing.T) {
@@ -716,9 +771,18 @@ func TestCrawl(t *testing.T) {
 	t.Run("what the crawl skipped is reported", func(t *testing.T) {
 		f := newFixture()
 		createSite(t, f)
-		f.crawler.result = &sitecrawl.Result{Files: []sitesvc.InputFile{{Path: indexName, Body: []byte("x")}}, Skipped: []string{"https://a.example/x"}}
+		f.crawler.result = &sitecrawl.Result{Files: []sitesvc.InputFile{{Path: indexName, Body: []byte("x")}}, Skipped: []site.Skipped{{Address: "/x", Reason: "answered 404"}}}
 		out := call(t, f, admin(), Input{Command: CmdCrawl, Site: siteName, URL: "https://a.example"})
-		assert.Equal(t, []any{"https://a.example/x"}, out["skipped"])
+		assert.Equal(t, []any{map[string]any{"address": "/x", "reason": "answered 404"}}, out["skipped"])
+	})
+	t.Run("the source recorded holds no query", func(t *testing.T) {
+		f := newFixture()
+		createSite(t, f)
+		f.crawler.result = &sitecrawl.Result{Files: []sitesvc.InputFile{{Path: indexName, Body: []byte("x")}}}
+		call(t, f, admin(), Input{Command: CmdCrawl, Site: siteName, URL: "https://a.example/start?token=s3cret"})
+		rel := f.store.releases[stored(f).ID][0]
+		assert.Equal(t, "crawl https://a.example/start", rel.Source)
+		assert.NotContains(t, rel.Source, "s3cret")
 	})
 }
 
@@ -735,7 +799,6 @@ func TestHandle_ErrorsAreResultsTheCallerCanRead(t *testing.T) {
 		{name: "an unknown site for deployments", in: Input{Command: CmdDeployments, Site: "nope"}, want: "no such site"},
 		{name: "a failing list", in: Input{Command: CmdList}, set: func(m *memStore) { m.err = errors.New("db down") }, want: "db down"},
 		{name: "failing domains", in: Input{Command: CmdDomains}, set: func(m *memStore) { m.err = errors.New("db down") }, want: "db down"},
-		{name: "failing hosts", in: Input{Command: CmdHosts}, set: func(m *memStore) { m.err = errors.New("db down") }, want: "db down"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -788,6 +851,73 @@ func TestActorOf(t *testing.T) {
 	assert.Equal(t,
 		sitesvc.Actor{Email: "a@example.com", Admin: true, Persona: "analyst"},
 		actorOf(ctxAs("a@example.com", true, "")))
+
+	cases := []struct {
+		name   string
+		claims map[string]any
+		want   bool
+	}{
+		{"no claims", nil, false},
+		{"the provider said verified", map[string]any{browsersession.ClaimEmailVerified: true}, false},
+		{"the provider said not verified", map[string]any{browsersession.ClaimEmailVerified: false}, true},
+		{"a claim of another type is not a statement", map[string]any{browsersession.ClaimEmailVerified: "false"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserEmail: "a@example.com", UserClaims: tc.claims})
+			assert.Equal(t, tc.want, actorOf(ctx).EmailUnverified)
+		})
+	}
+}
+
+func TestGet_OnlyThoseWhoManageSeeWhoHasAccess(t *testing.T) {
+	f := newFixture()
+	owner := ctxAs("owner@example.com", false, "")
+	call(t, f, owner, Input{Command: CmdCreate, Name: siteName})
+	call(t, f, owner, Input{Command: CmdGrant, Site: siteName, Email: "mo@example.com", Level: site.LevelManage})
+	call(t, f, owner, Input{Command: CmdGrant, Site: siteName, Email: "vi@client.example", Level: site.LevelView})
+
+	assert.NotContains(t, call(t, f, ctxAs("vi@client.example", false, ""), Input{Command: CmdGet, Site: siteName}), "grants", "a viewer does not see who else has access")
+	assert.NotContains(t, call(t, f, ctxAs("joe@example.com", false, ""), Input{Command: CmdGet, Site: siteName}), "grants")
+
+	got := call(t, f, ctxAs("mo@example.com", false, ""), Input{Command: CmdGet, Site: siteName})
+	assert.Len(t, got["grants"], 2)
+
+	unverified := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
+		UserEmail: "owner@example.com", UserClaims: map[string]any{browsersession.ClaimEmailVerified: false},
+	})
+	assert.NotContains(t, call(t, f, unverified, Input{Command: CmdGet, Site: siteName}), "grants", "an unverified email matches no owner")
+
+	f.store.failGrants = errors.New("db down")
+	assert.Contains(t, refusal(t, f, owner, Input{Command: CmdGet, Site: siteName}), "listing grants")
+}
+
+func TestGet_AnAddedDomainIsAnEnvironmentsAddress(t *testing.T) {
+	f := newFixture()
+	createSite(t, f)
+	call(t, f, admin(), Input{Command: CmdAddDomain, Hostname: testHost, Site: siteName, Environment: "prod"})
+	addresses, ok := call(t, f, admin(), Input{Command: CmdGet, Site: siteName})["addresses"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "https://"+testHost, addresses["prod"])
+}
+
+func TestUpdate_InternalViewCanBeTurnedOff(t *testing.T) {
+	f := newFixture()
+	createSite(t, f)
+	on, off := true, false
+	assert.Equal(t, true, call(t, f, admin(), Input{Command: CmdUpdate, Site: siteName, InternalView: &on})["internal_view"])
+	assert.Equal(t, false, call(t, f, admin(), Input{Command: CmdUpdate, Site: siteName, InternalView: &off})["internal_view"], "a false is told from unset")
+	assert.Equal(t, "the site", stored(f).Description, "an empty description leaves it")
+}
+
+func TestGrant_ThroughTheTool(t *testing.T) {
+	f := newFixture()
+	owner := ctxAs("owner@example.com", false, "")
+	call(t, f, owner, Input{Command: CmdCreate, Name: siteName})
+
+	assert.Contains(t, refusal(t, f, ctxAs("joe@example.com", false, ""), Input{Command: CmdGrant, Site: siteName, Email: "x@example.com", Level: site.LevelView}), "not allowed")
+	assert.Contains(t, refusal(t, f, owner, Input{Command: CmdGrant, Site: siteName, Email: "x@example.com", Level: "owner"}), "level:")
+	assert.Contains(t, refusal(t, f, owner, Input{Command: CmdRevoke, Site: siteName, Email: "x@example.com"}), site.ErrNoGrant.Error())
 }
 
 func TestInsideRun(t *testing.T) {
@@ -855,4 +985,15 @@ func TestReads_NameOnlyCommandsThatExist(t *testing.T) {
 	for _, cmd := range append(slices.Clone(Reads), allowedInRun...) {
 		assert.Contains(t, Commands, cmd)
 	}
+}
+
+// A caller who could not publish makes the platform fetch nothing (#2559).
+func TestCrawl_RefusedFetchesNothing(t *testing.T) {
+	f := newFixture()
+	f.crawler.result = &sitecrawl.Result{Files: []sitesvc.InputFile{{Path: indexName, Body: []byte("copied")}}}
+	created, err := f.tool.Service.Create(context.Background(), sitesvc.Actor{Email: "owner@example.com"}, "guarded", "")
+	require.NoError(t, err)
+	_, err = f.tool.crawl(context.Background(), sitesvc.Actor{Email: "stranger@example.com"}, Input{Site: created.Name, URL: "https://old.example.org/"})
+	require.ErrorIs(t, err, site.ErrNotAllowed)
+	assert.Empty(t, f.crawler.asked.Start, "nothing was fetched")
 }

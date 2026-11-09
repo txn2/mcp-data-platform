@@ -25,6 +25,7 @@ const (
 	AreaFeedback    = "feedback"
 	AreaPrompts     = "prompts"
 	AreaAutomations = "automations"
+	AreaSites       = "sites"
 	AreaSearch      = "search"
 	AreaMemory      = "memory"
 	// AreaResources is managed resources: refused here only on the table
@@ -77,6 +78,8 @@ var segmentAreas = map[string]struct {
 	// form's public use is approved through (#2494) are Automations'.
 	"application-databases": {AreaAutomations, func(a persona.PortalAccess) *bool { return a.Automations }},
 	"approvals":             {AreaAutomations, func(a persona.PortalAccess) *bool { return a.Automations }},
+	"application-addresses": {AreaAutomations, func(a persona.PortalAccess) *bool { return a.Automations }},
+	"sites":                 {AreaSites, func(a persona.PortalAccess) *bool { return a.Sites }},
 	"search":                {AreaSearch, func(a persona.PortalAccess) *bool { return a.Search }},
 	"memory":                {AreaMemory, func(a persona.PortalAccess) *bool { return a.Memory }},
 	"knowledge":             {AreaMemory, func(a persona.PortalAccess) *bool { return a.Memory }},

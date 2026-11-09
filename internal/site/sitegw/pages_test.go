@@ -151,7 +151,7 @@ func newPageHarness(opts ...pageOption) *pageHarness {
 			ph.used[codeHash] = expires
 			return true, nil
 		},
-		FormKey: []byte("0123456789abcdef0123456789abcdef"), PortalURL: portalURL, PagesDomain: testPagesDomain,
+		FormKey: []byte("0123456789abcdef0123456789abcdef"), PortalURL: portalURL, PagesDomain: func() string { return testPagesDomain },
 		Now: func() time.Time { return ph.clock },
 	}
 	for _, opt := range opts {
@@ -712,7 +712,7 @@ func TestHandoff_WithSecureTheCookiesCarryTheHostPrefix(t *testing.T) {
 func TestHandoff_AVerifiedMappingCompletesOnItsOwnHost(t *testing.T) {
 	ph := newPageHarness()
 	ph.store.hosts[hostMapped] = &site.Route{Application: appShop, Hostname: hostMapped}
-	ph.store.verified = append(ph.store.verified, hostMapped)
+	ph.store.added = append(ph.store.added, hostMapped)
 	ph.gateway.Invalidate(hostMapped)
 
 	state, loc := ph.signIn(t, hostMapped, "/")
@@ -863,12 +863,12 @@ func TestOriginHost_IsReadFromStoredRecords(t *testing.T) {
 	ph := newPageHarness()
 	ph.pages.PublicPort = "8443"
 	ph.store.hosts[hostMapped] = &site.Route{Application: appShop, Hostname: hostMapped}
-	pageHost := appShop + "." + ph.pages.PagesDomain
+	pageHost := appShop + "." + ph.pages.PagesDomain()
 	ctx := context.Background()
 
 	assert.Equal(t, pageHost+":8443", ph.pages.originHost(ctx, pageHost+":99", appShop))
 	assert.Equal(t, hostMapped+":8443", ph.pages.originHost(ctx, hostMapped, appShop))
 	assert.Empty(t, ph.pages.originHost(ctx, "evil.example", appShop))
 	assert.Empty(t, ph.pages.originHost(ctx, pageHost+"@evil.example", appShop))
-	assert.Empty(t, ph.pages.originHost(ctx, "other."+ph.pages.PagesDomain, appShop))
+	assert.Empty(t, ph.pages.originHost(ctx, "other."+ph.pages.PagesDomain(), appShop))
 }

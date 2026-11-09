@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { ConfigField, ConfigSelect, ConfigToggle } from "./connections/fields";
 import { ConnectionAlertCard } from "./ConnectionAlertCard";
 import { MapsCard } from "./MapsCard";
+import { SitesSettingsCard } from "./SitesSettingsCard";
 import { NotificationChannelsCard } from "./NotificationChannelsCard";
 import { ReviewAlertCard } from "./ReviewAlertCard";
 import { ScriptRunAlertCard } from "./ScriptRunAlertCard";
@@ -424,6 +425,7 @@ const SECTION_CARDS: Record<SettingsSectionId, (isReadOnly: boolean) => React.Re
   storage: (ro) => <StorageSettingsCard isReadOnly={ro} />,
   "application-databases": (ro) => <AppDBAlertCard isReadOnly={ro} />,
   maps: () => <MapsCard />,
+  sites: () => <SitesSettingsCard />,
   "embed-hosts": (ro) => <EmbedHostsSettingsCard isReadOnly={ro} />,
   "bot-checks": (ro) => <BotChecksSettingsCard isReadOnly={ro} />,
   "access-requests": (ro) => <AccessRequestsSettingsCard isReadOnly={ro} />,

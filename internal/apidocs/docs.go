@@ -11760,6 +11760,98 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/settings/sites": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The pages domain and the limits a release is held to, as saved, or the configuration file's where none are.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "The sites settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.SiteSettings"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Applies on every replica without a restart. A pages domain holding the portal's own host, or under its session cookie's domain, is refused.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Save the sites settings",
+                "parameters": [
+                    {
+                        "description": "The settings",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/siteconfig.Settings"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.SiteSettings"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/settings/smtp": {
             "get": {
                 "security": [
@@ -12101,7 +12193,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/admin/sites/hosts": {
+        "/admin/sites/domains": {
             "get": {
                 "security": [
                     {
@@ -12111,23 +12203,136 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Lists the verified hostnames sites and application pages answer on, those awaiting verification, the wildcard the pages domain needs, and a cert-manager Certificate covering them.",
+                "description": "Each hostname the deployment answers on for a site or an application: a site's own address and every domain added. A system administrator adds an ingress rule for each.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "Sites"
                 ],
-                "summary": "The hostnames the ingress needs for sites",
+                "summary": "Every site address and domain",
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/sitesvc.HostReport"
+                            "$ref": "#/definitions/sitehttp.AddressList"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Maps a hostname to a site environment or to an application. It routes as soon as it is added.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Map a hostname",
+                "parameters": [
+                    {
+                        "description": "The domain",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.AdminDomainBody"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/site.Domain"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/sites/domains/{hostname}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Stops routing a hostname.",
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Remove a hostname",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Hostname",
+                        "name": "hostname",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -14118,6 +14323,49 @@ const docTemplate = `{
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/application-addresses/{name}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The application's page origin and the domains mapped to it.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Where an application answers",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Application name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.ApplicationAddresses"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -27631,6 +27879,1297 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/sites": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Every site with its environments, its own address and its domains, what the caller may do to each, the pages domain and the limits a release is held to.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "List sites",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.SiteList"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a site with its default environment. The caller, whose persona must hold manage_site, is its owner.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Create a site",
+                "parameters": [
+                    {
+                        "description": "The site",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.SiteRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.SiteView"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/sites/{site}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "One site with its environments, addresses and what the caller may do to it.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Read a site",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.SiteView"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Deletes a site, its releases and its domains. Administrators only.",
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Delete a site",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Changes the description and the owner (owner and administrators), or whether everyone internal may open the site's own address (anyone who manages it).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Change a site",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The change",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.SiteUpdate"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/site.Site"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/sites/{site}/access": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The owner, the people who can manage the site and the people who can view it. Open to those who manage it.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Who has access to a site",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.AccessList"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/sites/{site}/access/{email}": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Adds a person or changes their level. Anyone who manages the site shares view access; only its owner and administrators add or change someone who manages it, and that person must be internal.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Give someone access",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Their email",
+                        "name": "email",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The level",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.GrantBody"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/site.Grant"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Takes effect on their next request. Anyone who manages the site removes someone who can view it; only its owner and administrators remove someone who manages it.",
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Remove someone's access",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Their email",
+                        "name": "email",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/sites/{site}/compare": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The files changed, added and removed and the redirects added and removed by moving from one release to another, read from each release's file digests.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Compare two releases",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "The release served now; 0 or absent for none",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "The release that would be served",
+                        "name": "to",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sitesvc.Comparison"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/sites/{site}/copy": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Copies a site into a new release, in the background, keeping its URLs. The destination is held to the egress guard, so a private address is refused. Bounds may be lowered, never raised past the deployment's.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Copy an existing site",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "What to copy",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.CopyBody"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/site.Job"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/sites/{site}/deployments": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Every move of the site's environments, newest first, or of one environment.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "A site's history",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "One environment",
+                        "name": "environment",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.DeploymentList"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/sites/{site}/domains": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Maps a hostname to one of the site's environments, creating the environment when it does not exist. It routes as soon as it is added; the deployment's administrator adds the ingress.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Add a domain",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The domain",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.DomainBody"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/site.Domain"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/sites/{site}/domains/{hostname}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Stops routing a hostname. The environment and its release do not change.",
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Remove a domain",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Hostname",
+                        "name": "hostname",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/sites/{site}/environments/{name}": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates the environment, or changes whether promoting to it needs approval. Only an administrator can take the rule off.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Set an environment's approval rule",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Environment",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The rule",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.EnvironmentBody"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/site.Site"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/sites/{site}/forms": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The endpoints of this deployment that are forms, for someone who manages the site.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Forms a copied site can post to",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.FormList"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/sites/{site}/jobs": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The publishes and copies still running on the site.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "A site's running jobs",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.JobList"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/sites/{site}/jobs/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Its phase and counts while it runs; its release, what it could not copy and why, or its error once it ends.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "A publish or copy",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Job id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/site.Job"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/sites/{site}/jobs/{id}/stop": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Asks a running copy to stop; it stops at its next address.",
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Stop a copy",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Job id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/sites/{site}/promote": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Points an environment at another environment's release, or a numbered one. Where the environment requires approval, a non-administrator's promote files a request and is finished by promoting again once it is approved.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Promote a release",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The move",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.PromoteBody"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sitesvc.Promoted"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/sites/{site}/publish": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Publishes a managed-resource archive or folder as a new release, in the background. The answer is the job to follow; it continues if the caller goes away.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Publish a release",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "What to publish",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.PublishBody"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/site.Job"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/sites/{site}/releases": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Newest first, each with the environments serving it.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "List a site's releases",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.ReleaseList"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/sites/{site}/releases/{number}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The release's file list and redirect map. Its files are served only on the site's own origins, never by this route.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Read a release",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Release number",
+                        "name": "number",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.ReleaseDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/sites/{site}/rollback": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Points an environment at a release it served before, the one before the current when none is named.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Roll back an environment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The move",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.RollbackBody"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sitesvc.Promoted"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -42612,6 +44151,10 @@ const docTemplate = `{
                     "description": "Search is the portal's unified search.",
                     "type": "boolean"
                 },
+                "sites": {
+                    "description": "Sites is the portal's Sites section (#2559). A person the owner gave\nview access opens that site's own address without it.",
+                    "type": "boolean"
+                },
                 "uploads": {
                     "description": "Uploads lets the people of an external persona upload files to their\nown folder (#2258, #2290), which staff reach through ExternalFiles. Unset\nis off; an internal persona's people upload by their Resources level\nand this is dropped from its resolved block.",
                     "type": "boolean"
@@ -50137,28 +51680,928 @@ const docTemplate = `{
                 }
             }
         },
-        "sitesvc.HostReport": {
+        "site.Deployment": {
             "type": "object",
             "properties": {
-                "cert_manager": {
-                    "description": "CertManager is a Certificate manifest for the hostnames.",
+                "action": {
+                    "type": "string",
+                    "example": "promote"
+                },
+                "actor": {
                     "type": "string"
                 },
-                "hostnames": {
+                "created_at": {
+                    "type": "string"
+                },
+                "environment": {
+                    "type": "string"
+                },
+                "from_release": {
+                    "type": "integer"
+                },
+                "to_release": {
+                    "type": "integer"
+                }
+            }
+        },
+        "site.Domain": {
+            "type": "object",
+            "properties": {
+                "application": {
+                    "type": "string",
+                    "example": "shop"
+                },
+                "application_id": {
+                    "description": "ApplicationID and Application name the application whose endpoints the\nhostname serves.",
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "environment": {
+                    "type": "string",
+                    "example": "prod"
+                },
+                "hostname": {
+                    "type": "string",
+                    "example": "www.example.com"
+                },
+                "site": {
+                    "type": "string",
+                    "example": "marketing"
+                },
+                "site_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "site.Environment": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "example": "prod"
+                },
+                "release": {
+                    "description": "Release is the number of the release served, 0 before the first.",
+                    "type": "integer",
+                    "example": 3
+                },
+                "requires_approval": {
+                    "description": "RequiresApproval makes a promotion here a request in the Approvals queue.",
+                    "type": "boolean"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "string"
+                }
+            }
+        },
+        "site.File": {
+            "type": "object",
+            "properties": {
+                "brotli_size": {
+                    "type": "integer"
+                },
+                "content_type": {
+                    "type": "string",
+                    "example": "text/css"
+                },
+                "gzip_size": {
+                    "description": "GzipSize and BrotliSize are the stored variants' sizes, 0 for a file\nwith no such variant.",
+                    "type": "integer"
+                },
+                "path": {
+                    "type": "string",
+                    "example": "css/site.3f2a9c1b.css"
+                },
+                "sha256": {
+                    "type": "string"
+                },
+                "size": {
+                    "type": "integer"
+                }
+            }
+        },
+        "site.Grant": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string",
+                    "example": "pat@client.example"
+                },
+                "granted_by": {
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "level": {
+                    "type": "string",
+                    "example": "view"
+                }
+            }
+        },
+        "site.Job": {
+            "type": "object",
+            "properties": {
+                "bytes": {
+                    "description": "Bytes is what a copy has downloaded; SkippedCount the addresses it could\nnot bring across so far, listed in Skipped when it ends.",
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "done": {
+                    "description": "Done and Total count the files written, or the pages copied.",
+                    "type": "integer"
+                },
+                "environment": {
+                    "type": "string",
+                    "example": "default"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "sjob_01J9"
+                },
+                "kind": {
+                    "type": "string",
+                    "example": "publish"
+                },
+                "pages": {
+                    "type": "integer"
+                },
+                "phase": {
+                    "type": "string",
+                    "example": "Writing files"
+                },
+                "redirects": {
+                    "type": "integer"
+                },
+                "release": {
+                    "type": "integer"
+                },
+                "site_id": {
+                    "type": "string"
+                },
+                "skipped": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/site.Skipped"
+                    }
+                },
+                "skipped_count": {
+                    "type": "integer"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "running"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "site.Redirect": {
+            "type": "object",
+            "properties": {
+                "from": {
+                    "type": "string",
+                    "example": "/old/*"
+                },
+                "status": {
+                    "type": "integer",
+                    "example": 301
+                },
+                "to": {
+                    "type": "string",
+                    "example": "/new/:splat"
+                }
+            }
+        },
+        "site.Site": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "environments": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/site.Environment"
+                    }
+                },
+                "id": {
+                    "type": "string",
+                    "example": "site_01J9"
+                },
+                "internal_view": {
+                    "description": "InternalView lets everyone whose persona is not external open the\nsite's own address: a company intranet.",
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "marketing"
+                },
+                "owner_email": {
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "site.Skipped": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string",
+                    "example": "/old/report.pdf"
+                },
+                "reason": {
+                    "type": "string",
+                    "example": "answered 404"
+                }
+            }
+        },
+        "siteconfig.Settings": {
+            "type": "object",
+            "properties": {
+                "crawl_max_bytes": {
+                    "type": "integer",
+                    "example": 536870912
+                },
+                "crawl_max_pages": {
+                    "type": "integer",
+                    "example": 2000
+                },
+                "max_file_bytes": {
+                    "type": "integer",
+                    "example": 67108864
+                },
+                "max_release_bytes": {
+                    "type": "integer",
+                    "example": 2147483648
+                },
+                "max_release_files": {
+                    "type": "integer",
+                    "example": 20000
+                },
+                "pages_domain": {
+                    "type": "string",
+                    "example": "pages.example.net"
+                }
+            }
+        },
+        "sitehttp.AccessList": {
+            "type": "object",
+            "properties": {
+                "grants": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/site.Grant"
+                    }
+                },
+                "internal_view": {
+                    "type": "boolean"
+                },
+                "owner_email": {
+                    "type": "string"
+                }
+            }
+        },
+        "sitehttp.AddressList": {
+            "type": "object",
+            "properties": {
+                "addresses": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sitehttp.DeploymentAddress"
+                    }
+                }
+            }
+        },
+        "sitehttp.AdminDomainBody": {
+            "type": "object",
+            "properties": {
+                "application": {
+                    "type": "string"
+                },
+                "environment": {
+                    "type": "string"
+                },
+                "hostname": {
+                    "type": "string",
+                    "example": "shop.example.com"
+                },
+                "requires_approval": {
+                    "type": "boolean"
+                },
+                "site": {
+                    "type": "string"
+                }
+            }
+        },
+        "sitehttp.ApplicationAddresses": {
+            "type": "object",
+            "properties": {
+                "domains": {
                     "type": "array",
                     "items": {
                         "type": "string"
                     }
                 },
-                "pages_wildcard": {
-                    "description": "PagesDomain is the wildcard the pages and previews need, \"\" for none.",
+                "page_origin": {
+                    "type": "string"
+                }
+            }
+        },
+        "sitehttp.CopyBody": {
+            "type": "object",
+            "properties": {
+                "environment": {
+                    "type": "string",
+                    "example": "default"
+                },
+                "form_map": {
+                    "description": "FormMap names, for a page path, the platform form that replaces its forms.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "max_bytes": {
+                    "type": "integer"
+                },
+                "max_pages": {
+                    "type": "integer"
+                },
+                "note": {
                     "type": "string"
                 },
-                "unverified": {
+                "url": {
+                    "type": "string",
+                    "example": "https://www.example.com"
+                }
+            }
+        },
+        "sitehttp.DeploymentAddress": {
+            "type": "object",
+            "properties": {
+                "application": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "environment": {
+                    "type": "string",
+                    "example": "default"
+                },
+                "hostname": {
+                    "type": "string",
+                    "example": "marketing.pages.example.net"
+                },
+                "kind": {
+                    "type": "string",
+                    "example": "site_address"
+                },
+                "site": {
+                    "type": "string",
+                    "example": "marketing"
+                }
+            }
+        },
+        "sitehttp.DeploymentList": {
+            "type": "object",
+            "properties": {
+                "deployments": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/site.Deployment"
+                    }
+                }
+            }
+        },
+        "sitehttp.DomainBody": {
+            "type": "object",
+            "properties": {
+                "environment": {
+                    "type": "string",
+                    "example": "dev"
+                },
+                "hostname": {
+                    "type": "string",
+                    "example": "dev.example.com"
+                },
+                "requires_approval": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "sitehttp.EnvironmentBody": {
+            "type": "object",
+            "properties": {
+                "requires_approval": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "sitehttp.FormList": {
+            "type": "object",
+            "properties": {
+                "forms": {
                     "type": "array",
                     "items": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "sitehttp.GrantBody": {
+            "type": "object",
+            "properties": {
+                "level": {
+                    "type": "string",
+                    "example": "view"
+                },
+                "notify": {
+                    "description": "Notify emails them the site's address.",
+                    "type": "boolean"
+                }
+            }
+        },
+        "sitehttp.JobList": {
+            "type": "object",
+            "properties": {
+                "jobs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/site.Job"
+                    }
+                }
+            }
+        },
+        "sitehttp.PromoteBody": {
+            "type": "object",
+            "properties": {
+                "from": {
+                    "type": "string",
+                    "example": "stage"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "release": {
+                    "type": "integer"
+                },
+                "to": {
+                    "type": "string",
+                    "example": "prod"
+                }
+            }
+        },
+        "sitehttp.PublishBody": {
+            "type": "object",
+            "properties": {
+                "archive": {
+                    "type": "string"
+                },
+                "environment": {
+                    "type": "string",
+                    "example": "default"
+                },
+                "folder": {
+                    "type": "string"
+                },
+                "note": {
+                    "type": "string"
+                },
+                "scope": {
+                    "type": "string"
+                },
+                "scope_id": {
+                    "type": "string"
+                },
+                "source": {
+                    "description": "Source is what the release says it came from, the file's name when\ngiven; only ever displayed.",
+                    "type": "string",
+                    "example": "site-1108.zip"
+                }
+            }
+        },
+        "sitehttp.ReleaseDetail": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "file_count": {
+                    "type": "integer"
+                },
+                "files": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/site.File"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "manifest_sha256": {
+                    "description": "ManifestSHA256 fixes the file set: the digest of every path and content\ndigest, in path order.",
+                    "type": "string"
+                },
+                "note": {
+                    "type": "string"
+                },
+                "number": {
+                    "type": "integer",
+                    "example": 3
+                },
+                "redirects": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/site.Redirect"
+                    }
+                },
+                "served_in": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "site_id": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "total_bytes": {
+                    "type": "integer"
+                }
+            }
+        },
+        "sitehttp.ReleaseList": {
+            "type": "object",
+            "properties": {
+                "releases": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sitehttp.ReleaseView"
+                    }
+                }
+            }
+        },
+        "sitehttp.ReleaseView": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "file_count": {
+                    "type": "integer"
+                },
+                "files": {
+                    "description": "Files is filled by a read that asks for them.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/site.File"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "manifest_sha256": {
+                    "description": "ManifestSHA256 fixes the file set: the digest of every path and content\ndigest, in path order.",
+                    "type": "string"
+                },
+                "note": {
+                    "type": "string"
+                },
+                "number": {
+                    "type": "integer",
+                    "example": 3
+                },
+                "redirects": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/site.Redirect"
+                    }
+                },
+                "served_in": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "site_id": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "total_bytes": {
+                    "type": "integer"
+                }
+            }
+        },
+        "sitehttp.RollbackBody": {
+            "type": "object",
+            "properties": {
+                "environment": {
+                    "type": "string",
+                    "example": "prod"
+                },
+                "release": {
+                    "type": "integer"
+                }
+            }
+        },
+        "sitehttp.SiteLimits": {
+            "type": "object",
+            "properties": {
+                "crawl_max_bytes": {
+                    "type": "integer",
+                    "example": 536870912
+                },
+                "crawl_max_pages": {
+                    "type": "integer",
+                    "example": 2000
+                },
+                "max_file_bytes": {
+                    "type": "integer",
+                    "example": 67108864
+                },
+                "max_release_bytes": {
+                    "type": "integer",
+                    "example": 2147483648
+                },
+                "max_release_files": {
+                    "type": "integer",
+                    "example": 20000
+                }
+            }
+        },
+        "sitehttp.SiteList": {
+            "type": "object",
+            "properties": {
+                "admin": {
+                    "description": "Admin is whether the caller is an administrator.",
+                    "type": "boolean"
+                },
+                "can_create": {
+                    "description": "CanCreate is whether the caller's persona may create a site.",
+                    "type": "boolean"
+                },
+                "limits": {
+                    "$ref": "#/definitions/sitehttp.SiteLimits"
+                },
+                "pages_domain": {
+                    "description": "PagesDomain is \"\" when the deployment has none, so sites have no address\nof their own.",
+                    "type": "string"
+                },
+                "sites": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sitehttp.SiteView"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "sitehttp.SiteRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "careers"
+                }
+            }
+        },
+        "sitehttp.SiteSettings": {
+            "type": "object",
+            "properties": {
+                "crawl_max_bytes": {
+                    "type": "integer",
+                    "example": 536870912
+                },
+                "crawl_max_pages": {
+                    "type": "integer",
+                    "example": 2000
+                },
+                "max_file_bytes": {
+                    "type": "integer",
+                    "example": 67108864
+                },
+                "max_release_bytes": {
+                    "type": "integer",
+                    "example": 2147483648
+                },
+                "max_release_files": {
+                    "type": "integer",
+                    "example": 20000
+                },
+                "pages_domain": {
+                    "type": "string",
+                    "example": "pages.example.net"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "string"
+                }
+            }
+        },
+        "sitehttp.SiteUpdate": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "internal_view": {
+                    "type": "boolean"
+                },
+                "owner_email": {
+                    "type": "string"
+                }
+            }
+        },
+        "sitehttp.SiteView": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "description": "Address is the site's own address, \"\" with no pages domain.",
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "domains": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/site.Domain"
+                    }
+                },
+                "environments": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/site.Environment"
+                    }
+                },
+                "id": {
+                    "type": "string",
+                    "example": "site_01J9"
+                },
+                "internal_view": {
+                    "description": "InternalView lets everyone whose persona is not external open the\nsite's own address: a company intranet.",
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "marketing"
+                },
+                "owner_email": {
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "permissions": {
+                    "description": "Permissions is what the caller may do to this site.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/sitesvc.Permissions"
+                        }
+                    ]
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "sitesvc.Comparison": {
+            "type": "object",
+            "properties": {
+                "added": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "changed": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "from": {
+                    "type": "integer",
+                    "example": 9
+                },
+                "redirects_added": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/site.Redirect"
+                    }
+                },
+                "redirects_removed": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/site.Redirect"
+                    }
+                },
+                "removed": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "to": {
+                    "type": "integer",
+                    "example": 11
+                }
+            }
+        },
+        "sitesvc.Permissions": {
+            "type": "object",
+            "properties": {
+                "delete": {
+                    "description": "Delete removes the site.",
+                    "type": "boolean"
+                },
+                "manage": {
+                    "description": "Manage publishes, promotes, rolls back, adds domains and shares view access.",
+                    "type": "boolean"
+                },
+                "own": {
+                    "description": "Own edits the description, moves the owner, and adds or removes the\npeople who manage.",
+                    "type": "boolean"
+                }
+            }
+        },
+        "sitesvc.Promoted": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string"
+                },
+                "approval": {
+                    "$ref": "#/definitions/approval.Request"
+                },
+                "environment": {
+                    "type": "string"
+                },
+                "release": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "promoted"
                 }
             }
         },

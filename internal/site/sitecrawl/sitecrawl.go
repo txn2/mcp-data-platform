@@ -57,14 +57,23 @@ type Request struct {
 	FormMap map[string]string
 	// PortalURL is the platform's address the frames point at.
 	PortalURL string
+	// MaxPages and MaxBytes bound this copy, the crawler's own bounds when 0.
+	MaxPages int
+	MaxBytes int64
+	// Progress is told after each address how many pages were copied and how
+	// many addresses are known, and returns true to stop; nil copies to the end.
+	Progress func(sitesvc.CopyStats) (stop bool)
 }
+
+// ErrStopped is what a copy that was asked to stop returns.
+var ErrStopped = sitesvc.ErrStopped
 
 // Result is what a crawl found.
 type Result struct {
 	Files     []sitesvc.InputFile
 	Pages     int
 	Redirects int
-	Skipped   []string
+	Skipped   []site.Skipped
 }
 
 // Crawler fetches through the egress guard.
@@ -96,9 +105,10 @@ type run struct {
 	queue     []string
 	files     []sitesvc.InputFile
 	redirects []site.Redirect
-	skipped   []string
+	skipped   []site.Skipped
 	pages     int
 	total     int64
+	maxBytes  int64
 }
 
 // Crawl walks the site from req.Start, staying on its host.
@@ -107,19 +117,33 @@ func (c *Crawler) Crawl(ctx context.Context, req Request) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	r := &run{c: c, req: req, root: root, seen: map[string]bool{}}
+	r := &run{c: c, req: req, root: root, seen: map[string]bool{}, maxBytes: cmp.Or(req.MaxBytes, c.MaxBytes)}
+	maxPages := cmp.Or(req.MaxPages, c.MaxPages)
 	r.enqueue(root.Path)
 	for _, p := range wellKnownFiles {
 		r.enqueue(p)
 	}
-	for len(r.queue) > 0 && r.pages < c.MaxPages {
+	for len(r.queue) > 0 && r.pages < maxPages {
 		next := r.queue[0]
 		r.queue = r.queue[1:]
 		if err := r.fetch(ctx, next); err != nil {
 			return nil, err
 		}
+		if req.Progress != nil && req.Progress(sitesvc.CopyStats{Pages: r.pages, Known: len(r.seen), Bytes: r.total, Redirects: len(r.redirects), Skipped: len(r.skipped)}) {
+			return nil, ErrStopped
+		}
 	}
 	return r.result(), nil
+}
+
+// SourceOf is the address a release records it was copied from: the scheme,
+// host and path, since a query or fragment can hold what should not be kept.
+func SourceOf(start string) string {
+	u, err := url.Parse(start)
+	if err != nil {
+		return ""
+	}
+	return (&url.URL{Scheme: u.Scheme, Host: u.Host, Path: u.Path}).String()
 }
 
 // checkRequest refuses a start that is not an http(s) address and a form map
@@ -127,7 +151,10 @@ func (c *Crawler) Crawl(ctx context.Context, req Request) (*Result, error) {
 func checkRequest(req Request) (*url.URL, error) {
 	root, err := url.Parse(req.Start)
 	if err != nil || (root.Scheme != "http" && root.Scheme != "https") || root.Host == "" {
-		return nil, &sitesvc.RefusedError{Msg: fmt.Sprintf("url %q: an http(s) address", req.Start)}
+		return nil, &sitesvc.RefusedError{Msg: "url: an http(s) address"}
+	}
+	if root.User != nil {
+		return nil, &sitesvc.RefusedError{Msg: "url: an address holding a user name or password cannot be copied"}
 	}
 	for page, ep := range req.FormMap {
 		if !endpointName.MatchString(ep) || !strings.HasPrefix(page, pathSep) {
@@ -149,6 +176,11 @@ func (r *run) result() *Result {
 	return &Result{Files: files, Pages: r.pages, Redirects: len(r.redirects), Skipped: r.skipped}
 }
 
+// skip records an address that could not be copied, and why.
+func (r *run) skip(p, reason string) {
+	r.skipped = append(r.skipped, site.Skipped{Address: p, Reason: reason})
+}
+
 func (r *run) enqueue(p string) {
 	if p == "" {
 		p = pathSep
@@ -163,12 +195,13 @@ func (r *run) fetch(ctx context.Context, p string) error {
 	target := r.root.ResolveReference(&url.URL{Path: p})
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), http.NoBody) // #nosec G107 -- through the egress guard
 	if err != nil {
-		r.skipped = append(r.skipped, p)
+		r.skip(p, "the address cannot be requested")
 		return nil //nolint:nilerr // a path that cannot be requested is reported, not fatal
 	}
 	res, err := r.c.Client.Do(req) // #nosec G704 -- the client's transport is the egress guard's
 	if err != nil {
-		r.skipped = append(r.skipped, p)
+		// The error names what the guard resolved, so it stays out of the reason.
+		r.skip(p, "the address did not answer, or is not one a copy may reach")
 		return nil //nolint:nilerr // an address that does not answer is reported, not fatal
 	}
 	defer func() { _ = res.Body.Close() }()
@@ -177,7 +210,7 @@ func (r *run) fetch(ctx context.Context, p string) error {
 		r.redirected(p, res)
 		return nil
 	case res.StatusCode != http.StatusOK:
-		r.skipped = append(r.skipped, p)
+		r.skip(p, fmt.Sprintf("answered %d", res.StatusCode))
 		return nil
 	}
 	return r.store(p, res)
@@ -187,8 +220,12 @@ func (r *run) fetch(ctx context.Context, p string) error {
 // it went when that stays on the site.
 func (r *run) redirected(p string, res *http.Response) {
 	loc, err := res.Location()
-	if err != nil || len(r.redirects) >= redirectsMax {
-		r.skipped = append(r.skipped, p)
+	if err != nil {
+		r.skip(p, "redirected with no usable address")
+		return
+	}
+	if len(r.redirects) >= redirectsMax {
+		r.skip(p, "the site has more redirects than a release can hold")
 		return
 	}
 	target := loc.String()
@@ -198,21 +235,21 @@ func (r *run) redirected(p string, res *http.Response) {
 	}
 	rule := site.Redirect{From: p, To: target, Status: res.StatusCode}
 	if site.ValidateRedirect(rule) != nil {
-		r.skipped = append(r.skipped, p)
+		r.skip(p, "redirected somewhere a release cannot point")
 		return
 	}
 	r.redirects = append(r.redirects, rule)
 }
 
 func (r *run) store(p string, res *http.Response) error {
-	remaining := r.c.MaxBytes - r.total
+	remaining := r.maxBytes - r.total
 	body, err := io.ReadAll(io.LimitReader(res.Body, remaining+1))
 	if err != nil {
-		r.skipped = append(r.skipped, p)
+		r.skip(p, "the answer broke off")
 		return nil //nolint:nilerr // a body that breaks off is reported, not fatal
 	}
 	if int64(len(body)) > remaining {
-		return &sitesvc.RefusedError{Msg: fmt.Sprintf("the site holds more than the %d bytes sites.crawl.max_bytes allows", r.c.MaxBytes)}
+		return &sitesvc.RefusedError{Msg: fmt.Sprintf("the site holds more than the %d bytes sites.crawl.max_bytes allows", r.maxBytes)}
 	}
 	r.total += int64(len(body))
 	r.pages++
@@ -221,7 +258,7 @@ func (r *run) store(p string, res *http.Response) error {
 	// A path a release cannot hold is reported, not fatal: one .htaccess link
 	// on a page must not stop the whole copy.
 	if _, err := sitesvc.CleanPath(name); err != nil {
-		r.skipped = append(r.skipped, p)
+		r.skip(p, "a release cannot hold a file at this path")
 		return nil //nolint:nilerr // a path a release cannot hold is reported, not fatal
 	}
 	if isHTML {

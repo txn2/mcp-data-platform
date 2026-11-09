@@ -258,3 +258,17 @@ func TestRealDB_SchemaIsAPartWithItsRunRole(t *testing.T) {
 	require.ErrorIs(t, s.ClearSchema(ctx, app.ID), application.ErrNoPart)
 	require.NoError(t, s.SetSchema(ctx, rival.ID, held), "a schema given up is free to take")
 }
+
+// A site and an application share the name space of the pages domain, so an
+// application cannot take a name a site holds: the statement inserts no row.
+func TestRealDB_CreateRefusesANameASiteHolds(t *testing.T) {
+	db := testdb.New(t)
+	ctx := context.Background()
+	apps := New(db)
+
+	_, err := db.ExecContext(ctx, `INSERT INTO sites (id, name, owner_email, created_by) VALUES ('site_x', 'shop', $1, $1)`, owner)
+	require.NoError(t, err)
+
+	require.ErrorIs(t, apps.Create(ctx, &application.Application{Name: "shop", OwnerEmail: owner, CreatedBy: owner}), application.ErrNameTaken)
+	require.NoError(t, apps.Create(ctx, &application.Application{Name: "free", OwnerEmail: owner, CreatedBy: owner}), "a name no site holds is free")
+}

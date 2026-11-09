@@ -21,19 +21,25 @@ import (
 
 // Service carries out the commands.
 type Service struct {
-	Store     site.Store
-	Objects   Objects
-	Bucket    string
-	Config    siteconfig.Config
+	Store   site.Store
+	Objects Objects
+	Bucket  string
+	Config  siteconfig.Config
+	// Live, when set, is the configuration in force and Config only its seed.
+	Live      *siteconfig.Live
 	Apps      Applications
 	Approvals Approvals
-	Verifier  Verifier
+	// External reports whether the person at an address is external; nil is
+	// no one.
+	External func(ctx context.Context, email string) bool
 	// PortalHost is the portal's hostname, which no domain may claim.
 	PortalHost string
+	// ReservedHosts are the other hostnames the platform answers on itself.
+	ReservedHosts []string
 	// CookieDomain is the session cookie's Domain, under which no served
 	// origin may sit.
 	CookieDomain string
-	// PublicScheme and PublicPort are what a preview URL is written with.
+	// PublicScheme and PublicPort are what an address is written with.
 	PublicScheme, PublicPort string
 	Invalidate               Invalidate
 }
@@ -43,6 +49,9 @@ type Actor struct {
 	Email   string
 	Persona string
 	Admin   bool
+	// EmailUnverified is true when the identity provider said in so many words
+	// that it has not verified Email, which then matches no owner or grant.
+	EmailUnverified bool
 }
 
 // RefusedError is a command refused for a reason the caller can act on.
@@ -54,7 +63,15 @@ func refused(format string, args ...any) error {
 	return &RefusedError{Msg: fmt.Sprintf(format, args...)}
 }
 
-var errNeedsAdmin = fmt.Errorf("administrators map hostnames and delete sites: %w", site.ErrNotAllowed)
+var errNeedsAdmin = fmt.Errorf("this needs an administrator: %w", site.ErrNotAllowed)
+
+// cfg is the configuration in force.
+func (s *Service) cfg() siteconfig.Config {
+	if s.Live != nil {
+		return s.Live.Get()
+	}
+	return s.Config
+}
 
 // noEnvironment is the error for an environment the site does not have.
 func noEnvironment(name string) error {
@@ -69,25 +86,24 @@ func (s *Service) Find(ctx context.Context, ref string) (*site.Site, error) {
 	return s.Store.GetByName(ctx, ref) //nolint:wrapcheck // read by identity
 }
 
-func mayEdit(actor Actor, st *site.Site) error {
-	if actor.Admin || (actor.Email != "" && strings.EqualFold(actor.Email, st.OwnerEmail)) {
-		return nil
-	}
-	return fmt.Errorf("site %q is changed by its owner or an administrator: %w", st.Name, site.ErrNotAllowed)
-}
-
-// Create makes a site with dev, stage and prod environments; prod requires
-// approval.
+// Create makes a site with its default environment; its creator is its owner.
+// A site and an application share the name space of the pages domain, so a
+// name one of them holds is refused.
 func (s *Service) Create(ctx context.Context, actor Actor, name, description string) (*site.Site, error) {
 	if actor.Email == "" {
 		return nil, refused("a site needs an owner with an email")
 	}
 	st := &site.Site{
 		ID: sitestore.NewSiteID(), Name: name, Description: description, OwnerEmail: actor.Email, CreatedBy: actor.Email,
-		Environments: []site.Environment{{Name: site.EnvDev}, {Name: "stage"}, {Name: site.EnvProd, RequiresApproval: true}},
+		Environments: []site.Environment{{Name: site.EnvDefault}},
 	}
 	if err := st.Validate(); err != nil {
 		return nil, refused("%s", err.Error())
+	}
+	if s.Apps != nil {
+		if _, err := s.Apps.GetByName(ctx, name); err == nil {
+			return nil, refused("%q is the name of an application, and a site and an application cannot share a name", name)
+		}
 	}
 	if err := s.Store.Create(ctx, st); err != nil {
 		return nil, err //nolint:wrapcheck // read by identity
@@ -95,28 +111,64 @@ func (s *Service) Create(ctx context.Context, actor Actor, name, description str
 	return s.Store.Get(ctx, st.ID) //nolint:wrapcheck // read by identity
 }
 
-// Update changes the description, or moves the site to another owner.
-func (s *Service) Update(ctx context.Context, actor Actor, ref, description, owner string) (*site.Site, error) {
+// UpdateRequest is a change to a site's record; a nil field is left alone.
+type UpdateRequest struct {
+	Description  *string
+	Owner        *string
+	InternalView *bool
+}
+
+// Update changes a site's record. The description and the owner are the
+// owner's and administrators'; opening the site to everyone internal is
+// sharing it, so the people who manage it can do that too.
+func (s *Service) Update(ctx context.Context, actor Actor, ref string, u UpdateRequest) (*site.Site, error) {
 	st, err := s.Find(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
-	if err := mayEdit(actor, st); err != nil {
+	if err := s.applyUpdate(ctx, actor, st, u); err != nil {
 		return nil, err
-	}
-	if description != "" {
-		if len(description) > site.MaxDescription {
-			return nil, refused("description: at most %d bytes", site.MaxDescription)
-		}
-		st.Description = description
-	}
-	if owner != "" {
-		st.OwnerEmail = owner
 	}
 	if err := s.Store.Update(ctx, st); err != nil {
 		return nil, err //nolint:wrapcheck // read by identity
 	}
 	return s.Store.Get(ctx, st.ID) //nolint:wrapcheck // read by identity
+}
+
+func (s *Service) applyUpdate(ctx context.Context, actor Actor, st *site.Site, u UpdateRequest) error {
+	if u.Description != nil || u.Owner != nil {
+		if err := s.mayOwn(ctx, actor, st); err != nil {
+			return err
+		}
+	}
+	if u.InternalView != nil {
+		if err := s.mayEdit(ctx, actor, st); err != nil {
+			return err
+		}
+		st.InternalView = *u.InternalView
+	}
+	if u.Description != nil {
+		if len(*u.Description) > site.MaxDescription {
+			return refused("description: at most %d bytes", site.MaxDescription)
+		}
+		st.Description = *u.Description
+	}
+	if u.Owner != nil {
+		return s.moveOwner(ctx, st, *u.Owner)
+	}
+	return nil
+}
+
+func (s *Service) moveOwner(ctx context.Context, st *site.Site, owner string) error {
+	email := site.NormalizeEmail(owner)
+	if !strings.Contains(email, "@") {
+		return refused("owner: an email address")
+	}
+	if s.External != nil && s.External(ctx, email) {
+		return refused("%s is external, and only internal people can own a site", email)
+	}
+	st.OwnerEmail = email
+	return nil
 }
 
 // Delete removes a site. Administrators only: a site can hold live domains.
@@ -189,7 +241,7 @@ func (s *Service) SetEnvironment(ctx context.Context, actor Actor, ref, name str
 	if err != nil {
 		return nil, err
 	}
-	if err := mayEdit(actor, st); err != nil {
+	if err := s.mayEdit(ctx, actor, st); err != nil {
 		return nil, err
 	}
 	if err := site.ValidateEnvironment(name); err != nil {
@@ -225,21 +277,40 @@ func (s *Service) move(ctx context.Context, actor Actor, m repoint) error {
 	return nil
 }
 
-// PreviewURL is where an environment answers without a domain, "" with no
-// pages domain configured.
-func (s *Service) PreviewURL(siteName, environment string) string {
-	if s.Config.PagesDomain == "" {
+// OwnAddress is where a site's own address answers, "" with no pages domain.
+func (s *Service) OwnAddress(siteName string) string {
+	domain := s.cfg().PagesDomain
+	if domain == "" {
 		return ""
 	}
-	return s.Origin(environment + site.PreviewSeparator + siteName + "." + s.Config.PagesDomain)
+	return s.Origin(siteName + "." + domain)
+}
+
+// Address is where an environment answers: the site's own address for the
+// default environment, otherwise the first domain added to it, "" for none.
+func (s *Service) Address(ctx context.Context, st *site.Site, environment string) string {
+	if environment == site.EnvDefault {
+		return s.OwnAddress(st.Name)
+	}
+	domains, err := s.Store.SiteDomains(ctx, st.ID)
+	if err != nil {
+		return ""
+	}
+	for _, d := range domains {
+		if d.Environment == environment {
+			return s.Origin(d.Hostname)
+		}
+	}
+	return ""
 }
 
 // PageOrigin is where an application's pages answer, "" with no pages domain.
 func (s *Service) PageOrigin(applicationName string) string {
-	if s.Config.PagesDomain == "" {
+	domain := s.cfg().PagesDomain
+	if domain == "" {
 		return ""
 	}
-	return s.Origin(applicationName + "." + s.Config.PagesDomain)
+	return s.Origin(applicationName + "." + domain)
 }
 
 // Origin is the browser origin a hostname answers at.

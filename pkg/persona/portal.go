@@ -49,6 +49,17 @@ const (
 	portalToolFetch          = "fetch"
 )
 
+// ToolManageSite is the tool the Sites area is otherwise reached through. It is
+// registered on the platform rather than by a toolkit, so whoever works out what
+// a persona was granted adds it to the toolkits' tools.
+const ToolManageSite = "manage_site"
+
+// PortalGrants is tools, the persona's toolkit tools, with the platform-level
+// tool the portal's defaults also read from when the persona is allowed it.
+func PortalGrants(p *Persona, tools []string) []string {
+	return append(slices.Clone(tools), NewToolFilter(nil).FilterTools(p, []string{ToolManageSite})...)
+}
+
 // The levels each area admits, lowest first.
 var (
 	assetLevels     = []string{PortalShared, PortalOwn}
@@ -85,6 +96,9 @@ type PortalAccess struct {
 	// Automations is managed scripts in the portal; the script tools an agent
 	// calls are governed by Tools. It replaces hide_automations (#2109).
 	Automations *bool `json:"automations,omitempty" yaml:"automations,omitempty"`
+	// Sites is the portal's Sites section (#2559). A person the owner gave
+	// view access opens that site's own address without it.
+	Sites *bool `json:"sites,omitempty" yaml:"sites,omitempty"`
 	// Search is the portal's unified search.
 	Search *bool `json:"search,omitempty" yaml:"search,omitempty"`
 	// Memory is memory and insights.
@@ -141,6 +155,7 @@ func (p *Persona) PortalPermissions(granted []string) PortalAccess {
 		Feedback:      switchOr(set.Feedback),
 		Prompts:       switchOr(set.Prompts),
 		Automations:   switchOr(set.Automations),
+		Sites:         toolOr(set.Sites, tool(ToolManageSite)),
 		Search:        switchOr(set.Search),
 		Memory:        switchOr(set.Memory),
 		Download:      switchOr(set.Download),
@@ -154,6 +169,15 @@ func (p *Persona) PortalPermissions(granted []string) PortalAccess {
 		out = externalLimits(out)
 	}
 	return out
+}
+
+// toolOr is the switch as set, or whether the persona holds the tool the area
+// is otherwise reached through.
+func toolOr(set *bool, held bool) *bool {
+	if set != nil {
+		return set
+	}
+	return &held
 }
 
 // StoredPortal is the persona's portal block resolved without the limits
@@ -184,7 +208,7 @@ func externalLimits(a PortalAccess) PortalAccess {
 		a.Resources = PortalShared
 	}
 	a.Knowledge, a.Catalog, a.APIs, a.ScratchTables, a.ExternalFiles = PortalNone, PortalNone, PortalNone, PortalNone, PortalNone
-	a.Search, a.Prompts, a.Automations, a.Memory = off(), off(), off(), off()
+	a.Search, a.Prompts, a.Automations, a.Memory, a.Sites = off(), off(), off(), off(), off()
 	a.External = true
 	return a
 }
@@ -196,7 +220,7 @@ func FullPortalAccess() PortalAccess {
 	return PortalAccess{
 		Assets: PortalOwn, Resources: PortalPersonaFolders, Knowledge: PortalWrite,
 		Catalog: PortalWrite, APIs: PortalBrowse, ScratchTables: PortalRegister,
-		Feedback: on(), Prompts: on(), Automations: on(), Search: on(), Memory: on(), Download: on(),
+		Feedback: on(), Prompts: on(), Automations: on(), Sites: on(), Search: on(), Memory: on(), Download: on(),
 		History: on(), ExternalFiles: PortalManage,
 	}
 }

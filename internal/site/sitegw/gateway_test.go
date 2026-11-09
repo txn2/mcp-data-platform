@@ -27,7 +27,7 @@ const (
 	testPortal      = "portal.example.com"
 	testSiteHost    = "www.client.example"
 	testOtherHost   = "elsewhere.example"
-	testPreviewHost = "dev--marketing.pages.example.com"
+	testOwnHost     = "marketing.pages.example.com"
 	testBucket      = "site-bucket"
 	testSiteID      = "site_1"
 
@@ -40,20 +40,20 @@ const (
 
 // memStore is a Store over maps, counting the reads a test asserts on.
 type memStore struct {
-	mu       sync.Mutex
-	hosts    map[string]*site.Route
-	previews map[string]*site.Route
-	files    map[string][]site.File
-	verified []string
+	mu    sync.Mutex
+	hosts map[string]*site.Route
+	own   map[string]*site.Route
+	files map[string][]site.File
+	added []string
 
-	routeHostErr, previewErr, filesErr, verifiedErr error
+	routeHostErr, ownErr, filesErr, hostsErr error
 
-	routeHostReads, previewReads, fileReads, verifiedReads int
-	previewAsked                                           []string
+	routeHostReads, ownReads, fileReads, hostsReads int
+	ownAsked                                        []string
 }
 
 func newMemStore() *memStore {
-	return &memStore{hosts: map[string]*site.Route{}, previews: map[string]*site.Route{}, files: map[string][]site.File{}}
+	return &memStore{hosts: map[string]*site.Route{}, own: map[string]*site.Route{}, files: map[string][]site.File{}}
 }
 
 func (s *memStore) RouteHost(_ context.Context, hostname string) (*site.Route, error) {
@@ -69,15 +69,15 @@ func (s *memStore) RouteHost(_ context.Context, hostname string) (*site.Route, e
 	return nil, site.ErrNoDomain
 }
 
-func (s *memStore) RoutePreview(_ context.Context, siteName, environment string) (*site.Route, error) {
+func (s *memStore) RouteOwn(_ context.Context, siteName string) (*site.Route, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.previewReads++
-	s.previewAsked = append(s.previewAsked, siteName+"/"+environment)
-	if s.previewErr != nil {
-		return nil, s.previewErr
+	s.ownReads++
+	s.ownAsked = append(s.ownAsked, siteName)
+	if s.ownErr != nil {
+		return nil, s.ownErr
 	}
-	if r, ok := s.previews[siteName+"/"+environment]; ok {
+	if r, ok := s.own[siteName]; ok {
 		return r, nil
 	}
 	return nil, site.ErrNoDomain
@@ -93,14 +93,14 @@ func (s *memStore) Files(_ context.Context, releaseID string) ([]site.File, erro
 	return s.files[releaseID], nil
 }
 
-func (s *memStore) VerifiedHosts(context.Context) ([]string, error) {
+func (s *memStore) Hosts(context.Context) ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.verifiedReads++
-	if s.verifiedErr != nil {
-		return nil, s.verifiedErr
+	s.hostsReads++
+	if s.hostsErr != nil {
+		return nil, s.hostsErr
 	}
-	return s.verified, nil
+	return s.added, nil
 }
 
 // memObjects is an Objects over a map, recording what was fetched.
@@ -233,10 +233,10 @@ func (h *harness) addRelease(number int, redirects []site.Redirect, files ...tes
 	return rel
 }
 
-// mapHost makes testSiteHost a verified hostname serving rel.
+// mapHost makes testSiteHost an added hostname serving rel.
 func (h *harness) mapHost(rel *site.Release) {
 	h.store.hosts[testSiteHost] = &site.Route{SiteID: testSiteID, Site: "marketing", Environment: "prod", Release: rel}
-	h.store.verified = append(h.store.verified, testSiteHost)
+	h.store.added = append(h.store.added, testSiteHost)
 	h.gateway.Invalidate(testSiteHost)
 }
 
@@ -254,22 +254,21 @@ func TestWrap_RoutesByHost(t *testing.T) {
 		body     string
 		nextHits int
 	}{
-		{name: "a host neither under the pages domain nor verified passes through", host: testOtherHost, status: http.StatusOK, body: nextBody, nextHits: 1},
+		{name: "a host neither under the pages domain nor added passes through", host: testOtherHost, status: http.StatusOK, body: nextBody, nextHits: 1},
 		{name: "the portal's own host passes through", host: testPortal, status: http.StatusOK, body: nextBody, nextHits: 1},
-		{name: "a verified host serves its release", host: testSiteHost, status: http.StatusOK, body: "prod home"},
-		{name: "a verified host with a port and upper case is the same host", host: "WWW.client.example:8443", status: http.StatusOK, body: "prod home"},
-		{name: "a label holding -- serves that environment", host: testPreviewHost, status: http.StatusOK, body: "dev home"},
-		{name: "an unknown environment is 404 and never reaches next", host: "nope--marketing.pages.example.com", status: http.StatusNotFound, body: "404 page not found\n"},
+		{name: "an added host serves its release", host: testSiteHost, status: http.StatusOK, body: "prod home"},
+		{name: "an added host with a port and upper case is the same host", host: "WWW.client.example:8443", status: http.StatusOK, body: "prod home"},
+		{name: "a site's own address with no guard answers nothing", host: testOwnHost, status: http.StatusNotFound, body: "404 page not found\n"},
 		{name: "the bare pages domain is 404", host: testPagesDomain, status: http.StatusNotFound, body: "404 page not found\n"},
 		{name: "a name two labels under the pages domain is 404", host: "a.b.pages.example.com", status: http.StatusNotFound, body: "404 page not found\n"},
-		{name: "a label with no -- is an application, none here", host: "shop.pages.example.com", status: http.StatusNotFound, body: "404 page not found\n"},
+		{name: "a label naming nothing is 404 and never reaches next", host: "shop.pages.example.com", status: http.StatusNotFound, body: "404 page not found\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := newHarness(Deps{})
 			h.mapHost(h.addRelease(1, nil, testFile{path: indexFile, body: "prod home", contentType: ctHTML}))
-			dev := h.addRelease(2, nil, testFile{path: indexFile, body: "dev home", contentType: ctHTML})
-			h.store.previews["marketing/dev"] = &site.Route{SiteID: testSiteID, Site: "marketing", Environment: "dev", Release: dev}
+			def := h.addRelease(2, nil, testFile{path: indexFile, body: "private home", contentType: ctHTML})
+			h.store.own["marketing"] = &site.Route{SiteID: testSiteID, Site: "marketing", Environment: site.EnvDefault, Release: def, Private: true}
 
 			rec := h.get(tt.host, "/")
 			assert.Equal(t, tt.status, rec.Code)
@@ -282,29 +281,29 @@ func TestWrap_RoutesByHost(t *testing.T) {
 func TestWrap_ThePortalsOwnHostCostsNoStoreRead(t *testing.T) {
 	h := newHarness(Deps{})
 	h.get(testPortal, "/")
-	assert.Equal(t, 0, h.store.verifiedReads)
+	assert.Equal(t, 0, h.store.hostsReads)
 	assert.Equal(t, 0, h.store.routeHostReads)
-	assert.Equal(t, 0, h.store.previewReads)
+	assert.Equal(t, 0, h.store.ownReads)
 }
 
-func TestWrap_ALabelHoldingTheSeparatorNamesEnvironmentThenSite(t *testing.T) {
+func TestWrap_ALabelUnderThePagesDomainNamesASite(t *testing.T) {
 	h := newHarness(Deps{})
-	h.get("stage--docs.pages.example.com", "/")
-	assert.Equal(t, []string{"docs/stage"}, h.store.previewAsked)
-	assert.Zero(t, h.store.routeHostReads, "a preview is not a verified domain")
+	h.get("docs.pages.example.com", "/")
+	assert.Equal(t, []string{"docs"}, h.store.ownAsked)
+	assert.Zero(t, h.store.routeHostReads, "a site's own address is not an added domain")
 }
 
 func TestWrap_TheBarePagesDomainReadsNoRoute(t *testing.T) {
 	h := newHarness(Deps{})
 	h.get(testPagesDomain, "/")
-	assert.Zero(t, h.store.previewReads)
+	assert.Zero(t, h.store.ownReads)
 	assert.Zero(t, h.store.routeHostReads)
 }
 
 func TestWrap_ARouteThatCannotBeReadIs503(t *testing.T) {
 	h := newHarness(Deps{})
-	h.store.previewErr = errors.New("database is down")
-	rec := h.get(testPreviewHost, "/")
+	h.store.ownErr = errors.New("database is down")
+	rec := h.get(testOwnHost, "/")
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	assert.NotContains(t, rec.Body.String(), "database is down")
 	assert.Zero(t, h.nextHits)
@@ -312,8 +311,52 @@ func TestWrap_ARouteThatCannotBeReadIs503(t *testing.T) {
 
 func TestWrap_AnErrNotFoundFromTheStoreIs404(t *testing.T) {
 	h := newHarness(Deps{})
-	h.store.previewErr = site.ErrNotFound
-	assert.Equal(t, http.StatusNotFound, h.get(testPreviewHost, "/").Code)
+	h.store.ownErr = site.ErrNotFound
+	assert.Equal(t, http.StatusNotFound, h.get(testOwnHost, "/").Code)
+}
+
+func TestWrap_TheLivePagesDomainIsTheOneRoutedOn(t *testing.T) {
+	live := siteconfig.NewLive(siteconfig.Config{PagesDomain: "saved.example.net"})
+	h := newHarness(Deps{Live: live})
+
+	h.get("docs.saved.example.net", "/")
+	assert.Equal(t, []string{"docs"}, h.store.ownAsked, "the saved domain is served")
+	assert.Equal(t, http.StatusNotFound, h.get("saved.example.net", "/").Code, "and its bare name answers nothing")
+	assert.Zero(t, h.nextHits)
+
+	assert.Equal(t, nextBody, h.get(testOwnHost, "/").Body.String(), "the file's domain no longer is")
+
+	live.Set(siteconfig.Config{PagesDomain: testPagesDomain})
+	h.gateway.Invalidate("")
+	h.get(testOwnHost, "/")
+	assert.Equal(t, []string{"docs", "marketing"}, h.store.ownAsked, "a saved change is in force on the next request")
+}
+
+func TestLookup_ALabelIsAnApplicationBeforeASite(t *testing.T) {
+	apps := &memApps{byName: appsNamed("shop")}
+	h := newHarness(Deps{Pages: &Pages{Apps: apps, Assets: &memAssets{}, Now: func() time.Time { return time.Unix(1700000000, 0) }}})
+	h.store.own["shop"] = &site.Route{SiteID: testSiteID, Site: "shop", Private: true}
+	h.store.own["blog"] = &site.Route{SiteID: "site_2", Site: "blog", Private: true}
+
+	route, err := h.gateway.lookup(context.Background(), "shop.pages.example.com")
+	require.NoError(t, err)
+	assert.Equal(t, "shop", route.Application, "nobody takes over a live page origin by creating a site")
+	assert.False(t, route.Private)
+
+	route, err = h.gateway.lookup(context.Background(), "blog.pages.example.com")
+	require.NoError(t, err)
+	assert.Equal(t, "blog", route.Site)
+	assert.True(t, route.Private)
+}
+
+func TestServe_APrivateRouteWithNoGuardIsNever200(t *testing.T) {
+	h := newHarness(Deps{})
+	rel := h.addRelease(1, nil, testFile{path: indexFile, body: "RELEASE BYTES", contentType: ctHTML})
+	h.store.own["marketing"] = &site.Route{SiteID: testSiteID, Site: "marketing", Environment: site.EnvDefault, Release: rel, Private: true}
+
+	rec := h.get(testOwnHost, "/")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.NotContains(t, rec.Body.String(), "RELEASE BYTES")
 }
 
 func TestServes_KeepsTheLastListWhenAReadFails(t *testing.T) {
@@ -321,7 +364,7 @@ func TestServes_KeepsTheLastListWhenAReadFails(t *testing.T) {
 	h.mapHost(h.addRelease(1, nil, testFile{path: indexFile, body: "home", contentType: ctHTML}))
 	require.Equal(t, http.StatusOK, h.get(testSiteHost, "/").Code)
 
-	h.store.verifiedErr = errors.New("database is down")
+	h.store.hostsErr = errors.New("database is down")
 	h.gateway.Invalidate(testSiteHost)
 	assert.Equal(t, http.StatusOK, h.get(testSiteHost, "/").Code, "the hostnames read before still serve")
 }
@@ -336,10 +379,10 @@ func TestServes_ReadsTheHostnamesOncePerWindow(t *testing.T) {
 	h.get(testOtherHost, "/")
 	setRead(time.Now().Add(time.Hour))
 	h.get(testOtherHost, "/")
-	assert.Equal(t, 1, h.store.verifiedReads, "a second request inside the window answers from memory")
+	assert.Equal(t, 1, h.store.hostsReads, "a second request inside the window answers from memory")
 	setRead(time.Now().Add(-2 * hostsTTL))
 	h.get(testOtherHost, "/")
-	assert.Equal(t, 2, h.store.verifiedReads, "a request past the window reads them again")
+	assert.Equal(t, 2, h.store.hostsReads, "a request past the window reads them again")
 }
 
 func baseRelease(h *harness) *site.Release {
@@ -434,8 +477,9 @@ func TestServeSite_AnswersOnlyGetAndHead(t *testing.T) {
 
 func TestServeSite_AnEnvironmentWithNoReleaseIs404(t *testing.T) {
 	h := newHarness(Deps{})
-	h.store.previews["marketing/dev"] = &site.Route{SiteID: testSiteID, Site: "marketing", Environment: "dev"}
-	rec := h.get(testPreviewHost, "/")
+	h.store.hosts[testSiteHost] = &site.Route{SiteID: testSiteID, Site: "marketing", Environment: "prod"}
+	h.store.added = append(h.store.added, testSiteHost)
+	rec := h.get(testSiteHost, "/")
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	assert.Contains(t, rec.Body.String(), "no release yet")
 }
@@ -637,10 +681,10 @@ func TestPromote_TheHeldRouteLastsNoLongerThanTheTTL(t *testing.T) {
 
 func TestRoute_RemembersAHostWithNoRouteForAMoment(t *testing.T) {
 	h := newHarness(Deps{})
-	h.get(testPreviewHost, "/")
-	holdRoute(h.gateway, testPreviewHost, time.Now().Add(time.Hour))
-	assert.Equal(t, http.StatusNotFound, h.get(testPreviewHost, "/").Code)
-	assert.Equal(t, 1, h.store.previewReads)
+	h.get(testOwnHost, "/")
+	holdRoute(h.gateway, testOwnHost, time.Now().Add(time.Hour))
+	assert.Equal(t, http.StatusNotFound, h.get(testOwnHost, "/").Code)
+	assert.Equal(t, 1, h.store.ownReads)
 }
 
 func TestRoute_DropsTheTableAtItsBound(t *testing.T) {
@@ -676,37 +720,6 @@ func TestWrap_AnApplicationLabelWithNoPagesIs404(t *testing.T) {
 	rec := h.get("shop.pages.example.com", "/")
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	assert.Zero(t, h.nextHits)
-}
-
-func TestExists(t *testing.T) {
-	apps := &memApps{byName: appsNamed("shop")}
-	tests := []struct {
-		name string
-		host string
-		want bool
-	}{
-		{name: "a verified hostname", host: testSiteHost, want: true},
-		{name: "an environment that exists", host: testPreviewHost, want: true},
-		{name: "an application that exists", host: "shop.pages.example.com", want: true},
-		{name: "an application that does not", host: "nope.pages.example.com"},
-		{name: "an environment that does not", host: "nope--marketing.pages.example.com"},
-		{name: "the bare pages domain", host: testPagesDomain},
-		{name: "a hostname nobody verified", host: testOtherHost},
-		{name: "a name two labels down", host: "a.b.pages.example.com"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			h := newHarness(Deps{Pages: &Pages{Apps: apps, Assets: &memAssets{}}})
-			h.mapHost(baseRelease(h))
-			h.store.previews["marketing/dev"] = &site.Route{SiteID: testSiteID, Site: "marketing", Environment: "dev"}
-			assert.Equal(t, tt.want, h.gateway.Exists(context.Background(), tt.host))
-		})
-	}
-}
-
-func TestExists_AnApplicationHostnameWithNoPagesIsRefused(t *testing.T) {
-	h := newHarness(Deps{})
-	assert.False(t, h.gateway.Exists(context.Background(), "shop.pages.example.com"))
 }
 
 func TestGateway_ServesABodyFromMemoryOnTheSecondRead(t *testing.T) {

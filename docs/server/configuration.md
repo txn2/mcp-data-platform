@@ -359,7 +359,7 @@ auth:
 | `browser_session.signing_key` | string | - | Base64-encoded HMAC key (32+ bytes) |
 | `browser_session.ttl` | duration | `8h` | Session lifetime |
 | `browser_session.secure` | bool | `true` | HTTPS-only cookies (set `false` for local dev) |
-| `browser_session.cookie_name` | string | `mcp_session` | Cookie name |
+| `browser_session.cookie_name` | string | `mcp_session` | Cookie name. On https with no `domain` the platform prefixes it `__Host-`, so a sibling hostname cannot set it |
 | `browser_session.domain` | string | - | Cookie domain restriction |
 | `browser_session.same_site` | string | `lax` | Cookie `SameSite` mode: `lax`, `strict`, or `none`. `none` requires `secure: true` and disables the browser's built-in CSRF defense (see below) |
 

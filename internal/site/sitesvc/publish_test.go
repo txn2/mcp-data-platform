@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/andybalholm/brotli"
@@ -280,7 +281,7 @@ func TestPublish_AStorageFailureRecordsNothing(t *testing.T) {
 			}))
 			require.ErrorContains(t, err, "storing big.css")
 			assert.Empty(t, store.releases[siteID])
-			assert.Zero(t, store.sites[siteID].Environment(site.EnvDev).Release, "the environment did not move")
+			assert.Zero(t, store.sites[siteID].Environment(site.EnvDefault).Release, "the environment did not move")
 		})
 	}
 }
@@ -311,4 +312,24 @@ func TestPrepare_ManyFilesAreKeptInOrder(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, b.inputs, 20)
 	assert.Equal(t, "p07.html", b.inputs[7].Path)
+}
+
+func TestPublish_ReportsProgressAndThePhase(t *testing.T) {
+	svc, _, _, _ := fixture(t)
+	var mu sync.Mutex
+	var totals []int
+	var phases []string
+	_, err := svc.Publish(context.Background(), owner, PublishRequest{
+		Site: "marketing", Files: []InputFile{page("a.html"), page("b.html"), page("c.html")},
+		Progress: func(done, total int) {
+			mu.Lock()
+			defer mu.Unlock()
+			totals = append(totals, done)
+			assert.Equal(t, 3, total)
+		},
+		Phase: func(p string) { phases = append(phases, p) },
+	})
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []int{1, 2, 3}, totals, "told once per file, counting up")
+	assert.Equal(t, []string{"Switching default to the new release"}, phases)
 }

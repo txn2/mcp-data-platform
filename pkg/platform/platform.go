@@ -2811,6 +2811,7 @@ func (p *Platform) Start(ctx context.Context) error {
 		S3: p.portalStore.ScriptS3Client(), Bucket: p.config.Portal.S3Bucket,
 		Prefix: p.config.Portal.S3Prefix, FollowTables: p.portalStore.FollowAssetTables,
 		Lander: p.portalStore.ResourceLanding(), Sources: p.portalStore.ResourceSources(), Audit: p.audit.Logger(), Sites: p.config.Sites, CookieDomain: p.config.Auth.BrowserSession.Domain,
+		ReservedURLs: []string{p.config.OAuth.Issuer, p.config.Auth.OIDC.Issuer},
 		Authority: iam.Authority(p.authorizer, func(name string) bool {
 			return p.personaRegistry.IsAdminName(name, p.config.Admin.Persona)
 		}),

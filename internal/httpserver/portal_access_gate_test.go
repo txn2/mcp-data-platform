@@ -435,7 +435,8 @@ func sessionCookie(t *testing.T, key []byte, email string, roles []string) *http
 	if err != nil {
 		t.Fatalf("signing session: %v", err)
 	}
-	return &http.Cookie{Name: spaGateCookieName, Value: signed}
+	// Served over https with no Domain, the cookie carries the __Host- prefix.
+	return &http.Cookie{Name: "__Host-" + spaGateCookieName, Value: signed} // #nosec G124 -- a request's cookie: name and value are all it sends
 }
 
 // --- portalAppAdmitter (#1473) ---
