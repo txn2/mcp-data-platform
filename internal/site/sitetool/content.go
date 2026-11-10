@@ -177,7 +177,7 @@ func (c *Content) patch(ctx context.Context, actor sitesvc.Actor, q contentCall)
 	maps.Copy(fields, map[string]any{fieldVersion: done.Release, fieldType: done.ContentType, "change_summary": summary, "address": done.Address})
 	switch {
 	case q.in.DryRun:
-		fields["dry_run"], fields["message"] = true, "Dry run: no release was created."
+		fields["dry_run"], fields["message"], fields["outputs_changed"] = true, "Dry run: no release was created.", done.OutputsChanged
 	case done.Unchanged:
 		fields["unchanged"], fields["message"] = true, "The edits left the file as it was, so no release was created."
 	default:

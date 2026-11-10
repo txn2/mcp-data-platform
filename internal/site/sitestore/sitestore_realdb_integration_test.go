@@ -526,3 +526,53 @@ func TestRealDB_StoredFilesListsEachObjectOnce(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 2, "a removal holds no object, and the shared digest is listed once")
 }
+
+// A file belongs to a tree: a source file and the output rendered from it can
+// share a path and differ, and each tree walks the chain on its own.
+func TestRealDB_ATreeIsResolvedOnItsOwn(t *testing.T) {
+	db := testdb.New(t)
+	ctx := context.Background()
+	s := New(db)
+	st := realSite(ctx, t, s, "trees")
+	record := func(r *site.Release) *site.Release {
+		t.Helper()
+		r.ID, r.SiteID, r.ManifestSHA256, r.CreatedBy, r.Rendered = NewReleaseID(), st.ID, "digest", realOwner, true
+		r.Redirects = []site.Redirect{}
+		require.NoError(t, s.RecordRelease(ctx, r, nil))
+		return r
+	}
+	file := func(p, sum string) site.File {
+		return site.File{Path: p, SHA256: sum, ContentType: "text/html", Size: 1}
+	}
+	index := file("index.json.gz", "idx")
+	root := record(&site.Release{
+		Files:       []site.File{file("index.html", "out1")},
+		SourceFiles: []site.File{file("index.html", "src1"), file("_layouts/base.html", "lay1")},
+		RenderIndex: &index,
+	})
+	tip := record(&site.Release{
+		ManifestParent: root.ID, ManifestDepth: 1,
+		Files: []site.File{file("index.html", "out2")}, SourceFiles: []site.File{file("_layouts/base.html", "lay2")},
+	})
+	read := func(id, tree string) map[string]string {
+		t.Helper()
+		files, err := s.Tree(ctx, id, tree)
+		require.NoError(t, err)
+		out := map[string]string{}
+		for _, f := range files {
+			out[f.Path] = f.SHA256
+		}
+		return out
+	}
+	assert.Equal(t, map[string]string{"index.html": "out2"}, read(tip.ID, site.TreeOutput))
+	assert.Equal(t, map[string]string{"index.html": "src1", "_layouts/base.html": "lay2"}, read(tip.ID, site.TreeSource))
+	assert.Equal(t, map[string]string{"index.json.gz": "idx"}, read(root.ID, site.TreeRender))
+
+	served, err := s.Files(ctx, tip.ID)
+	require.NoError(t, err)
+	require.Len(t, served, 1, "what a gateway reads is the output alone")
+
+	got, err := s.Release(ctx, st.ID, tip.Number)
+	require.NoError(t, err)
+	assert.True(t, got.Rendered)
+}

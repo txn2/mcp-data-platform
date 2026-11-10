@@ -31,6 +31,8 @@ type Patched struct {
 	// Unchanged is true when the edits left the file as it was, so no release
 	// was written.
 	Unchanged bool
+	// OutputsChanged is how many served files a dry run would change.
+	OutputsChanged int
 }
 
 // PatchFile applies anchored edits to one file and writes the result as a new
@@ -62,19 +64,17 @@ func (s *Service) PatchFile(ctx context.Context, actor Actor, req PatchRequest) 
 	if err != nil {
 		return nil, err //nolint:wrapcheck // the caller reads the edit error's code
 	}
-	out := &Patched{Result: res, Path: name, ContentType: contentType, Release: tree.rel.Number, Address: s.Address(ctx, st, tree.env.Name)}
-	if req.DryRun {
-		return out, nil
-	}
 	pub, err := s.Publish(ctx, actor, PublishRequest{
-		Site: req.Ref.Site, Environment: tree.env.Name, Source: "patch " + name, Note: req.Summary,
+		Site: req.Ref.Site, Environment: tree.env.Name, Source: "patch " + name, Note: req.Summary, DryRun: req.DryRun,
 		Base: tree.rel.Number, Files: []InputFile{{Path: name, Body: []byte(res.Body)}},
 	})
 	if err != nil {
 		return nil, err
 	}
-	out.Release, out.Address, out.Unchanged = pub.Release.Number, pub.Address, pub.Unchanged
-	return out, nil
+	return &Patched{
+		Result: res, Path: name, ContentType: contentType, Release: pub.Release.Number, Address: pub.Address,
+		Unchanged: pub.Unchanged, OutputsChanged: pub.OutputsChanged,
+	}, nil
 }
 
 // patchTarget is the tree an edit applies to, or why it cannot: only the working
@@ -90,7 +90,7 @@ func (s *Service) patchTarget(ctx context.Context, st *site.Site, req PatchReque
 	if req.Base != 0 && req.Base != env.Release {
 		return nil, textpatch.StaleBaseError(req.Base, env.Release)
 	}
-	return s.treeOf(ctx, st, env.Name)
+	return s.treeOf(ctx, st, env.Name, site.TreeSource)
 }
 
 // Diffed compares two releases: a unified diff of one file, or the paths that
@@ -125,7 +125,7 @@ func (s *Service) Diff(ctx context.Context, actor Actor, ref site.Ref, from, to 
 	if ref.IsFile() {
 		return s.diffFile(ctx, st, ref, from, target)
 	}
-	c, err := s.Compare(ctx, ref.Site, from, target.Number)
+	c, err := s.compareTree(ctx, st.ID, comparePair{from, target.Number}, site.TreeSource)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +138,7 @@ func (s *Service) Diff(ctx context.Context, actor Actor, ref site.Ref, from, to 
 // diffTarget is the release a diff compares to: the numbered one, or what the
 // environment serves.
 func (s *Service) diffTarget(ctx context.Context, st *site.Site, environment string, to int) (*site.Release, error) {
-	tree, err := s.treeOf(ctx, st, environment)
+	tree, err := s.treeOf(ctx, st, environment, site.TreeSource)
 	if err != nil {
 		return nil, err
 	}
@@ -186,9 +186,9 @@ func (s *Service) diffFile(ctx context.Context, st *site.Site, ref site.Ref, fro
 
 // textIfPresent is a file of a release, with false when the release has none.
 func (s *Service) textIfPresent(ctx context.Context, siteID string, rel *site.Release, name string) (body string, present bool, err error) {
-	files, err := s.Store.Files(ctx, rel.ID)
+	files, err := s.treeFiles(ctx, rel, site.TreeSource)
 	if err != nil {
-		return "", false, err //nolint:wrapcheck // read by identity
+		return "", false, err
 	}
 	index := pathIndex(files)
 	if _, ok := index[name]; !ok && name != redirectsFile {

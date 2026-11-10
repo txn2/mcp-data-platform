@@ -199,11 +199,20 @@ func (m *memStore) Files(_ context.Context, releaseID string) ([]site.File, erro
 	if m.failFiles != nil && (m.failFilesOf == "" || m.failFilesOf == releaseID) {
 		return nil, m.failFiles
 	}
-	return m.resolve(releaseID), nil
+	return m.resolveTree(releaseID, site.TreeOutput), nil
 }
 
-// resolve walks a release's chain as the store's query does.
-func (m *memStore) resolve(releaseID string) []site.File {
+func (m *memStore) Tree(_ context.Context, releaseID, tree string) ([]site.File, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.failFiles != nil && (m.failFilesOf == "" || m.failFilesOf == releaseID) {
+		return nil, m.failFiles
+	}
+	return m.resolveTree(releaseID, tree), nil
+}
+
+// resolveTree walks a release's chain for one tree, as the store's query does.
+func (m *memStore) resolveTree(releaseID, tree string) []site.File {
 	byID := map[string]site.Release{}
 	for _, releases := range m.releases {
 		for _, r := range releases {
@@ -212,18 +221,32 @@ func (m *memStore) resolve(releaseID string) []site.File {
 	}
 	seen, out := map[string]bool{}, []site.File{}
 	for r, ok := byID[releaseID]; ok; r, ok = byID[r.ManifestParent] {
-		for _, f := range r.Files {
+		files, gone := treeOfRelease(r, tree)
+		for _, f := range files {
 			if !seen[f.Path] {
 				seen[f.Path] = true
 				out = append(out, f)
 			}
 		}
-		for _, p := range r.Removed {
+		for _, p := range gone {
 			seen[p] = true
 		}
 	}
 	slices.SortFunc(out, func(a, b site.File) int { return strings.Compare(a.Path, b.Path) })
 	return out
+}
+
+func treeOfRelease(r site.Release, tree string) (files []site.File, gone []string) {
+	switch tree {
+	case site.TreeSource:
+		return r.SourceFiles, r.SourceRemoved
+	case site.TreeRender:
+		if r.RenderIndex != nil {
+			return []site.File{*r.RenderIndex}, nil
+		}
+		return nil, nil
+	}
+	return r.Files, r.Removed
 }
 
 func (m *memStore) StoredFiles(_ context.Context, siteID string) ([]site.File, error) {
@@ -234,7 +257,11 @@ func (m *memStore) StoredFiles(_ context.Context, siteID string) ([]site.File, e
 	}
 	seen, out := map[string]bool{}, []site.File{}
 	for _, r := range m.releases[siteID] {
-		for _, f := range r.Files {
+		files := append(append([]site.File{}, r.Files...), r.SourceFiles...)
+		if r.RenderIndex != nil {
+			files = append(files, *r.RenderIndex)
+		}
+		for _, f := range files {
 			if id := f.StoredIn + "/" + f.SHA256; !seen[id] {
 				seen[id] = true
 				out = append(out, f)
@@ -488,6 +515,7 @@ type memObjects struct {
 	mu         sync.Mutex
 	put        map[string][]byte
 	fail       string // a key suffix whose put fails
+	failPut    error
 	failDelete error
 }
 
@@ -504,6 +532,9 @@ func (o *memObjects) DeleteObject(_ context.Context, bucket, key string) error {
 }
 
 func (o *memObjects) PutObject(_ context.Context, bucket, key string, data []byte, _ string) error {
+	if o.failPut != nil {
+		return o.failPut
+	}
 	if o.fail != "" && strings.HasSuffix(key, o.fail) {
 		return errors.New("the bucket refused it")
 	}
@@ -520,7 +551,7 @@ func (o *memObjects) GetObject(_ context.Context, bucket, key string) (data []by
 	if !ok {
 		return nil, "", errors.New("no such object")
 	}
-	return body, "", nil
+	return slices.Clone(body), "", nil
 }
 
 func (o *memObjects) keys() []string {

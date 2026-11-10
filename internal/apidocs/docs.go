@@ -52262,6 +52262,10 @@ const docTemplate = `{
                         "$ref": "#/definitions/site.Redirect"
                     }
                 },
+                "rendered": {
+                    "description": "Rendered is true for a release with a source tree of its own; a release\nwithout one serves the files it was published with.",
+                    "type": "boolean"
+                },
                 "served_in": {
                     "type": "array",
                     "items": {
@@ -52333,6 +52337,10 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/site.Redirect"
                     }
+                },
+                "rendered": {
+                    "description": "Rendered is true for a release with a source tree of its own; a release\nwithout one serves the files it was published with.",
+                    "type": "boolean"
                 },
                 "served_in": {
                     "type": "array",

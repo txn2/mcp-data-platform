@@ -241,10 +241,10 @@ func writeRelease(ctx context.Context, tx *sql.Tx, r *site.Release, redirects []
 	}
 	err := tx.QueryRowContext(ctx, `
 		INSERT INTO site_releases (id, site_id, number, source, note, file_count, total_bytes, manifest_sha256, redirects, created_by,
-		                           base_number, manifest_parent, manifest_depth)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULLIF($12, ''), $13) RETURNING created_at`,
+		                           base_number, manifest_parent, manifest_depth, rendered)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULLIF($12, ''), $13, $14) RETURNING created_at`,
 		r.ID, r.SiteID, r.Number, r.Source, r.Note, r.FileCount, r.TotalBytes, r.ManifestSHA256, redirects, r.CreatedBy,
-		r.Base, r.ManifestParent, r.ManifestDepth,
+		r.Base, r.ManifestParent, r.ManifestDepth, r.Rendered,
 	).Scan(&r.CreatedAt)
 	if isUnique(err) {
 		return site.ErrStale
@@ -255,43 +255,59 @@ func writeRelease(ctx context.Context, tx *sql.Tx, r *site.Release, redirects []
 	return nil
 }
 
+// fileRows are the columns of site_release_files, one slice each.
+type fileRows struct {
+	trees, paths, digests, types, stored []string
+	sizes, gzips, brotlis                []int64
+	removed                              []bool
+}
+
+func (w *fileRows) add(tree string, f site.File, removed bool) {
+	w.trees, w.paths, w.digests = append(w.trees, tree), append(w.paths, f.Path), append(w.digests, f.SHA256)
+	w.types, w.stored = append(w.types, f.ContentType), append(w.stored, f.StoredIn)
+	w.sizes, w.gzips, w.brotlis = append(w.sizes, f.Size), append(w.gzips, f.GzipSize), append(w.brotlis, f.BrotliSize)
+	w.removed = append(w.removed, removed)
+}
+
+func (w *fileRows) addTree(tree string, files []site.File, gone []string) {
+	for _, f := range files {
+		w.add(tree, f, false)
+	}
+	for _, p := range gone {
+		w.add(tree, site.File{Path: p}, true)
+	}
+}
+
 // insertFiles writes a release's rows in one statement, whatever their number:
 // a whole file set can be 20,000 of them.
 func insertFiles(ctx context.Context, tx *sql.Tx, r *site.Release) error {
-	n := len(r.Files) + len(r.Removed)
-	if n == 0 {
+	rows := &fileRows{}
+	rows.addTree(site.TreeOutput, r.Files, r.Removed)
+	rows.addTree(site.TreeSource, r.SourceFiles, r.SourceRemoved)
+	if r.RenderIndex != nil {
+		rows.add(site.TreeRender, *r.RenderIndex, false)
+	}
+	if len(rows.paths) == 0 {
 		return nil
 	}
-	paths, digests, types, stored := make([]string, 0, n), make([]string, 0, n), make([]string, 0, n), make([]string, 0, n)
-	sizes, gzips, brotlis := make([]int64, 0, n), make([]int64, 0, n), make([]int64, 0, n)
-	removed := make([]bool, 0, n)
-	for _, f := range r.Files {
-		paths, digests, types, stored = append(paths, f.Path), append(digests, f.SHA256), append(types, f.ContentType), append(stored, f.StoredIn)
-		sizes, gzips, brotlis = append(sizes, f.Size), append(gzips, f.GzipSize), append(brotlis, f.BrotliSize)
-		removed = append(removed, false)
-	}
-	for _, p := range r.Removed {
-		paths, digests, types, stored = append(paths, p), append(digests, ""), append(types, ""), append(stored, "")
-		sizes, gzips, brotlis = append(sizes, 0), append(gzips, 0), append(brotlis, 0)
-		removed = append(removed, true)
-	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO site_release_files (release_id, path, sha256, content_type, size, gzip_size, brotli_size, stored_in, removed)
-		SELECT $1, f.* FROM unnest($2::text[], $3::text[], $4::text[], $5::bigint[], $6::bigint[], $7::bigint[], $8::text[], $9::boolean[]) AS f`,
-		r.ID, pq.Array(paths), pq.Array(digests), pq.Array(types), pq.Array(sizes), pq.Array(gzips), pq.Array(brotlis), pq.Array(stored), pq.Array(removed),
+		INSERT INTO site_release_files (release_id, tree, path, sha256, content_type, size, gzip_size, brotli_size, stored_in, removed)
+		SELECT $1, f.* FROM unnest($2::text[], $3::text[], $4::text[], $5::text[], $6::bigint[], $7::bigint[], $8::bigint[], $9::text[], $10::boolean[]) AS f`,
+		r.ID, pq.Array(rows.trees), pq.Array(rows.paths), pq.Array(rows.digests), pq.Array(rows.types), pq.Array(rows.sizes),
+		pq.Array(rows.gzips), pq.Array(rows.brotlis), pq.Array(rows.stored), pq.Array(rows.removed),
 	); err != nil {
 		return fmt.Errorf("record files: %w", err)
 	}
 	return nil
 }
 
-const releaseColumns = `id, site_id, number, source, note, file_count, total_bytes, manifest_sha256, redirects, created_by, created_at, base_number, COALESCE(manifest_parent, ''), manifest_depth`
+const releaseColumns = `id, site_id, number, source, note, file_count, total_bytes, manifest_sha256, redirects, created_by, created_at, base_number, COALESCE(manifest_parent, ''), manifest_depth, rendered`
 
 func scanRelease(row interface{ Scan(...any) error }) (*site.Release, error) {
 	r := &site.Release{}
 	var redirects []byte
 	err := row.Scan(&r.ID, &r.SiteID, &r.Number, &r.Source, &r.Note, &r.FileCount, &r.TotalBytes, &r.ManifestSHA256,
-		&redirects, &r.CreatedBy, &r.CreatedAt, &r.Base, &r.ManifestParent, &r.ManifestDepth)
+		&redirects, &r.CreatedBy, &r.CreatedAt, &r.Base, &r.ManifestParent, &r.ManifestDepth, &r.Rendered)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, site.ErrNoRelease
 	}
@@ -338,9 +354,14 @@ func (s *Store) Releases(ctx context.Context, siteID string) ([]site.Release, er
 	return out, nil
 }
 
-// Files is a release's whole file set in path order: for each path, the row of
-// the nearest release in its chain, unless that row removes the path.
+// Files is what a release serves, in path order.
 func (s *Store) Files(ctx context.Context, releaseID string) ([]site.File, error) {
+	return s.Tree(ctx, releaseID, site.TreeOutput)
+}
+
+// Tree is one tree of a release in path order: for each path, the row of the
+// nearest release in its chain, unless that row removes the path.
+func (s *Store) Tree(ctx context.Context, releaseID, tree string) ([]site.File, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		WITH RECURSIVE chain AS (
 			SELECT id, manifest_parent, 0 AS depth FROM site_releases WHERE id = $1
@@ -351,9 +372,10 @@ func (s *Store) Files(ctx context.Context, releaseID string) ([]site.File, error
 		SELECT path, sha256, content_type, size, gzip_size, brotli_size, stored_in FROM (
 			SELECT DISTINCT ON (f.path) f.path, f.sha256, f.content_type, f.size, f.gzip_size, f.brotli_size, f.stored_in, f.removed
 			  FROM site_release_files f JOIN chain c ON f.release_id = c.id
+			 WHERE f.tree = $2
 			 ORDER BY f.path, c.depth
 		) nearest
-		WHERE NOT removed ORDER BY path`, releaseID)
+		WHERE NOT removed ORDER BY path`, releaseID, tree)
 	if err != nil {
 		return nil, fmt.Errorf("list files: %w", err)
 	}

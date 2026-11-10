@@ -15520,6 +15520,11 @@ definitions:
         items:
           $ref: '#/definitions/site.Redirect'
         type: array
+      rendered:
+        description: |-
+          Rendered is true for a release with a source tree of its own; a release
+          without one serves the files it was published with.
+        type: boolean
       served_in:
         items:
           type: string
@@ -15575,6 +15580,11 @@ definitions:
         items:
           $ref: '#/definitions/site.Redirect'
         type: array
+      rendered:
+        description: |-
+          Rendered is true for a release with a source tree of its own; a release
+          without one serves the files it was published with.
+        type: boolean
       served_in:
         items:
           type: string

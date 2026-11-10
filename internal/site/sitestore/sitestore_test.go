@@ -27,7 +27,7 @@ var (
 var (
 	siteCols    = []string{"id", "name", "description", "owner_email", "internal_view", "created_by", "created_at", "updated_at"}
 	envCols     = []string{"name", "release_number", "requires_approval", "updated_by", "updated_at"}
-	releaseCols = []string{"id", "site_id", "number", "source", "note", "file_count", "total_bytes", "manifest_sha256", "redirects", "created_by", "created_at", "base_number", "manifest_parent", "manifest_depth"}
+	releaseCols = []string{"id", "site_id", "number", "source", "note", "file_count", "total_bytes", "manifest_sha256", "redirects", "created_by", "created_at", "base_number", "manifest_parent", "manifest_depth", "rendered"}
 	fileCols    = []string{"path", "sha256", "content_type", "size", "gzip_size", "brotli_size", "stored_in"}
 	deployCols  = []string{"environment", "action", "from_release", "to_release", "actor", "created_at"}
 	domainCols  = []string{"hostname", "site_id", "name", "environment", "application_id", "application", "created_by", "created_at"}
@@ -52,7 +52,7 @@ func siteRows(name string) *sqlmock.Rows {
 }
 
 func releaseRow(n int, redirects string) []driver.Value {
-	return []driver.Value{"srel_1", "site_1", n, "ci", "note", 2, int64(30), "digest", []byte(redirects), "jane@example.com", rowTime, 0, "", 0}
+	return []driver.Value{"srel_1", "site_1", n, "ci", "note", 2, int64(30), "digest", []byte(redirects), "jane@example.com", rowTime, 0, "", 0, false}
 }
 
 func domainRow(host string) []driver.Value {
@@ -271,7 +271,7 @@ func TestRecordRelease(t *testing.T) {
 		lock(mock)
 		mock.ExpectQuery(q("SELECT COALESCE(MAX(number), 0) + 1")).WithArgs("site_1").WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(2))
 		mock.ExpectQuery(q("INSERT INTO site_releases")).
-			WithArgs("srel_1", "site_1", 2, "ci", "n", 2, int64(30), "digest", []byte(`[{"from":"/a","to":"/b","status":301}]`), "jane@example.com", 0, "", 0).
+			WithArgs("srel_1", "site_1", 2, "ci", "n", 2, int64(30), "digest", []byte(`[{"from":"/a","to":"/b","status":301}]`), "jane@example.com", 0, "", 0, false).
 			WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(rowTime))
 		mock.ExpectExec(q("INSERT INTO site_release_files")).WillReturnResult(sqlmock.NewResult(0, 2))
 		mock.ExpectCommit()
@@ -420,7 +420,7 @@ func TestFiles(t *testing.T) {
 	ctx := context.Background()
 	s, mock := newMock(t)
 
-	mock.ExpectQuery(q("WITH RECURSIVE chain")).WithArgs("srel_1").
+	mock.ExpectQuery(q("WITH RECURSIVE chain")).WithArgs("srel_1", site.TreeOutput).
 		WillReturnRows(sqlmock.NewRows(fileCols).AddRow("a.css", "aa", "text/css", int64(10), int64(4), int64(3), ""))
 	got, err := s.Files(ctx, "srel_1")
 	require.NoError(t, err)

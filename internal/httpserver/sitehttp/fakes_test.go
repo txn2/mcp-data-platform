@@ -153,6 +153,10 @@ func (m *memStore) RecordRelease(ctx context.Context, r *site.Release, move *sit
 	return m.Point(ctx, *move)
 }
 
+func (m *memStore) Tree(ctx context.Context, releaseID, _ string) ([]site.File, error) {
+	return m.Files(ctx, releaseID)
+}
+
 func (*memStore) StoredFiles(context.Context, string) ([]site.File, error) { return nil, nil }
 
 func (m *memStore) Release(_ context.Context, siteID string, number int) (*site.Release, error) {

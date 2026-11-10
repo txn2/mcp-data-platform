@@ -32,29 +32,55 @@ type sourceTree struct {
 	byPath map[string]site.File
 }
 
-// mayRead refuses anyone who could not open the site's own address: an owner, a
-// grant at either level, or, on a site open to everyone internal, someone
-// internal. An email the provider has not verified matches no one.
-func (s *Service) mayRead(ctx context.Context, actor Actor, st *site.Site) error {
+// readableTree is the tree someone may read: the source for people who manage
+// the site, what is served for anyone else who can open it, and nothing for
+// those who cannot. An email the provider has not verified matches no one.
+func (s *Service) readableTree(ctx context.Context, actor Actor, st *site.Site) (string, error) {
 	if actor.Admin || isOwner(actor, st) {
-		return nil
+		return site.TreeSource, nil
 	}
-	if actor.Email != "" && !actor.EmailUnverified {
-		level, err := s.Store.GrantLevel(ctx, st.ID, site.NormalizeEmail(actor.Email))
-		if err != nil {
-			return err //nolint:wrapcheck // read by identity
-		}
-		if level != "" || (st.InternalView && s.External != nil && !s.External(ctx, actor.Email)) {
-			return nil
-		}
+	tree, err := s.grantedTree(ctx, actor, st)
+	if err != nil || tree != "" {
+		return tree, err
 	}
-	return fmt.Errorf("site %q is read by the people who can open it: %w", st.Name, site.ErrNotAllowed)
+	return "", fmt.Errorf("site %q is read by the people who can open it: %w", st.Name, site.ErrNotAllowed)
 }
 
-// treeOf reads what an environment serves. Access is decided before anything
-// about the environment or its files is looked at, so a refusal says nothing
-// about what the site holds.
-func (s *Service) treeOf(ctx context.Context, st *site.Site, environment string) (*sourceTree, error) {
+// grantedTree is what someone other than the owner reads, "" for nothing.
+func (s *Service) grantedTree(ctx context.Context, actor Actor, st *site.Site) (string, error) {
+	if actor.Email == "" || actor.EmailUnverified {
+		return "", nil
+	}
+	level, err := s.Store.GrantLevel(ctx, st.ID, site.NormalizeEmail(actor.Email))
+	if err != nil {
+		return "", err //nolint:wrapcheck // read by identity
+	}
+	switch {
+	case level == site.LevelManage:
+		return site.TreeSource, nil
+	case level != "" || (st.InternalView && s.External != nil && !s.External(ctx, actor.Email)):
+		return site.TreeOutput, nil
+	}
+	return "", nil
+}
+
+// treeFiles is one tree of a release. A release with no source tree of its own
+// was published as it is served, so its files are its source.
+func (s *Service) treeFiles(ctx context.Context, rel *site.Release, tree string) ([]site.File, error) {
+	if tree == site.TreeSource && !rel.Rendered {
+		tree = site.TreeOutput
+	}
+	files, err := s.Store.Tree(ctx, rel.ID, tree)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // read by identity
+	}
+	return files, nil
+}
+
+// treeOf reads an environment's tree. Access is decided before anything about
+// the environment or its files is looked at, so a refusal says nothing about
+// what the site holds.
+func (s *Service) treeOf(ctx context.Context, st *site.Site, environment, tree string) (*sourceTree, error) {
 	if s.Objects == nil || s.Bucket == "" {
 		return nil, refused("this deployment serves no sites: it has no portal bucket, or sites.enabled is false")
 	}
@@ -69,11 +95,24 @@ func (s *Service) treeOf(ctx context.Context, st *site.Site, environment string)
 	if err != nil {
 		return nil, err //nolint:wrapcheck // read by identity
 	}
-	files, err := s.Store.Files(ctx, rel.ID)
+	files, err := s.treeFiles(ctx, rel, tree)
 	if err != nil {
-		return nil, err //nolint:wrapcheck // read by identity
+		return nil, err
 	}
 	return &sourceTree{st: st, env: env, rel: rel, files: files, byPath: pathIndex(files)}, nil
+}
+
+// openTree is treeOf for what someone may read.
+func (s *Service) openTree(ctx context.Context, actor Actor, ref site.Ref) (*sourceTree, error) {
+	st, err := s.Find(ctx, ref.Site)
+	if err != nil {
+		return nil, err
+	}
+	tree, err := s.readableTree(ctx, actor, st)
+	if err != nil {
+		return nil, err
+	}
+	return s.treeOf(ctx, st, ref.Environment, tree)
 }
 
 func pathIndex(files []site.File) map[string]site.File {
@@ -82,18 +121,6 @@ func pathIndex(files []site.File) map[string]site.File {
 		index[f.Path] = f
 	}
 	return index
-}
-
-// readableTree is treeOf for someone who may read the site.
-func (s *Service) readableTree(ctx context.Context, actor Actor, ref site.Ref) (*sourceTree, error) {
-	st, err := s.Find(ctx, ref.Site)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.mayRead(ctx, actor, st); err != nil {
-		return nil, err
-	}
-	return s.treeOf(ctx, st, ref.Environment)
 }
 
 func filePath(ref site.Ref) (string, error) {
@@ -138,7 +165,7 @@ type FileText struct {
 
 // ReadFile is one text file of what an environment serves.
 func (s *Service) ReadFile(ctx context.Context, actor Actor, ref site.Ref) (*FileText, error) {
-	tree, err := s.readableTree(ctx, actor, ref)
+	tree, err := s.openTree(ctx, actor, ref)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +195,7 @@ const DefaultTreeLimit = 1000
 // Tree lists the files a tree or folder reference names, including the
 // _redirects file when the release has a redirect map.
 func (s *Service) Tree(ctx context.Context, actor Actor, ref site.Ref, offset, limit int) (*TreeListing, error) {
-	tree, err := s.readableTree(ctx, actor, ref)
+	tree, err := s.openTree(ctx, actor, ref)
 	if err != nil {
 		return nil, err
 	}
@@ -227,7 +254,7 @@ func (s *Service) LocateTree(ctx context.Context, actor Actor, ref site.Ref, q t
 	if q.Section != "" || q.Selector != "" {
 		return nil, refused("locate across a tree takes find or pattern; section and selector need one file")
 	}
-	tree, err := s.readableTree(ctx, actor, ref)
+	tree, err := s.openTree(ctx, actor, ref)
 	if err != nil {
 		return nil, err
 	}

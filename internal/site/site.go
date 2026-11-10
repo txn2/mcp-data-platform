@@ -124,8 +124,10 @@ type Store interface {
 	Release(ctx context.Context, siteID string, number int) (*Release, error)
 	ReleaseByID(ctx context.Context, id string) (*Release, error)
 	Releases(ctx context.Context, siteID string) ([]Release, error)
-	// Files is a release's whole file set in path order, however it is stored.
+	// Files is what a release serves, in path order, however it is stored.
 	Files(ctx context.Context, releaseID string) ([]File, error)
+	// Tree is one tree of a release, in path order.
+	Tree(ctx context.Context, releaseID, tree string) ([]File, error)
 	// StoredFiles lists what a site holds in object storage, each object once,
 	// whichever releases share it.
 	StoredFiles(ctx context.Context, siteID string) ([]File, error)

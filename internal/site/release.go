@@ -31,6 +31,14 @@ type File struct {
 	StoredIn string `json:"-"`
 }
 
+// The trees of a release. Output is what is served. A rendered release also has
+// its source, which is what is edited, and the record of what each output read.
+const (
+	TreeOutput = "output"
+	TreeSource = "source"
+	TreeRender = "render"
+)
+
 // Redirect is one rule of a release's redirect map. From ending in "/*"
 // matches the path and everything beneath it, and ":splat" in To is what the
 // "*" matched.
@@ -68,6 +76,14 @@ type Release struct {
 	ManifestDepth  int    `json:"-"`
 	// Removed is the paths this release takes out of its parent's file set.
 	Removed []string `json:"-"`
+	// Rendered is true for a release with a source tree of its own; a release
+	// without one serves the files it was published with.
+	Rendered bool `json:"rendered,omitempty"`
+	// SourceFiles and SourceRemoved are Files and Removed for the source tree.
+	SourceFiles   []File   `json:"-"`
+	SourceRemoved []string `json:"-"`
+	// RenderIndex is the file holding what each output read.
+	RenderIndex *File `json:"-"`
 }
 
 // Deployment is one recorded move of an environment's pointer.

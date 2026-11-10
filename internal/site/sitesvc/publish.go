@@ -20,6 +20,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/site"
 	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
+	"github.com/txn2/mcp-data-platform/internal/site/siterender"
 	"github.com/txn2/mcp-data-platform/internal/site/sitestore"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/textpatch"
@@ -201,22 +202,31 @@ type built struct {
 // the environment serves, whose files need not be written again.
 type basis struct {
 	release *site.Release
-	files   []site.File
-	byPath  map[string]site.File
+	// files is what an edit starts from: the release's source when it has one,
+	// and otherwise the files it serves.
+	files  []site.File
+	byPath map[string]site.File
 	// byDigest holds only files kept by digest: a file under a release's own
 	// prefix is stored at its path, so it cannot stand in for another path.
 	byDigest map[string]site.File
+	// output is what the release serves, and index what each output read.
+	output []site.File
+	index  *siterender.Index
 }
 
 func newBasis(rel *site.Release, files []site.File) *basis {
-	b := &basis{release: rel, files: files, byPath: make(map[string]site.File, len(files)), byDigest: make(map[string]site.File, len(files))}
+	b := &basis{release: rel, files: files, output: files, byPath: make(map[string]site.File, len(files)), byDigest: make(map[string]site.File, len(files))}
 	for _, f := range files {
 		b.byPath[f.Path] = f
-		if f.StoredIn == "" {
-			b.byDigest[f.SHA256] = f
-		}
+		b.noteDigest(f)
 	}
 	return b
+}
+
+func (b *basis) noteDigest(f site.File) {
+	if f.StoredIn == "" {
+		b.byDigest[f.SHA256] = f
+	}
 }
 
 // reusable is the stored file that already holds in's bytes under the type in
@@ -241,11 +251,14 @@ func (s *Service) basisOf(ctx context.Context, st *site.Site, env *site.Environm
 	if err != nil {
 		return nil, err //nolint:wrapcheck // read by identity
 	}
-	files, err := s.Store.Files(ctx, rel.ID)
+	output, err := s.Store.Files(ctx, rel.ID)
 	if err != nil {
 		return nil, err //nolint:wrapcheck // read by identity
 	}
-	return newBasis(rel, files), nil
+	if !rel.Rendered {
+		return newBasis(rel, output), nil
+	}
+	return s.renderedBasis(ctx, st.ID, rel, output)
 }
 
 // prepare checks a publish's files against the limits and pulls out the
@@ -457,6 +470,8 @@ type PublishRequest struct {
 	Base int
 	// Remove is the paths taken out of Base.
 	Remove []string
+	// DryRun does everything but store a file or write a release.
+	DryRun bool
 	// Progress is told each time a file is stored, and Phase when the work
 	// moves on; nil reports nothing.
 	Progress func(done, total int)
@@ -472,6 +487,9 @@ type Published struct {
 	// Unchanged is true when the overlay changed nothing: no release was
 	// written, and Release is the one the environment already serves.
 	Unchanged bool `json:"unchanged,omitempty"`
+	// OutputsChanged is how many served files a dry run would add, change or
+	// remove.
+	OutputsChanged int `json:"outputs_changed,omitempty"`
 }
 
 // Publish writes a new release and points the environment at it. An
@@ -501,7 +519,11 @@ func (s *Service) Publish(ctx context.Context, actor Actor, req PublishRequest) 
 		rel.Files = nil
 		return &Published{Release: &rel, Env: env.Name, Address: s.Address(ctx, st, env.Name), Unchanged: true}, nil
 	}
-	rel, err := s.record(ctx, actor, publication{st: st, env: env, req: req, built: built, base: base})
+	p := publication{st: st, env: env, req: req, built: built, base: base}
+	if req.DryRun {
+		return s.preview(ctx, p)
+	}
+	rel, err := s.record(ctx, actor, p)
 	if err != nil {
 		return nil, err
 	}
@@ -561,20 +583,16 @@ type publication struct {
 // record stores the files and writes the release with the move to it, in the
 // one transaction: a move that loses to another leaves no release behind.
 func (s *Service) record(ctx context.Context, actor Actor, p publication) (*site.Release, error) {
-	stored, err := s.store(ctx, p.st.ID, p.built, p.base, p.req)
+	trees, err := s.buildTrees(ctx, p)
 	if err != nil {
 		return nil, err
 	}
-	whole := append(slices.Clone(p.built.kept), stored...)
 	rel := &site.Release{
-		ID: sitestore.NewReleaseID(), SiteID: p.st.ID, Source: p.req.Source, Note: p.req.Note, Base: p.req.Base,
-		FileCount: len(whole), TotalBytes: p.built.total, ManifestSHA256: Digest(whole), Redirects: p.built.redirects,
-		CreatedBy: actor.Email, Files: whole,
+		ID: sitestore.NewReleaseID(), SiteID: p.st.ID, Source: p.req.Source, Note: p.req.Note, Base: p.req.Base, Rendered: trees.rendered,
+		FileCount: len(trees.output), TotalBytes: totalSize(trees.output), ManifestSHA256: Digest(trees.output), Redirects: p.built.redirects,
+		CreatedBy: actor.Email, RenderIndex: trees.index,
 	}
-	if p.req.Base != 0 && p.base.release.ManifestDepth+1 < maxManifestDepth {
-		rel.ManifestParent, rel.ManifestDepth = p.base.release.ID, p.base.release.ManifestDepth+1
-		rel.Files, rel.Removed = stored, p.built.removed
-	}
+	trees.fill(rel, p.base, p.req.Base != 0)
 	if p.req.Phase != nil {
 		p.req.Phase("Switching " + p.env.Name + " to the new release")
 	}
@@ -583,4 +601,12 @@ func (s *Service) record(ctx context.Context, actor Actor, p publication) (*site
 		return nil, err //nolint:wrapcheck // read by identity
 	}
 	return rel, nil
+}
+
+func totalSize(files []site.File) int64 {
+	var total int64
+	for _, f := range files {
+		total += f.Size
+	}
+	return total
 }

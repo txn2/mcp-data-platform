@@ -190,6 +190,34 @@ over the whole set, so a rollback is provably the same files. A file set is list
 with `limit` and `offset`, and a search across a tree reports what it scanned and
 skipped, so a search that could not reach a file does not read as a clean result.
 
+### Rendering
+
+A site with a `_layouts/` folder is rendered during publish, inside the platform,
+with no build tool: `_layouts/` and `_includes/` hold Liquid templates, `_data/<collection>/`
+holds records as JSON, YAML or Markdown, and any `.html`, `.md`, `.xml`, `.json` or
+`.txt` file with front matter is a page. `for_each` generates one page per record or
+taxonomy value and `per_page` makes paged lists. A site with no `_layouts/` folder is
+served exactly as published.
+
+A rendered release holds two trees: the output, which is all the gateway reads, and
+the source, which is what `mcp:site:` references address and what someone who manages
+the site reads. Someone with Can view reads the output. Source is unservable because
+it is not in the tree that is served. The record of what each output read is stored
+with the release, and a patch re-renders only the outputs that read a changed file;
+a change to a layout renders every page using it, in one release.
+
+Templates are written by the people who manage a site and their agents, and they run
+in the platform's process, so each render is bounded: one render at a time per
+replica, a five-minute deadline, and limits on loop iterations (50,000,000), include
+depth (32), block nesting (64), the bytes one page can hold (`sites.max_file_bytes`),
+total output (`sites.max_release_bytes`), output files (`sites.max_release_files`)
+and records held in memory (256 MiB). A panic in the template engine fails the page.
+Source and output each count against the limits on their own. A render is a function
+of the source tree: `date` refuses `now`, loops over objects run in key order, and no
+template reaches the network or a file outside the tree. A template error refuses the
+release, lists every file and line that failed, and leaves the environment where it
+was.
+
 A publish or a copy from the portal runs in the background (`site_jobs`): it goes
 on if the browser goes away, and a copy can be stopped. A job nobody has reported
 on for fifteen minutes reads as failed, since the replica running it has stopped.

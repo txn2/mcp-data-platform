@@ -9,15 +9,40 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/txn2/mcp-data-platform/internal/application"
+	"github.com/txn2/mcp-data-platform/internal/approval"
 	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/site"
 	"github.com/txn2/mcp-data-platform/internal/site/sitestore"
 )
+
+// Objects stores a release's files.
+type Objects interface {
+	PutObject(ctx context.Context, bucket, key string, data []byte, contentType string) error
+	GetObject(ctx context.Context, bucket, key string) ([]byte, string, error)
+	DeleteObject(ctx context.Context, bucket, key string) error
+}
+
+// Applications finds the application a hostname maps to.
+type Applications interface {
+	GetByName(ctx context.Context, name string) (*application.Application, error)
+}
+
+// Approvals is the queue a promotion that requires approval goes through.
+type Approvals interface {
+	SubmitRelease(ctx context.Context, actor approval.Actor, in approval.SubmitRelease) (*approval.Request, error)
+	ReleaseApproved(ctx context.Context, releaseID, target, digest string) bool
+	RecordReleaseSelfApproval(ctx context.Context, actor approval.Actor, in approval.SubmitRelease) error
+}
+
+// Invalidate tells this replica's gateway a route changed; nil does nothing.
+type Invalidate func(hostOrSite string)
 
 // Service carries out the commands.
 type Service struct {
@@ -42,6 +67,9 @@ type Service struct {
 	// PublicScheme and PublicPort are what an address is written with.
 	PublicScheme, PublicPort string
 	Invalidate               Invalidate
+	// rendering lets one render run at a time on a replica, which is what
+	// bounds the memory they can hold.
+	rendering sync.Mutex
 }
 
 // Actor is who is acting.

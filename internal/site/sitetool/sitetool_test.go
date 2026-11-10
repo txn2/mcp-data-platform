@@ -177,7 +177,11 @@ func (m *memStore) Releases(_ context.Context, siteID string) ([]site.Release, e
 }
 
 // Files walks a release's chain as the store's query does.
-func (m *memStore) Files(_ context.Context, releaseID string) ([]site.File, error) {
+func (m *memStore) Files(ctx context.Context, releaseID string) ([]site.File, error) {
+	return m.Tree(ctx, releaseID, site.TreeOutput)
+}
+
+func (m *memStore) Tree(_ context.Context, releaseID, tree string) ([]site.File, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	byID := map[string]site.Release{}
@@ -188,13 +192,23 @@ func (m *memStore) Files(_ context.Context, releaseID string) ([]site.File, erro
 	}
 	seen, out := map[string]bool{}, []site.File{}
 	for r, ok := byID[releaseID]; ok; r, ok = byID[r.ManifestParent] {
-		for _, f := range r.Files {
+		files, gone := r.Files, r.Removed
+		if tree == site.TreeSource {
+			files, gone = r.SourceFiles, r.SourceRemoved
+		}
+		if tree == site.TreeRender {
+			files, gone = nil, nil
+			if r.RenderIndex != nil {
+				files = []site.File{*r.RenderIndex}
+			}
+		}
+		for _, f := range files {
 			if !seen[f.Path] {
 				seen[f.Path] = true
 				out = append(out, f)
 			}
 		}
-		for _, p := range r.Removed {
+		for _, p := range gone {
 			seen[p] = true
 		}
 	}

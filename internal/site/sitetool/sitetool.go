@@ -136,7 +136,10 @@ const description = "Static sites served by the platform on their own hostnames.
 	"and patch, whose version is the release number and which adds a release derived from the current one), and mcp:site:<site>/" +
 	"<environment> names the whole tree. publish with base overlays that release, which must be the one default serves now: the " +
 	"files you send are added or replaced, an entry with delete true removes that path, and everything else carries over. Edits " +
-	"and overlays land only on default, which is behind sign-in; promote moves them to any other environment. promote points an environment at another's release, and " +
+	"and overlays land only on default, which is behind sign-in; promote moves them to any other environment. A site with a " +
+	"_layouts folder is rendered at publish: Liquid layouts and includes, records in _data/<collection>, and pages with front matter " +
+	"(for_each and per_page generate pages); the references above then address its source, and a template error refuses the release " +
+	"and names the file. promote points an environment at another's release, and " +
 	"rollback at one it served before: neither copies a file, and both take effect at once. An environment that requires " +
 	"approval is reached only by promote: an administrator's promote records its own approval, anyone else's files a request " +
 	"in manage_approval and goes through when they promote again after it is approved. grant and revoke say who else reaches " +

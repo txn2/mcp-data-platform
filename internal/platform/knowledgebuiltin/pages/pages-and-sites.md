@@ -151,6 +151,51 @@ Everything you do not send carries over and is not stored again, so a change cos
 what the change costs. The `_redirects` file reads and patches as the rules it
 became, without any comments the original held.
 
+### Layouts and generated pages
+
+A site with a `_layouts/` folder is rendered when it is published, with no build
+tool. A site without one is served exactly as published.
+
+| In the source | What it is |
+|---|---|
+| `_layouts/<name>.html` | A Liquid layout. `{{ content }}` is what it wraps; its own front matter can name a parent `layout`. |
+| `_includes/<file>` | `{% include "nav.html", title: page.title %}` shares the page's variables; `render` sees only its arguments. |
+| `_data/<collection>/<file>` | One record per file: JSON, YAML, or Markdown with front matter. `slug` defaults to the file name. `site.data.<collection>` is the list. |
+| Any `.html`, `.md`, `.xml`, `.json` or `.txt` with front matter | A page. Without front matter a file is copied as it is. |
+
+Front matter keys: `layout`, `title`, `permalink`, `date`, `tags`, `categories`,
+`draft` (not published), `for_each`, `per_page`, and `liquid: false` to leave a body
+containing `{{` alone, such as a page using another template syntax.
+
+```yaml
+---
+layout: base
+for_each: products
+permalink: /products/{{ item.slug }}/
+---
+<h1>{{ item.name }}</h1>
+```
+
+That is one page per record, with the record as `item`. `for_each: tags` or
+`categories` makes one page per value, where `item` has `name`, `slug` and `pages`.
+Add `per_page: 20` for paged lists: `paginator` has `items`, `page`, `per_page`,
+`total_pages`, `total_items`, `previous_page` and `next_page`, and the permalink
+uses `{{ paginator.page }}`. A sitemap or feed is an ordinary `.xml` or `.json` page
+looping over `site.data.<collection>`, `site.pages` or `site.tags`.
+
+The source is what you edit: `mcp:site:` references address `_layouts/`, records and
+page templates, and the output follows in the same release. A patch re-renders only
+what read the file you changed, and `dry_run` reports `outputs_changed` and any
+template error without writing anything. Everyone who manages the site reads source;
+someone with view reads what is served. Source is never served, because the site is
+served from the rendered output alone.
+
+A template error refuses the release, names every file and line that failed, and the
+environment does not move. A render is a function of the source tree alone, with no
+network or clock, so `{{ "now" | date }}` is refused: use a date from a page or
+record. A range such as `(1..n)` works only in a `for` tag. Each render has limits on
+loop iterations, include depth and bytes; going past one fails that page.
+
 ### Who has access
 
 `grant` and `revoke` take `email` and `level`. `manage` publishes, promotes, rolls
