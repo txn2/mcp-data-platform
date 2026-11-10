@@ -1,4 +1,5 @@
 import { Suspense, lazy, useState, useEffect, useCallback, useRef } from "react";
+import { PageArea } from "./PageArea";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { MobileSidebarOverlay } from "./MobileSidebarOverlay";
@@ -481,11 +482,7 @@ export function AppShell() {
           title={title}
           onMenuClick={isMobile ? () => setMobileSidebarOpen(true) : undefined}
         />
-        {/* The page surface is `--background` itself, not a wash of `--muted`
-            over it: cards read as raised against the page only if the page is
-            the ramp's own middle step, and a muted wash would land on top of
-            the fills (tab tracks, code blocks) that also derive from muted. */}
-        <main className="flex-1 overflow-auto bg-background p-3 sm:p-6">
+        <PageArea>
           <SectionIntro route={route} />
           {/* Two boundaries around the page area, both scoped to it so the
               sidebar and header stay painted and navigation still works. The
@@ -591,7 +588,7 @@ export function AppShell() {
           </SectionGate>
           </Suspense>
           </ErrorBoundary>
-        </main>
+        </PageArea>
       </div>
 
     </div>

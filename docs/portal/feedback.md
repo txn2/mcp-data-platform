@@ -21,7 +21,7 @@ you own.
 
 ## The feedback panel
 
-Open the **Feedback** button in an asset, collection, prompt, or knowledge-page viewer to slide out the feedback panel. It lists the threads on that item with their kind, status, author, and activity, and a header counts how many are open and how many still need resolution. Selecting a text passage in markdown or plain-text content (an asset, a prompt, or a knowledge page) before opening **New** lets you anchor your feedback to that selection. In the Knowledge hub, each knowledge-page card shows an open-thread badge so you can see where feedback is waiting.
+Open the **Feedback** button in an asset, collection, prompt, or knowledge-page viewer to open the feedback panel beside the item, or under it on a screen narrower than 1024px. Nothing lies over the item while it is open, so you can keep scrolling a document or paging a deck as you write, and what you have typed stays. The arrow keys page a deck unless your cursor is in a text box. It lists the threads on that item with their kind, status, author, and activity, and a header counts how many are open and how many still need resolution. Selecting a text passage in markdown or plain-text content (an asset, a prompt, or a knowledge page) before opening **New** lets you anchor your feedback to that selection. In the Knowledge hub, each knowledge-page card shows an open-thread badge so you can see where feedback is waiting.
 
 ![Asset feedback panel](../images/screenshots/light/user-asset-feedback-light.webp#only-light)![Asset feedback panel](../images/screenshots/dark/user-asset-feedback-dark.webp#only-dark)
 

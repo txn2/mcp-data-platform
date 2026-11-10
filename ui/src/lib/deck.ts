@@ -14,6 +14,12 @@
 /** The served runtime's script path, which every deck names (#1767). */
 export const RUNTIME_PATH = "/portal/vendor/reveal/reveal.js";
 
+/** The attribute that marks the frame a slide deck is drawn in. */
+export const DECK_FRAME_ATTR = "data-slide-deck";
+
+/** A direction the runtime moves through its slides. */
+export type DeckMove = "left" | "right" | "up" | "down";
+
 /** Whether the document loads the served slide runtime. */
 export function isSlideDeck(content: string): boolean {
   return content.includes(RUNTIME_PATH);
@@ -25,4 +31,9 @@ export function isSlideDeck(content: string): boolean {
  */
 export function overviewMessage(): string {
   return JSON.stringify({ method: "toggleOverview", args: [] });
+}
+
+/** The message the runtime answers by moving a slide, as its own arrow keys do. */
+export function deckMoveMessage(move: DeckMove): string {
+  return JSON.stringify({ method: move, args: [] });
 }

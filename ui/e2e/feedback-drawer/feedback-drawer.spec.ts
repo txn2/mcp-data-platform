@@ -178,3 +178,119 @@ test("capture refused: the panel shows the server's message", async ({ page }) =
   await expect(page.getByRole("alert").filter({ hasText: env("FEEDBACK_REFUSAL") })).toBeVisible();
   await expect(page.getByText("Could not capture this as an insight.")).toHaveCount(0);
 });
+
+// #2583: the item stays usable while its feedback panel is open.
+const ITEM_SIZES = [
+  ["1280px", { width: 1280, height: 800 }],
+  ["390px", { width: 390, height: 844 }],
+] as const;
+
+async function openItemFeedback(page: Page): Promise<void> {
+  await page.goto(`/portal/assets/${env("FEEDBACK_ASSET")}`);
+  await page.getByRole("main").getByRole("button", { name: /Feedback/ }).first().click();
+  await expect(page.getByRole("heading", { name: "Asset feedback" })).toBeVisible();
+  await page.getByRole("button", { name: "New", exact: true }).click();
+}
+
+function messageBox(page: Page): Locator {
+  return page.getByPlaceholder(/Describe your feedback/);
+}
+
+/** post sends the feedback and holds that it was the text typed before reading on. */
+async function expectKeptAndPost(page: Page, message: string): Promise<void> {
+  await expect(messageBox(page)).toHaveValue(message);
+  const posted = page.waitForResponse((r) => r.request().method() === "POST" && new URL(r.url()).pathname.endsWith("/threads"));
+  await page.getByRole("button", { name: "Post feedback" }).click();
+  expect((await posted).status()).toBe(201);
+}
+
+for (const [label, viewport] of ITEM_SIZES) {
+  test(`asset deck ${label}: the deck pages while feedback is written`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await signInWithKey(page);
+    await openItemFeedback(page);
+    const message = `${env("FEEDBACK_MESSAGE")} ${label}`;
+    const box = messageBox(page);
+    await box.fill(message);
+
+    const iframe = page.locator('iframe[title="HTML Preview"]');
+    const deck = iframe.contentFrame();
+    // Where the reader is in the deck. In a frame 435px wide or less the runtime
+    // reads as one scrolling page with no next and previous controls, and a
+    // step is a scroll of the page; wider, it is a slide.
+    const beside = viewport.width >= 1024;
+    const position = () =>
+      deck.locator("body").evaluate((_, slides) => {
+        if (slides) return (window as unknown as { Reveal: { getIndices(): { h: number } } }).Reveal.getIndices().h;
+        return document.querySelector(".reveal-viewport")?.scrollTop ?? 0;
+      }, beside);
+    const atStart = () => expect.poll(position).toBe(0);
+    const pastStart = () => expect.poll(position).toBeGreaterThan(0);
+    await expect(deck.locator(".slides")).toContainText("Acceptance deck");
+    await atStart();
+
+    // Nothing of the deck is under the panel, beside it or below it.
+    const frame = (await iframe.boundingBox())!;
+    const panel = (await page.locator("[data-item-panel]").boundingBox())!;
+    if (beside) {
+      expect(frame.x + frame.width, "the panel covers the deck").toBeLessThanOrEqual(panel.x);
+    } else {
+      // The panel's height is a share of the screen, so its edge can fall between pixels.
+      expect(Math.floor(frame.y + frame.height), "the panel covers the deck").toBeLessThanOrEqual(Math.ceil(panel.y));
+    }
+
+    // The arrow keys, with the cursor outside the text box.
+    await box.evaluate((el) => (el as HTMLElement).blur());
+    await page.keyboard.press("ArrowRight");
+    await pastStart();
+    await page.keyboard.press("ArrowLeft");
+    await atStart();
+
+    // Inside the text box the arrow keys move the cursor and the slide stays.
+    await box.focus();
+    await box.evaluate((el) => (el as HTMLTextAreaElement).setSelectionRange(5, 5));
+    await page.keyboard.press("ArrowRight");
+    expect(await box.evaluate((el) => (el as HTMLTextAreaElement).selectionStart)).toBe(6);
+    await atStart();
+
+    // The deck's own controls, or scrolling the page it has become.
+    const next = deck.locator(".controls .navigate-right");
+    if (beside) {
+      await next.click();
+      await pastStart();
+      await deck.locator(".controls .navigate-left").click();
+      await atStart();
+    } else {
+      await expect(next).toBeHidden();
+      // A wheel or a finger on the frame reaches the deck: nothing lies over it.
+      const area = (await iframe.boundingBox())!;
+      const tags = await page.evaluate(
+        ([x, y, w, h]) =>
+          [[x! + 4, y! + 4], [x! + w! - 4, y! + 4], [x! + w! / 2, y! + h! / 2], [x! + 4, y! + h! - 4], [x! + w! - 4, y! + h! - 4]].map(
+            ([px, py]) => document.elementFromPoint(px!, py!)?.tagName,
+          ),
+        [area.x, area.y, area.width, area.height],
+      );
+      expect(tags, "something lies over the deck").toEqual(["IFRAME", "IFRAME", "IFRAME", "IFRAME", "IFRAME"]);
+    }
+
+    await expectKeptAndPost(page, message);
+  });
+
+  test(`asset document ${label}: the document scrolls while feedback is written`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await signInWithKey(page);
+    await openItemFeedback(page);
+    const message = `${env("FEEDBACK_MESSAGE")} ${label}`;
+    await messageBox(page).fill(message);
+
+    const main = page.getByRole("main");
+    await expect(main.getByText("Paragraph 80 of the long document.")).toBeAttached();
+    const area = (await main.boundingBox())!;
+    await page.mouse.move(area.x + area.width / 2, area.y + area.height / 2);
+    await page.mouse.wheel(0, 600);
+    await expect.poll(() => main.evaluate((el) => el.scrollTop), "the document did not scroll").toBeGreaterThan(0);
+
+    await expectKeptAndPost(page, message);
+  });
+}
