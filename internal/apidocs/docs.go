@@ -52222,6 +52222,11 @@ const docTemplate = `{
         "sitehttp.ReleaseDetail": {
             "type": "object",
             "properties": {
+                "base": {
+                    "description": "Base is the number of the release this one was derived from, 0 for a\nrelease built from a complete file set.",
+                    "type": "integer",
+                    "example": 41
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -52256,6 +52261,10 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/site.Redirect"
                     }
+                },
+                "rendered": {
+                    "description": "Rendered is true for a release with a source tree of its own; a release\nwithout one serves the files it was published with.",
+                    "type": "boolean"
                 },
                 "served_in": {
                     "type": "array",
@@ -52288,6 +52297,11 @@ const docTemplate = `{
         "sitehttp.ReleaseView": {
             "type": "object",
             "properties": {
+                "base": {
+                    "description": "Base is the number of the release this one was derived from, 0 for a\nrelease built from a complete file set.",
+                    "type": "integer",
+                    "example": 41
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -52298,7 +52312,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "files": {
-                    "description": "Files is filled by a read that asks for them.",
+                    "description": "Files is filled by a read that asks for them. Written with a\nManifestParent it holds only what differs from the parent.",
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/site.File"
@@ -52323,6 +52337,10 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/site.Redirect"
                     }
+                },
+                "rendered": {
+                    "description": "Rendered is true for a release with a source tree of its own; a release\nwithout one serves the files it was published with.",
+                    "type": "boolean"
                 },
                 "served_in": {
                     "type": "array",

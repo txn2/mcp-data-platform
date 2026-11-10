@@ -140,14 +140,24 @@ func (m *memStore) SetEnvironment(_ context.Context, siteID, name string, requir
 	return nil
 }
 
-func (m *memStore) RecordRelease(_ context.Context, r *site.Release) error {
+func (m *memStore) RecordRelease(ctx context.Context, r *site.Release, move *site.Pointer) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	r.Number = len(m.releases[r.SiteID]) + 1
 	m.releases[r.SiteID] = append([]site.Release{*r}, m.releases[r.SiteID]...)
 	m.files[r.ID] = r.Files
-	return nil
+	m.mu.Unlock()
+	if move == nil {
+		return nil
+	}
+	move.To = r.Number
+	return m.Point(ctx, *move)
 }
+
+func (m *memStore) Tree(ctx context.Context, releaseID, _ string) ([]site.File, error) {
+	return m.Files(ctx, releaseID)
+}
+
+func (*memStore) StoredFiles(context.Context, string) ([]site.File, error) { return nil, nil }
 
 func (m *memStore) Release(_ context.Context, siteID string, number int) (*site.Release, error) {
 	m.mu.Lock()
@@ -376,6 +386,10 @@ func (o *memObjects) PutObject(_ context.Context, _, key string, data []byte, _ 
 	defer o.mu.Unlock()
 	o.put[key] = data
 	return nil
+}
+
+func (*memObjects) GetObject(context.Context, string, string) (data []byte, contentType string, err error) {
+	return nil, "", nil
 }
 
 func (o *memObjects) DeleteObject(_ context.Context, _, key string) error {

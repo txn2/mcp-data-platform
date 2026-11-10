@@ -96,12 +96,112 @@ An environment can require approval (`requires_approval` on `add_domain` or
 promote records its own approval, and anyone else's files a request in
 `manage_approval` and goes through when they promote again after it is approved.
 
+### Changing a site
+
+Do not resend a site to change it. `manage_asset` reads and edits a site's files
+in place, with the same content actions it has for an asset. The reference names
+what to work on:
+
+| Reference | What it names |
+|---|---|
+| `mcp:site:marketing/default/pricing/index.html` | one file, as that environment serves it |
+| `mcp:site:marketing/default/docs/` | the files in a folder |
+| `mcp:site:marketing/default` | the whole tree |
+
+```
+manage_asset action=outline asset_id=mcp:site:marketing/default
+manage_asset action=locate  asset_id=mcp:site:marketing/default find="From $99"
+manage_asset action=patch   asset_id=mcp:site:marketing/default/pricing/index.html
+             base_version=41 change_summary="Fix the pricing headline"
+             edits=[{"find":"From $99","replace":"From $89"}]
+manage_site  command=promote site=marketing from=default to=dev
+```
+
+| `manage_asset` | On a site file |
+|---|---|
+| `version` | the release number |
+| `base_version` | the release you read; a moved one is refused and nothing is written |
+| `patch` | a new release derived from the current one, with `default` moved to it |
+| `change_summary` | the release note |
+| `dry_run` | reports the diff and creates no release |
+| `from_version`, `to_version` | two release numbers |
+
+`outline` on a tree or folder lists its files, with `limit` and `offset`.
+`locate` on one searches every text file and reports `files_scanned` and
+`files_skipped`. `diff` on one names the files changed, added and removed; on a
+file it is a unified diff. `share`, `delete` and the other asset actions do not
+apply: a site's sharing and lifecycle are `manage_site`'s.
+
+Edits land only on `default`, which is behind sign-in, and `promote` moves the
+result to any other environment. So a change spread over several patches reaches
+the public in one step. Every other environment can be read here and not changed.
+Patching needs manage access and a persona that holds `manage_site`; reading needs
+the access that opens the site's own address, and earlier releases need manage.
+
+`patch` covers text. For new files, binaries, deletions or several files that must
+change in one release, `publish` with `base` overlays that release, which must be
+the one `default` serves now:
+
+```
+manage_site command=publish site=marketing base=42 note="New pricing page"
+  files=[{"path":"pricing/index.html","content":"..."},{"path":"old.html","delete":true}]
+```
+
+Everything you do not send carries over and is not stored again, so a change costs
+what the change costs. The `_redirects` file reads and patches as the rules it
+became, without any comments the original held.
+
+### Layouts and generated pages
+
+A site with a `_layouts/` folder is rendered when it is published, with no build
+tool. A site without one is served exactly as published.
+
+| In the source | What it is |
+|---|---|
+| `_layouts/<name>.html` | A Liquid layout. `{{ content }}` is what it wraps; its own front matter can name a parent `layout`. |
+| `_includes/<file>` | `{% include "nav.html", title: page.title %}` shares the page's variables; `render` sees only its arguments. |
+| `_data/<collection>/<file>` | One record per file: JSON, YAML, or Markdown with front matter. `slug` defaults to the file name. `site.data.<collection>` is the list. |
+| Any `.html`, `.md`, `.xml`, `.json` or `.txt` with front matter | A page. Without front matter a file is copied as it is. |
+
+Front matter keys: `layout`, `title`, `permalink`, `date`, `tags`, `categories`,
+`draft` (not published), `for_each`, `per_page`, and `liquid: false` to leave a body
+containing `{{` alone, such as a page using another template syntax.
+
+```yaml
+---
+layout: base
+for_each: products
+permalink: /products/{{ item.slug }}/
+---
+<h1>{{ item.name }}</h1>
+```
+
+That is one page per record, with the record as `item`. `for_each: tags` or
+`categories` makes one page per value, where `item` has `name`, `slug` and `pages`.
+Add `per_page: 20` for paged lists: `paginator` has `items`, `page`, `per_page`,
+`total_pages`, `total_items`, `previous_page` and `next_page`, and the permalink
+uses `{{ paginator.page }}`. A sitemap or feed is an ordinary `.xml` or `.json` page
+looping over `site.data.<collection>`, `site.pages` or `site.tags`.
+
+The source is what you edit: `mcp:site:` references address `_layouts/`, records and
+page templates, and the output follows in the same release. A patch re-renders only
+what read the file you changed, and `dry_run` reports `outputs_changed` and any
+template error without writing anything. Everyone who manages the site reads source;
+someone with view reads what is served. Source is never served, because the site is
+served from the rendered output alone.
+
+A template error refuses the release, names every file and line that failed, and the
+environment does not move. A render is a function of the source tree alone, with no
+network or clock, so `{{ "now" | date }}` is refused: use a date from a page or
+record. A range such as `(1..n)` works only in a `for` tag. Each render has limits on
+loop iterations, include depth and bytes; going past one fails that page.
+
 ### Who has access
 
 `grant` and `revoke` take `email` and `level`. `manage` publishes, promotes, rolls
 back, adds domains and shares view access; it is for internal people, and only the
-owner or an administrator adds it. `view` opens the site's own address and gives
-nothing else, so a client on an external persona can have it, and anyone who
+owner or an administrator adds it. `view` opens the site's own address and reads
+the files it serves now, and changes nothing, so a client on an external persona can have it, and anyone who
 manages the site can give it. `update internal_view=true` opens the address to
 everyone internal, for an intranet.
 

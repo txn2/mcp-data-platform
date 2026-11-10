@@ -9,15 +9,40 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/txn2/mcp-data-platform/internal/application"
+	"github.com/txn2/mcp-data-platform/internal/approval"
 	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/site"
 	"github.com/txn2/mcp-data-platform/internal/site/sitestore"
 )
+
+// Objects stores a release's files.
+type Objects interface {
+	PutObject(ctx context.Context, bucket, key string, data []byte, contentType string) error
+	GetObject(ctx context.Context, bucket, key string) ([]byte, string, error)
+	DeleteObject(ctx context.Context, bucket, key string) error
+}
+
+// Applications finds the application a hostname maps to.
+type Applications interface {
+	GetByName(ctx context.Context, name string) (*application.Application, error)
+}
+
+// Approvals is the queue a promotion that requires approval goes through.
+type Approvals interface {
+	SubmitRelease(ctx context.Context, actor approval.Actor, in approval.SubmitRelease) (*approval.Request, error)
+	ReleaseApproved(ctx context.Context, releaseID, target, digest string) bool
+	RecordReleaseSelfApproval(ctx context.Context, actor approval.Actor, in approval.SubmitRelease) error
+}
+
+// Invalidate tells this replica's gateway a route changed; nil does nothing.
+type Invalidate func(hostOrSite string)
 
 // Service carries out the commands.
 type Service struct {
@@ -42,6 +67,9 @@ type Service struct {
 	// PublicScheme and PublicPort are what an address is written with.
 	PublicScheme, PublicPort string
 	Invalidate               Invalidate
+	// rendering lets one render run at a time on a replica, which is what
+	// bounds the memory they can hold.
+	rendering sync.Mutex
 }
 
 // Actor is who is acting.
@@ -188,27 +216,22 @@ func (s *Service) Delete(ctx context.Context, actor Actor, ref string) error {
 	return nil
 }
 
-// objectKeys lists every object the site's releases hold, read before the
-// rows that name them go.
+// objectKeys lists every object the site holds, read before the rows that name
+// them go.
 func (s *Service) objectKeys(ctx context.Context, siteID string) []string {
-	rels, err := s.Store.Releases(ctx, siteID)
+	files, err := s.Store.StoredFiles(ctx, siteID)
 	if err != nil {
+		slog.WarnContext(ctx, "sites: listing a deleted site's objects failed", "error", logsan.SanitizeForLog(err.Error()))
 		return nil
 	}
-	keys := []string{}
-	for _, r := range rels {
-		files, err := s.Store.Files(ctx, r.ID)
-		if err != nil {
-			continue
+	keys := make([]string, 0, len(files))
+	for _, f := range files {
+		keys = append(keys, ObjectKey(siteID, f, ""))
+		if f.GzipSize > 0 {
+			keys = append(keys, ObjectKey(siteID, f, "gz"))
 		}
-		for _, f := range files {
-			keys = append(keys, ObjectKey(siteID, r.ID, "", f.Path))
-			if f.GzipSize > 0 {
-				keys = append(keys, ObjectKey(siteID, r.ID, "gz", f.Path))
-			}
-			if f.BrotliSize > 0 {
-				keys = append(keys, ObjectKey(siteID, r.ID, "br", f.Path))
-			}
+		if f.BrotliSize > 0 {
+			keys = append(keys, ObjectKey(siteID, f, "br"))
 		}
 	}
 	return keys

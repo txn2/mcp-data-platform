@@ -1,9 +1,10 @@
 // Package site is the record of a static site served by the platform (#2518):
 // a site with named environments, each pointing at one immutable release (a
-// built file set under its own object-storage prefix), and the hostnames that
+// file set whose objects are kept by digest, per site), and the hostnames that
 // route to an environment or to an application's endpoints.
 //
-// Publishing adds a release. Promoting and rolling back only move an
+// Publishing adds a release, from a complete file set or derived from another
+// release by changing part of it. Promoting and rolling back only move an
 // environment's pointer, so no file is copied and the move takes effect on
 // the next request. The serving layer is internal/site/sitegw, and it is the
 // same layer that serves an application's browser pages (#2517).
@@ -116,12 +117,20 @@ type Store interface {
 	// SetEnvironment creates an environment, or changes whether it requires
 	// approval.
 	SetEnvironment(ctx context.Context, siteID, name string, requiresApproval bool, actor string) error
-	// RecordRelease writes a release and its files, numbering it next.
-	RecordRelease(ctx context.Context, r *Release) error
+	// RecordRelease writes a release and its files, numbering it next. With a
+	// move it also points the environment at the new release, in the one
+	// transaction, so a move that loses to another leaves no release behind.
+	RecordRelease(ctx context.Context, r *Release, move *Pointer) error
 	Release(ctx context.Context, siteID string, number int) (*Release, error)
 	ReleaseByID(ctx context.Context, id string) (*Release, error)
 	Releases(ctx context.Context, siteID string) ([]Release, error)
+	// Files is what a release serves, in path order, however it is stored.
 	Files(ctx context.Context, releaseID string) ([]File, error)
+	// Tree is one tree of a release, in path order.
+	Tree(ctx context.Context, releaseID, tree string) ([]File, error)
+	// StoredFiles lists what a site holds in object storage, each object once,
+	// whichever releases share it.
+	StoredFiles(ctx context.Context, siteID string) ([]File, error)
 	// Point moves an environment, failing with ErrStale when another move
 	// got there first, and records the deployment.
 	Point(ctx context.Context, p Pointer) error

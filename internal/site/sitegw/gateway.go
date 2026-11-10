@@ -463,7 +463,7 @@ func (g *Gateway) serveFile(w http.ResponseWriter, r *http.Request, route *site.
 	if enc != "" {
 		h.Set(headerContentEnc, contentEncoding(enc))
 	}
-	key := sitesvc.ObjectKey(route.SiteID, route.Release.ID, enc, f.Path)
+	key := sitesvc.ObjectKey(route.SiteID, f, enc)
 	cacheKey := f.SHA256 + pathSep + enc
 	if status != http.StatusOK {
 		if !route.Private {

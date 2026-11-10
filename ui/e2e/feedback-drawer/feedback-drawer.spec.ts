@@ -227,9 +227,15 @@ for (const [label, viewport] of ITEM_SIZES) {
     const atStart = () => expect.poll(position).toBe(0);
     const pastStart = () => expect.poll(position).toBeGreaterThan(0);
     await expect(deck.locator(".slides")).toContainText("Acceptance deck");
+    // The text is in the page before the runtime starts; its keys and position exist once it is ready.
+    await expect(deck.locator(".reveal.ready")).toBeAttached();
     await atStart();
 
-    // Nothing of the deck is under the panel, beside it or below it.
+    // Nothing of the deck is under the panel, beside it or below it. On a narrow
+    // screen the page scrolls in the space above the panel and the deck can start
+    // below its fold, so it is brought into view first. Where the page happens to
+    // be scrolled when this runs depends on when the deck finished loading.
+    if (!beside) await iframe.evaluate((el) => el.scrollIntoView({ block: "end" }));
     const frame = (await iframe.boundingBox())!;
     const panel = (await page.locator("[data-item-panel]").boundingBox())!;
     if (beside) {

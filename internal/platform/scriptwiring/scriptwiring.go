@@ -46,9 +46,11 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/site/sitewire"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
+	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/script"
+	portalkit "github.com/txn2/mcp-data-platform/pkg/toolkits/portal"
 )
 
 // Wire assembles the managed-script feature and returns its execution
@@ -185,6 +187,11 @@ func wireSites(deps Deps, endpoints *epwire.Endpoints) (*sitewire.Runtime, error
 		endpoints.Commands.PageAllowed = rt.PageAllowed
 		endpoints.Commands.PageAddress = rt.PageAddress
 	}
+	if rt != nil && deps.BindSiteContent != nil {
+		deps.BindSiteContent(&sitetool.Content{Service: rt.Service, ToolAllowed: func(name string) bool {
+			return deps.SitePersonas.ToolAllowed(name, ToolManageSite)
+		}})
+	}
 	return rt, nil
 }
 
@@ -310,6 +317,10 @@ type Deps struct {
 	DigestHourUTC        int
 	PortalURL            string
 	Toolkits             *registry.Registry
+	// BindSiteContent hands manage_asset what answers a site reference, and
+	// SitePersonas says which personas hold manage_site (#2588).
+	BindSiteContent func(portalkit.SiteContent)
+	SitePersonas    *persona.Registry
 
 	// BotCheckKey signs a bot_check endpoint's proof-of-work challenges
 	// (botcheck.Key), and Encryptor decrypts the stored secret a bot check

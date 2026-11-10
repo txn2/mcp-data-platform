@@ -182,6 +182,18 @@ func (r *Registry) SharingAllowed(name string) bool {
 	return ok && p.SharingAllowed()
 }
 
+// ToolAllowed reports whether the persona registered under name holds tool, by
+// the same rules a tools/call is authorized under. A tool that changes what
+// another tool governs asks it: manage_asset may edit a site only for a persona
+// that holds manage_site (#2588).
+func (r *Registry) ToolAllowed(name, tool string) bool {
+	if r == nil {
+		return false
+	}
+	p, ok := r.Get(name)
+	return ok && (&ToolFilter{}).IsAllowed(p, tool)
+}
+
 // HistoryAllowed reports whether the persona registered under name lets its
 // people read an asset's earlier versions (#2290), read from the registry as
 // it is now. An unknown name is refused, as SharingAllowed refuses one.

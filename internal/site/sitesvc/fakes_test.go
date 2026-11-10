@@ -151,13 +151,19 @@ func (m *memStore) SetEnvironment(_ context.Context, siteID, name string, requir
 	return nil
 }
 
-func (m *memStore) RecordRelease(_ context.Context, r *site.Release) error {
+func (m *memStore) RecordRelease(_ context.Context, r *site.Release, move *site.Pointer) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.failRecord != nil {
 		return m.failRecord
 	}
 	r.Number = len(m.releases[r.SiteID]) + 1
+	if move != nil {
+		move.To = r.Number
+		if err := m.pointLocked(*move); err != nil {
+			return err // as the transaction would, leaving no release
+		}
+	}
 	m.releases[r.SiteID] = append([]site.Release{*r}, m.releases[r.SiteID]...)
 	return nil
 }
@@ -193,19 +199,85 @@ func (m *memStore) Files(_ context.Context, releaseID string) ([]site.File, erro
 	if m.failFiles != nil && (m.failFilesOf == "" || m.failFilesOf == releaseID) {
 		return nil, m.failFiles
 	}
+	return m.resolveTree(releaseID, site.TreeOutput), nil
+}
+
+func (m *memStore) Tree(_ context.Context, releaseID, tree string) ([]site.File, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.failFiles != nil && (m.failFilesOf == "" || m.failFilesOf == releaseID) {
+		return nil, m.failFiles
+	}
+	return m.resolveTree(releaseID, tree), nil
+}
+
+// resolveTree walks a release's chain for one tree, as the store's query does.
+func (m *memStore) resolveTree(releaseID, tree string) []site.File {
+	byID := map[string]site.Release{}
 	for _, releases := range m.releases {
 		for _, r := range releases {
-			if r.ID == releaseID {
-				return r.Files, nil
+			byID[r.ID] = r
+		}
+	}
+	seen, out := map[string]bool{}, []site.File{}
+	for r, ok := byID[releaseID]; ok; r, ok = byID[r.ManifestParent] {
+		files, gone := treeOfRelease(r, tree)
+		for _, f := range files {
+			if !seen[f.Path] {
+				seen[f.Path] = true
+				out = append(out, f)
+			}
+		}
+		for _, p := range gone {
+			seen[p] = true
+		}
+	}
+	slices.SortFunc(out, func(a, b site.File) int { return strings.Compare(a.Path, b.Path) })
+	return out
+}
+
+func treeOfRelease(r site.Release, tree string) (files []site.File, gone []string) {
+	switch tree {
+	case site.TreeSource:
+		return r.SourceFiles, r.SourceRemoved
+	case site.TreeRender:
+		if r.RenderIndex != nil {
+			return []site.File{*r.RenderIndex}, nil
+		}
+		return nil, nil
+	}
+	return r.Files, r.Removed
+}
+
+func (m *memStore) StoredFiles(_ context.Context, siteID string) ([]site.File, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.failFiles != nil {
+		return nil, m.failFiles
+	}
+	seen, out := map[string]bool{}, []site.File{}
+	for _, r := range m.releases[siteID] {
+		files := append(append([]site.File{}, r.Files...), r.SourceFiles...)
+		if r.RenderIndex != nil {
+			files = append(files, *r.RenderIndex)
+		}
+		for _, f := range files {
+			if id := f.StoredIn + "/" + f.SHA256; !seen[id] {
+				seen[id] = true
+				out = append(out, f)
 			}
 		}
 	}
-	return []site.File{}, nil
+	return out, nil
 }
 
 func (m *memStore) Point(_ context.Context, p site.Pointer) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.pointLocked(p)
+}
+
+func (m *memStore) pointLocked(p site.Pointer) error {
 	if m.failPoint != nil {
 		return m.failPoint
 	}
@@ -443,6 +515,7 @@ type memObjects struct {
 	mu         sync.Mutex
 	put        map[string][]byte
 	fail       string // a key suffix whose put fails
+	failPut    error
 	failDelete error
 }
 
@@ -459,6 +532,9 @@ func (o *memObjects) DeleteObject(_ context.Context, bucket, key string) error {
 }
 
 func (o *memObjects) PutObject(_ context.Context, bucket, key string, data []byte, _ string) error {
+	if o.failPut != nil {
+		return o.failPut
+	}
 	if o.fail != "" && strings.HasSuffix(key, o.fail) {
 		return errors.New("the bucket refused it")
 	}
@@ -466,6 +542,16 @@ func (o *memObjects) PutObject(_ context.Context, bucket, key string, data []byt
 	defer o.mu.Unlock()
 	o.put[bucket+"/"+key] = data
 	return nil
+}
+
+func (o *memObjects) GetObject(_ context.Context, bucket, key string) (data []byte, contentType string, err error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	body, ok := o.put[bucket+"/"+key]
+	if !ok {
+		return nil, "", errors.New("no such object")
+	}
+	return slices.Clone(body), "", nil
 }
 
 func (o *memObjects) keys() []string {

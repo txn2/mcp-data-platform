@@ -188,7 +188,11 @@ func TestIssue1899_TheTableSamplerReportsSizesAndTheTransactionAge(t *testing.T)
 // again. The count is read once every
 // replica has flushed what it held, so a delete made just before is not
 // netted against the upload.
+//
+// The upload is large enough that the platform's own writes in the same bucket,
+// a tile drawn or an orphan reclaimed, cannot hide it from the byte count.
 func TestIssue1899_AnUploadRaisesTheResourcesCountBeforeTheListing(t *testing.T) {
+	const uploaded1899 = 1 << 20
 	c := connect(t)
 	labels := map[string]string{"bucket": issue1899Bucket, "purpose": "resources"}
 	for attempt := 1; attempt <= 3; attempt++ {
@@ -204,7 +208,7 @@ func TestIssue1899_AnUploadRaisesTheResourcesCountBeforeTheListing(t *testing.T)
 		bytes := metricSeries(body, "storage_bucket_bytes", labels)
 		scanned := scrapeScalar(body, "storage_scan_objects")
 
-		uploadResource1568(t, c, fmt.Sprintf("capacity-%d.csv", time.Now().UnixNano()), "text/csv", []byte("a,b\n1,2\n"))
+		uploadResource1568(t, c, fmt.Sprintf("capacity-%d.csv", time.Now().UnixNano()), "text/csv", []byte(strings.Repeat("a,b\n1,2\n", uploaded1899/8)))
 		got := waitForGauge(t, "storage_bucket_objects", labels, 25*time.Second, func(v float64) bool { return v >= objects+1 })
 		after := oneReplica(t)
 		if scrapeScalar(after, "storage_scan_objects") != scanned {
@@ -214,8 +218,8 @@ func TestIssue1899_AnUploadRaisesTheResourcesCountBeforeTheListing(t *testing.T)
 		if got < objects+1 {
 			t.Fatalf("storage_bucket_objects{purpose=\"resources\"} stayed at %v after an upload", got)
 		}
-		if b := metricSeries(after, "storage_bucket_bytes", labels); b <= bytes {
-			t.Fatalf("storage_bucket_bytes{purpose=\"resources\"} = %v, was %v: the upload's bytes were not added", b, bytes)
+		if b := metricSeries(after, "storage_bucket_bytes", labels); b < bytes+uploaded1899/2 {
+			t.Fatalf("storage_bucket_bytes{purpose=\"resources\"} = %v, was %v: the upload's %d bytes were not added", b, bytes, uploaded1899)
 		}
 		return
 	}

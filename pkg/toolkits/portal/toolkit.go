@@ -395,6 +395,7 @@ type Toolkit struct {
 	directory         DirectoryReader
 	sharingAllowed    func(persona string) bool
 	historyAllowed    func(persona string) bool
+	siteContent       SiteContent
 	// contentRefs declares the managed resources an asset's content names.
 	// Nil-safe: every method it is called through checks Available first.
 	contentRefs *assetrefs.Declarer
@@ -513,6 +514,9 @@ const manageToolDescription = "Manages saved assets and collections. " +
 	"Use 'search' with a 'query' to rank your assets by relevance (semantic + " +
 	"keyword) instead of paging the whole list. " +
 	textpatch.VerbsDescription + " " +
+	"The same content actions (get_content, outline, locate, stats, diff, patch) read and edit a site's files: name one with " +
+	"mcp:site:<site>/<environment>/<path>, a folder with a path ending in /, or the whole tree with mcp:site:<site>/<environment>. " +
+	"A patch writes a new release of the site's default environment, which manage_site promote moves on. " +
 	"Human feedback on assets is handled by the separate manage_feedback tool."
 
 // manageTableToolDescription is the advertised description of manage_table.
@@ -957,6 +961,9 @@ func (t *Toolkit) buildFeedbackActions() map[string]feedbackActionHandler {
 
 // handleManageAsset dispatches to the appropriate action handler.
 func (t *Toolkit) handleManageAsset(ctx context.Context, _ *mcp.CallToolRequest, input manageAssetInput) (*mcp.CallToolResult, any, error) {
+	if namesSite(input.AssetID) {
+		return t.handleSiteTarget(ctx, input)
+	}
 	handler, ok := t.actions[input.Action]
 	if !ok {
 		return toolkit.ErrorResult(fmt.Sprintf(

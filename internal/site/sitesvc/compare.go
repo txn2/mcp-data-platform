@@ -26,22 +26,30 @@ func (s *Service) Compare(ctx context.Context, ref string, from, to int) (*Compa
 	if err != nil {
 		return nil, err
 	}
-	target, err := s.Store.Release(ctx, st.ID, to)
+	return s.compareTree(ctx, st.ID, comparePair{from, to}, site.TreeOutput)
+}
+
+// comparePair is two release numbers, the first 0 for no release yet.
+type comparePair struct{ from, to int }
+
+func (s *Service) compareTree(ctx context.Context, siteID string, pair comparePair, tree string) (*Comparison, error) {
+	from, to := pair.from, pair.to
+	target, err := s.Store.Release(ctx, siteID, to)
 	if err != nil {
 		return nil, err //nolint:wrapcheck // read by identity
 	}
-	targetFiles, err := s.Store.Files(ctx, target.ID)
+	targetFiles, err := s.treeFiles(ctx, target, tree)
 	if err != nil {
-		return nil, err //nolint:wrapcheck // read by identity
+		return nil, err
 	}
 	base := &site.Release{Redirects: []site.Redirect{}}
 	baseFiles := []site.File{}
 	if from != 0 {
-		if base, err = s.Store.Release(ctx, st.ID, from); err != nil {
+		if base, err = s.Store.Release(ctx, siteID, from); err != nil {
 			return nil, err //nolint:wrapcheck // read by identity
 		}
-		if baseFiles, err = s.Store.Files(ctx, base.ID); err != nil {
-			return nil, err //nolint:wrapcheck // read by identity
+		if baseFiles, err = s.treeFiles(ctx, base, tree); err != nil {
+			return nil, err
 		}
 	}
 	out := compareFiles(baseFiles, targetFiles)

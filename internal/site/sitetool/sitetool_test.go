@@ -138,10 +138,16 @@ func (m *memStore) SetEnvironment(_ context.Context, siteID, name string, requir
 	return nil
 }
 
-func (m *memStore) RecordRelease(_ context.Context, r *site.Release) error {
+func (m *memStore) RecordRelease(_ context.Context, r *site.Release, move *site.Pointer) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	r.Number = len(m.releases[r.SiteID]) + 1
+	if move != nil {
+		move.To = r.Number
+		if err := m.pointLocked(*move); err != nil {
+			return err
+		}
+	}
 	m.releases[r.SiteID] = slices.Insert(m.releases[r.SiteID], 0, *r)
 	return nil
 }
@@ -170,11 +176,55 @@ func (m *memStore) Releases(_ context.Context, siteID string) ([]site.Release, e
 	return m.releases[siteID], nil
 }
 
-func (*memStore) Files(context.Context, string) ([]site.File, error) { return nil, nil }
+// Files walks a release's chain as the store's query does.
+func (m *memStore) Files(ctx context.Context, releaseID string) ([]site.File, error) {
+	return m.Tree(ctx, releaseID, site.TreeOutput)
+}
+
+func (m *memStore) Tree(_ context.Context, releaseID, tree string) ([]site.File, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	byID := map[string]site.Release{}
+	for _, list := range m.releases {
+		for _, r := range list {
+			byID[r.ID] = r
+		}
+	}
+	seen, out := map[string]bool{}, []site.File{}
+	for r, ok := byID[releaseID]; ok; r, ok = byID[r.ManifestParent] {
+		files, gone := r.Files, r.Removed
+		if tree == site.TreeSource {
+			files, gone = r.SourceFiles, r.SourceRemoved
+		}
+		if tree == site.TreeRender {
+			files, gone = nil, nil
+			if r.RenderIndex != nil {
+				files = []site.File{*r.RenderIndex}
+			}
+		}
+		for _, f := range files {
+			if !seen[f.Path] {
+				seen[f.Path] = true
+				out = append(out, f)
+			}
+		}
+		for _, p := range gone {
+			seen[p] = true
+		}
+	}
+	slices.SortFunc(out, func(a, b site.File) int { return strings.Compare(a.Path, b.Path) })
+	return out, nil
+}
+
+func (*memStore) StoredFiles(context.Context, string) ([]site.File, error) { return nil, nil }
 
 func (m *memStore) Point(_ context.Context, p site.Pointer) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.pointLocked(p)
+}
+
+func (m *memStore) pointLocked(p site.Pointer) error {
 	env := m.sites[p.SiteID].Environment(p.Environment)
 	if env.Release != p.After {
 		return site.ErrStale
@@ -311,6 +361,24 @@ func (o *memObjects) DeleteObject(_ context.Context, _, key string) error {
 	return nil
 }
 
+// objectFor is where the newest release keeps a file's bytes.
+func objectFor(t *testing.T, f *fixture, siteID, name string) string {
+	t.Helper()
+	for _, file := range f.store.releases[siteID][0].Files {
+		if file.Path == name {
+			return sitesvc.ObjectKey(siteID, file, "")
+		}
+	}
+	t.Fatalf("the release has no %s", name)
+	return ""
+}
+
+func (o *memObjects) GetObject(_ context.Context, _, key string) (body []byte, contentType string, err error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.puts[key], "", nil
+}
+
 func (o *memObjects) PutObject(_ context.Context, _, key string, data []byte, _ string) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -436,7 +504,7 @@ func refusal(t *testing.T, f *fixture, ctx context.Context, in Input) string { /
 func files(names ...string) []File {
 	out := make([]File, 0, len(names))
 	for _, n := range names {
-		out = append(out, File{Path: n, Content: "content of " + n})
+		out = append(out, File{Path: n, Content: new("content of " + n)})
 	}
 	return out
 }
@@ -637,20 +705,20 @@ func TestPublish_FilesWithBase64Encoding(t *testing.T) {
 	createSite(t, f)
 	binary := []byte{0x00, 0xff, 0x10, 0x80}
 	call(t, f, admin(), Input{Command: CmdPublish, Site: siteName, Files: []File{
-		{Path: "logo.bin", Content: base64.StdEncoding.EncodeToString(binary), Encoding: "base64"},
-		{Path: indexName, Content: "<h1>plain</h1>", Encoding: "utf-8"},
+		{Path: "logo.bin", Content: new(base64.StdEncoding.EncodeToString(binary)), Encoding: "base64"},
+		{Path: indexName, Content: new("<h1>plain</h1>"), Encoding: "utf-8"},
 	}})
 
 	id := stored(f).ID
-	assert.Equal(t, binary, f.objects.puts[sitesvc.ObjectKey(id, f.store.releases[id][0].ID, "", "logo.bin")])
-	assert.Equal(t, []byte("<h1>plain</h1>"), f.objects.puts[sitesvc.ObjectKey(id, f.store.releases[id][0].ID, "", indexName)])
+	assert.Equal(t, binary, f.objects.puts[objectFor(t, f, id, "logo.bin")])
+	assert.Equal(t, []byte("<h1>plain</h1>"), f.objects.puts[objectFor(t, f, id, indexName)])
 	assert.Equal(t, "files (2)", f.store.releases[id][0].Source)
 }
 
 func TestPublish_MalformedBase64IsRefused(t *testing.T) {
 	f := newFixture()
 	createSite(t, f)
-	msg := refusal(t, f, admin(), Input{Command: CmdPublish, Site: siteName, Files: []File{{Path: "a.bin", Content: "not base64!", Encoding: "base64"}}})
+	msg := refusal(t, f, admin(), Input{Command: CmdPublish, Site: siteName, Files: []File{{Path: "a.bin", Content: new("not base64!"), Encoding: "base64"}}})
 	assert.Contains(t, msg, `file "a.bin": content is not base64`)
 	assert.Empty(t, f.objects.puts, "nothing was stored")
 }
@@ -663,7 +731,7 @@ func TestPublish_FromAnArchive(t *testing.T) {
 
 	assert.Equal(t, "mcp:resource:site.zip", f.sources.archive)
 	id := stored(f).ID
-	assert.Equal(t, []byte("from archive"), f.objects.puts[sitesvc.ObjectKey(id, f.store.releases[id][0].ID, "", indexName)])
+	assert.Equal(t, []byte("from archive"), f.objects.puts[objectFor(t, f, id, indexName)])
 	assert.Equal(t, "mcp:resource:site.zip", f.store.releases[id][0].Source)
 }
 

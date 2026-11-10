@@ -219,6 +219,15 @@ func StaleBaseError(base, current int) *Error {
 		"base_version %d does not match the current version %d", base, current)
 }
 
+// ConcurrentWriteError refuses a patch that lost a race for the current
+// version after it was checked against it: the same answer as a stale base, for
+// a change that landed while this one was being written.
+func ConcurrentWriteError() *Error {
+	return newError(CodeStaleBase, -1,
+		"Re-read the content (action=get_content or stats) and re-anchor the patch against the current version.",
+		"another change was recorded while this one was being written")
+}
+
 // NotTextError refuses a verb that only makes sense on text against binary
 // content, rather than corrupting it or dumping it as garbage.
 func NotTextError(contentType string) *Error {

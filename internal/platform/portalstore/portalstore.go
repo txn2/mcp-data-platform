@@ -239,6 +239,14 @@ func NewFromStores(s Stores, embedder embedding.Provider, cfg Config) *Handle {
 	return h
 }
 
+// BindSiteContent lets manage_asset read and edit a site's files (#2588).
+func (h *Handle) BindSiteContent(c portalkit.SiteContent) {
+	if h == nil || h.toolkit == nil {
+		return
+	}
+	h.toolkit.SetSiteContent(c)
+}
+
 // Producers returns the record of what wrote each asset and each managed
 // resource, or nil on a nil Handle. The portal's producer surfaces read it;
 // the asset and version stores write it.

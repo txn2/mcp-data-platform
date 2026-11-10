@@ -44,7 +44,7 @@ export function SiteAccessTab({ site }: { site: Site }) {
       >
         <div className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Can manage: publish, promote, roll back, add domains and share view access. Can view: open {address} and nothing else on this platform's Sites. Administrators can always manage this site.
+            Can manage: publish, promote, roll back, add domains and share view access. Can view: open {address} and read the files it serves now, and change nothing. Administrators can always manage this site.
           </p>
           <label className="flex items-start gap-2 rounded border p-3">
             <input type="checkbox" className="mt-1" checked={site.internal_view} disabled={update.isPending} onChange={(e) => toggleInternal(e.target.checked)} />
@@ -169,7 +169,7 @@ export function AddPersonDialog({ site, viewOnly, onClose }: { site: Site; viewO
           </div>
           <div className="space-y-2">
             <Label>Access</Label>
-            {pick("view", "Can view", `Opens ${address} after signing in. Sees nothing else about this site.`)}
+            {pick("view", "Can view", `Opens ${address} after signing in and reads the files it serves now. Changes nothing.`)}
             {!viewOnly &&
               pick("manage", "Can manage", "Publishes, promotes, rolls back, adds domains and shares view access. Internal people only. Cannot add people who can manage, change the owner or delete the site.")}
           </div>
