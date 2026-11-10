@@ -96,12 +96,67 @@ An environment can require approval (`requires_approval` on `add_domain` or
 promote records its own approval, and anyone else's files a request in
 `manage_approval` and goes through when they promote again after it is approved.
 
+### Changing a site
+
+Do not resend a site to change it. `manage_asset` reads and edits a site's files
+in place, with the same content actions it has for an asset. The reference names
+what to work on:
+
+| Reference | What it names |
+|---|---|
+| `mcp:site:marketing/default/pricing/index.html` | one file, as that environment serves it |
+| `mcp:site:marketing/default/docs/` | the files in a folder |
+| `mcp:site:marketing/default` | the whole tree |
+
+```
+manage_asset action=outline asset_id=mcp:site:marketing/default
+manage_asset action=locate  asset_id=mcp:site:marketing/default find="From $99"
+manage_asset action=patch   asset_id=mcp:site:marketing/default/pricing/index.html
+             base_version=41 change_summary="Fix the pricing headline"
+             edits=[{"find":"From $99","replace":"From $89"}]
+manage_site  command=promote site=marketing from=default to=dev
+```
+
+| `manage_asset` | On a site file |
+|---|---|
+| `version` | the release number |
+| `base_version` | the release you read; a moved one is refused and nothing is written |
+| `patch` | a new release derived from the current one, with `default` moved to it |
+| `change_summary` | the release note |
+| `dry_run` | reports the diff and creates no release |
+| `from_version`, `to_version` | two release numbers |
+
+`outline` on a tree or folder lists its files, with `limit` and `offset`.
+`locate` on one searches every text file and reports `files_scanned` and
+`files_skipped`. `diff` on one names the files changed, added and removed; on a
+file it is a unified diff. `share`, `delete` and the other asset actions do not
+apply: a site's sharing and lifecycle are `manage_site`'s.
+
+Edits land only on `default`, which is behind sign-in, and `promote` moves the
+result to any other environment. So a change spread over several patches reaches
+the public in one step. Every other environment can be read here and not changed.
+Patching needs manage access and a persona that holds `manage_site`; reading needs
+the access that opens the site's own address, and earlier releases need manage.
+
+`patch` covers text. For new files, binaries, deletions or several files that must
+change in one release, `publish` with `base` overlays that release, which must be
+the one `default` serves now:
+
+```
+manage_site command=publish site=marketing base=42 note="New pricing page"
+  files=[{"path":"pricing/index.html","content":"..."},{"path":"old.html","delete":true}]
+```
+
+Everything you do not send carries over and is not stored again, so a change costs
+what the change costs. The `_redirects` file reads and patches as the rules it
+became, without any comments the original held.
+
 ### Who has access
 
 `grant` and `revoke` take `email` and `level`. `manage` publishes, promotes, rolls
 back, adds domains and shares view access; it is for internal people, and only the
-owner or an administrator adds it. `view` opens the site's own address and gives
-nothing else, so a client on an external persona can have it, and anyone who
+owner or an administrator adds it. `view` opens the site's own address and reads
+the files it serves now, and changes nothing, so a client on an external persona can have it, and anyone who
 manages the site can give it. `update internal_view=true` opens the address to
 everyone internal, for an intranet.
 

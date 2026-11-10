@@ -26,6 +26,9 @@ type File struct {
 	// with no such variant.
 	GzipSize   int64 `json:"gzip_size,omitempty"`
 	BrotliSize int64 `json:"brotli_size,omitempty"`
+	// StoredIn is the release whose own prefix holds this file's objects, for
+	// a file written before objects were kept by digest; "" for every other.
+	StoredIn string `json:"-"`
 }
 
 // Redirect is one rule of a release's redirect map. From ending in "/*"
@@ -52,8 +55,19 @@ type Release struct {
 	Redirects      []Redirect `json:"redirects"`
 	CreatedBy      string     `json:"created_by"`
 	CreatedAt      time.Time  `json:"created_at"`
-	// Files is filled by a read that asks for them.
+	// Base is the number of the release this one was derived from, 0 for a
+	// release built from a complete file set.
+	Base int `json:"base,omitempty" example:"41"`
+	// Files is filled by a read that asks for them. Written with a
+	// ManifestParent it holds only what differs from the parent.
 	Files []File `json:"files,omitempty"`
+	// ManifestParent is the release whose file set this one amends, "" for a
+	// release that holds its whole file set. ManifestDepth counts the links
+	// back to one that does.
+	ManifestParent string `json:"-"`
+	ManifestDepth  int    `json:"-"`
+	// Removed is the paths this release takes out of its parent's file set.
+	Removed []string `json:"-"`
 }
 
 // Deployment is one recorded move of an environment's pointer.
@@ -88,6 +102,17 @@ func ParseRedirects(text string) ([]Redirect, error) {
 		}
 	}
 	return out, nil
+}
+
+// RenderRedirects is a redirect map as the _redirects file that parses back to
+// it, which is what an edit of that file reads: the rules, without the comments
+// the file they were first parsed from may have held.
+func RenderRedirects(rules []Redirect) string {
+	var b strings.Builder
+	for _, r := range rules {
+		fmt.Fprintf(&b, "%s %s %d\n", r.From, r.To, r.Status)
+	}
+	return b.String()
 }
 
 func parseRedirect(line string) (Redirect, error) {

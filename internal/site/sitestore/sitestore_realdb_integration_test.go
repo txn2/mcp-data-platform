@@ -43,7 +43,7 @@ func realRelease(ctx context.Context, t *testing.T, s *Store, siteID string, n i
 			{Path: "a.png", SHA256: "aa", ContentType: "image/png", Size: 10},
 		},
 	}
-	require.NoError(t, s.RecordRelease(ctx, r))
+	require.NoError(t, s.RecordRelease(ctx, r, nil))
 	return r
 }
 
@@ -124,11 +124,11 @@ func TestRealDB_ReleaseAndPoint(t *testing.T) {
 	require.ErrorIs(t, err, site.ErrNoRelease)
 
 	third := &site.Release{ID: NewReleaseID(), SiteID: st.ID, ManifestSHA256: "x", Redirects: []site.Redirect{}, CreatedBy: realOwner}
-	require.NoError(t, s.RecordRelease(ctx, third))
+	require.NoError(t, s.RecordRelease(ctx, third, nil))
 	assert.Equal(t, 3, third.Number, "the row numbers the release, so two publishes never share one")
 	require.ErrorIs(t, s.RecordRelease(ctx, &site.Release{
 		ID: NewReleaseID(), SiteID: "site_none", Number: 1, ManifestSHA256: "x", Redirects: []site.Redirect{}, CreatedBy: realOwner,
-	}), site.ErrNotFound)
+	}, nil), site.ErrNotFound)
 
 	rels, err := s.Releases(ctx, st.ID)
 	require.NoError(t, err)
@@ -429,4 +429,100 @@ func TestRealDB_Jobs(t *testing.T) {
 	require.NoError(t, s.Delete(ctx, st.ID))
 	_, err = s.Job(ctx, j.ID)
 	require.ErrorIs(t, err, site.ErrNoJob, "a site's jobs go with it")
+}
+
+// A derived release is only what differs from its parent, and reads as the whole
+// file set: nearest row per path, removals honored, through a chain of releases.
+func TestRealDB_DerivedReleases(t *testing.T) {
+	db := testdb.New(t)
+	ctx := context.Background()
+	s := New(db)
+	st := realSite(ctx, t, s, "derived")
+
+	record := func(r *site.Release, move *site.Pointer) *site.Release {
+		t.Helper()
+		r.ID, r.SiteID, r.ManifestSHA256, r.CreatedBy = NewReleaseID(), st.ID, "digest", realOwner
+		r.Redirects = []site.Redirect{}
+		require.NoError(t, s.RecordRelease(ctx, r, move))
+		return r
+	}
+	file := func(p, sum string) site.File {
+		return site.File{Path: p, SHA256: sum, ContentType: "text/plain", Size: 1}
+	}
+
+	root := record(&site.Release{Files: []site.File{file("a", "a1"), file("b", "b1"), file("c", "c1")}}, nil)
+	mid := record(&site.Release{Base: root.Number, ManifestParent: root.ID, ManifestDepth: 1, Files: []site.File{file("a", "a2")}, Removed: []string{"b"}}, nil)
+	tip := record(&site.Release{Base: mid.Number, ManifestParent: mid.ID, ManifestDepth: 2, Files: []site.File{file("b", "b3"), file("d", "d1")}}, nil)
+
+	read := func(id string) map[string]string {
+		t.Helper()
+		files, err := s.Files(ctx, id)
+		require.NoError(t, err)
+		out := map[string]string{}
+		for _, f := range files {
+			out[f.Path] = f.SHA256
+		}
+		return out
+	}
+	assert.Equal(t, map[string]string{"a": "a1", "b": "b1", "c": "c1"}, read(root.ID), "a parent never changes")
+	assert.Equal(t, map[string]string{"a": "a2", "c": "c1"}, read(mid.ID), "a removal hides the parent's row")
+	assert.Equal(t, map[string]string{"a": "a2", "b": "b3", "c": "c1", "d": "d1"}, read(tip.ID), "and a later release can add it back")
+
+	var rows int
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM site_release_files WHERE release_id = $1`, mid.ID).Scan(&rows))
+	assert.Equal(t, 2, rows, "one changed file and one removal, however many files the release holds")
+
+	got, err := s.Release(ctx, st.ID, tip.Number)
+	require.NoError(t, err)
+	assert.Equal(t, mid.Number, got.Base)
+	assert.Equal(t, mid.ID, got.ManifestParent)
+	assert.Equal(t, 2, got.ManifestDepth)
+}
+
+// Writing a release and moving to it are one transaction: a move that lost the
+// race leaves no release, and the number is not burned.
+func TestRealDB_AMoveThatLosesLeavesNoRelease(t *testing.T) {
+	db := testdb.New(t)
+	ctx := context.Background()
+	s := New(db)
+	st := realSite(ctx, t, s, "race")
+	release := func() *site.Release {
+		return &site.Release{
+			ID: NewReleaseID(), SiteID: st.ID, ManifestSHA256: "d", Redirects: []site.Redirect{}, CreatedBy: realOwner,
+			Files: []site.File{{Path: "a", SHA256: "a", ContentType: "text/plain", Size: 1}},
+		}
+	}
+	first := release()
+	require.NoError(t, s.RecordRelease(ctx, first, &site.Pointer{SiteID: st.ID, Environment: site.EnvDefault, After: 0, Action: site.ActionPublish, Actor: realOwner}))
+	got, err := s.Get(ctx, st.ID)
+	require.NoError(t, err)
+	assert.Equal(t, first.Number, got.Environment(site.EnvDefault).Release, "the environment moved with the write")
+
+	stale := release()
+	err = s.RecordRelease(ctx, stale, &site.Pointer{SiteID: st.ID, Environment: site.EnvDefault, After: 0, Action: site.ActionPublish, Actor: realOwner})
+	require.ErrorIs(t, err, site.ErrStale)
+	list, err := s.Releases(ctx, st.ID)
+	require.NoError(t, err)
+	assert.Len(t, list, 1, "the losing release was never written")
+}
+
+// A digest shared by many releases is one object; a file under a release's own
+// prefix is one object per path.
+func TestRealDB_StoredFilesListsEachObjectOnce(t *testing.T) {
+	db := testdb.New(t)
+	ctx := context.Background()
+	s := New(db)
+	st := realSite(ctx, t, s, "stored")
+	for range 3 {
+		require.NoError(t, s.RecordRelease(ctx, &site.Release{
+			ID: NewReleaseID(), SiteID: st.ID, ManifestSHA256: "d", Redirects: []site.Redirect{}, CreatedBy: realOwner,
+			Files: []site.File{
+				{Path: "a", SHA256: "shared", ContentType: "text/plain", Size: 1},
+				{Path: "legacy", SHA256: "old", ContentType: "text/plain", Size: 1, StoredIn: "srel_old"},
+			}, Removed: []string{"gone"},
+		}, nil))
+	}
+	got, err := s.StoredFiles(ctx, st.ID)
+	require.NoError(t, err)
+	require.Len(t, got, 2, "a removal holds no object, and the shared digest is listed once")
 }

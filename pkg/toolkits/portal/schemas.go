@@ -122,7 +122,7 @@ var manageAssetSchemaBase = json.RawMessage(`{
     },
     "asset_id": {
       "type": "string",
-      "description": "Asset ID (required for get, update, delete, list_versions, revert, provenance, share, list_shares)"
+      "description": "Asset ID (required for get, update, delete, list_versions, revert, provenance, share, list_shares). The content actions (get_content, outline, locate, stats, diff, patch) also take a site's files by reference: mcp:site:<site>/<environment>/<path> for one file, a path ending in / for a folder, or mcp:site:<site>/<environment> for the whole tree. On a site file version is the release number, and patch needs manage access to the site and lands only on the default environment, as a new release derived from the current one; promote it with manage_site to reach any other environment."
     },
     "recipient": {
       "type": "string",

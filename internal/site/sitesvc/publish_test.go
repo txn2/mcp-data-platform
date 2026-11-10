@@ -5,6 +5,8 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -90,9 +92,13 @@ func TestContentTypeOfAndCompressible(t *testing.T) {
 }
 
 func TestObjectKey(t *testing.T) {
-	assert.Equal(t, "sites/s1/releases/r3/files/css/a.css", ObjectKey("s1", "r3", "", "css/a.css"))
-	assert.Equal(t, "sites/s1/releases/r3/gz/css/a.css", ObjectKey("s1", "r3", "gz", "css/a.css"))
-	assert.NotEqual(t, ObjectKey("s1", "r3", "", "a"), ObjectKey("s1", "r4", "", "a"), "each release has its own prefix")
+	legacy := site.File{Path: "css/a.css", SHA256: "abc", StoredIn: "r3"}
+	assert.Equal(t, "sites/s1/releases/r3/files/css/a.css", ObjectKey("s1", legacy, ""), "a file written before digests stays where it is")
+	assert.Equal(t, "sites/s1/releases/r3/gz/css/a.css", ObjectKey("s1", legacy, "gz"))
+	f := site.File{Path: "../css/a.css", SHA256: "abc"}
+	assert.Equal(t, "sites/s1/objects/abc", ObjectKey("s1", f, ""), "the digest is the key: a caller's path never reaches it")
+	assert.Equal(t, "sites/s1/objects/abc.br", ObjectKey("s1", f, "br"))
+	assert.NotEqual(t, ObjectKey("s1", f, ""), ObjectKey("s2", f, ""), "objects are per site")
 }
 
 func TestDigest(t *testing.T) {
@@ -118,13 +124,13 @@ func publishReq(files ...InputFile) PublishRequest {
 func page(path string) InputFile { return InputFile{Path: path, Body: []byte("<p>" + path + "</p>")} }
 
 func TestPublish_JunkIsDroppedAndTheRestFiled(t *testing.T) {
-	svc, _, objects, _ := fixture(t)
+	svc, store, objects, _ := fixture(t)
 	got, err := svc.Publish(context.Background(), owner, publishReq(
 		page("index.html"), page(".DS_Store"), page("assets/Thumbs.db"), page("__MACOSX/index.html"),
 	))
 	require.NoError(t, err)
 	assert.Equal(t, 1, got.Release.FileCount, "only the one file that is served is counted")
-	assert.Equal(t, []string{"portal/" + ObjectKey(siteID, got.Release.ID, "", "index.html")}, objects.keys())
+	assert.Equal(t, []string{"portal/" + ObjectKey(siteID, store.releases[siteID][0].Files[0], "")}, objects.keys())
 }
 
 func TestPublish_Refusals(t *testing.T) {
@@ -214,7 +220,7 @@ func TestPublish_CompressedVariantsOnlyWhenWorthwhile(t *testing.T) {
 	files := []InputFile{
 		{Path: "big.css", Body: compressibleBody},
 		{Path: "small.css", Body: compressibleBody[:minCompressBytes-1]},
-		{Path: "photo.png", Body: compressibleBody},
+		{Path: "photo.png", Body: bytes.Repeat([]byte("<p>other words again</p>\n"), 200)},
 		{Path: "noise.css", Body: random},
 	}
 	svc, store, objects, _ := fixture(t)
@@ -226,7 +232,7 @@ func TestPublish_CompressedVariantsOnlyWhenWorthwhile(t *testing.T) {
 		got[f.Path] = f
 	}
 	key := func(enc, name string) string {
-		return "portal/" + ObjectKey(siteID, store.releases[siteID][0].ID, enc, name)
+		return "portal/" + ObjectKey(siteID, got[name], enc)
 	}
 
 	big := got["big.css"]
@@ -267,18 +273,19 @@ func TestPublish_StoresTheManifestOfWhatItWrote(t *testing.T) {
 }
 
 func TestPublish_AStorageFailureRecordsNothing(t *testing.T) {
+	body := bytes.Repeat([]byte("repeat me "), 500)
+	sum := sha256.Sum256(body)
+	digest := hex.EncodeToString(sum[:])
 	cases := map[string]string{
-		"the file":   "files/big.css",
-		"the gzip":   "gz/big.css",
-		"the brotli": "br/big.css",
+		"the file":   digest,
+		"the gzip":   digest + ".gz",
+		"the brotli": digest + ".br",
 	}
 	for name, suffix := range cases {
 		t.Run(name, func(t *testing.T) {
 			svc, store, objects, _ := fixture(t)
 			objects.fail = suffix
-			_, err := svc.Publish(context.Background(), owner, publishReq(InputFile{
-				Path: "big.css", Body: bytes.Repeat([]byte("repeat me "), 500),
-			}))
+			_, err := svc.Publish(context.Background(), owner, publishReq(InputFile{Path: "big.css", Body: body}))
 			require.ErrorContains(t, err, "storing big.css")
 			assert.Empty(t, store.releases[siteID])
 			assert.Zero(t, store.sites[siteID].Environment(site.EnvDefault).Release, "the environment did not move")
@@ -308,7 +315,7 @@ func TestPrepare_ManyFilesAreKeptInOrder(t *testing.T) {
 	for i := range 20 {
 		in = append(in, page(fmt.Sprintf("p%02d.html", i)))
 	}
-	b, err := svc.prepare(in)
+	b, err := svc.prepare(PublishRequest{Files: in}, newBasis(nil, nil))
 	require.NoError(t, err)
 	require.Len(t, b.inputs, 20)
 	assert.Equal(t, "p07.html", b.inputs[7].Path)

@@ -63,6 +63,8 @@ type Runtime struct {
 	// site; nil where the deployment cannot.
 	Sources sitetool.Sources
 	Crawler sitetool.Crawler
+	// Content answers manage_asset's content actions for a site reference.
+	Content *sitetool.Content
 	// PortalURL and CookieDomain are what a saved pages domain is checked against.
 	PortalURL    string
 	CookieDomain string

@@ -62,10 +62,14 @@ var allowedInRun = []string{CmdPublish}
 
 // File is one file handed to publish.
 type File struct {
-	Path    string `json:"path"`
-	Content string `json:"content"`
+	Path string `json:"path"`
+	// Content is a pointer so an entry with none can be told from an empty
+	// file: a forgotten content must not blank a page.
+	Content *string `json:"content,omitempty"`
 	// Encoding is utf-8 (default) or base64.
 	Encoding string `json:"encoding,omitempty"`
+	// Delete removes the path from the base.
+	Delete bool `json:"delete,omitempty"`
 }
 
 // Input is the tool's arguments.
@@ -85,9 +89,11 @@ type Input struct {
 	From             string `json:"from,omitempty"`
 	To               string `json:"to,omitempty"`
 	Release          int    `json:"release,omitempty"`
-	Note             string `json:"note,omitempty"`
-	Reason           string `json:"reason,omitempty"`
-	Files            []File `json:"files,omitempty"`
+	// Base makes the files an overlay on that release.
+	Base   int    `json:"base,omitempty"`
+	Note   string `json:"note,omitempty"`
+	Reason string `json:"reason,omitempty"`
+	Files  []File `json:"files,omitempty"`
 	// Archive is a zip or gzipped tar managed resource, by id or URI.
 	Archive string `json:"archive,omitempty"`
 	// Folder is a managed-resource folder, in the library Scope and ScopeID
@@ -125,12 +131,17 @@ const description = "Static sites served by the platform on their own hostnames.
 	"domain to it (add_domain with hostname and environment), and answers on that domain to anyone; the site decides who may " +
 	"use it. An operator adds the ingress for each. An environment points at one immutable release. publish writes a new " +
 	"release (from files, an archive managed resource, or a resource folder; a _redirects file becomes its redirect map, a " +
-	"404.html its not-found page) and answers with the address. promote points an environment at another's release, and " +
+	"404.html its not-found page) and answers with the address. To change a site, do not resend it: manage_asset reads and " +
+	"edits its files in place with the reference mcp:site:<site>/<environment>/<path> (outline, locate, get_content, stats, diff, " +
+	"and patch, whose version is the release number and which adds a release derived from the current one), and mcp:site:<site>/" +
+	"<environment> names the whole tree. publish with base overlays that release, which must be the one default serves now: the " +
+	"files you send are added or replaced, an entry with delete true removes that path, and everything else carries over. Edits " +
+	"and overlays land only on default, which is behind sign-in; promote moves them to any other environment. promote points an environment at another's release, and " +
 	"rollback at one it served before: neither copies a file, and both take effect at once. An environment that requires " +
 	"approval is reached only by promote: an administrator's promote records its own approval, anyone else's files a request " +
 	"in manage_approval and goes through when they promote again after it is approved. grant and revoke say who else reaches " +
 	"a site: manage (internal people only) publishes, promotes, rolls back, adds domains and shares view access; view opens " +
-	"the site's own address and gives nothing else. update with internal_view opens it to everyone internal. crawl copies an " +
+	"the site's own address and reads its current files through manage_asset, and changes nothing. update with internal_view opens it to everyone internal. crawl copies an " +
 	"existing site into a release, keeping its URLs and turning its redirects into the redirect map. A site environment is a " +
 	"part of an application (add_part kind site, part_id \"<site>/<environment>\"), released and rolled back with it. The owner " +
 	"and administrators change the description, the owner and who manages; administrators delete a site and map a hostname " +
@@ -157,19 +168,21 @@ func schema() map[string]any {
 			"owner_email":       str("update: move the site to another owner."),
 			"internal_view":     map[string]any{keyType: "boolean", keyDesc: "update: let everyone whose persona is not external open the site's own address."},
 			"email":             str("grant, revoke: the person, by the email they sign in with."),
-			"level":             map[string]any{keyType: typString, "enum": []string{site.LevelManage, site.LevelView}, keyDesc: "grant: manage publishes, promotes, rolls back, adds domains and shares view access (internal people only); view opens the site's own address and nothing else."},
+			"level":             map[string]any{keyType: typString, "enum": []string{site.LevelManage, site.LevelView}, keyDesc: "grant: manage publishes, promotes, rolls back, adds domains and shares view access (internal people only); view opens the site's own address and reads its current files, and changes nothing."},
 			"environment":       str("publish: where it lands (default the default environment). rollback, set_environment, deployments: the environment. add_domain: the environment the hostname serves, created when it does not exist."),
 			"requires_approval": map[string]any{keyType: "boolean", keyDesc: "set_environment, or add_domain creating an environment: promotions here go through the Approvals queue."},
 			"from":              str("promote: the environment whose release moves."),
 			"to":                str("promote: the environment that moves."),
 			"release":           num("promote: a release number instead of from. rollback: the release to return to (default the one before)."),
+			"base":              num("publish: overlay this release instead of replacing the file set. It must be the release default serves now, so read it first; files you do not send carry over."),
 			"note":              str("publish: what the release is for."),
 			"reason":            str("promote: why, for the approver."),
 			"files": map[string]any{
 				keyType: "array", keyDesc: "publish: the files, up to the inline size a tool call carries.",
-				"items": map[string]any{keyType: typObject, "required": []string{"path", "content"}, "properties": map[string]any{
-					"path": str("The file's path in the site."), "content": str("Its content."),
+				"items": map[string]any{keyType: typObject, "required": []string{"path"}, "properties": map[string]any{
+					"path": str("The file's path in the site."), "content": str("Its content. Required unless delete is true."),
 					"encoding": map[string]any{keyType: typString, "enum": []string{"utf-8", "base64"}, keyDesc: "How content is written (default utf-8)."},
+					"delete":   map[string]any{keyType: "boolean", keyDesc: "With base: remove this path from the release."},
 				}},
 			},
 			"archive":     str("publish: a zip or gzipped tar managed resource, by id or mcp:// URI."),
@@ -345,16 +358,23 @@ func (t *Tool) deployments(ctx context.Context, _ sitesvc.Actor, in Input) (any,
 
 // publish reads the one source the call names and publishes it.
 func (t *Tool) publish(ctx context.Context, actor sitesvc.Actor, in Input) (any, error) {
-	files, source, err := t.filesOf(ctx, in)
+	set, err := t.filesOf(ctx, in)
 	if err != nil {
 		return nil, err
 	}
 	return t.Service.Publish(ctx, actor, sitesvc.PublishRequest{ //nolint:wrapcheck // the caller's message
-		Site: in.Site, Environment: in.Environment, Source: source, Note: in.Note, Files: files,
+		Site: in.Site, Environment: in.Environment, Source: set.source, Note: in.Note, Files: set.files, Base: in.Base, Remove: set.removed,
 	})
 }
 
-func (t *Tool) filesOf(ctx context.Context, in Input) ([]sitesvc.InputFile, string, error) {
+// fileSet is what a publish was handed.
+type fileSet struct {
+	files   []sitesvc.InputFile
+	removed []string
+	source  string
+}
+
+func (t *Tool) filesOf(ctx context.Context, in Input) (*fileSet, error) {
 	named := 0
 	for _, set := range []bool{len(in.Files) > 0, in.Archive != "", in.Folder != ""} {
 		if set {
@@ -362,40 +382,48 @@ func (t *Tool) filesOf(ctx context.Context, in Input) ([]sitesvc.InputFile, stri
 		}
 	}
 	if named != 1 {
-		return nil, "", &sitesvc.RefusedError{Msg: "publish names one source: files, archive or folder"}
+		return nil, &sitesvc.RefusedError{Msg: "publish names one source: files, archive or folder"}
 	}
-	switch {
-	case in.Archive != "":
-		if t.Sources == nil {
-			return nil, "", &sitesvc.RefusedError{Msg: "this deployment has no managed resources to publish from"}
-		}
+	if in.Archive == "" && in.Folder == "" {
+		files, removed, err := decodeFiles(in.Files)
+		return &fileSet{files: files, removed: removed, source: "files (" + strconv.Itoa(len(in.Files)) + ")"}, err
+	}
+	if t.Sources == nil {
+		return nil, &sitesvc.RefusedError{Msg: "this deployment has no managed resources to publish from"}
+	}
+	if in.Archive != "" {
 		files, err := t.Sources.Archive(ctx, in.Archive)
-		return files, in.Archive, err //nolint:wrapcheck // the caller's message
-	case in.Folder != "":
-		if t.Sources == nil {
-			return nil, "", &sitesvc.RefusedError{Msg: "this deployment has no managed resources to publish from"}
-		}
-		files, err := t.Sources.Folder(ctx, in.Scope, in.ScopeID, in.Folder)
-		return files, in.Folder, err //nolint:wrapcheck // the caller's message
+		return &fileSet{files: files, source: in.Archive}, err //nolint:wrapcheck // the caller's message
 	}
-	files, err := decodeFiles(in.Files)
-	return files, "files (" + strconv.Itoa(len(in.Files)) + ")", err
+	files, err := t.Sources.Folder(ctx, in.Scope, in.ScopeID, in.Folder)
+	return &fileSet{files: files, source: in.Folder}, err //nolint:wrapcheck // the caller's message
 }
 
-func decodeFiles(in []File) ([]sitesvc.InputFile, error) {
-	out := make([]sitesvc.InputFile, 0, len(in))
+// decodeFiles reads a publish's file entries into the files it writes and the
+// paths it removes.
+func decodeFiles(in []File) (files []sitesvc.InputFile, removed []string, err error) {
+	files = make([]sitesvc.InputFile, 0, len(in))
 	for _, f := range in {
-		body := []byte(f.Content)
+		switch {
+		case f.Delete && f.Content != nil:
+			return nil, nil, &sitesvc.RefusedError{Msg: fmt.Sprintf("file %q: send content or delete, not both", f.Path)}
+		case f.Delete:
+			removed = append(removed, f.Path)
+			continue
+		case f.Content == nil:
+			return nil, nil, &sitesvc.RefusedError{Msg: fmt.Sprintf("file %q: content is required unless delete is true", f.Path)}
+		}
+		body := []byte(*f.Content)
 		if f.Encoding == "base64" {
-			decoded, err := base64.StdEncoding.DecodeString(f.Content)
+			decoded, err := base64.StdEncoding.DecodeString(*f.Content)
 			if err != nil {
-				return nil, &sitesvc.RefusedError{Msg: fmt.Sprintf("file %q: content is not base64", f.Path)}
+				return nil, nil, &sitesvc.RefusedError{Msg: fmt.Sprintf("file %q: content is not base64", f.Path)}
 			}
 			body = decoded
 		}
-		out = append(out, sitesvc.InputFile{Path: f.Path, Body: body})
+		files = append(files, sitesvc.InputFile{Path: f.Path, Body: body})
 	}
-	return out, nil
+	return files, removed, nil
 }
 
 // crawl copies a site and publishes it as a release.

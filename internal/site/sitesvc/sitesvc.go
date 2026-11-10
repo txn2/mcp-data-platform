@@ -188,27 +188,22 @@ func (s *Service) Delete(ctx context.Context, actor Actor, ref string) error {
 	return nil
 }
 
-// objectKeys lists every object the site's releases hold, read before the
-// rows that name them go.
+// objectKeys lists every object the site holds, read before the rows that name
+// them go.
 func (s *Service) objectKeys(ctx context.Context, siteID string) []string {
-	rels, err := s.Store.Releases(ctx, siteID)
+	files, err := s.Store.StoredFiles(ctx, siteID)
 	if err != nil {
+		slog.WarnContext(ctx, "sites: listing a deleted site's objects failed", "error", logsan.SanitizeForLog(err.Error()))
 		return nil
 	}
-	keys := []string{}
-	for _, r := range rels {
-		files, err := s.Store.Files(ctx, r.ID)
-		if err != nil {
-			continue
+	keys := make([]string, 0, len(files))
+	for _, f := range files {
+		keys = append(keys, ObjectKey(siteID, f, ""))
+		if f.GzipSize > 0 {
+			keys = append(keys, ObjectKey(siteID, f, "gz"))
 		}
-		for _, f := range files {
-			keys = append(keys, ObjectKey(siteID, r.ID, "", f.Path))
-			if f.GzipSize > 0 {
-				keys = append(keys, ObjectKey(siteID, r.ID, "gz", f.Path))
-			}
-			if f.BrotliSize > 0 {
-				keys = append(keys, ObjectKey(siteID, r.ID, "br", f.Path))
-			}
+		if f.BrotliSize > 0 {
+			keys = append(keys, ObjectKey(siteID, f, "br"))
 		}
 	}
 	return keys

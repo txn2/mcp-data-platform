@@ -1267,13 +1267,13 @@ func TestDelete_RemovesTheObjectsOfEveryRelease(t *testing.T) {
 	ctx := context.Background()
 	svc, store, objects, _ := fixture(t)
 	rel := site.Release{ID: "srel_a", SiteID: siteID, Number: 1, Files: []site.File{
-		{Path: "index.html", GzipSize: 10, BrotliSize: 9},
-		{Path: "logo.png"},
+		{Path: "index.html", SHA256: "aa", GzipSize: 10, BrotliSize: 9},
+		{Path: "logo.png", SHA256: "bb"},
 	}}
 	store.releases[siteID] = []site.Release{rel}
 	for _, key := range []string{
-		ObjectKey(siteID, rel.ID, "", "index.html"), ObjectKey(siteID, rel.ID, "gz", "index.html"),
-		ObjectKey(siteID, rel.ID, "br", "index.html"), ObjectKey(siteID, rel.ID, "", "logo.png"),
+		ObjectKey(siteID, rel.Files[0], ""), ObjectKey(siteID, rel.Files[0], "gz"),
+		ObjectKey(siteID, rel.Files[0], "br"), ObjectKey(siteID, rel.Files[1], ""),
 	} {
 		require.NoError(t, objects.PutObject(ctx, "portal", key, []byte("x"), "text/plain"))
 	}
@@ -1289,7 +1289,7 @@ func TestDelete_StoreFailures(t *testing.T) {
 	t.Run("a failed delete leaves the objects", func(t *testing.T) {
 		svc, store, objects, _ := fixture(t)
 		store.releases[siteID] = []site.Release{{ID: "srel_a", SiteID: siteID, Number: 1, Files: []site.File{{Path: "a.html"}}}}
-		key := ObjectKey(siteID, "srel_a", "", "a.html")
+		key := ObjectKey(siteID, site.File{Path: "a.html"}, "")
 		require.NoError(t, objects.PutObject(ctx, "portal", key, []byte("x"), "text/html"))
 		store.failDelete = boom
 		require.ErrorIs(t, svc.Delete(ctx, admin, "marketing"), boom)

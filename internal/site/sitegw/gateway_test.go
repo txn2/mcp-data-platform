@@ -212,20 +212,20 @@ func digestOf(s string) string {
 // addRelease stores a release's files and records its manifest.
 func (h *harness) addRelease(number int, redirects []site.Redirect, files ...testFile) *site.Release {
 	rel := &site.Release{ID: "rel_" + strconv.Itoa(number), SiteID: testSiteID, Number: number, Redirects: redirects}
-	put := func(enc, filePath, body string) {
-		h.objects.bodies[objectName(testBucket, sitesvc.ObjectKey(testSiteID, rel.ID, enc, filePath))] = []byte(body)
+	put := func(entry site.File, enc, body string) {
+		h.objects.bodies[objectName(testBucket, sitesvc.ObjectKey(testSiteID, entry, enc))] = []byte(body)
 	}
 	manifestFiles := make([]site.File, 0, len(files))
 	for _, f := range files {
 		entry := site.File{Path: f.path, SHA256: digestOf(f.body), ContentType: f.contentType, Size: int64(len(f.body))}
-		put("", f.path, f.body)
+		put(entry, "", f.body)
 		if f.gz != "" {
 			entry.GzipSize = int64(len(f.gz))
-			put("gz", f.path, f.gz)
+			put(entry, "gz", f.gz)
 		}
 		if f.br != "" {
 			entry.BrotliSize = int64(len(f.br))
-			put("br", f.path, f.br)
+			put(entry, "br", f.br)
 		}
 		manifestFiles = append(manifestFiles, entry)
 	}

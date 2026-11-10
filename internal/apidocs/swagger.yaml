@@ -15488,6 +15488,12 @@ definitions:
     type: object
   sitehttp.ReleaseDetail:
     properties:
+      base:
+        description: |-
+          Base is the number of the release this one was derived from, 0 for a
+          release built from a complete file set.
+        example: 41
+        type: integer
       created_at:
         type: string
       created_by:
@@ -15534,6 +15540,12 @@ definitions:
     type: object
   sitehttp.ReleaseView:
     properties:
+      base:
+        description: |-
+          Base is the number of the release this one was derived from, 0 for a
+          release built from a complete file set.
+        example: 41
+        type: integer
       created_at:
         type: string
       created_by:
@@ -15541,7 +15553,9 @@ definitions:
       file_count:
         type: integer
       files:
-        description: Files is filled by a read that asks for them.
+        description: |-
+          Files is filled by a read that asks for them. Written with a
+          ManifestParent it holds only what differs from the parent.
         items:
           $ref: '#/definitions/site.File'
         type: array

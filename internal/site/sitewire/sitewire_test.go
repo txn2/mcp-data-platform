@@ -106,6 +106,9 @@ type nullObjects struct{}
 
 func (nullObjects) PutObject(context.Context, string, string, []byte, string) error { return nil }
 func (nullObjects) DeleteObject(context.Context, string, string) error              { return nil }
+func (nullObjects) GetObject(context.Context, string, string) (data []byte, contentType string, err error) {
+	return nil, "", nil
+}
 
 func TestServing(t *testing.T) {
 	off := false

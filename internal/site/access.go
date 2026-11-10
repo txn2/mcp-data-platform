@@ -11,7 +11,8 @@ const (
 	// view access. It cannot add people who manage, change the owner or delete
 	// the site.
 	LevelManage = "manage"
-	// LevelView opens the site's own address and gives nothing else.
+	// LevelView opens the site's own address and reads the files it serves now
+	// through manage_asset. It changes nothing and sees no earlier release.
 	LevelView = "view"
 )
 

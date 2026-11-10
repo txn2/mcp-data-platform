@@ -154,12 +154,41 @@ operator should know:
 
 ## Sites
 
-Files land once per release under `sites/<id>/releases/<n>/` in the portal
-bucket, with gzip and brotli variants made at publish. Promote and rollback only
-move an environment's pointer, and `site_deployments` records every move. Serving
+A file's bytes are kept once per site, under `sites/<id>/objects/<sha256>` in the
+portal bucket with their gzip and brotli variants beside them (files published
+before this stay under `sites/<id>/releases/<release id>/`, named by
+`site_release_files.stored_in`). Promote and rollback only move an environment's
+pointer, and `site_deployments` records every move. Serving
 needs no CDN: strong ETags and `304`, `immutable` on fingerprinted names on a
 domain, range requests, redirects and a custom 404. A CDN can be put in front
 later with no change.
+
+### Changing a site in place
+
+An agent changes a site with the tools it already has. `manage_asset`'s content
+actions (`outline`, `locate`, `get_content`, `stats`, `diff`, `patch`) take
+`mcp:site:<site>/<environment>/<path>` for one file, a path ending in `/` for a
+folder, and `mcp:site:<site>/<environment>` for the whole tree. `version` is the
+release number, and `base_version` is refused when `default` has moved past it, with
+nothing written. `patch` writes a new release derived from the current one.
+`manage_site publish` with `base` overlays that release: files sent are added or
+replaced, an entry with `delete: true` removes a path, and the rest carries over.
+
+Only `default` takes edits or an overlay: it is behind sign-in, and `promote` moves
+a finished change to any other environment, so a change made in several patches
+reaches the public in one step. A full `publish` to another environment that
+requires no approval still works, for a build pipeline. Patching needs manage access
+and a persona that holds `manage_site`, because `manage_asset` would otherwise reach
+further than `manage_site` does. Reading current files needs the access that opens
+the site's own address, including Can view; `diff` and earlier releases need manage.
+
+A derived release stores only what differs from its parent, plus a removal row for
+each deleted path, and `Files` reads the whole set by walking the chain. Every
+32nd link stores the whole set again, so a read walks at most 32 releases and a
+patch on a release of 20,000 files writes one row. The manifest digest is computed
+over the whole set, so a rollback is provably the same files. A file set is listed
+with `limit` and `offset`, and a search across a tree reports what it scanned and
+skipped, so a search that could not reach a file does not read as a clean result.
 
 A publish or a copy from the portal runs in the background (`site_jobs`): it goes
 on if the browser goes away, and a copy can be stopped. A job nobody has reported

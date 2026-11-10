@@ -10,6 +10,7 @@ import (
 // Objects stores a release's files.
 type Objects interface {
 	PutObject(ctx context.Context, bucket, key string, data []byte, contentType string) error
+	GetObject(ctx context.Context, bucket, key string) ([]byte, string, error)
 	DeleteObject(ctx context.Context, bucket, key string) error
 }
 

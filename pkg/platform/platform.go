@@ -2827,7 +2827,7 @@ func (p *Platform) Start(ctx context.Context) error {
 		Toolkits:             p.toolkitRegistry, AppDBReach: toolkitwire.AppDBReach(p.toolkitRegistry, p.personaRegistry, StoredConnections(p)),
 		BotCheckKey: botcheck.Key(p.config.Auth.BrowserSession.Enabled, p.config.Auth.BrowserSession.SigningKey),
 		Encryptor:   p.restEncryptor,
-		Bind:        func(h *scriptlayer.Handle) { p.scripts = h },
+		Bind:        func(h *scriptlayer.Handle) { p.scripts = h }, BindSiteContent: p.portalStore.BindSiteContent, SitePersonas: p.personaRegistry,
 	})
 	p.lifecycle.OnComponent(scriptRuns.Start, scriptRuns.Stop)
 	p.lifecycle.OnDrain(scriptRuns.Drain)

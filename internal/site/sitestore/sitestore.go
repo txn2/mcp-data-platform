@@ -206,60 +206,92 @@ func (s *Store) SetEnvironment(ctx context.Context, siteID, name string, require
 }
 
 // RecordRelease writes a release and its files, numbering it next under the
-// site's row lock so two publishes get two numbers.
-func (s *Store) RecordRelease(ctx context.Context, r *site.Release) error {
+// site's row lock so two publishes get two numbers. A move points the
+// environment at the release in the same transaction.
+func (s *Store) RecordRelease(ctx context.Context, r *site.Release, move *site.Pointer) error {
 	redirects, err := json.Marshal(r.Redirects)
 	if err != nil {
 		return fmt.Errorf("encode redirects: %w", err)
 	}
 	return s.withTx(ctx, func(tx *sql.Tx) error {
-		if err := tx.QueryRowContext(ctx, `SELECT 1 FROM sites WHERE id = $1 FOR UPDATE`, r.SiteID).Scan(new(int)); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return site.ErrNotFound
-			}
-			return fmt.Errorf("lock site: %w", err)
+		if err := writeRelease(ctx, tx, r, redirects); err != nil {
+			return err
 		}
-		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(number), 0) + 1 FROM site_releases WHERE site_id = $1`, r.SiteID).Scan(&r.Number); err != nil {
-			return fmt.Errorf("number release: %w", err)
+		if err := insertFiles(ctx, tx, r); err != nil {
+			return err
 		}
-		err := tx.QueryRowContext(ctx, `
-			INSERT INTO site_releases (id, site_id, number, source, note, file_count, total_bytes, manifest_sha256, redirects, created_by)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING created_at`,
-			r.ID, r.SiteID, r.Number, r.Source, r.Note, r.FileCount, r.TotalBytes, r.ManifestSHA256, redirects, r.CreatedBy,
-		).Scan(&r.CreatedAt)
-		if isUnique(err) {
-			return site.ErrStale
+		if move == nil {
+			return nil
 		}
-		if err != nil {
-			return fmt.Errorf("record release: %w", err)
-		}
-		return insertFiles(ctx, tx, r)
+		move.To = r.Number
+		return point(ctx, tx, *move)
 	})
 }
 
-func insertFiles(ctx context.Context, tx *sql.Tx, r *site.Release) error {
-	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO site_release_files (release_id, path, sha256, content_type, size, gzip_size, brotli_size)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`)
-	if err != nil {
-		return fmt.Errorf("prepare files: %w", err)
-	}
-	defer func() { _ = stmt.Close() }()
-	for _, f := range r.Files {
-		if _, err := stmt.ExecContext(ctx, r.ID, f.Path, f.SHA256, f.ContentType, f.Size, f.GzipSize, f.BrotliSize); err != nil {
-			return fmt.Errorf("record file %s: %w", f.Path, err)
+// writeRelease numbers a release under the site's row lock and inserts it.
+func writeRelease(ctx context.Context, tx *sql.Tx, r *site.Release, redirects []byte) error {
+	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM sites WHERE id = $1 FOR UPDATE`, r.SiteID).Scan(new(int)); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return site.ErrNotFound
 		}
+		return fmt.Errorf("lock site: %w", err)
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(number), 0) + 1 FROM site_releases WHERE site_id = $1`, r.SiteID).Scan(&r.Number); err != nil {
+		return fmt.Errorf("number release: %w", err)
+	}
+	err := tx.QueryRowContext(ctx, `
+		INSERT INTO site_releases (id, site_id, number, source, note, file_count, total_bytes, manifest_sha256, redirects, created_by,
+		                           base_number, manifest_parent, manifest_depth)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULLIF($12, ''), $13) RETURNING created_at`,
+		r.ID, r.SiteID, r.Number, r.Source, r.Note, r.FileCount, r.TotalBytes, r.ManifestSHA256, redirects, r.CreatedBy,
+		r.Base, r.ManifestParent, r.ManifestDepth,
+	).Scan(&r.CreatedAt)
+	if isUnique(err) {
+		return site.ErrStale
+	}
+	if err != nil {
+		return fmt.Errorf("record release: %w", err)
 	}
 	return nil
 }
 
-const releaseColumns = `id, site_id, number, source, note, file_count, total_bytes, manifest_sha256, redirects, created_by, created_at`
+// insertFiles writes a release's rows in one statement, whatever their number:
+// a whole file set can be 20,000 of them.
+func insertFiles(ctx context.Context, tx *sql.Tx, r *site.Release) error {
+	n := len(r.Files) + len(r.Removed)
+	if n == 0 {
+		return nil
+	}
+	paths, digests, types, stored := make([]string, 0, n), make([]string, 0, n), make([]string, 0, n), make([]string, 0, n)
+	sizes, gzips, brotlis := make([]int64, 0, n), make([]int64, 0, n), make([]int64, 0, n)
+	removed := make([]bool, 0, n)
+	for _, f := range r.Files {
+		paths, digests, types, stored = append(paths, f.Path), append(digests, f.SHA256), append(types, f.ContentType), append(stored, f.StoredIn)
+		sizes, gzips, brotlis = append(sizes, f.Size), append(gzips, f.GzipSize), append(brotlis, f.BrotliSize)
+		removed = append(removed, false)
+	}
+	for _, p := range r.Removed {
+		paths, digests, types, stored = append(paths, p), append(digests, ""), append(types, ""), append(stored, "")
+		sizes, gzips, brotlis = append(sizes, 0), append(gzips, 0), append(brotlis, 0)
+		removed = append(removed, true)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO site_release_files (release_id, path, sha256, content_type, size, gzip_size, brotli_size, stored_in, removed)
+		SELECT $1, f.* FROM unnest($2::text[], $3::text[], $4::text[], $5::bigint[], $6::bigint[], $7::bigint[], $8::text[], $9::boolean[]) AS f`,
+		r.ID, pq.Array(paths), pq.Array(digests), pq.Array(types), pq.Array(sizes), pq.Array(gzips), pq.Array(brotlis), pq.Array(stored), pq.Array(removed),
+	); err != nil {
+		return fmt.Errorf("record files: %w", err)
+	}
+	return nil
+}
+
+const releaseColumns = `id, site_id, number, source, note, file_count, total_bytes, manifest_sha256, redirects, created_by, created_at, base_number, COALESCE(manifest_parent, ''), manifest_depth`
 
 func scanRelease(row interface{ Scan(...any) error }) (*site.Release, error) {
 	r := &site.Release{}
 	var redirects []byte
 	err := row.Scan(&r.ID, &r.SiteID, &r.Number, &r.Source, &r.Note, &r.FileCount, &r.TotalBytes, &r.ManifestSHA256,
-		&redirects, &r.CreatedBy, &r.CreatedAt)
+		&redirects, &r.CreatedBy, &r.CreatedAt, &r.Base, &r.ManifestParent, &r.ManifestDepth)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, site.ErrNoRelease
 	}
@@ -306,19 +338,48 @@ func (s *Store) Releases(ctx context.Context, siteID string) ([]site.Release, er
 	return out, nil
 }
 
-// Files lists a release's files in path order.
+// Files is a release's whole file set in path order: for each path, the row of
+// the nearest release in its chain, unless that row removes the path.
 func (s *Store) Files(ctx context.Context, releaseID string) ([]site.File, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT path, sha256, content_type, size, gzip_size, brotli_size
-		  FROM site_release_files WHERE release_id = $1 ORDER BY path`, releaseID)
+		WITH RECURSIVE chain AS (
+			SELECT id, manifest_parent, 0 AS depth FROM site_releases WHERE id = $1
+			UNION ALL
+			SELECT r.id, r.manifest_parent, c.depth + 1
+			  FROM site_releases r JOIN chain c ON r.id = c.manifest_parent
+		)
+		SELECT path, sha256, content_type, size, gzip_size, brotli_size, stored_in FROM (
+			SELECT DISTINCT ON (f.path) f.path, f.sha256, f.content_type, f.size, f.gzip_size, f.brotli_size, f.stored_in, f.removed
+			  FROM site_release_files f JOIN chain c ON f.release_id = c.id
+			 ORDER BY f.path, c.depth
+		) nearest
+		WHERE NOT removed ORDER BY path`, releaseID)
 	if err != nil {
 		return nil, fmt.Errorf("list files: %w", err)
 	}
+	return scanFiles(rows)
+}
+
+// StoredFiles lists what a site holds in object storage, each object once: a
+// digest shared by a thousand releases is one object, and a file stored under
+// a release of its own is one object per path.
+func (s *Store) StoredFiles(ctx context.Context, siteID string) ([]site.File, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT CASE WHEN f.stored_in = '' THEN '' ELSE f.path END, f.sha256, '', 0::bigint, f.gzip_size, f.brotli_size, f.stored_in
+		  FROM site_release_files f JOIN site_releases r ON r.id = f.release_id
+		 WHERE r.site_id = $1 AND NOT f.removed`, siteID)
+	if err != nil {
+		return nil, fmt.Errorf("list stored files: %w", err)
+	}
+	return scanFiles(rows)
+}
+
+func scanFiles(rows *sql.Rows) ([]site.File, error) {
 	defer func() { _ = rows.Close() }()
 	out := []site.File{}
 	for rows.Next() {
 		var f site.File
-		if err := rows.Scan(&f.Path, &f.SHA256, &f.ContentType, &f.Size, &f.GzipSize, &f.BrotliSize); err != nil {
+		if err := rows.Scan(&f.Path, &f.SHA256, &f.ContentType, &f.Size, &f.GzipSize, &f.BrotliSize, &f.StoredIn); err != nil {
 			return nil, fmt.Errorf("read file: %w", err)
 		}
 		out = append(out, f)
@@ -333,32 +394,34 @@ func (s *Store) Files(ctx context.Context, releaseID string) ([]site.File, error
 // transaction under a compare-and-set on the release the move was decided
 // against.
 func (s *Store) Point(ctx context.Context, p site.Pointer) error {
-	return s.withTx(ctx, func(tx *sql.Tx) error {
-		var current sql.NullInt64
-		err := tx.QueryRowContext(ctx, `
-			SELECT release_number FROM site_environments WHERE site_id = $1 AND name = $2 FOR UPDATE`,
-			p.SiteID, p.Environment).Scan(&current)
-		if errors.Is(err, sql.ErrNoRows) {
-			return site.ErrNoEnvironment
-		}
-		if err != nil {
-			return fmt.Errorf("lock environment: %w", err)
-		}
-		if int(current.Int64) != p.After {
-			return site.ErrStale
-		}
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE site_environments SET release_number = $3, updated_by = $4, updated_at = NOW()
-			 WHERE site_id = $1 AND name = $2`, p.SiteID, p.Environment, p.To, p.Actor); err != nil {
-			return fmt.Errorf("move environment: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO site_deployments (site_id, environment, action, from_release, to_release, actor)
-			VALUES ($1, $2, $3, $4, $5, $6)`, p.SiteID, p.Environment, p.Action, p.After, p.To, p.Actor); err != nil {
-			return fmt.Errorf("record deployment: %w", err)
-		}
-		return nil
-	})
+	return s.withTx(ctx, func(tx *sql.Tx) error { return point(ctx, tx, p) })
+}
+
+func point(ctx context.Context, tx *sql.Tx, p site.Pointer) error {
+	var current sql.NullInt64
+	err := tx.QueryRowContext(ctx, `
+		SELECT release_number FROM site_environments WHERE site_id = $1 AND name = $2 FOR UPDATE`,
+		p.SiteID, p.Environment).Scan(&current)
+	if errors.Is(err, sql.ErrNoRows) {
+		return site.ErrNoEnvironment
+	}
+	if err != nil {
+		return fmt.Errorf("lock environment: %w", err)
+	}
+	if int(current.Int64) != p.After {
+		return site.ErrStale
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE site_environments SET release_number = $3, updated_by = $4, updated_at = NOW()
+		 WHERE site_id = $1 AND name = $2`, p.SiteID, p.Environment, p.To, p.Actor); err != nil {
+		return fmt.Errorf("move environment: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO site_deployments (site_id, environment, action, from_release, to_release, actor)
+		VALUES ($1, $2, $3, $4, $5, $6)`, p.SiteID, p.Environment, p.Action, p.After, p.To, p.Actor); err != nil {
+		return fmt.Errorf("record deployment: %w", err)
+	}
+	return nil
 }
 
 // Deployments lists an environment's moves, newest first; limit 0 is the

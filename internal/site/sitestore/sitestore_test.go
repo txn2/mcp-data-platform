@@ -27,8 +27,8 @@ var (
 var (
 	siteCols    = []string{"id", "name", "description", "owner_email", "internal_view", "created_by", "created_at", "updated_at"}
 	envCols     = []string{"name", "release_number", "requires_approval", "updated_by", "updated_at"}
-	releaseCols = []string{"id", "site_id", "number", "source", "note", "file_count", "total_bytes", "manifest_sha256", "redirects", "created_by", "created_at"}
-	fileCols    = []string{"path", "sha256", "content_type", "size", "gzip_size", "brotli_size"}
+	releaseCols = []string{"id", "site_id", "number", "source", "note", "file_count", "total_bytes", "manifest_sha256", "redirects", "created_by", "created_at", "base_number", "manifest_parent", "manifest_depth"}
+	fileCols    = []string{"path", "sha256", "content_type", "size", "gzip_size", "brotli_size", "stored_in"}
 	deployCols  = []string{"environment", "action", "from_release", "to_release", "actor", "created_at"}
 	domainCols  = []string{"hostname", "site_id", "name", "environment", "application_id", "application", "created_by", "created_at"}
 	routeCols   = []string{"id", "name", "env", "number"}
@@ -52,7 +52,7 @@ func siteRows(name string) *sqlmock.Rows {
 }
 
 func releaseRow(n int, redirects string) []driver.Value {
-	return []driver.Value{"srel_1", "site_1", n, "ci", "note", 2, int64(30), "digest", []byte(redirects), "jane@example.com", rowTime}
+	return []driver.Value{"srel_1", "site_1", n, "ci", "note", 2, int64(30), "digest", []byte(redirects), "jane@example.com", rowTime, 0, "", 0}
 }
 
 func domainRow(host string) []driver.Value {
@@ -271,14 +271,12 @@ func TestRecordRelease(t *testing.T) {
 		lock(mock)
 		mock.ExpectQuery(q("SELECT COALESCE(MAX(number), 0) + 1")).WithArgs("site_1").WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(2))
 		mock.ExpectQuery(q("INSERT INTO site_releases")).
-			WithArgs("srel_1", "site_1", 2, "ci", "n", 2, int64(30), "digest", []byte(`[{"from":"/a","to":"/b","status":301}]`), "jane@example.com").
+			WithArgs("srel_1", "site_1", 2, "ci", "n", 2, int64(30), "digest", []byte(`[{"from":"/a","to":"/b","status":301}]`), "jane@example.com", 0, "", 0).
 			WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(rowTime))
-		prep := mock.ExpectPrepare(q("INSERT INTO site_release_files"))
-		prep.ExpectExec().WithArgs("srel_1", "a.css", "aa", "text/css", int64(10), int64(4), int64(3)).WillReturnResult(sqlmock.NewResult(0, 1))
-		prep.ExpectExec().WithArgs("srel_1", "b.png", "bb", "image/png", int64(20), int64(0), int64(0)).WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectExec(q("INSERT INTO site_release_files")).WillReturnResult(sqlmock.NewResult(0, 2))
 		mock.ExpectCommit()
 		r := newRelease()
-		require.NoError(t, s.RecordRelease(ctx, r))
+		require.NoError(t, s.RecordRelease(ctx, r, nil))
 		assert.Equal(t, rowTime, r.CreatedAt)
 	})
 	t.Run("no such site", func(t *testing.T) {
@@ -286,14 +284,14 @@ func TestRecordRelease(t *testing.T) {
 		mock.ExpectBegin()
 		mock.ExpectQuery(q("FOR UPDATE")).WillReturnError(sql.ErrNoRows)
 		mock.ExpectRollback()
-		require.ErrorIs(t, s.RecordRelease(ctx, newRelease()), site.ErrNotFound)
+		require.ErrorIs(t, s.RecordRelease(ctx, newRelease(), nil), site.ErrNotFound)
 	})
 	t.Run("the lock fails", func(t *testing.T) {
 		s, mock := newMock(t)
 		mock.ExpectBegin()
 		mock.ExpectQuery(q("FOR UPDATE")).WillReturnError(errDown)
 		mock.ExpectRollback()
-		require.ErrorContains(t, s.RecordRelease(ctx, newRelease()), "lock site")
+		require.ErrorContains(t, s.RecordRelease(ctx, newRelease(), nil), "lock site")
 	})
 	t.Run("the number was taken by another publish", func(t *testing.T) {
 		s, mock := newMock(t)
@@ -301,7 +299,7 @@ func TestRecordRelease(t *testing.T) {
 		mock.ExpectQuery(q("SELECT COALESCE(MAX(number), 0) + 1")).WithArgs("site_1").WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(2))
 		mock.ExpectQuery(q("INSERT INTO site_releases")).WillReturnError(errDupKey)
 		mock.ExpectRollback()
-		require.ErrorIs(t, s.RecordRelease(ctx, newRelease()), site.ErrStale)
+		require.ErrorIs(t, s.RecordRelease(ctx, newRelease(), nil), site.ErrStale)
 	})
 	t.Run("the insert fails", func(t *testing.T) {
 		s, mock := newMock(t)
@@ -309,25 +307,48 @@ func TestRecordRelease(t *testing.T) {
 		mock.ExpectQuery(q("SELECT COALESCE(MAX(number), 0) + 1")).WithArgs("site_1").WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(2))
 		mock.ExpectQuery(q("INSERT INTO site_releases")).WillReturnError(errDown)
 		mock.ExpectRollback()
-		require.ErrorContains(t, s.RecordRelease(ctx, newRelease()), "record release")
+		require.ErrorContains(t, s.RecordRelease(ctx, newRelease(), nil), "record release")
 	})
-	t.Run("the prepare fails", func(t *testing.T) {
+	t.Run("the files cannot be written", func(t *testing.T) {
 		s, mock := newMock(t)
 		lock(mock)
 		mock.ExpectQuery(q("SELECT COALESCE(MAX(number), 0) + 1")).WithArgs("site_1").WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(2))
 		mock.ExpectQuery(q("INSERT INTO site_releases")).WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(rowTime))
-		mock.ExpectPrepare(q("INSERT INTO site_release_files")).WillReturnError(errDown)
+		mock.ExpectExec(q("INSERT INTO site_release_files")).WillReturnError(errDown)
 		mock.ExpectRollback()
-		require.ErrorContains(t, s.RecordRelease(ctx, newRelease()), "prepare files")
+		require.ErrorContains(t, s.RecordRelease(ctx, newRelease(), nil), "record files")
 	})
-	t.Run("a file cannot be written", func(t *testing.T) {
+	t.Run("a release with nothing of its own writes no file rows", func(t *testing.T) {
 		s, mock := newMock(t)
 		lock(mock)
 		mock.ExpectQuery(q("SELECT COALESCE(MAX(number), 0) + 1")).WithArgs("site_1").WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(2))
 		mock.ExpectQuery(q("INSERT INTO site_releases")).WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(rowTime))
-		mock.ExpectPrepare(q("INSERT INTO site_release_files")).ExpectExec().WillReturnError(errDown)
+		mock.ExpectCommit()
+		r := newRelease()
+		r.Files = nil
+		require.NoError(t, s.RecordRelease(ctx, r, nil))
+	})
+	t.Run("a move lands in the same transaction and fills in the number", func(t *testing.T) {
+		s, mock := newMock(t)
+		lock(mock)
+		mock.ExpectQuery(q("SELECT COALESCE(MAX(number), 0) + 1")).WithArgs("site_1").WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(7))
+		mock.ExpectQuery(q("INSERT INTO site_releases")).WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(rowTime))
+		mock.ExpectExec(q("INSERT INTO site_release_files")).WillReturnResult(sqlmock.NewResult(0, 2))
+		mock.ExpectQuery(q("FOR UPDATE")).WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(6))
+		mock.ExpectExec(q("UPDATE site_environments")).WithArgs("site_1", "default", 7, "a@b").WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectExec(q("INSERT INTO site_deployments")).WithArgs("site_1", "default", "publish", 6, 7, "a@b").WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectCommit()
+		require.NoError(t, s.RecordRelease(ctx, newRelease(), &site.Pointer{SiteID: "site_1", Environment: "default", After: 6, Action: "publish", Actor: "a@b"}))
+	})
+	t.Run("a move that lost the race undoes the release with it", func(t *testing.T) {
+		s, mock := newMock(t)
+		lock(mock)
+		mock.ExpectQuery(q("SELECT COALESCE(MAX(number), 0) + 1")).WithArgs("site_1").WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(7))
+		mock.ExpectQuery(q("INSERT INTO site_releases")).WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(rowTime))
+		mock.ExpectExec(q("INSERT INTO site_release_files")).WillReturnResult(sqlmock.NewResult(0, 2))
+		mock.ExpectQuery(q("FOR UPDATE")).WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(9))
 		mock.ExpectRollback()
-		require.ErrorContains(t, s.RecordRelease(ctx, newRelease()), "record file a.css")
+		require.ErrorIs(t, s.RecordRelease(ctx, newRelease(), &site.Pointer{SiteID: "site_1", Environment: "default", After: 6, Action: "publish", Actor: "a@b"}), site.ErrStale)
 	})
 }
 
@@ -399,8 +420,8 @@ func TestFiles(t *testing.T) {
 	ctx := context.Background()
 	s, mock := newMock(t)
 
-	mock.ExpectQuery(q("FROM site_release_files WHERE release_id = $1 ORDER BY path")).WithArgs("srel_1").
-		WillReturnRows(sqlmock.NewRows(fileCols).AddRow("a.css", "aa", "text/css", int64(10), int64(4), int64(3)))
+	mock.ExpectQuery(q("WITH RECURSIVE chain")).WithArgs("srel_1").
+		WillReturnRows(sqlmock.NewRows(fileCols).AddRow("a.css", "aa", "text/css", int64(10), int64(4), int64(3), ""))
 	got, err := s.Files(ctx, "srel_1")
 	require.NoError(t, err)
 	assert.Equal(t, []site.File{{Path: "a.css", SHA256: "aa", ContentType: "text/css", Size: 10, GzipSize: 4, BrotliSize: 3}}, got)
@@ -418,9 +439,23 @@ func TestFiles(t *testing.T) {
 	_, err = s.Files(ctx, "srel_1")
 	require.ErrorContains(t, err, "read file")
 
-	mock.ExpectQuery(q("FROM site_release_files")).WillReturnRows(sqlmock.NewRows(fileCols).AddRow("a", "b", "c", int64(1), int64(0), int64(0)).RowError(0, errDown))
+	mock.ExpectQuery(q("FROM site_release_files")).WillReturnRows(sqlmock.NewRows(fileCols).AddRow("a", "b", "c", int64(1), int64(0), int64(0), "").RowError(0, errDown))
 	_, err = s.Files(ctx, "srel_1")
 	require.ErrorContains(t, err, "list files")
+}
+
+func TestStoredFiles(t *testing.T) {
+	ctx := context.Background()
+	s, mock := newMock(t)
+	mock.ExpectQuery(q("SELECT DISTINCT CASE WHEN f.stored_in")).WithArgs("site_1").
+		WillReturnRows(sqlmock.NewRows(fileCols).AddRow("", "aa", "", int64(0), int64(4), int64(0), ""))
+	got, err := s.StoredFiles(ctx, "site_1")
+	require.NoError(t, err)
+	assert.Equal(t, []site.File{{SHA256: "aa", GzipSize: 4}}, got)
+
+	mock.ExpectQuery(q("SELECT DISTINCT CASE WHEN f.stored_in")).WillReturnError(errDown)
+	_, err = s.StoredFiles(ctx, "site_1")
+	require.ErrorContains(t, err, "list stored files")
 }
 
 func TestPoint(t *testing.T) {
