@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { FileDown, LayoutGrid, Presentation } from "lucide-react";
-import { isSlideDeck, overviewMessage } from "@/lib/deck";
+import { DECK_FRAME_ATTR, isSlideDeck, overviewMessage } from "@/lib/deck";
 import { downloadPdf } from "@/lib/pdfExport";
 import { withEmbedPolicy, withVideoCards } from "@/lib/videoCards";
 import { useFrameOpener, withAssetLinks } from "@/lib/assetLinks";
@@ -189,7 +189,8 @@ export function HtmlRenderer({ content, controlsSlot, pdfUrl }: Props) {
         sandbox={ASSET_FRAME_SANDBOX}
         allow={ASSET_FRAME_ALLOW}
         srcDoc={framed}
-        className="min-h-[60vh] w-full min-w-0 flex-1 rounded-lg border border-border"
+        {...(deck ? { [DECK_FRAME_ATTR]: "" } : {})}
+        className="min-h-[60vh] w-full min-w-0 flex-1 rounded-lg border border-border max-lg:group-has-[[data-item-panel]>*]/page:min-h-48"
         title="HTML Preview"
       />
     </div>
