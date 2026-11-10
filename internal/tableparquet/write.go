@@ -51,7 +51,7 @@ func Write(columns []tabletype.Column, rows [][]any) ([]byte, error) {
 	schema := parquet.NewSchema("table", root)
 
 	var buf bytes.Buffer
-	w := parquet.NewWriter(&buf, schema, parquet.Compression(&parquet.Zstd))
+	w := parquet.NewWriter(&buf, append(blobOptions(schema), schema, parquet.Compression(&parquet.Zstd))...)
 	for i, row := range rows {
 		out, err := shredRow(plans, columns, row)
 		if err != nil {
@@ -65,6 +65,21 @@ func Write(columns []tabletype.Column, rows [][]any) ([]byte, error) {
 		return nil, fmt.Errorf("closing the Parquet file: %w", err)
 	}
 	return buf.Bytes(), nil
+}
+
+// blobOptions leaves the page statistics and bounds out for every VARBINARY
+// leaf. A bound is a copy of a value, so without this a page of one large value
+// is written several times over, and ordering opaque bytes prunes nothing.
+func blobOptions(schema *parquet.Schema) []parquet.WriterOption {
+	var opts []parquet.WriterOption
+	for _, path := range schema.Columns() {
+		leaf, ok := schema.Lookup(path...)
+		if !ok || leaf.Node.Type().Kind() != parquet.ByteArray || leaf.Node.Type().LogicalType() != nil {
+			continue
+		}
+		opts = append(opts, parquet.SkipPageStatistics(path...), parquet.SkipPageBounds(path...))
+	}
+	return opts
 }
 
 // CheckNames refuses column and field names a table over the written file
