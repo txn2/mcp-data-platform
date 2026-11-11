@@ -146,3 +146,21 @@ func TestScriptPinsCountsTheRunningVersions(t *testing.T) {
 	require.NoError(t, err)
 	assert.Zero(t, n)
 }
+
+type fakeMounts struct {
+	n   int
+	err error
+}
+
+func (f fakeMounts) CountMounting(context.Context, string, int) (int, error) { return f.n, f.err }
+
+// A file in a site's mounted media folder is held, like a referenced one
+// (#2591).
+func TestResourceHoldsCountsTheSitesServingAFile(t *testing.T) {
+	got, err := resourceholds.New(resourceholds.Deps{Sites: fakeMounts{n: 2}}).ResourceHolds(context.Background(), "res_1")
+	require.NoError(t, err)
+	assert.Equal(t, 2, got.Sites)
+
+	_, err = resourceholds.New(resourceholds.Deps{Sites: fakeMounts{err: errors.New("down")}}).ResourceHolds(context.Background(), "res_1")
+	require.ErrorContains(t, err, "sites serving this file")
+}

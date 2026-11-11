@@ -6,6 +6,7 @@ import {
   type SegmentedOption,
 } from "@/components/patterns/SegmentedControl";
 import { Sun, Moon, Monitor, Menu } from "lucide-react";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
 interface Props {
   title: string;
@@ -45,10 +46,53 @@ function VersionBadge({ version, url }: { version: string; url: string }) {
   );
 }
 
+// PHONE_TITLES are the section a page sits in, where a phone's header names
+// the section rather than the page (#2601): "Asset Viewer" says nothing the
+// page under it does not.
+const PHONE_TITLES: Record<string, string> = { "Asset Viewer": "Assets" };
+
+/** ThemeButton is the theme as one button on a phone, stepping light, dark,
+ * system; the three-way switch takes more than half a phone's header. */
+function ThemeButton({ theme, setTheme }: { theme: Theme; setTheme: (t: Theme) => void }) {
+  const at = themeOptions.findIndex((o) => o.value === theme);
+  const current = themeOptions[at] ?? themeOptions[0]!;
+  const next = themeOptions[(at + 1) % themeOptions.length]!;
+  const Icon = current.icon ?? Sun;
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      onClick={() => setTheme(next.value)}
+      aria-label={`Theme: ${current.label}. Switch to ${next.label}`}
+      title={`Theme: ${current.label}`}
+      className="text-muted-foreground"
+    >
+      <Icon className="size-5" />
+    </Button>
+  );
+}
+
 export function Header({ title, onMenuClick }: Props) {
   const { theme, setTheme } = useThemeStore();
   const { data: branding } = useBranding();
   const version = branding?.version;
+  const phone = useIsMobile();
+
+  // On a phone: the section's name, no platform version, one theme button.
+  if (phone) {
+    return (
+      <header className="flex h-[var(--app-header-height)] items-center gap-2 border-b bg-card px-2">
+        {onMenuClick && (
+          <Button type="button" variant="ghost" size="icon-sm" onClick={onMenuClick} aria-label="Open navigation" className="text-muted-foreground">
+            <Menu className="size-5" />
+          </Button>
+        )}
+        <h1 className="min-w-0 flex-1 truncate text-base font-semibold">{PHONE_TITLES[title] ?? title}</h1>
+        <ThemeButton theme={theme} setTheme={setTheme} />
+      </header>
+    );
+  }
 
   return (
     <header className="flex h-[var(--app-header-height)] items-center justify-between border-b bg-card px-4 sm:px-6">

@@ -71,8 +71,8 @@ func TestHoldReaderCarriesAFailedLookup(t *testing.T) {
 // handle whose toolkit was never built.
 func TestBindResourceHoldsIsSafeWithoutALayer(t *testing.T) {
 	var missing *Handle
-	assert.NotPanics(t, func() { missing.BindResourceHolds(nil) })
+	assert.NotPanics(t, func() { missing.BindResourceHolds(nil, nil) })
 
 	h := NewFromStores(Stores{ContentRefs: &stubRefs{}}, nil, Config{Name: "portal"})
-	assert.NotPanics(t, func() { h.BindResourceHolds(&stubAttachments{}) })
+	assert.NotPanics(t, func() { h.BindResourceHolds(&stubAttachments{}, nil) })
 }

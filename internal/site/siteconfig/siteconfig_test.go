@@ -2,6 +2,7 @@ package siteconfig
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -106,20 +107,46 @@ func TestCheck_PassesTheCookieDomainThrough(t *testing.T) {
 	require.ErrorContains(t, err, "session cookie's domain")
 }
 
+func intp(n int) *int { return new(n) }
+
 func TestSettings_ReadsEachBoundAndFillsItsDefault(t *testing.T) {
 	set := Config{
 		PagesDomain: "pages.example.net", MaxFiles: 7, MaxFileBytes: 8, MaxReleaseBytes: 9,
-		Crawl: CrawlConfig{MaxPages: 10, MaxBytes: 11},
+		Crawl:    CrawlConfig{MaxPages: 10, MaxBytes: 11},
+		Releases: ReleasesConfig{KeepDefault: intp(0), Mode: ModeReport},
 	}
 	assert.Equal(t, Settings{
 		PagesDomain: "pages.example.net", MaxFiles: 7, MaxFileBytes: 8, MaxReleaseBytes: 9,
-		CrawlMaxPages: 10, CrawlMaxBytes: 11,
-	}, set.Settings())
+		CrawlMaxPages: 10, CrawlMaxBytes: 11, ReleasesKeep: intp(0), ReleasesMode: ModeReport,
+	}, set.Settings(), "0 keeps every release and is read as 0, not as unset")
 
 	assert.Equal(t, Settings{
 		MaxFiles: DefaultMaxFiles, MaxFileBytes: DefaultMaxFileBytes, MaxReleaseBytes: DefaultMaxReleaseBytes,
 		CrawlMaxPages: DefaultCrawlPages, CrawlMaxBytes: DefaultCrawlBytes,
+		ReleasesKeep: intp(DefaultKeepReleases), ReleasesMode: ModeDelete,
 	}, Config{}.Settings(), "an unset bound reads as its default")
+}
+
+func TestReleases_DefaultsAndChecks(t *testing.T) {
+	var r ReleasesConfig
+	assert.Equal(t, DefaultKeepReleases, r.Keep())
+	assert.Equal(t, ModeDelete, r.SweepMode())
+	assert.Equal(t, DefaultOrphanGrace, r.Grace())
+	assert.Equal(t, DefaultSweepEvery, r.Interval())
+	r = ReleasesConfig{OrphanGrace: time.Minute, Every: time.Hour}
+	assert.Equal(t, time.Minute, r.Grace())
+	assert.Equal(t, time.Hour, r.Interval())
+
+	for name, bad := range map[string]ReleasesConfig{
+		"a negative limit": {KeepDefault: intp(-1)},
+		"a limit past it":  {KeepDefault: intp(MaxKeepReleases + 1)},
+		"a mode it lacks":  {Mode: "sometimes"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.ErrorContains(t, Config{Releases: bad}.Validate("portal.example.net", ""), "sites.releases")
+		})
+	}
+	require.NoError(t, Config{Releases: ReleasesConfig{KeepDefault: intp(0), Mode: ModeReport}}.Validate("portal.example.net", ""))
 }
 
 func TestWith_SavedSettingsReplaceTheFileAndLeaveTheRest(t *testing.T) {
@@ -132,7 +159,12 @@ func TestWith_SavedSettingsReplaceTheFileAndLeaveTheRest(t *testing.T) {
 	saved := Settings{PagesDomain: "saved.example.net", MaxFiles: 11, MaxFileBytes: 12, MaxReleaseBytes: 13, CrawlMaxPages: 14, CrawlMaxBytes: 15}
 
 	got := base.With(saved)
-	assert.Equal(t, saved, got.Settings(), "every saved value is in force")
+	want := saved
+	want.ReleasesKeep, want.ReleasesMode = intp(DefaultKeepReleases), ModeDelete
+	assert.Equal(t, want, got.Settings(), "every saved value is in force, and a section saved before the release limit keeps the file's")
+
+	saved.ReleasesKeep, saved.ReleasesMode = intp(7), ModeReport
+	assert.Equal(t, saved, base.With(saved).Settings(), "a saved release limit and mode are in force")
 	assert.Equal(t, base.Cache, got.Cache, "the cache is not a saved setting")
 	assert.Equal(t, base.Crawl.AllowPrivateCIDRs, got.Crawl.AllowPrivateCIDRs, "the private ranges are not a saved setting")
 	assert.Same(t, base.Enabled, got.Enabled)

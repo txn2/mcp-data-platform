@@ -1,4 +1,6 @@
 import { lazy, Suspense, useState, type ReactNode } from "react";
+import { DocActionsContext, type DocAction } from "@/components/renderers/docActions";
+import { PhoneToolbar, type PhoneViewer } from "./PhoneToolbar";
 import type { Asset, AssetVersion, SharePermission } from "@/api/portal/types";
 import { ContentRenderer } from "@/components/renderers/ContentRenderer";
 import { versionContentURL } from "@/lib/pdfExport";
@@ -47,6 +49,11 @@ interface AssetContentViewProps {
    * reference this asset, as a button (#1792).
    */
   afterVersion?: ReactNode;
+  /**
+   * The page's own actions for a phone's one-row toolbar (#2601). Given, a
+   * phone gets that toolbar, with the document's controls in its More menu.
+   */
+  phone?: PhoneViewer;
 }
 
 export function AssetContentView({
@@ -75,6 +82,7 @@ export function AssetContentView({
   editedContent,
   onSourceChange,
   afterVersion,
+  phone,
 }: AssetContentViewProps) {
   // The end of the control row, where an HTML document's own controls
   // (Present, Overview, Export PDF) render rather than on a row of their own
@@ -84,40 +92,61 @@ export function AssetContentView({
   // opens it that way at any width; the control is offered on a phone, where
   // the page around the content is what crowds it.
   const expand = useContentExpand(canEditSource, viewMode, viewingOldVersion);
+  const isMobile = useIsMobile();
+  const [docActions, setDocActions] = useState<DocAction[]>([]);
+  const onPhone = isMobile && phone !== undefined;
+  const { canRevert, showSave, savePending } = controlFlags({
+    isOwner, sharePermission, revertMutation, viewMode, hasChanges, viewingOldVersion, contentUpdateMutation,
+  });
+
+  const toolbar = onPhone ? (
+    <PhoneToolbar
+      asset={asset}
+      phone={phone}
+      docActions={docActions}
+      canEditSource={canEditSource}
+      viewMode={viewMode}
+      onSetViewMode={onSetViewMode}
+      viewingOldVersion={viewingOldVersion}
+      versions={versions}
+      selectedVersion={selectedVersion}
+      onSelectVersion={onSelectVersion}
+      canRevert={canRevert}
+      onRevert={onRevert}
+      showSave={showSave}
+      hasChanges={hasChanges}
+      savePending={savePending}
+      onSaveContent={onSaveContent}
+      expandOffered={expand.offered}
+      onExpand={expand.open}
+      afterVersion={afterVersion}
+    />
+  ) : (
+    <DesktopControls
+      asset={asset}
+      canEditSource={canEditSource}
+      viewingOldVersion={viewingOldVersion}
+      viewMode={viewMode}
+      onSetViewMode={onSetViewMode}
+      versions={versions}
+      selectedVersion={selectedVersion}
+      onSelectVersion={onSelectVersion}
+      canRevert={canRevert}
+      onRevert={onRevert}
+      afterVersion={afterVersion}
+      showSave={showSave}
+      hasChanges={hasChanges}
+      saveStatus={saveStatus}
+      onSaveContent={onSaveContent}
+      savePending={savePending}
+      setControlsSlot={setControlsSlot}
+      expand={expand}
+    />
+  );
 
   return (
-    <>
-      <div className="flex flex-wrap items-center gap-2">
-        <ViewModeToggle
-          show={canEditSource && !viewingOldVersion}
-          viewMode={viewMode}
-          onSetViewMode={onSetViewMode}
-        />
-        <VersionControls
-          asset={asset}
-          versions={versions}
-          selectedVersion={selectedVersion}
-          onSelectVersion={onSelectVersion}
-          viewingOldVersion={viewingOldVersion}
-          canRevert={(isOwner || sharePermission === "editor") && !!revertMutation}
-          onRevert={onRevert}
-        />
-        {afterVersion}
-        <SaveControls
-          // In Preview too once there are edits: a scene is edited where it is
-          // drawn (#2306), and an edit made in Source survives the toggle.
-          show={(viewMode === "source" || hasChanges) && !viewingOldVersion}
-          hasChanges={hasChanges}
-          saveStatus={saveStatus}
-          onSaveContent={onSaveContent}
-          pending={!!contentUpdateMutation?.isPending}
-        />
-        {viewingOldVersion && (
-          <span className="text-xs text-muted-foreground">Viewing v{selectedVersion} (read-only)</span>
-        )}
-        <div ref={setControlsSlot} data-testid="content-controls" className="ml-auto flex flex-wrap items-center gap-2" />
-        <ExpandButton offered={expand.offered} onClick={expand.open} />
-      </div>
+    <DocActionsContext.Provider value={onPhone ? setDocActions : null}>
+      {toolbar}
 
       {/* Content display */}
       <ExpandedView expanded={expand.expanded} title={asset.name} onClose={expand.close}>
@@ -150,8 +179,29 @@ export function AssetContentView({
           />
         )}
       </ExpandedView>
-    </>
+    </DocActionsContext.Provider>
   );
+}
+
+/** controlFlags are what the controls offer: Revert to an owner or an editor
+ * where reverting is wired, Save in Source or once there are edits (but not on
+ * an older version), and whether a save is under way. */
+function controlFlags(p: {
+  isOwner: boolean;
+  sharePermission?: SharePermission;
+  revertMutation?: unknown;
+  viewMode: ViewMode;
+  hasChanges: boolean;
+  viewingOldVersion: boolean;
+  contentUpdateMutation?: { isPending?: boolean };
+}) {
+  return {
+    canRevert: (p.isOwner || p.sharePermission === "editor") && !!p.revertMutation,
+    // In Preview too once there are edits: a scene is edited where it is drawn
+    // (#2306), and an edit made in Source survives the toggle.
+    showSave: (p.viewMode === "source" || p.hasChanges) && !p.viewingOldVersion,
+    savePending: !!p.contentUpdateMutation?.isPending,
+  };
 }
 
 /** Whether Expand is offered and showing. The source editor is never
@@ -329,4 +379,81 @@ function PendingView({
 /** Content the renderers can take as text; an ArrayBuffer body is not one. */
 function asText(content: string | ArrayBuffer | undefined): string | undefined {
   return typeof content === "string" ? content : undefined;
+}
+
+/** DesktopControls is the control row above the content on a wide screen:
+ * Preview/Source, the version picker, Save, and the document's own controls
+ * in the slot at its end. */
+function DesktopControls({
+  asset,
+  canEditSource,
+  viewingOldVersion,
+  viewMode,
+  onSetViewMode,
+  versions,
+  selectedVersion,
+  onSelectVersion,
+  canRevert,
+  onRevert,
+  afterVersion,
+  showSave,
+  hasChanges,
+  saveStatus,
+  onSaveContent,
+  savePending,
+  setControlsSlot,
+  expand,
+}: {
+  asset: Asset;
+  canEditSource: boolean;
+  viewingOldVersion: boolean;
+  viewMode: ViewMode;
+  onSetViewMode: (mode: ViewMode) => void;
+  versions?: AssetVersion[];
+  selectedVersion?: number | null;
+  onSelectVersion?: (v: number | null) => void;
+  canRevert: boolean;
+  onRevert: () => void;
+  afterVersion?: ReactNode;
+  showSave: boolean;
+  hasChanges: boolean;
+  saveStatus: "idle" | "saved" | "error";
+  onSaveContent: () => void;
+  savePending: boolean;
+  setControlsSlot: (el: HTMLElement | null) => void;
+  expand: { offered: boolean; open: () => void };
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <ViewModeToggle
+        show={canEditSource && !viewingOldVersion}
+        viewMode={viewMode}
+        onSetViewMode={onSetViewMode}
+      />
+      <VersionControls
+        asset={asset}
+        versions={versions}
+        selectedVersion={selectedVersion}
+        onSelectVersion={onSelectVersion}
+        viewingOldVersion={viewingOldVersion}
+        canRevert={canRevert}
+        onRevert={onRevert}
+      />
+      {afterVersion}
+      <SaveControls
+        // In Preview too once there are edits: a scene is edited where it is
+        // drawn (#2306), and an edit made in Source survives the toggle.
+        show={showSave}
+        hasChanges={hasChanges}
+        saveStatus={saveStatus}
+        onSaveContent={onSaveContent}
+        pending={savePending}
+      />
+      {viewingOldVersion && (
+        <span className="text-xs text-muted-foreground">Viewing v{selectedVersion} (read-only)</span>
+      )}
+      <div ref={setControlsSlot} data-testid="content-controls" className="ml-auto flex flex-wrap items-center gap-2" />
+      <ExpandButton offered={expand.offered} onClick={expand.open} />
+    </div>
+  );
 }

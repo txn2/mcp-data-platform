@@ -6,8 +6,10 @@ package sitesvc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -16,10 +18,9 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/application"
 	"github.com/txn2/mcp-data-platform/internal/approval"
-	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
-
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/site"
+	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
 	"github.com/txn2/mcp-data-platform/internal/site/sitestore"
 )
 
@@ -66,6 +67,10 @@ type Service struct {
 	// PersonaExists reports whether a persona a grant names exists; nil takes
 	// any name.
 	PersonaExists func(name string) bool
+	// MediaFolders checks a folder a site mounts and MediaStore keeps the
+	// mounts (#2591); either nil refuses every mount.
+	MediaFolders MediaFolders
+	MediaStore   MediaStore
 	// PortalHost is the portal's hostname, which no domain may claim.
 	PortalHost string
 	// ReservedHosts are the other hostnames the platform answers on itself.
@@ -91,10 +96,17 @@ type Actor struct {
 	EmailUnverified bool
 }
 
-// RefusedError is a command refused for a reason the caller can act on.
-type RefusedError struct{ Msg string }
+// RefusedError is a command refused for a reason the caller can act on. Err,
+// when set, is the error it stands for, read by identity.
+type RefusedError struct {
+	Msg string
+	Err error
+}
 
 func (e *RefusedError) Error() string { return e.Msg }
+
+// Unwrap is the error the refusal stands for, nil for none.
+func (e *RefusedError) Unwrap() error { return e.Err }
 
 func refused(format string, args ...any) error {
 	return &RefusedError{Msg: fmt.Sprintf(format, args...)}
@@ -168,6 +180,8 @@ func (s *Service) notAnApplication(ctx context.Context, label string) error {
 type UpdateRequest struct {
 	Description *string
 	Owner       *string
+	// Media, when set, makes the site's mounts exactly these (#2591).
+	Media *[]site.Mount
 }
 
 // Update changes a site's record: the description and the owner, which are
@@ -180,8 +194,15 @@ func (s *Service) Update(ctx context.Context, actor Actor, ref string, u UpdateR
 	if err := s.applyUpdate(ctx, actor, st, u); err != nil {
 		return nil, err
 	}
-	if err := s.Store.Update(ctx, st); err != nil {
-		return nil, err //nolint:wrapcheck // read by identity
+	if u.Media != nil {
+		if err := s.setMedia(ctx, actor, st, *u.Media); err != nil {
+			return nil, err
+		}
+	}
+	if u.Description != nil || u.Owner != nil {
+		if err := s.Store.Update(ctx, st); err != nil {
+			return nil, err //nolint:wrapcheck // read by identity
+		}
 	}
 	return s.Store.Get(ctx, st.ID) //nolint:wrapcheck // read by identity
 }
@@ -280,6 +301,10 @@ type EnvironmentChange struct {
 	Public           *bool
 	InternalView     *bool
 	Reason           string
+	// Keep sets how many releases the environment keeps (0 keeps every one),
+	// and KeepDefault returns it to the deployment's default (#2602).
+	Keep        *int
+	KeepDefault bool
 }
 
 // EnvironmentResult is what setting an environment did.
@@ -365,7 +390,7 @@ type envWrite struct {
 // environmentSettings is what the store writes: the change as asked, less
 // making it public when that waits on Approvals, which out then says.
 func (s *Service) environmentSettings(ctx context.Context, actor Actor, t envTarget, c EnvironmentChange, out *EnvironmentResult) (site.EnvironmentSettings, error) {
-	set := site.EnvironmentSettings{RequiresApproval: c.RequiresApproval, Public: c.Public, InternalView: c.InternalView}
+	set := site.EnvironmentSettings{RequiresApproval: c.RequiresApproval, Public: c.Public, InternalView: c.InternalView, Keep: c.Keep, KeepDefault: c.KeepDefault}
 	if !makesPublic(t.env, c) {
 		return set, nil
 	}
@@ -393,6 +418,9 @@ func (s *Service) checkEnvironmentChange(ctx context.Context, actor Actor, t env
 		}
 	}
 	if err := devRefusal(t.name, c); err != nil {
+		return err
+	}
+	if err := s.checkKeep(ctx, actor, t.st, c); err != nil {
 		return err
 	}
 	if takesApprovalOff(t.env, c) && !actor.Admin {
@@ -530,6 +558,10 @@ func (s *Service) move(ctx context.Context, actor Actor, m repoint) error {
 	err := s.Store.Point(ctx, site.Pointer{
 		SiteID: m.st.ID, Environment: m.env.Name, After: m.env.Release, To: m.to, Action: m.action, Actor: actor.Email,
 	})
+	if errors.Is(err, site.ErrPruned) {
+		// A sweep pruned the release after it was checked (#2602).
+		return prunedRefusal(m.st, m.to)
+	}
 	if err != nil {
 		return err //nolint:wrapcheck // read by identity
 	}
@@ -654,5 +686,62 @@ func (s *Service) ApplyPin(ctx context.Context, actorEmail, siteRef, environment
 	if env.Release == number {
 		return nil
 	}
+	if _, err := s.liveRelease(ctx, st, number); err != nil {
+		return err
+	}
 	return s.move(ctx, Actor{Email: actorEmail, Admin: true}, repoint{st: st, env: env, to: number, action: site.ActionApplication})
+}
+
+// Media (#2591): a site serves managed-resource folders at URL prefixes on
+// every environment. Mounting is a publishing act: whoever mounts must manage
+// the site and be able to read the folder, and its files are then public on a
+// public environment, as the grant references makes on an asset.
+
+// MediaFolders checks a folder a caller mounts, reading the caller from ctx.
+type MediaFolders interface {
+	CheckFolder(ctx context.Context, m site.Mount) error
+}
+
+// MediaStore keeps a site's mounts.
+type MediaStore interface {
+	SetMedia(ctx context.Context, siteID string, mounts []site.Mount, actor string) error
+}
+
+// ErrNoFolder is a folder the caller cannot read or the library does not hold.
+var ErrNoFolder = errors.New("no such folder")
+
+// setMedia makes a site's mounts exactly mounts. A mount already in place
+// unchanged is not checked again; each new or changed one is checked against
+// the caller.
+func (s *Service) setMedia(ctx context.Context, actor Actor, st *site.Site, mounts []site.Mount) error {
+	if s.MediaFolders == nil || s.MediaStore == nil {
+		return refused("this deployment cannot mount media: it has no managed-resource library")
+	}
+	if err := s.mayEdit(ctx, actor, st); err != nil {
+		return err
+	}
+	clean, err := site.ValidateMounts(mounts)
+	if err != nil {
+		return refusedBy(err)
+	}
+	for _, m := range clean {
+		if slices.ContainsFunc(st.Media, func(old site.Mount) bool { return sameMount(old, m) }) {
+			continue
+		}
+		if err := s.MediaFolders.CheckFolder(ctx, m); err != nil {
+			return &RefusedError{Err: ErrNoFolder, Msg: fmt.Sprintf(
+				"media: there is no folder %q in the %s library that you can read, so it cannot be mounted at %s", m.Folder, m.Scope, m.Prefix)}
+		}
+	}
+	if err := s.MediaStore.SetMedia(ctx, st.ID, clean, actor.Email); err != nil {
+		return err //nolint:wrapcheck // read by identity
+	}
+	if s.Invalidate != nil {
+		s.Invalidate(st.Name)
+	}
+	return nil
+}
+
+func sameMount(a, b site.Mount) bool {
+	return a.Prefix == b.Prefix && a.Scope == b.Scope && a.ScopeID == b.ScopeID && a.Folder == b.Folder
 }

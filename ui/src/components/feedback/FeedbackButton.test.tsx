@@ -50,6 +50,20 @@ describe("FeedbackButton", () => {
     expect(screen.getByRole("button", { name: /Feedback/ }).textContent).toContain("1");
   });
 
+  // #2601: a phone's toolbar takes it as an icon, the count on it and in its name.
+  it("is an icon with the open-thread count in its compact form", () => {
+    render(
+      <PageArea>
+        <FeedbackButton target={target} compact />
+      </PageArea>,
+    );
+    const button = screen.getByRole("button", { name: "Feedback, 1 open thread" });
+    expect(button).not.toHaveTextContent("Feedback");
+    expect(button).toHaveTextContent("1");
+    fireEvent.click(button);
+    expect(slot().childElementCount).toBe(1);
+  });
+
   it("puts the panel in the space beside the page, leaving the page uncovered", () => {
     page();
     expect(slot().childElementCount).toBe(0);

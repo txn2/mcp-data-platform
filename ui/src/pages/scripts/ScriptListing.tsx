@@ -12,7 +12,6 @@ import { EmptyState } from "@/components/patterns/EmptyState";
 import { FilterSelect, type FilterOption } from "@/components/patterns/FilterSelect";
 import { SearchInput } from "@/components/patterns/SearchInput";
 import { SectionCard } from "@/components/patterns/SectionCard";
-import { SortableHead } from "@/components/patterns/SortableHead";
 import {
   ScopeFilter,
   SCRIPT_SCOPE_OPTIONS,
@@ -28,10 +27,11 @@ import {
 } from "@/components/listSort";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { useDebounced } from "@/lib/useDebounced";
 import { facetOptions } from "./facetOptions";
-import { ScriptRow } from "./ScriptRow";
+import { ScriptTable } from "./ScriptTable";
+import { PhoneFilters } from "./PhoneFilters";
 import { ScriptGrid } from "./ScriptGrid";
 import { LayoutGrid, List } from "lucide-react";
 import { getStoredViewMode, storeViewMode, type ViewMode } from "@/components/listView";
@@ -409,26 +409,10 @@ function ScriptFilterBar({
   );
 
   const set = (patch: Partial<Facets>) => onFacets({ ...facets, ...patch });
+  const phone = useIsMobile();
 
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      {/* An administrator's listing is every script by definition, so the
-          scope tabs would be one face pressed against itself. */}
-      {audience !== "admin" && (
-        <ScopeFilter
-          value={scope}
-          onChange={onScope}
-          options={SCRIPT_SCOPE_OPTIONS}
-          label="Whose automations"
-        />
-      )}
-      <SearchInput
-        value={search}
-        onChange={(e) => onSearch(e.target.value)}
-        placeholder="Search automations..."
-        aria-label="Search automations"
-        className="w-full sm:w-64"
-      />
+  const selects = (
+    <>
       <FilterSelect
         label="Filter by kind"
         value={facets.kind}
@@ -465,9 +449,63 @@ function ScriptFilterBar({
         onChange={(status) => set({ status })}
         options={options.status}
       />
+    </>
+  );
+
+  // On a phone the bar is the search and a Filters button, with whose
+  // automations on a second row (#2601): six selects wrapped onto four rows
+  // above the first automation.
+  if (phone) {
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <SearchInput
+            value={search}
+            onChange={(e) => onSearch(e.target.value)}
+            placeholder="Search automations..."
+            aria-label="Search automations"
+            className="min-w-0 flex-1"
+          />
+          <PhoneFilters active={activeFacets(facets)} onClear={() => onFacets(NO_FACETS)}>
+            {selects}
+          </PhoneFilters>
+        </div>
+        {audience !== "admin" && (
+          <ScopeFilter value={scope} onChange={onScope} options={SCRIPT_SCOPE_OPTIONS} label="Whose automations" />
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {/* An administrator's listing is every script by definition, so the
+          scope tabs would be one face pressed against itself. */}
+      {audience !== "admin" && (
+        <ScopeFilter
+          value={scope}
+          onChange={onScope}
+          options={SCRIPT_SCOPE_OPTIONS}
+          label="Whose automations"
+        />
+      )}
+      <SearchInput
+        value={search}
+        onChange={(e) => onSearch(e.target.value)}
+        placeholder="Search automations..."
+        aria-label="Search automations"
+        className="w-full sm:w-64"
+      />
+      {selects}
     </div>
   );
 }
+
+/** activeFacets is how many facets narrow the listing. */
+function activeFacets(facets: Facets): number {
+  return Object.values(facets).filter(Boolean).length;
+}
+
 
 function ScriptsSection({
   rows,
@@ -501,55 +539,7 @@ function ScriptsSection({
   if (view === "grid") {
     return <ScriptGrid rows={rows} basePath={basePath} onNavigate={onNavigate} />;
   }
-  return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <SortableHead
-            label="Automation"
-            sortKey="display_name"
-            sortBy={sort.key}
-            sortDir={sort.dir}
-            onSort={onSort}
-          />
-          {/* What kind of automation each row is (#1912): a script, which
-              runs, or a library other scripts load (#1941). */}
-          <TableHead>Kind</TableHead>
-          <SortableHead
-            label="Author"
-            sortKey="owner_email"
-            sortBy={sort.key}
-            sortDir={sort.dir}
-            onSort={onSort}
-          />
-          <TableHead>Schedule</TableHead>
-          {/* The endpoint a script answers HTTP requests at (#2259), blank
-              for one bound to none. */}
-          <TableHead>Endpoint</TableHead>
-          {/* Last run carries no sort affordance: it is attached to this page
-              after the query, so an ordering over it would order the page. */}
-          <TableHead>Last run</TableHead>
-          <SortableHead
-            label="Updated"
-            sortKey="updated_at"
-            sortBy={sort.key}
-            sortDir={sort.dir}
-            onSort={onSort}
-          />
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {rows.map((row) => (
-          <ScriptRow
-            key={row.script.id}
-            row={row}
-            basePath={basePath}
-            onNavigate={onNavigate}
-          />
-        ))}
-      </TableBody>
-    </Table>
-  );
+  return <ScriptTable rows={rows} basePath={basePath} sort={sort} onSort={onSort} onNavigate={onNavigate} />;
 }
 
 // NothingToList is the empty listing, which is four different statements

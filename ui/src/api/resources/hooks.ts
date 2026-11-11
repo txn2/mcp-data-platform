@@ -208,14 +208,28 @@ export function useUpdateResource() {
   });
 }
 
+/**
+ * ResourceDeleteError is a refused delete with its status: 409 is a file a
+ * site serves from a mounted media folder (#2591), which goes only with force.
+ */
+export class ResourceDeleteError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 export function useDeleteResource() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      const res = await resourceFetchRaw(`/${id}`, { method: "DELETE" });
+    mutationFn: async (arg: string | { id: string; force?: boolean }) => {
+      const { id, force } = typeof arg === "string" ? { id: arg, force: false } : arg;
+      const res = await resourceFetchRaw(`/${id}${force ? "?force=true" : ""}`, { method: "DELETE" });
       if (!res.ok) {
         const body = await res.json().catch(() => ({ error: res.statusText }));
-        throw new Error(body.error || res.statusText);
+        throw new ResourceDeleteError(res.status, body.detail || body.error || res.statusText);
       }
     },
     onSuccess: () => {

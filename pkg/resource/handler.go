@@ -1109,13 +1109,15 @@ func (h *Handler) applyMove(w http.ResponseWriter, r *http.Request, claims *Clai
 // handleDelete handles DELETE /api/v1/resources/{id}.
 //
 // @Summary      Delete resource
-// @Description  Delete a managed resource, removing both the S3 blob and database metadata.
+// @Description  Delete a managed resource, removing both the S3 blob and database metadata. A file a site serves from a mounted media folder is refused with 409 unless force is true.
 // @Tags         Resources
-// @Param        id   path  string  true  "Resource ID"
+// @Param        id     path   string  true   "Resource ID"
+// @Param        force  query  bool    false  "Delete a file a site serves from a mounted media folder"
 // @Success      204  "No Content"
 // @Failure      401  {object}  resource.errorResponse
 // @Failure      403  {object}  resource.errorResponse
 // @Failure      404  {object}  resource.errorResponse
+// @Failure      409  {object}  resource.errorResponse
 // @Failure      500  {object}  resource.errorResponse
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
@@ -1130,6 +1132,9 @@ func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := res.ID
+	if !h.mayDeleteMounted(w, r, id) {
+		return
+	}
 
 	if err := DeleteResource(r.Context(), h.deps, res); err != nil {
 		slog.Error("resource delete failed", msgError, logsan.SanitizeForLog(err.Error()))
@@ -1198,4 +1203,27 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set(headerContentType, "application/json")
 	w.WriteHeader(status)
 	_ = wirejson.Encode(w, map[string]string{msgError: msg})
+}
+
+// mayDeleteMounted refuses deleting a file a site serves from a mounted media
+// folder, unless the caller passed force=true (#2591): the site would answer
+// not found where it served the file.
+func (h *Handler) mayDeleteMounted(w http.ResponseWriter, r *http.Request, id string) bool {
+	counter, ok := h.deps.Store.(interface {
+		CountMounting(ctx context.Context, resourceID string, limit int) (int, error)
+	})
+	if !ok || r.URL.Query().Get("force") == "true" {
+		return true
+	}
+	n, err := counter.CountMounting(r.Context(), id, 1)
+	if err != nil {
+		slog.Error("reading the sites serving a resource failed", msgError, logsan.SanitizeForLog(err.Error()))
+		writeError(w, http.StatusInternalServerError, "could not establish whether a site serves this file; nothing was deleted")
+		return false
+	}
+	if n == 0 {
+		return true
+	}
+	writeError(w, http.StatusConflict, "a site serves this file from a mounted media folder; delete it with force=true to remove it from the site")
+	return false
 }

@@ -50,3 +50,35 @@ describe("Header version badge", () => {
     expect(screen.queryByText(/^v/)).not.toBeInTheDocument();
   });
 });
+
+// #2601: a phone's header is the section's name, no platform version, and one
+// theme button.
+describe("Header on a phone", () => {
+  const realWidth = window.innerWidth;
+  beforeEach(() => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+  });
+  afterEach(() => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: realWidth });
+  });
+
+  it("names the section, not the page", () => {
+    render(<Header title="Asset Viewer" onMenuClick={() => undefined} />);
+    expect(screen.getByRole("heading", { name: "Assets" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open navigation" })).toBeInTheDocument();
+  });
+
+  it("hides the platform version", () => {
+    render(<Header title="Assets" />);
+    expect(screen.queryByText("v1.120.0")).not.toBeInTheDocument();
+  });
+
+  it("is one theme button that steps to the next theme", async () => {
+    const { useThemeStore } = await import("@/stores/theme");
+    useThemeStore.getState().setTheme("light");
+    render(<Header title="Assets" />);
+    expect(screen.queryByRole("group", { name: "Theme" })).not.toBeInTheDocument();
+    screen.getByRole("button", { name: /^Theme: Light/ }).click();
+    expect(useThemeStore.getState().theme).toBe("dark");
+  });
+});

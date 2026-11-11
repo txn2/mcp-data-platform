@@ -92,6 +92,11 @@ sites:
     max_pages: 2000
     max_bytes: 536870912
   reserved_hostnames: []         # names the deployment answers on itself
+  releases:
+    keep_default: 50             # releases each environment keeps; 0 keeps every one
+    mode: delete                 # delete, or report: the cleanup counts and deletes nothing
+    orphan_grace: 24h            # how old an object no release names must be before it goes
+    every: 24h                   # how often the cleanup runs
 ```
 
 The file's values are the seed. Once an administrator saves **Admin > Settings >
@@ -345,6 +350,86 @@ are not audited individually; they are recorded under the HTTP route `site`
 
 A release is never rendered on the portal's origin.
 
+## Releases kept
+
+Each environment keeps its last `keep_releases` distinct releases, the deployment's
+default (`sites.releases.keep_default`, 50, or **Releases kept per environment** in
+Admin > Settings > Sites) unless it has its own: `manage_site set_environment
+keep_releases=N`, `0` for every release, `"default"` to return to the default, also
+in the environment's Settings dialog in the portal. Only the owner or an
+administrator changes it, since a lower limit removes rollback history at the next
+cleanup.
+
+A release stays while it is in any environment's window, an environment points at
+it, an application release pins it, or a pending approval request names it. The
+daily cleanup (one replica at a time, under an advisory lock) removes every other
+release's file rows and the objects no kept release names, compressed forms
+included. A removed release keeps its record, marked `pruned`, so the deployments
+and approvals that name it read as before; it cannot be served, compared, promoted
+or rolled back to, and the refusal names the limits (a comparison's refusal names
+only the release). A move that started while a cleanup was deciding waits for it
+and is then refused if the cleanup removed its release. A kept release that read its
+files through a removed one is rewritten first, onto its nearest kept ancestor or
+whole, and checked to resolve to exactly the files it held. Files stored before
+v1.157.0 under a release's own prefix stay while any kept release names them.
+
+The same cleanup deletes objects under a site that no release names (a render that
+failed, a delete that failed) once they are older than `orphan_grace`, and refuses
+a site where more than half of what it holds reads as orphaned. In report mode it
+decides exactly as delete mode does and deletes nothing.
+
+A publish and a cleanup never overlap on one site's stored files. A publish holds
+them from its first stored file until its release is recorded, and a cleanup holds
+them from before it decides until its deletes finish (`site_object_holds`). The
+cleanup leaves a site with a publish in progress for the next run, and a publish
+that starts while a cleanup is deleting waits up to a minute and is then refused,
+saying the cleanup is running. Holds expire, so a replica that stopped while
+holding one blocks the other only for a few minutes; a publish whose hold ran out
+is refused rather than recorded. A site whose bucket cannot be listed still has
+its releases cleaned up, and the run reports `orphans_unchecked` for it.
+
+| Route | What it does |
+|---|---|
+| `GET /api/v1/admin/sites/retention` | The default, the mode, the grace, the interval, and the recent cleanups' counts |
+| `POST /api/v1/admin/sites/retention/run` | `{mode: "report" or "delete", site?}`: a cleanup now, answering which releases it removes per site and the files, bytes and orphans |
+
+`manage_site get` shows each environment's `keep_releases`,
+`keep_releases_default` and `releases_kept`; `releases` and the portal's release
+reads carry `pruned` and `kept_by` (the environments, `application <name>` and
+`approval` that keep each release).
+
+## Media folders
+
+A site mounts managed-resource folders at URL prefixes for images, video and
+downloads that do not change with its pages:
+
+```
+manage_site command=update site=marketing
+  media=[{"prefix":"/media/","scope":"global","folder":"sites/marketing/media"}]
+```
+
+`media` is the whole list (`[]` removes every mount), also `PATCH
+/api/v1/portal/sites/{site}` with `{"media": [...]}` and the Media tab in the
+portal. A prefix is a path under the site such as `/media/`, never `/`, `/_...` or
+`/.well-known/`; a site has at most 20.
+
+The gateway answers a path from the release first, then the longest mount whose
+prefix it starts with, then the redirects and the 404 page. A mounted file is
+served by range with its validators on every environment, with that environment's
+access; publish, promote and rollback leave media alone and it counts toward no
+release limit. A file replaced with `manage_resource replace_content` shows at once.
+A mount serves only what its folder holds now: a file moved out of it stops
+answering at its old address at once (the library's own reference to the old
+address keeps working for the file's readers), and a file moved within it answers
+at its new path.
+HTML, SVG, JavaScript and XML in a mount are sent as downloads, so a media folder
+cannot become a second, unreviewed site.
+
+Mounting publishes the folder: whoever mounts must manage the site and be able to
+read the folder, and its files are then public on a public environment. A file in a
+mounted folder is refused deletion (`manage_resource delete`, or `DELETE
+/api/v1/resources/{id}` answering 409) unless forced (`force=true`).
+
 ## Domains
 
 Whoever manages a site adds a domain with `add_domain`, or Add domain on the site
@@ -374,8 +459,8 @@ each `<site>--<env>`) and every domain, for the system administrator's ingress r
 | Command | What it does |
 |---|---|
 | `create` | A site with `dev`, holding the main address |
-| `set_environment` | Creates an environment or changes it: `public`, `internal_view`, `requires_approval`, and `main: true` to give it the main address. A new environment is private |
-| `update` | `description`, `owner_email`, and `main_environment` to move the main address (`""` gives it to none) |
+| `set_environment` | Creates an environment or changes it: `public`, `internal_view`, `requires_approval`, `keep_releases` (owner and administrators), and `main: true` to give it the main address. A new environment is private |
+| `update` | `description`, `owner_email`, `main_environment` to move the main address (`""` gives it to none), and `media`, every mounted resource folder |
 | `publish` | A new release into `dev` (files, an archive or a folder; `base` overlays dev's release) |
 | `promote`, `rollback` | Move an environment's pointer |
 | `grant` | `email` or `persona`, `level` (`view`; `manage` is for a person, site-wide), and `environments` the view grant opens (none is every private environment) |
@@ -393,7 +478,7 @@ part `<site>/default` is added as `<site>/dev`.
 
 | Route | What it does |
 |---|---|
-| `PUT /api/v1/portal/sites/{site}/environments/{name}` | Creates or changes an environment. Body `{requires_approval?, public?, internal_view?, reason?}`, a field left out left alone. Answers `{site, status, approval?, note?}`, `status` being `done` or `awaiting_approval` |
+| `PUT /api/v1/portal/sites/{site}/environments/{name}` | Creates or changes an environment. Body `{requires_approval?, public?, internal_view?, keep_releases?, reason?}`, a field left out left alone; `keep_releases` is a number or `"default"`. Answers `{site, status, approval?, note?}`, `status` being `done` or `awaiting_approval` |
 | `PUT /api/v1/portal/sites/{site}/main-environment` | `{environment}`; `""` gives the main address to none. Owner and administrators |
 | `GET /api/v1/portal/sites/{site}/access` | `{owner_email, grants, personas}`: each grant's `email` or `persona`, `level` and `environments`, and every persona a share can name |
 | `PUT /api/v1/portal/sites/{site}/access` | `{email? or persona?, level, environments?, notify?}` |

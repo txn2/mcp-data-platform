@@ -154,3 +154,34 @@ describe("the delete is not armed before the check answers", () => {
     expect(warning.textContent).toContain("At least 1 asset references");
   });
 });
+
+describe("DeleteConfirm: a file a site serves (#2591)", () => {
+  it("waits for Delete anyway, then deletes with force", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/used-by")) return Promise.resolve(new Response(JSON.stringify({ data: [], hidden: 0, truncated: false }), { status: 200 }));
+        if (init?.method === "DELETE") {
+          calls.push(url);
+          if (!url.includes("force=true")) {
+            return Promise.resolve(new Response(JSON.stringify({ detail: "1 site(s) serve this file from a mounted media folder; delete it with force=true" }), { status: 409 }));
+          }
+          return Promise.resolve(new Response(JSON.stringify({ status: "deleted" }), { status: 200 }));
+        }
+        return Promise.reject(new Error(`unexpected request: ${url}`));
+      }),
+    );
+    renderDialog();
+    const del = await screen.findByRole("button", { name: "Delete" });
+    await waitFor(() => expect(del).not.toBeDisabled());
+    fireEvent.click(del);
+    const served = await screen.findByTestId("delete-resource-served-by-site");
+    expect(served).toHaveTextContent("serve this file from a mounted media folder");
+    expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Delete anyway" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(calls.some((u) => u.includes("force=true"))).toBe(true));
+  });
+});

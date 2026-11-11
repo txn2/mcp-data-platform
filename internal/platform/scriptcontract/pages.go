@@ -35,6 +35,12 @@ var KnowledgePages = []KnowledgePage{
 			"origin and how a viewer signs in to it, and static sites with environments, releases and hostnames.",
 	},
 	{
+		Slug:      "platform-sites-from-source",
+		Reference: knowledgePageRefPrefix + "platform-sites-from-source",
+		Summary: "Bringing an existing site in from its source: layout and records extracted, the source " +
+			"tree loaded from an archive or a bucket prefix, media in a mounted folder, every URL proved before cutover.",
+	},
+	{
 		Slug:      "platform-writing-managed-scripts",
 		Reference: knowledgePageRefPrefix + "platform-writing-managed-scripts",
 		Summary: "The dialect and the authoring loop: what Starlark deliberately lacks, what a " +

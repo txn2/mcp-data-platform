@@ -4,12 +4,10 @@ import { useGrantSite, useRevokeSite, useSetSiteEnvironment, useSiteAccess, type
 import { useDirectoryUsers } from "@/api/portal/hooks";
 import { ExternalBadge } from "@/components/ExternalBadge";
 import { SectionCard } from "@/components/patterns/SectionCard";
-import { UserPicker } from "@/components/UserPicker";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EVERYONE_INTERNAL, Failure, grantName } from "./SiteParts";
 import { ShareDialog } from "./SiteShare";
@@ -47,11 +45,9 @@ export function SiteAccessTab({ site }: { site: Site }) {
       <SectionCard
         title="Who manages"
         action={
-          own ? (
-            <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
-              Add person
-            </Button>
-          ) : undefined
+          <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
+            Add person
+          </Button>
         }
       >
         <div className="space-y-3">
@@ -105,7 +101,8 @@ export function SiteAccessTab({ site }: { site: Site }) {
         </div>
       </SectionCard>
       <SharedWith site={site} shares={shares} onShare={() => setSharing(true)} onChange={setChanging} onRemove={remove} onFail={setFailure} />
-      {adding && <AddManagerDialog site={site} onClose={() => setAdding(false)} />}
+      {/* Add person and Share open the one dialog (#2587); Add person starts on Can manage where it is offered. */}
+      {adding && <ShareDialog site={site} level="manage" onClose={() => setAdding(false)} />}
       {sharing && <ShareDialog site={site} onClose={() => setSharing(false)} />}
       {changing && <ChangeShareDialog site={site} grant={changing} onClose={() => setChanging(null)} />}
     </>
@@ -296,45 +293,6 @@ function ChangeShareDialog({ site, grant: g, onClose }: { site: Site; grant: Sit
           </Button>
           <Button onClick={submit} disabled={envs.length === 0 || grant.isPending}>
             Save
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// AddManagerDialog gives an internal person Can manage: site-wide, so whoever
-// develops in dev also promotes.
-function AddManagerDialog({ site, onClose }: { site: Site; onClose: () => void }) {
-  const grant = useGrantSite(site.name);
-  const [email, setEmail] = useState("");
-  const [failure, setFailure] = useState<string | null>(null);
-  const submit = () => {
-    setFailure(null);
-    grant.mutate({ email: email.trim(), level: "manage" }, { onSuccess: onClose, onError: (e) => setFailure(errorText(e, "This person could not be added")) });
-  };
-  return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Add someone who manages {site.name}</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div className="space-y-1">
-            <Label>Person</Label>
-            <UserPicker value={email} onChange={setEmail} placeholder="Name or email" />
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Can manage: publishes to dev, promotes, rolls back, adds domains and shares. Internal people only. Cannot add people who manage, make an environment public, change the owner or delete the site.
-          </p>
-          <Failure text={failure} />
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={!email.includes("@") || grant.isPending}>
-            Add person
           </Button>
         </DialogFooter>
       </DialogContent>

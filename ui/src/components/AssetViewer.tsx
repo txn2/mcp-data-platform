@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect } from "react";
-import { FileQuestion } from "lucide-react";
+import { useState, useCallback, useEffect, type ReactNode } from "react";
+import { FileQuestion, Share2 } from "lucide-react";
 import { KnowledgeBacklinksButton } from "@/components/knowledge/KnowledgeBacklinksButton";
 import { EmptyState } from "@/components/patterns/EmptyState";
 import { ShareDialog } from "@/components/ShareDialog";
@@ -26,6 +26,9 @@ import { useAuthStore } from "@/stores/auth";
 import { usePortalAccess } from "@/hooks/usePortalAccess";
 import { useStandaloneDownload } from "@/components/StandaloneDownload";
 import { authHeaders } from "@/api/portal/client";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import type { PhoneViewer } from "./assetviewer/PhoneToolbar";
+import type { SharePermission } from "@/api/portal/types";
 
 export type { AssetViewerProps } from "./assetviewer/types";
 
@@ -45,6 +48,7 @@ export function AssetViewer({
   isOwner = true,
   sharePermission,
   toolbarExtra,
+  phoneToolbarExtra,
   collectable,
   detailRows,
   sessionPath,
@@ -72,6 +76,8 @@ export function AssetViewer({
   const [changeSummaryOpen, setChangeSummaryOpen] = useState(false);
   const [changeSummary, setChangeSummary] = useState("");
   const [revertModalOpen, setRevertModalOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const isMobile = useIsMobile();
 
   const [viewMode, setViewMode] = useState<ViewMode>("preview");
   const [editedContent, setEditedContent] = useState<string>("");
@@ -230,6 +236,17 @@ export function AssetViewer({
       <ViewerLayout
         onBack={onBack}
         title={<AssetTitle asset={asset} />}
+        phoneHeader
+        sidebarOpen={detailsOpen}
+        onSidebarOpenChange={setDetailsOpen}
+        subtitle={phoneSubtitle(isMobile, {
+          asset,
+          isOwner,
+          sharePermission,
+          hasChanges,
+          saveStatus,
+          viewingVersion: viewingOldVersion ? selectedVersion : null,
+        })}
         actions={
           <AssetViewerActions
             toolbarExtra={toolbarExtra}
@@ -304,7 +321,21 @@ export function AssetViewer({
           versionContent={versionContent}
           editedContent={editedContent}
           onSourceChange={(v) => { setEditedContent(v); setDirty(true); }}
-          afterVersion={<KnowledgeBacklinksButton urn={`mcp:asset:${asset.id}`} onNavigate={onNavigate} />}
+          afterVersion={<KnowledgeBacklinksButton urn={`mcp:asset:${asset.id}`} onNavigate={onNavigate} compact={isMobile} />}
+          phone={phoneViewer({
+            isOwner,
+            canShare,
+            ownsAssets: portal.assets === "own",
+            copyMutation,
+            extra: phoneToolbarExtra,
+            detailsOpen,
+            onShare: () => setShareOpen(true),
+            onToggleDetails: () => setDetailsOpen((open) => !open),
+            onDownload: handleDownload,
+            onAddToCollection: addToCollection.onOpen,
+            onCopyToMyAssets: handleCopyToMyAssets,
+            onDelete: () => setDeleteModalOpen(true),
+          })}
         />
       </ViewerLayout>
 
@@ -346,4 +377,109 @@ function AssetTitle({ asset }: { asset: Pick<Asset, "name" | "tags"> }) {
       {isTruncated(asset.tags) && <IncompleteBadge className="ml-2 align-middle" />}
     </>
   );
+}
+
+/** phoneSubtitle is the quiet line under the title on a phone, and none on a
+ * wider screen, whose header has no line there. */
+function phoneSubtitle(phone: boolean, props: Parameters<typeof PhoneSubtitle>[0]): ReactNode {
+  return phone ? <PhoneSubtitle {...props} /> : undefined;
+}
+
+/** PhoneSubtitle is the quiet line under a phone's title (#2601): whether the
+ * asset is shared with the reader and as what, when it was updated, and that
+ * there are unsaved edits or that an older version is open, read-only. */
+function PhoneSubtitle({
+  asset,
+  isOwner,
+  sharePermission,
+  hasChanges,
+  saveStatus,
+  viewingVersion,
+}: {
+  asset: Pick<Asset, "updated_at" | "current_version">;
+  isOwner: boolean;
+  sharePermission?: SharePermission;
+  hasChanges: boolean;
+  saveStatus: "idle" | "saved" | "error";
+  viewingVersion: number | null | undefined;
+}) {
+  const parts: ReactNode[] = [];
+  if (!isOwner) {
+    parts.push(
+      <span key="share" className="inline-flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
+        <span aria-hidden className="size-1.5 rounded-full bg-current" />
+        Shared with you · {sharePermission === "editor" ? "Editor" : "Viewer"}
+      </span>,
+    );
+  }
+  const updated = updatedOn(asset.updated_at);
+  if (updated) parts.push(<span key="updated">Updated {updated}</span>);
+  if (viewingVersion) {
+    parts.push(<span key="version">Viewing v{viewingVersion} of {asset.current_version}, read-only</span>);
+  } else if (hasChanges) {
+    parts.push(<span key="dirty" className="text-amber-700 dark:text-amber-400">Unsaved changes</span>);
+  } else if (saveStatus === "saved") {
+    parts.push(<span key="saved">Saved</span>);
+  } else if (saveStatus === "error") {
+    parts.push(<span key="failed" className="text-destructive">Save failed</span>);
+  }
+  return (
+    <span className="flex flex-wrap items-center gap-x-1.5" data-testid="phone-subtitle">
+      {parts.map((part, i) => (
+        <span key={i} className="inline-flex items-center gap-1.5">
+          {i > 0 && <span aria-hidden>·</span>}
+          {part}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** updatedOn is a short date ("Nov 10"), with the year when it is not this one. */
+function updatedOn(iso: string): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return "";
+  const thisYear = at.getFullYear() === new Date().getFullYear();
+  return at.toLocaleDateString(undefined, { month: "short", day: "numeric", year: thisYear ? undefined : "numeric" });
+}
+
+/** phoneViewer is what a phone's toolbar gets from the page (#2601): Share
+ * for an owner whose persona shares, and the page's Feedback, on the row; the
+ * rest in More, each only where the desktop offers it. */
+function phoneViewer(p: {
+  isOwner: boolean;
+  canShare: boolean;
+  ownsAssets: boolean;
+  copyMutation?: { isPending?: boolean };
+  extra?: ReactNode;
+  detailsOpen: boolean;
+  onShare: () => void;
+  onToggleDetails: () => void;
+  onDownload?: () => void;
+  onAddToCollection?: () => void;
+  onCopyToMyAssets: () => void;
+  onDelete: () => void;
+}): PhoneViewer {
+  const copies = p.ownsAssets && !!p.copyMutation;
+  return {
+    actions: (
+      <>
+        {p.isOwner && p.canShare && (
+          <Button variant="outline" size="icon-sm" onClick={p.onShare} aria-label="Share" title="Share">
+            <Share2 />
+          </Button>
+        )}
+        {p.extra}
+      </>
+    ),
+    more: {
+      detailsOpen: p.detailsOpen,
+      onToggleDetails: p.onToggleDetails,
+      onDownload: p.onDownload,
+      onAddToCollection: p.onAddToCollection,
+      onCopyToMyAssets: copies ? p.onCopyToMyAssets : undefined,
+      copyPending: !!p.copyMutation?.isPending,
+      onDelete: p.isOwner ? p.onDelete : undefined,
+    },
+  };
 }

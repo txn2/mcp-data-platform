@@ -31,3 +31,4 @@ postgres-platform-provides.md pkg/toolkits/postgres/outbox.go pkg/script/schedul
 postgres-what-does-not-work.md pkg/toolkits/postgres/run.go pkg/toolkits/postgres/pool.go internal/platform/scripttx/
 applications.md internal/application/ internal/platform/scriptexamples/ internal/endpoint/epform/
 pages-and-sites.md internal/site/ internal/endpoint/epbinding/ internal/endpoint/ephttp/
+sites-from-source.md internal/site/sitewire/ internal/site/sitesvc/jobs.go internal/site/sitegw/media.go internal/unarchive/

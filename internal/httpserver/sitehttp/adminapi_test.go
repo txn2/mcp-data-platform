@@ -34,7 +34,7 @@ const (
 var (
 	adminDomainCols = []string{"hostname", "site_id", "name", "environment", "application_id", "application", "created_by", "created_at"}
 	adminSiteCols   = []string{"id", "name", "description", "owner_email", "main_environment", "created_by", "created_at", "updated_at"}
-	adminEnvCols    = []string{"name", "release_number", "requires_approval", "public", "internal_view", "access_changed_at", "updated_by", "updated_at"}
+	adminEnvCols    = []string{"name", "release_number", "requires_approval", "public", "internal_view", "access_changed_at", "updated_by", "updated_at", "keep_releases", "kept"}
 	stamp           = time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
 )
 
@@ -93,7 +93,7 @@ func (f *adminFixture) expectSites(names ...string) {
 	f.mock.ExpectQuery(regexp.QuoteMeta("FROM sites ORDER BY name")).WillReturnRows(rows)
 	for range names {
 		f.mock.ExpectQuery(regexp.QuoteMeta("FROM site_environments")).WillReturnRows(
-			sqlmock.NewRows(adminEnvCols).AddRow("dev", 1, false, false, false, stamp, "", stamp))
+			sqlmock.NewRows(adminEnvCols).AddRow("dev", 1, false, false, false, stamp, "", stamp, nil, 0))
 	}
 }
 

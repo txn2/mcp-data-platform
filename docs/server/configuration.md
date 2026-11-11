@@ -1567,7 +1567,7 @@ resources:
     extract:                      # manage_resource extract limits (#1879)
       max_member_bytes: 2147483648  # largest member, uncompressed (default 2 GiB)
       max_total_bytes: 4294967296   # selected members added up (default 4 GiB)
-      max_members: 10000            # entries an archive may hold (default 10000)
+      max_members: 100000           # entries an archive may hold (default 100000)
       max_ratio: 500                # uncompressed / compressed, per member (default 500)
 ```
 
@@ -1583,7 +1583,7 @@ resources:
 
 | `extract.max_member_bytes` | int | `2147483648` (2 GiB) | Largest a single archive member may be uncompressed for `manage_resource extract` |
 | `extract.max_total_bytes` | int | `4294967296` (4 GiB) | Most the selected members of one extraction may add up to, uncompressed |
-| `extract.max_members` | int | `10000` | Entries an archive may hold, directories included. A zip's directory is read whole to open it, so this also bounds the memory opening one takes |
+| `extract.max_members` | int | `100000` | Entries an archive may hold, directories included. A zip's directory is read whole to open it, so this also bounds the memory opening one takes (about 20 MB at the default, which admits a site's media folder of tens of thousands of images in one archive, #2593) |
 | `extract.max_ratio` | int | `500` | Furthest a member may expand past its compressed size. Checked once a member passes 1 MiB, so a small file of repeated bytes is not refused |
 
 Managed resources require a database. With none configured the block has no

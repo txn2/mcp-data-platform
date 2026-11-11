@@ -286,6 +286,8 @@ func TestPortal_WritesRefused(t *testing.T) {
 		{"environment, bad name", http.MethodPut, siteBase + "/environments/Bad%20Name", userOwner, map[string]any{"requires_approval": true}, 422, "environment name"},
 		{"environment, owner takes the rule off", http.MethodPut, siteBase + "/environments/prod", userOwner, map[string]any{"requires_approval": false}, 403, "permission"},
 		{"environment, bad JSON", http.MethodPut, siteBase + "/environments/qa", userOwner, "{", 400, "not valid JSON"},
+		{"environment, a limit that is not one", http.MethodPut, siteBase + "/environments/prod", userOwner, map[string]any{"keep_releases": "ten"}, 400, "keep_releases"},
+		{"environment, a manager changing the limit", http.MethodPut, siteBase + "/environments/prod", userManager, map[string]any{"keep_releases": 3}, 403, "permission"},
 		{"domain, stranger", http.MethodPost, siteBase + "/domains", userStranger, map[string]any{"hostname": "a.example.org", "environment": "x"}, 403, "permission"},
 		{"domain, viewer", http.MethodPost, siteBase + "/domains", userViewer, map[string]any{"hostname": "a.example.org", "environment": "x"}, 403, "permission"},
 		{"domain, reserved host", http.MethodPost, siteBase + "/domains", userOwner, map[string]any{"hostname": "mcp.example.org", "environment": "x"}, 422, "answers on itself"},
@@ -657,7 +659,7 @@ func TestPortal_CopyFailuresAndAbsence(t *testing.T) {
 
 func TestPortal_JobsListAndStop(t *testing.T) {
 	f := newFixture(t)
-	f.store.jobs["sjob_live"] = &site.Job{ID: "sjob_live", SiteID: siteID, Status: site.JobRunning, UpdatedAt: time.Now()}
+	f.store.jobs["sjob_live"] = &site.Job{ID: "sjob_live", SiteID: siteID, Environment: site.EnvDev, Status: site.JobRunning, UpdatedAt: time.Now()}
 	f.store.jobs["sjob_other"] = &site.Job{ID: "sjob_other", SiteID: "site_2", Status: site.JobRunning, UpdatedAt: time.Now()}
 
 	list := decodeBody[JobList](t, f.statusIs(t, 200, route{http.MethodGet, siteBase + "/jobs", nil}, userViewer))
@@ -987,4 +989,35 @@ func TestPortal_EnvironmentAnswersFailWhenTheDomainsCannotBeRead(t *testing.T) {
 	f.store.failSiteDomains = errBoom
 	f.statusIs(t, http.StatusInternalServerError, route{http.MethodPut, siteBase + "/main-environment", map[string]any{"environment": envProd}}, userOwner)
 	f.statusIs(t, http.StatusInternalServerError, route{http.MethodPut, siteBase + "/environments/stage", map[string]any{"internal_view": true}}, userOwner)
+}
+
+// The owner sets an environment's release limit through the portal as a
+// number, and returns it to the deployment's default (#2602).
+func TestPortal_TheOwnerSetsTheReleaseLimit(t *testing.T) {
+	f := newFixture(t)
+	rec := f.do(t, http.MethodPut, siteBase+"/environments/prod", userOwner, map[string]any{"keep_releases": 3})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	e := f.store.sites[siteID].Environment("prod")
+	require.NotNil(t, e.KeepReleases)
+	assert.Equal(t, 3, *e.KeepReleases)
+	assert.Contains(t, rec.Body.String(), `"keep_releases":3`)
+
+	rec = f.do(t, http.MethodPut, siteBase+"/environments/prod", userOwner, map[string]any{"keep_releases": "default"})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Nil(t, f.store.sites[siteID].Environment("prod").KeepReleases)
+}
+
+// A release's view says what keeps it, and is [] rather than null where
+// nothing does.
+func TestPortal_ReleasesSayWhatKeepsThem(t *testing.T) {
+	f := newFixture(t)
+	f.store.releases[siteID] = []site.Release{{ID: "srel_1", SiteID: siteID, Number: 1, Pruned: true}}
+	rec := f.do(t, http.MethodGet, siteBase+"/releases", userOwner, nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.NotContains(t, rec.Body.String(), `"kept_by":null`)
+	assert.Contains(t, rec.Body.String(), `"kept_by":[]`, "the routes' test runs without the store, so nothing reads as kept")
+	assert.Contains(t, rec.Body.String(), `"pruned":true`)
+	rec = f.do(t, http.MethodGet, siteBase+"/releases/1", userOwner, nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), `"kept_by":[]`)
 }

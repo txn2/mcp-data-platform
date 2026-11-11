@@ -149,6 +149,13 @@ func (m *memStore) SetEnvironment(_ context.Context, siteID, name string, set si
 	if set.InternalView != nil {
 		e.InternalView = *set.InternalView
 	}
+	switch {
+	case set.KeepDefault:
+		e.KeepReleases, e.KeepDefault = nil, true
+	case set.Keep != nil:
+		n := *set.Keep
+		e.KeepReleases, e.Keep, e.KeepDefault = &n, n, false
+	}
 	e.UpdatedBy = actor
 	return nil
 }
@@ -416,8 +423,11 @@ func (o *memObjects) PutObject(_ context.Context, _, key string, data []byte, _ 
 	return nil
 }
 
-func (*memObjects) GetObject(context.Context, string, string) (data []byte, contentType string, err error) {
-	return nil, "", nil
+// GetObject answers what was put at key, nothing for a key never put.
+func (o *memObjects) GetObject(_ context.Context, _, key string) (data []byte, contentType string, err error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.put[key], "", nil
 }
 
 func (o *memObjects) DeleteObject(_ context.Context, _, key string) error {

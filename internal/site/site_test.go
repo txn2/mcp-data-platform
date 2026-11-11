@@ -1,6 +1,7 @@
 package site
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -345,4 +346,30 @@ func TestGrantOpens(t *testing.T) {
 	one := Grant{Level: LevelView, Environments: []string{"prod"}}
 	assert.True(t, one.Opens("prod"))
 	assert.False(t, one.Opens("dev"), "a grant naming prod does not open dev")
+}
+
+func TestParseKeep_EveryFormACallerSends(t *testing.T) {
+	five := 5
+	zero := 0
+	cases := map[string]KeepSetting{
+		``:          {},
+		`null`:      {},
+		`5`:         {Keep: &five},
+		`0`:         {Keep: &zero},
+		`"5"`:       {Keep: &five},
+		`" 5 "`:     {Keep: &five},
+		`"default"`: {Default: true},
+		`"Default"`: {Default: true},
+		`5.0`:       {Keep: &five},
+		`5e0`:       {Keep: &five},
+	}
+	for raw, want := range cases {
+		got, err := ParseKeep(json.RawMessage(raw))
+		require.NoError(t, err, raw)
+		assert.Equal(t, want, got, raw)
+	}
+	for _, raw := range []string{`-1`, `1.5`, `-2.0`, `1e12`, `Infinity`, `"5.0"`, `"ten"`, `"-3"`, `true`, `{}`, `"`} {
+		_, err := ParseKeep(json.RawMessage(raw))
+		require.ErrorContains(t, err, "keep_releases", raw)
+	}
 }

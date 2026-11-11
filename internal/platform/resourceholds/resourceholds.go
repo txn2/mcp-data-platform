@@ -46,6 +46,8 @@ type Holds struct {
 	// Scripts is the managed scripts whose running version loads the file
 	// with load("res:...") (#2113).
 	Scripts int
+	// Sites is the sites serving the file from a mounted folder (#2591).
+	Sites int
 	// More says a count was cut at the bound rather than being the whole of
 	// what points at the file.
 	More bool
@@ -75,6 +77,13 @@ type Deps struct {
 	Refs        Refs
 	Attachments Attachments
 	Scripts     ScriptLoads
+	Sites       SiteMounts
+}
+
+// SiteMounts counts the sites serving a file from a mounted folder (#2591):
+// the managed-resource store answers it.
+type SiteMounts interface {
+	CountMounting(ctx context.Context, resourceID string, limit int) (int, error)
 }
 
 // ScriptLoads counts the managed scripts whose running version loads a file
@@ -88,13 +97,14 @@ type Checker struct {
 	refs        Refs
 	attachments Attachments
 	scripts     ScriptLoads
+	sites       SiteMounts
 }
 
 // New builds the checker. Every dependency being absent still yields one: it
 // answers zero of everything, which is the true answer for a deployment that
 // has no asset or prompt layer to point at a file with.
 func New(d Deps) *Checker {
-	return &Checker{refs: d.Refs, attachments: d.Attachments, scripts: d.Scripts}
+	return &Checker{refs: d.Refs, attachments: d.Attachments, scripts: d.Scripts, sites: d.Sites}
 }
 
 // ResourceHolds counts the records still pointing at a resource.
@@ -117,9 +127,25 @@ func (c *Checker) ResourceHolds(ctx context.Context, resourceID string) (Holds, 
 	if err != nil {
 		return out, err
 	}
-	out.Assets, out.Prompts, out.Scripts = assets, prompts, scripts
-	out.More = assets >= maxCounted || prompts >= maxCounted || scripts >= maxCounted
+	sites, err := c.countSites(ctx, resourceID)
+	if err != nil {
+		return out, err
+	}
+	out.Assets, out.Prompts, out.Scripts, out.Sites = assets, prompts, scripts, sites
+	out.More = assets >= maxCounted || prompts >= maxCounted || scripts >= maxCounted || sites >= maxCounted
 	return out, nil
+}
+
+// countSites counts the sites serving the file from a mounted folder.
+func (c *Checker) countSites(ctx context.Context, resourceID string) (int, error) {
+	if c.sites == nil {
+		return 0, nil
+	}
+	n, err := c.sites.CountMounting(ctx, resourceID, maxCounted)
+	if err != nil {
+		return 0, fmt.Errorf("reading the sites serving this file: %w", err)
+	}
+	return n, nil
 }
 
 // countAssets counts the assets whose content references the file.

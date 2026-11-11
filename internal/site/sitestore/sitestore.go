@@ -14,6 +14,7 @@ import (
 	"github.com/lib/pq"
 
 	"github.com/txn2/mcp-data-platform/internal/site"
+	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
 )
 
 const (
@@ -22,10 +23,26 @@ const (
 )
 
 // Store is the PostgreSQL store.
-type Store struct{ db *sql.DB }
+type Store struct {
+	db *sql.DB
+	// KeepDefault is the deployment's release limit in force (#2602); nil is
+	// siteconfig.DefaultKeepReleases.
+	KeepDefault func() int
+	// holds is the timing of holds on a site's stored objects; zero is the
+	// defaults (holds.go).
+	holds holdTiming
+}
 
 // New builds the store over db.
 func New(db *sql.DB) *Store { return &Store{db: db} }
+
+// keepDefault is the deployment's release limit in force.
+func (s *Store) keepDefault() int {
+	if s.KeepDefault == nil {
+		return siteconfig.DefaultKeepReleases
+	}
+	return s.KeepDefault()
+}
 
 // NewSiteID is a site's id.
 func NewSiteID() string { return "site_" + uuid.NewString() }
@@ -80,7 +97,7 @@ func (s *Store) Create(ctx context.Context, st *site.Site) error {
 const siteColumns = `id, name, description, owner_email, COALESCE(main_environment, ''), created_by, created_at, updated_at`
 
 func scanSite(row interface{ Scan(...any) error }) (*site.Site, error) {
-	st := &site.Site{Environments: []site.Environment{}}
+	st := &site.Site{Environments: []site.Environment{}, Media: []site.Mount{}}
 	err := row.Scan(&st.ID, &st.Name, &st.Description, &st.OwnerEmail, &st.MainEnvironment, &st.CreatedBy, &st.CreatedAt, &st.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, site.ErrNotFound
@@ -109,13 +126,28 @@ func (s *Store) one(ctx context.Context, query, arg string) (*site.Site, error) 
 	if st.Environments, err = s.environments(ctx, st.ID); err != nil {
 		return nil, err
 	}
+	if st.Media, err = s.Media(ctx, st.ID); err != nil {
+		return nil, err
+	}
 	return st, nil
 }
 
+// windowOf is an environment e's window (#2602): the last distinct releases it
+// pointed at, newest first, as many as its limit in force, every one for 0. $2
+// is the deployment's default.
+const windowOf = `
+	SELECT d.to_release FROM site_deployments d
+	 WHERE d.site_id = e.site_id AND d.environment = e.name
+	 GROUP BY d.to_release ORDER BY MAX(d.id) DESC
+	 LIMIT NULLIF(COALESCE(e.keep_releases, $2), 0)`
+
 func (s *Store) environments(ctx context.Context, siteID string) ([]site.Environment, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT name, COALESCE(release_number, 0), requires_approval, public, internal_view, access_changed_at, updated_by, updated_at
-		  FROM site_environments WHERE site_id = $1 ORDER BY name`, siteID)
+		SELECT e.name, COALESCE(e.release_number, 0), e.requires_approval, e.public, e.internal_view, e.access_changed_at, e.updated_by, e.updated_at,
+		       e.keep_releases,
+		       (SELECT COUNT(*) FROM (`+windowOf+`) w
+		          JOIN site_releases r ON r.site_id = e.site_id AND r.number = w.to_release AND r.pruned_at IS NULL)
+		  FROM site_environments e WHERE e.site_id = $1 ORDER BY e.name`, siteID, s.keepDefault())
 	if err != nil {
 		return nil, fmt.Errorf("list environments: %w", err)
 	}
@@ -123,8 +155,15 @@ func (s *Store) environments(ctx context.Context, siteID string) ([]site.Environ
 	out := []site.Environment{}
 	for rows.Next() {
 		var e site.Environment
-		if err := rows.Scan(&e.Name, &e.Release, &e.RequiresApproval, &e.Public, &e.InternalView, &e.AccessChangedAt, &e.UpdatedBy, &e.UpdatedAt); err != nil {
+		var keep sql.NullInt64
+		if err := rows.Scan(&e.Name, &e.Release, &e.RequiresApproval, &e.Public, &e.InternalView, &e.AccessChangedAt, &e.UpdatedBy, &e.UpdatedAt,
+			&keep, &e.Kept); err != nil {
 			return nil, fmt.Errorf("read environment: %w", err)
+		}
+		e.Keep, e.KeepDefault = s.keepDefault(), !keep.Valid
+		if keep.Valid {
+			n := int(keep.Int64)
+			e.KeepReleases, e.Keep = &n, n
 		}
 		out = append(out, e)
 	}
@@ -193,19 +232,25 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 
 // SetEnvironment creates an environment or changes its settings. A nil
 // setting keeps what the environment has, or false on a new one; a change to
-// public stamps access_changed_at.
+// public stamps access_changed_at. A nil Keep keeps the limit, or the
+// deployment's default on a new environment, and KeepDefault returns to it.
 func (s *Store) SetEnvironment(ctx context.Context, siteID, name string, set site.EnvironmentSettings, actor string) error {
+	var keep sql.NullInt64
+	if set.Keep != nil {
+		keep = sql.NullInt64{Int64: int64(*set.Keep), Valid: true}
+	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO site_environments (site_id, name, requires_approval, public, internal_view, updated_by)
-		VALUES ($1, $2, COALESCE($3, FALSE), COALESCE($4, FALSE), COALESCE($5, FALSE), $6)
+		INSERT INTO site_environments (site_id, name, requires_approval, public, internal_view, updated_by, keep_releases)
+		VALUES ($1, $2, COALESCE($3, FALSE), COALESCE($4, FALSE), COALESCE($5, FALSE), $6, $7::int)
 		ON CONFLICT (site_id, name) DO UPDATE
 		   SET requires_approval = COALESCE($3, site_environments.requires_approval),
 		       public = COALESCE($4, site_environments.public),
 		       internal_view = COALESCE($5, site_environments.internal_view),
 		       access_changed_at = CASE WHEN COALESCE($4, site_environments.public) <> site_environments.public
 		                                THEN NOW() ELSE site_environments.access_changed_at END,
+		       keep_releases = CASE WHEN $8 THEN NULL ELSE COALESCE($7::int, site_environments.keep_releases) END,
 		       updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
-		siteID, name, set.RequiresApproval, set.Public, set.InternalView, actor)
+		siteID, name, set.RequiresApproval, set.Public, set.InternalView, actor, keep, set.KeepDefault)
 	if err != nil {
 		return fmt.Errorf("set environment: %w", err)
 	}
@@ -235,6 +280,9 @@ func (s *Store) RecordRelease(ctx context.Context, r *site.Release, move *site.P
 	}
 	return s.withTx(ctx, func(tx *sql.Tx) error {
 		if err := writeRelease(ctx, tx, r, redirects); err != nil {
+			return err
+		}
+		if err := checkHold(ctx, tx); err != nil {
 			return err
 		}
 		if err := insertFiles(ctx, tx, r); err != nil {
@@ -307,13 +355,18 @@ func insertFiles(ctx context.Context, tx *sql.Tx, r *site.Release) error {
 	if r.RenderIndex != nil {
 		rows.add(site.TreeRender, *r.RenderIndex, false)
 	}
+	return insertRows(ctx, tx, r.ID, rows)
+}
+
+// insertRows writes one release's rows in one statement.
+func insertRows(ctx context.Context, tx *sql.Tx, releaseID string, rows *fileRows) error {
 	if len(rows.paths) == 0 {
 		return nil
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO site_release_files (release_id, tree, path, sha256, content_type, size, gzip_size, brotli_size, stored_in, removed)
 		SELECT $1, f.* FROM unnest($2::text[], $3::text[], $4::text[], $5::text[], $6::bigint[], $7::bigint[], $8::bigint[], $9::text[], $10::boolean[]) AS f`,
-		r.ID, pq.Array(rows.trees), pq.Array(rows.paths), pq.Array(rows.digests), pq.Array(rows.types), pq.Array(rows.sizes),
+		releaseID, pq.Array(rows.trees), pq.Array(rows.paths), pq.Array(rows.digests), pq.Array(rows.types), pq.Array(rows.sizes),
 		pq.Array(rows.gzips), pq.Array(rows.brotlis), pq.Array(rows.stored), pq.Array(rows.removed),
 	); err != nil {
 		return fmt.Errorf("record files: %w", err)
@@ -321,18 +374,23 @@ func insertFiles(ctx context.Context, tx *sql.Tx, r *site.Release) error {
 	return nil
 }
 
-const releaseColumns = `id, site_id, number, source, note, file_count, total_bytes, manifest_sha256, redirects, created_by, created_at, base_number, COALESCE(manifest_parent, ''), manifest_depth, rendered`
+const releaseColumns = `id, site_id, number, source, note, file_count, total_bytes, manifest_sha256, redirects, created_by, created_at, base_number, COALESCE(manifest_parent, ''), manifest_depth, rendered, pruned_at`
 
 func scanRelease(row interface{ Scan(...any) error }) (*site.Release, error) {
 	r := &site.Release{}
 	var redirects []byte
+	var pruned sql.NullTime
 	err := row.Scan(&r.ID, &r.SiteID, &r.Number, &r.Source, &r.Note, &r.FileCount, &r.TotalBytes, &r.ManifestSHA256,
-		&redirects, &r.CreatedBy, &r.CreatedAt, &r.Base, &r.ManifestParent, &r.ManifestDepth, &r.Rendered)
+		&redirects, &r.CreatedBy, &r.CreatedAt, &r.Base, &r.ManifestParent, &r.ManifestDepth, &r.Rendered, &pruned)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, site.ErrNoRelease
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read release: %w", err)
+	}
+	if pruned.Valid {
+		at := pruned.Time
+		r.Pruned, r.PrunedAt = true, &at
 	}
 	r.Redirects = []site.Redirect{}
 	if err := json.Unmarshal(redirects, &r.Redirects); err != nil {
@@ -382,7 +440,11 @@ func (s *Store) Files(ctx context.Context, releaseID string) ([]site.File, error
 // Tree is one tree of a release in path order: for each path, the row of the
 // nearest release in its chain, unless that row removes the path.
 func (s *Store) Tree(ctx context.Context, releaseID, tree string) ([]site.File, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	return treeOn(ctx, s.db, releaseID, tree)
+}
+
+func treeOn(ctx context.Context, q querier, releaseID, tree string) ([]site.File, error) {
+	rows, err := q.QueryContext(ctx, `
 		WITH RECURSIVE chain AS (
 			SELECT id, manifest_parent, 0 AS depth FROM site_releases WHERE id = $1
 			UNION ALL
@@ -439,11 +501,24 @@ func (s *Store) Point(ctx context.Context, p site.Pointer) error {
 	return s.withTx(ctx, func(tx *sql.Tx) error { return point(ctx, tx, p) })
 }
 
+// point moves an environment to a release. The site's row is locked shared
+// first: a release sweep holds it exclusively while it decides what to prune,
+// so a move waits out a sweep in flight and then sees what it pruned, and a
+// sweep that starts after waits for the move and keeps its release.
 func point(ctx context.Context, tx *sql.Tx, p site.Pointer) error {
+	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM sites WHERE id = $1 FOR SHARE`, p.SiteID).Scan(new(int)); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return site.ErrNotFound
+		}
+		return fmt.Errorf("lock site: %w", err)
+	}
 	var current sql.NullInt64
+	var pruned bool
 	err := tx.QueryRowContext(ctx, `
-		SELECT release_number FROM site_environments WHERE site_id = $1 AND name = $2 FOR UPDATE`,
-		p.SiteID, p.Environment).Scan(&current)
+		SELECT e.release_number,
+		       EXISTS (SELECT 1 FROM site_releases r WHERE r.site_id = e.site_id AND r.number = $3 AND r.pruned_at IS NOT NULL)
+		  FROM site_environments e WHERE e.site_id = $1 AND e.name = $2 FOR UPDATE OF e`,
+		p.SiteID, p.Environment, p.To).Scan(&current, &pruned)
 	if errors.Is(err, sql.ErrNoRows) {
 		return site.ErrNoEnvironment
 	}
@@ -452,6 +527,9 @@ func point(ctx context.Context, tx *sql.Tx, p site.Pointer) error {
 	}
 	if int(current.Int64) != p.After {
 		return site.ErrStale
+	}
+	if pruned {
+		return site.ErrPruned
 	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE site_environments SET release_number = $3, updated_by = $4, updated_at = NOW()

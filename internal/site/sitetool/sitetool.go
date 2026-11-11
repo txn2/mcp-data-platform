@@ -15,6 +15,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/bucketsource"
 	"github.com/txn2/mcp-data-platform/internal/site"
 	"github.com/txn2/mcp-data-platform/internal/site/sitecrawl"
 	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
@@ -94,10 +95,16 @@ type Input struct {
 	Level           string   `json:"level,omitempty"`
 	Environment     string   `json:"environment,omitempty"`
 	// RequiresApproval is a pointer so false can be told from unset.
-	RequiresApproval *bool  `json:"requires_approval,omitempty"`
-	From             string `json:"from,omitempty"`
-	To               string `json:"to,omitempty"`
-	Release          int    `json:"release,omitempty"`
+	RequiresApproval *bool `json:"requires_approval,omitempty"`
+	// KeepReleases is an environment's release limit: a whole number, a string
+	// of digits, or "default" (#2602).
+	KeepReleases json.RawMessage `json:"keep_releases,omitempty"`
+	// Media, on update, is every resource folder the site serves; nil leaves
+	// them, [] removes them all (#2591).
+	Media   []site.Mount `json:"media,omitempty"`
+	From    string       `json:"from,omitempty"`
+	To      string       `json:"to,omitempty"`
+	Release int          `json:"release,omitempty"`
 	// Base makes the files an overlay on that release.
 	Base   int    `json:"base,omitempty"`
 	Note   string `json:"note,omitempty"`
@@ -105,6 +112,9 @@ type Input struct {
 	Files  []File `json:"files,omitempty"`
 	// Archive is a zip or gzipped tar managed resource, by id or URI.
 	Archive string `json:"archive,omitempty"`
+	// FromBucket is the objects under a bucket prefix on an S3 connection the
+	// caller may use (#2593).
+	FromBucket *bucketsource.Source `json:"from_bucket,omitempty"`
 	// Folder is a managed-resource folder, in the library Scope and ScopeID
 	// name.
 	Folder      string            `json:"folder,omitempty"`
@@ -120,6 +130,13 @@ type Input struct {
 type Sources interface {
 	Archive(ctx context.Context, ref string) ([]sitesvc.InputFile, error)
 	Folder(ctx context.Context, scope, scopeID, path string) ([]sitesvc.InputFile, error)
+}
+
+// BucketSources reads the files a publish names by a bucket prefix (#2593):
+// CheckBucket refuses a source the caller cannot read, without listing it.
+type BucketSources interface {
+	CheckBucket(ctx context.Context, src bucketsource.Source) error
+	Bucket(ctx context.Context, src bucketsource.Source) ([]sitesvc.InputFile, error)
 }
 
 // Crawler copies a site into a release's files.
@@ -150,14 +167,17 @@ const description = "Static sites served by the platform. AGENTS WORK IN dev, PE
 	"site-wide) publishes, promotes, rolls back, adds domains and shares. Inside a private environment the site reads " +
 	"/_viewer for who signed in, and when the environment is a part of an application (add_part kind site, part_id " +
 	"\"<site>/<environment>\") its /endpoints/<name> run as that person, so the site decides its own finer rules. " +
-	"COMMANDS: publish writes a new release into dev (from files, an archive managed resource, or a resource folder; a " +
+	"COMMANDS: publish writes a new release into dev (from files, an archive managed resource, a resource folder, or from_bucket, a prefix of a bucket on an S3 connection; a " +
 	"_redirects file becomes its redirect map, a 404.html its not-found page). To change a site, do not resend it: " +
 	"manage_asset reads and edits dev's files in place with mcp:site:<site>/dev/<path> (outline, locate, get_content, stats, " +
 	"diff, and patch, whose version is the release number), and mcp:site:<site>/dev names the whole tree; publish with base " +
 	"overlays the release dev serves now. A site with a _layouts folder is rendered at publish (Liquid layouts, includes, " +
 	"_data records, front matter). promote points an environment at another's release, rollback at one it served before; " +
 	"neither copies a file. set_environment creates or changes an environment (public, internal_view, requires_approval, " +
-	"main true to give it the main address); update with main_environment moves the main address (\"\" for none). An " +
+	"keep_releases, main true to give it the main address); update with media mounts resource folders at URL prefixes (images and " +
+	"files outside releases, public on a public environment); RELEASES ARE KEPT PER ENVIRONMENT: each keeps its last keep_releases " +
+	"releases (the deployment's default, 50 unless an administrator changed it), and a daily sweep removes the rest, so a rollback " +
+	"reaches only a kept release; update with main_environment moves the main address (\"\" for none). An " +
 	"environment that requires approval is reached only by promote: an administrator's promote records its own approval, " +
 	"anyone else's files a request in manage_approval and goes through when they promote again after it is approved. crawl " +
 	"copies an existing site into dev. \"default\" is the old name of dev and is read as dev for one release. Read fetch " +
@@ -166,50 +186,89 @@ const description = "Static sites served by the platform. AGENTS WORK IN dev, PE
 const (
 	keyType   = "type"
 	keyDesc   = "description"
+	keyEnum   = "enum"
+	keyReq    = "required"
+	keyProps  = "properties"
+	keyItems  = "items"
 	typString = "string"
 	typObject = "object"
+	typArray  = "array"
 	typBool   = "boolean"
 	keySite   = "site"
+	keyFolder = "folder"
+	keyPrefix = "prefix"
+	keyScope  = "scope"
 )
 
 func schema() map[string]any {
 	str := func(desc string) map[string]any { return map[string]any{keyType: typString, keyDesc: desc} }
 	num := func(desc string) map[string]any { return map[string]any{keyType: "integer", keyDesc: desc} }
 	return map[string]any{
-		keyType: typObject, "required": []string{"command"},
-		"properties": map[string]any{
-			"command":           map[string]any{keyType: typString, "enum": Commands, keyDesc: "The operation."},
-			keySite:             str("The site, by name or id (every command but create, list and domains)."),
-			"name":              str("create: the site's name, a lowercase slug."),
-			keyDesc:             str("create, update: what the site is."),
-			"owner_email":       str("update: move the site to another owner."),
+		keyType: typObject, keyReq: []string{"command"},
+		keyProps: map[string]any{
+			"command":     map[string]any{keyType: typString, keyEnum: Commands, keyDesc: "The operation."},
+			keySite:       str("The site, by name or id (every command but create, list and domains)."),
+			"name":        str("create: the site's name, a lowercase slug."),
+			keyDesc:       str("create, update: what the site is."),
+			"owner_email": str("update: move the site to another owner."),
+			"media": map[string]any{
+				keyType: typArray,
+				keyDesc: "update: EVERY managed-resource folder the site serves as media, replacing the list ([] removes them all). Each is " +
+					"{prefix, scope, scope_id, folder}: prefix the URL path it answers at (\"/media/\"), scope global, persona or user " +
+					"(scope_id the persona or the person's subject), folder the folder in that library. A file under a mount is served on every " +
+					"environment after the release's own files, so a release file at the same path wins, and it is PUBLIC on a public " +
+					"environment: mounting publishes the folder. You must manage the site and be able to read the folder. Media sits outside " +
+					"releases (publish, promote and rollback leave it alone, and it counts toward no release limit), a file replaced with " +
+					"manage_resource replace_content shows at once, HTML, SVG, JavaScript and XML in a mount are sent as downloads, and a file in " +
+					"a mounted folder cannot be deleted unless forced.",
+				keyItems: map[string]any{keyType: typObject, keyReq: []string{keyPrefix, keyScope, keyFolder}, keyProps: map[string]any{
+					keyPrefix: str("The URL path, \"/media/\"."), keyScope: str("global, persona or user."),
+					"scope_id": str("The persona's name or the person's subject; none for global."), keyFolder: str("The folder in the library."),
+				}},
+			},
 			"internal_view":     map[string]any{keyType: typBool, keyDesc: "set_environment: open this private environment to everyone signed in whose persona is not external."},
 			"public":            map[string]any{keyType: typBool, keyDesc: "set_environment, or add_domain creating an environment: true opens it to anyone (owner or administrator only; through Approvals where it requires approval), false makes it private. A new environment is private unless this is true; dev is always private."},
 			"main":              map[string]any{keyType: typBool, keyDesc: "set_environment: true gives this environment the main address, <site>.<pages domain> (owner or administrator)."},
 			"main_environment":  str("update: the environment the main address serves; \"\" gives it to none, and it answers not found (owner or administrator)."),
 			"email":             str("grant, revoke: the person, by the email they sign in with."),
 			"persona":           str("grant, revoke: a persona in place of email; everyone holding it, read on every request. Always level view."),
-			"environments":      map[string]any{keyType: "array", "items": map[string]any{keyType: typString}, keyDesc: "grant with level view: the private environments it opens; none is every private environment."},
-			"level":             map[string]any{keyType: typString, "enum": []string{site.LevelManage, site.LevelView}, keyDesc: "grant: manage publishes, promotes, rolls back, adds domains and shares (internal people only, site-wide); view opens the private environments it names and reads their current files, and changes nothing."},
+			"environments":      map[string]any{keyType: typArray, keyItems: map[string]any{keyType: typString}, keyDesc: "grant with level view: the private environments it opens; none is every private environment."},
+			"level":             map[string]any{keyType: typString, keyEnum: []string{site.LevelManage, site.LevelView}, keyDesc: "grant: manage publishes, promotes, rolls back, adds domains and shares (internal people only, site-wide); view opens the private environments it names and reads their current files, and changes nothing."},
 			"environment":       str("publish: always dev (it may be left out); any other environment is refused, and moves by promote. rollback, set_environment, deployments: the environment. add_domain: the environment the hostname serves, created private when it does not exist; never dev."),
 			"requires_approval": map[string]any{keyType: typBool, keyDesc: "set_environment, or add_domain creating an environment: promotions here, and making it public, go through the Approvals queue."},
-			"from":              str("promote: the environment whose release moves."),
-			"to":                str("promote: the environment that moves."),
-			"release":           num("promote: a release number instead of from. rollback: the release to return to (default the one before)."),
-			"base":              num("publish: overlay this release instead of replacing the file set. It must be the release dev serves now, so read it first; files you do not send carry over."),
-			"note":              str("publish: what the release is for."),
-			"reason":            str("promote: why, for the approver."),
+			"keep_releases": map[string]any{keyType: []string{"integer", typString}, keyDesc: "set_environment, or add_domain creating an environment: " +
+				"how many releases it keeps, the last N distinct releases it pointed at (0 keeps every one), or \"default\" for the deployment's default. " +
+				"A daily sweep removes every release no environment keeps (one an application release pins or a pending approval names stays), " +
+				"and the files only those releases held: a removed release cannot be rolled back to. Only the owner or an administrator changes it."},
+			"from":    str("promote: the environment whose release moves."),
+			"to":      str("promote: the environment that moves."),
+			"release": num("promote: a release number instead of from. rollback: the release to return to (default the one before)."),
+			"base":    num("publish: overlay this release instead of replacing the file set. It must be the release dev serves now, so read it first; files you do not send carry over."),
+			"note":    str("publish: what the release is for."),
+			"reason":  str("promote: why, for the approver."),
 			"files": map[string]any{
-				keyType: "array", keyDesc: "publish: the files, up to the inline size a tool call carries.",
-				"items": map[string]any{keyType: typObject, "required": []string{"path"}, "properties": map[string]any{
+				keyType: typArray, keyDesc: "publish: the files, up to the inline size a tool call carries.",
+				keyItems: map[string]any{keyType: typObject, keyReq: []string{"path"}, keyProps: map[string]any{
 					"path": str("The file's path in the site."), "content": str("Its content. Required unless delete is true."),
-					"encoding": map[string]any{keyType: typString, "enum": []string{"utf-8", "base64"}, keyDesc: "How content is written (default utf-8)."},
+					"encoding": map[string]any{keyType: typString, keyEnum: []string{"utf-8", "base64"}, keyDesc: "How content is written (default utf-8)."},
 					"delete":   map[string]any{keyType: typBool, keyDesc: "With base: remove this path from the release."},
 				}},
 			},
-			"archive":     str("publish: a zip or gzipped tar managed resource, by id or mcp:// URI."),
-			"folder":      str("publish: a managed-resource folder path."),
-			"scope":       str("publish with folder: the library's scope (user, persona, global; default user)."),
+			"archive": str("publish: a zip or gzipped tar managed resource, by id or mcp:// URI."),
+			keyFolder: str("publish: a managed-resource folder path."),
+			"from_bucket": map[string]any{
+				keyType: typObject, keyReq: []string{"connection", "bucket"},
+				keyDesc: "publish: the objects under a prefix of a bucket on an S3 connection, each at its path under the prefix, so a " +
+					"source tree of thousands of files arrives without a tool call carrying it. It is read as you: your persona must " +
+					"hold s3_list and s3_object and the connection, and the bucket must be inside its bucket_prefix; the release " +
+					"limits apply and are checked before an object is read.",
+				keyProps: map[string]any{
+					"connection": str("The S3 connection, by name; always named."),
+					"bucket":     str("The bucket."),
+					keyPrefix:    str("The folder in the bucket, \"exports/site/\"; empty for the whole bucket."),
+				},
+			},
+			keyScope:      str("publish with folder: the library's scope (user, persona, global; default user)."),
 			"scope_id":    str("publish with folder: the persona name or user subject."),
 			"hostname":    str("add_domain, remove_domain: the hostname."),
 			"application": str("add_domain: the application whose endpoints and pages the hostname serves, in place of site and environment."),
@@ -322,7 +381,7 @@ func (t *Tool) handlers() map[string]handler {
 		},
 		CmdUpdate: func(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
 			u := sitesvc.UpdateRequest{}
-			if in.MainEnvironment != nil && in.Description == "" && in.OwnerEmail == "" {
+			if in.MainEnvironment != nil && in.Description == "" && in.OwnerEmail == "" && in.Media == nil {
 				return s.SetMainEnvironment(ctx, a, in.Site, *in.MainEnvironment)
 			}
 			if in.MainEnvironment != nil {
@@ -335,6 +394,9 @@ func (t *Tool) handlers() map[string]handler {
 			}
 			if in.OwnerEmail != "" {
 				u.Owner = &in.OwnerEmail
+			}
+			if in.Media != nil {
+				u.Media = &in.Media
 			}
 			return s.Update(ctx, a, in.Site, u)
 		},
@@ -352,9 +414,13 @@ func (t *Tool) handlers() map[string]handler {
 		CmdReleases:    t.releases,
 		CmdDeployments: t.deployments,
 		CmdAddDomain: func(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
+			keep, err := site.ParseKeep(in.KeepReleases)
+			if err != nil {
+				return nil, &sitesvc.RefusedError{Msg: err.Error()}
+			}
 			return s.AddDomain(ctx, a, sitesvc.DomainRequest{
 				Hostname: in.Hostname, Site: in.Site, Environment: in.Environment, Application: in.Application,
-				RequiresApproval: in.RequiresApproval != nil && *in.RequiresApproval, Public: in.Public != nil && *in.Public,
+				RequiresApproval: in.RequiresApproval != nil && *in.RequiresApproval, Public: in.Public != nil && *in.Public, Keep: keep.Keep,
 			})
 		},
 		CmdRemoveDomain: func(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
@@ -377,8 +443,13 @@ func (t *Tool) handlers() map[string]handler {
 // setEnvironment creates or changes an environment and, with main true, gives
 // it the main address.
 func (t *Tool) setEnvironment(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
+	keep, err := site.ParseKeep(in.KeepReleases)
+	if err != nil {
+		return nil, &sitesvc.RefusedError{Msg: err.Error()}
+	}
 	res, err := t.Service.SetEnvironment(ctx, a, in.Site, in.Environment, sitesvc.EnvironmentChange{
 		RequiresApproval: in.RequiresApproval, Public: in.Public, InternalView: in.InternalView, Reason: in.Reason,
+		Keep: keep.Keep, KeepDefault: keep.Default,
 	})
 	if err != nil || in.Main == nil || !*in.Main {
 		return res, err //nolint:wrapcheck // the caller's message
@@ -437,8 +508,16 @@ func (t *Tool) deployments(ctx context.Context, _ sitesvc.Actor, in Input) (any,
 	return map[string]any{keySite: st.Name, "deployments": list}, nil
 }
 
-// publish reads the one source the call names and publishes it.
+// publish reads the one source the call names and publishes it. A source the
+// platform reads (an archive, a folder, a bucket prefix) is read only for a
+// caller who may publish to the site: who may not learns nothing of it, and
+// nothing is read on their behalf.
 func (t *Tool) publish(ctx context.Context, actor sitesvc.Actor, in Input) (any, error) {
+	if in.Archive != "" || in.Folder != "" || in.FromBucket != nil {
+		if err := t.Service.MayPublish(ctx, actor, in.Site, in.Environment); err != nil {
+			return nil, err //nolint:wrapcheck // the caller's message
+		}
+	}
 	set, err := t.filesOf(ctx, in)
 	if err != nil {
 		return nil, err
@@ -457,13 +536,16 @@ type fileSet struct {
 
 func (t *Tool) filesOf(ctx context.Context, in Input) (*fileSet, error) {
 	named := 0
-	for _, set := range []bool{len(in.Files) > 0, in.Archive != "", in.Folder != ""} {
+	for _, set := range []bool{len(in.Files) > 0, in.Archive != "", in.Folder != "", in.FromBucket != nil} {
 		if set {
 			named++
 		}
 	}
 	if named != 1 {
-		return nil, &sitesvc.RefusedError{Msg: "publish names one source: files, archive or folder"}
+		return nil, &sitesvc.RefusedError{Msg: "publish names one source: files, archive, folder or from_bucket"}
+	}
+	if in.FromBucket != nil {
+		return t.bucketFiles(ctx, *in.FromBucket)
 	}
 	if in.Archive == "" && in.Folder == "" {
 		files, removed, err := decodeFiles(in.Files)
@@ -478,6 +560,16 @@ func (t *Tool) filesOf(ctx context.Context, in Input) (*fileSet, error) {
 	}
 	files, err := t.Sources.Folder(ctx, in.Scope, in.ScopeID, in.Folder)
 	return &fileSet{files: files, source: in.Folder}, err //nolint:wrapcheck // the caller's message
+}
+
+// bucketFiles reads a publish's files from a bucket prefix.
+func (t *Tool) bucketFiles(ctx context.Context, src bucketsource.Source) (*fileSet, error) {
+	bs, ok := t.Sources.(BucketSources)
+	if !ok {
+		return nil, &sitesvc.RefusedError{Msg: "this deployment cannot publish from a bucket"}
+	}
+	files, err := bs.Bucket(ctx, src)
+	return &fileSet{files: files, source: src.String()}, err //nolint:wrapcheck // the caller's message
 }
 
 // decodeFiles reads a publish's file entries into the files it writes and the

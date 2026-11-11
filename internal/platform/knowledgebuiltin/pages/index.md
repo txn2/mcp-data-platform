@@ -21,3 +21,4 @@ flowchart LR
 {{PAGE_INDEX}}
 
 - `mcp:knowledge_page:platform-pages-and-sites`: browser pages and static sites on hostnames of their own.
+- `mcp:knowledge_page:platform-sites-from-source`: bringing an existing site in from its source, with its media and every URL proved before cutover.

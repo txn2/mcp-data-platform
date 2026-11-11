@@ -77,7 +77,7 @@ func gatewayDeps(p *platform.Platform, rt *sitewire.Runtime) (sitegw.Deps, error
 	}
 	deps := sitegw.Deps{
 		Store: rt.Store, Objects: objects, Bucket: p.Config().Portal.S3Bucket, Config: rt.Config, Live: rt.Live, PortalHost: rt.Service.PortalHost,
-		Access: accessOver(p, rt, portal), Metrics: p.Metrics(),
+		Access: accessOver(p, rt, portal), Metrics: p.Metrics(), Media: rt.Media,
 	}
 	if p.Endpoints().Handler != nil {
 		deps.Pages = pagesOver(p, rt, portal)
@@ -145,8 +145,8 @@ func (l *Layer) Wrap(next http.Handler) http.Handler {
 	return l.gateway.Wrap(next)
 }
 
-// Start begins the handoff sweep and the reading of saved settings, and
-// returns what stops them.
+// Start begins the handoff sweep, the reading of saved settings and the
+// release sweep's schedule, and returns what stops them.
 func (l *Layer) Start(ctx context.Context) (stop func()) {
 	if l == nil {
 		return func() {}
@@ -161,6 +161,9 @@ func (l *Layer) Start(ctx context.Context) (stop func()) {
 	loops.Go(func() {
 		bgloop.Run(ctx, bgloop.Loop{Name: bgloop.NameSiteSettingsRefresh, Every: refreshEvery, Stop: l.stop, Body: l.runtime.Refresh})
 	})
+	if l.runtime.Prune != nil {
+		loops.Go(func() { l.runtime.Prune.Loop(ctx, l.stop) })
+	}
 	go func() {
 		loops.Wait()
 		close(l.done)

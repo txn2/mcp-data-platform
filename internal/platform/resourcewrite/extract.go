@@ -8,6 +8,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/bucketsource"
 	"github.com/txn2/mcp-data-platform/internal/opsobs"
 	"github.com/txn2/mcp-data-platform/internal/unarchive"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
@@ -40,9 +41,10 @@ type RangeReader interface {
 // version after, and the tables registered over the file moved onto it. What it
 // adds is the archive: which members, under which names, inside which limits.
 type Extractor struct {
-	lander *Lander
-	ranges RangeReader
-	limits unarchive.Limits
+	lander  *Lander
+	ranges  RangeReader
+	limits  unarchive.Limits
+	buckets *bucketsource.Access
 }
 
 // ExtractorDeps is what an extractor is assembled from.
@@ -52,6 +54,9 @@ type ExtractorDeps struct {
 	// Limits are resources.managed.extract; a non-positive field takes its
 	// default.
 	Limits unarchive.Limits
+	// Buckets reads a bucket prefix as the caller, for an extraction from one
+	// (#2593); nil refuses it.
+	Buckets *bucketsource.Access
 }
 
 // NewExtractor builds the extractor, or nil when there is no lander to write
@@ -60,7 +65,7 @@ func NewExtractor(d ExtractorDeps) *Extractor {
 	if d.Lander == nil || d.Ranges == nil {
 		return nil
 	}
-	return &Extractor{lander: d.Lander, ranges: d.Ranges, limits: d.Limits.Normalized()}
+	return &Extractor{lander: d.Lander, ranges: d.Ranges, limits: d.Limits.Normalized(), buckets: d.Buckets}
 }
 
 // Extraction asks for the members of an archive already stored as a managed

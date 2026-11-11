@@ -83,7 +83,7 @@ describe("Site environments (#2604)", () => {
     open();
     const stage = await screen.findByTestId("env-stage");
     fireEvent.click(within(stage).getByRole("button", { name: "Share" }));
-    const dialog = await screen.findByRole("dialog", { name: "Share stage" });
+    const dialog = await screen.findByRole("dialog", { name: "Share marketing" });
     expect(within(dialog).getByRole("checkbox", { name: "stage" })).toBeChecked();
     expect(within(dialog).queryByRole("checkbox", { name: "prod" })).toBeNull();
 
@@ -109,7 +109,7 @@ describe("Site environments (#2604)", () => {
     open();
     const stage = await screen.findByTestId("env-stage");
     fireEvent.click(within(stage).getByRole("button", { name: "Share" }));
-    const dialog = await screen.findByRole("dialog", { name: "Share stage" });
+    const dialog = await screen.findByRole("dialog", { name: "Share marketing" });
     const box = within(dialog).getByRole("combobox", { name: "Name, email or persona" });
     fireEvent.change(box, { target: { value: "management" } });
     await waitFor(() => expect(within(dialog).getByRole("option", { name: /management-team/ })).toBeInTheDocument());

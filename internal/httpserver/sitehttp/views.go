@@ -51,6 +51,10 @@ type SiteRequest struct {
 type SiteUpdate struct {
 	Description *string `json:"description,omitempty"`
 	Owner       *string `json:"owner_email,omitempty"`
+	// Media, when set, is every resource folder the site serves at a URL
+	// prefix (#2591); [] removes them all. Anyone who manages the site, for a
+	// folder they can read.
+	Media *[]site.Mount `json:"media,omitempty"`
 }
 
 // MainEnvironmentBody gives the main address to an environment, "" to none.

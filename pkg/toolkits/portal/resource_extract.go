@@ -85,6 +85,9 @@ type extractOutput struct {
 func (t *Toolkit) handleExtractResource(
 	ctx context.Context, input manageResourceInput,
 ) (*mcp.CallToolResult, any, error) {
+	if input.FromBucket != nil {
+		return t.handleExtractPrefix(ctx, input)
+	}
 	if t.resourceExtractor == nil {
 		return toolkit.ErrorResult(resourceExtractUnavailable), nil, nil
 	}

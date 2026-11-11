@@ -108,6 +108,15 @@ export function AssetViewerPage({ assetId, onNavigate, onBack }: Props) {
           />
         </>
       }
+      // A phone's one-row toolbar takes Feedback as an icon with its count;
+      // the shared page is an item of its More menu there (#2601).
+      phoneToolbarExtra={
+        <FeedbackButton
+          target={{ type: "asset", id: assetId, version: asset?.current_version }}
+          canModerate={isOwner || sharePermission === "editor"}
+          compact
+        />
+      }
     />
   );
 }

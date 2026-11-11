@@ -160,6 +160,13 @@ func (m *memStore) SetEnvironment(_ context.Context, siteID, name string, set si
 	if set.InternalView != nil {
 		e.InternalView = *set.InternalView
 	}
+	switch {
+	case set.KeepDefault:
+		e.KeepReleases, e.KeepDefault = nil, true
+	case set.Keep != nil:
+		n := *set.Keep
+		e.KeepReleases, e.Keep, e.KeepDefault = &n, n, false
+	}
 	e.UpdatedBy = actor
 	return nil
 }

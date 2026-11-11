@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
@@ -22,7 +23,7 @@ const maxSourceLabel = 512
 // publish handles POST /api/v1/portal/sites/{site}/publish.
 //
 // @Summary      Publish a release
-// @Description  Publishes a managed-resource archive or folder as a new release, in the background. The answer is the job to follow; it continues if the caller goes away.
+// @Description  Publishes a managed-resource archive or folder, or the objects under a prefix of a bucket on an S3 connection (from_bucket: connection, bucket, prefix; the connection must be one the caller's persona may use and the bucket inside its bucket_prefix, refused here before a job starts), as a new release, in the background. Each object is a file at its path under the prefix, and the release limits apply. The answer is the job to follow; it continues if the caller goes away.
 // @Tags         Sites
 // @Accept       json
 // @Produce      json
@@ -49,22 +50,27 @@ func (a *portalAPI) publish(w http.ResponseWriter, r *http.Request) {
 		httpjson.WriteError(w, http.StatusUnprocessableEntity, "this deployment has no managed resources to publish from")
 		return
 	}
-	if (in.Archive == "") == (in.Folder == "") {
-		httpjson.WriteError(w, http.StatusUnprocessableEntity, "publish names one source: an archive or a folder")
+	if publishSources(in) != 1 {
+		httpjson.WriteError(w, http.StatusUnprocessableEntity, "publish names one source: an archive, a folder or from_bucket")
 		return
 	}
 	if len(in.Source) > maxSourceLabel {
 		httpjson.WriteError(w, http.StatusUnprocessableEntity, "source: too long")
 		return
 	}
+	// Someone who may not publish here learns nothing of a source's
+	// connection or bucket: the site is checked before the source is.
+	if err := a.svc().MayPublish(r.Context(), c.actor, r.PathValue(paramSite), in.Environment); err != nil {
+		fail(w, r, err)
+		return
+	}
+	read, label, err := publishReader(r.Context(), src, in)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
 	job, err := a.svc().StartPublish(r.Context(), c.actor, sitesvc.PublishJob{
-		Site: r.PathValue(paramSite), Environment: in.Environment, Note: in.Note, Source: cmp.Or(in.Source, in.Archive, in.Folder),
-		Read: func(ctx context.Context) ([]sitesvc.InputFile, error) {
-			if in.Archive != "" {
-				return src.Archive(ctx, in.Archive) //nolint:wrapcheck // said by the job
-			}
-			return src.Folder(ctx, in.Scope, in.ScopeID, in.Folder) //nolint:wrapcheck // said by the job
-		},
+		Site: r.PathValue(paramSite), Environment: in.Environment, Note: in.Note, Source: cmp.Or(in.Source, label), Read: read,
 	})
 	a.record(r.Context(), c, sitetool.CmdPublish, map[string]any{paramSite: r.PathValue(paramSite), paramEnv: in.Environment}, err)
 	if err != nil {
@@ -72,6 +78,44 @@ func (a *portalAPI) publish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, job)
+}
+
+// publishSources counts the sources a publish names.
+func publishSources(in PublishBody) int {
+	n := 0
+	for _, set := range []bool{in.Archive != "", in.Folder != "", in.FromBucket != nil} {
+		if set {
+			n++
+		}
+	}
+	return n
+}
+
+// publishReader is what the publish job reads its files with, and what the
+// release says it came from. A bucket the caller cannot read is refused here,
+// before a job is started for it.
+func publishReader(ctx context.Context, src sitetool.Sources, in PublishBody) (read func(context.Context) ([]sitesvc.InputFile, error), source string, err error) {
+	switch {
+	case in.FromBucket != nil:
+		bs, ok := src.(sitetool.BucketSources)
+		if !ok {
+			return nil, "", &sitesvc.RefusedError{Msg: "this deployment cannot publish from a bucket"}
+		}
+		from := *in.FromBucket
+		if err := bs.CheckBucket(ctx, from); err != nil {
+			return nil, "", err //nolint:wrapcheck // the source's own refusal
+		}
+		return func(ctx context.Context) ([]sitesvc.InputFile, error) {
+			return bs.Bucket(ctx, from) //nolint:wrapcheck // said by the job
+		}, from.String(), nil
+	case in.Archive != "":
+		return func(ctx context.Context) ([]sitesvc.InputFile, error) {
+			return src.Archive(ctx, in.Archive) //nolint:wrapcheck // said by the job
+		}, in.Archive, nil
+	}
+	return func(ctx context.Context) ([]sitesvc.InputFile, error) {
+		return src.Folder(ctx, in.Scope, in.ScopeID, in.Folder) //nolint:wrapcheck // said by the job
+	}, in.Folder, nil
 }
 
 // copySite handles POST /api/v1/portal/sites/{site}/copy.
@@ -172,7 +216,7 @@ func (a *portalAPI) forms(w http.ResponseWriter, r *http.Request) {
 // jobs handles GET /api/v1/portal/sites/{site}/jobs.
 //
 // @Summary      A site's running jobs
-// @Description  The publishes and copies still running on the site.
+// @Description  The publishes and copies still running on the site. Someone who does not manage the site sees those to the environments they can open, without their source.
 // @Tags         Sites
 // @Produce      json
 // @Param        site  path      string  true  "Site name or id"
@@ -182,10 +226,21 @@ func (a *portalAPI) forms(w http.ResponseWriter, r *http.Request) {
 // @Security     BearerAuth
 // @Router       /portal/sites/{site}/jobs [get]
 func (a *portalAPI) jobs(w http.ResponseWriter, r *http.Request) {
+	ss, r, ok := a.siteAndScope(w, r)
+	if !ok {
+		return
+	}
 	list, err := a.svc().ActiveJobs(r.Context(), r.PathValue(paramSite))
 	if err != nil {
 		fail(w, r, err)
 		return
+	}
+	list = slices.DeleteFunc(list, func(j site.Job) bool { return !ss.scope.sees(j.Environment) })
+	if list == nil {
+		list = []site.Job{}
+	}
+	for i := range list {
+		list[i] = ss.scope.jobView(list[i])
 	}
 	writeJSON(w, http.StatusOK, JobList{Jobs: list})
 }
@@ -204,12 +259,28 @@ func (a *portalAPI) jobs(w http.ResponseWriter, r *http.Request) {
 // @Security     BearerAuth
 // @Router       /portal/sites/{site}/jobs/{id} [get]
 func (a *portalAPI) job(w http.ResponseWriter, r *http.Request) {
+	ss, r, ok := a.siteAndScope(w, r)
+	if !ok {
+		return
+	}
 	j, err := a.svc().JobOf(r.Context(), r.PathValue(paramSite), r.PathValue("id"))
+	if err == nil && !ss.scope.sees(j.Environment) {
+		err = site.ErrNoJob
+	}
 	if err != nil {
 		fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, j)
+	writeJSON(w, http.StatusOK, ss.scope.jobView(*j))
+}
+
+// jobView is a job as the caller may see it: its source, like a release's, is
+// for the managers.
+func (s envScope) jobView(j site.Job) site.Job {
+	if !s.manage {
+		j.Source = ""
+	}
+	return j
 }
 
 // stopJob handles POST /api/v1/portal/sites/{site}/jobs/{id}/stop.
@@ -312,7 +383,7 @@ func (a *portalAPI) rollback(w http.ResponseWriter, r *http.Request) {
 // setEnvironment handles PUT /api/v1/portal/sites/{site}/environments/{name}.
 //
 // @Summary      Create or change an environment
-// @Description  Creates the environment (private unless public is true), or changes whether it is public, whether everyone internal may open it, and whether promoting to it needs approval. Only the owner or an administrator makes an environment public, and where it requires approval a non-administrator's request waits in Approvals (status awaiting_approval) until approved, after which the same request succeeds. dev is always private. Only an administrator takes the approval rule off.
+// @Description  Creates the environment (private unless public is true), or changes whether it is public, whether everyone internal may open it, whether promoting to it needs approval, and how many releases it keeps (keep_releases: a whole number, 0 for every release, or "default"; the owner and administrators only, since a lower limit removes rollback history at the next sweep). Only the owner or an administrator makes an environment public, and where it requires approval a non-administrator's request waits in Approvals (status awaiting_approval) until approved, after which the same request succeeds. dev is always private. Only an administrator takes the approval rule off.
 // @Tags         Sites
 // @Accept       json
 // @Produce      json
@@ -335,8 +406,14 @@ func (a *portalAPI) setEnvironment(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
+	keep, err := site.ParseKeep(in.KeepReleases)
+	if err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	out, err := a.svc().SetEnvironment(r.Context(), c.actor, r.PathValue(paramSite), r.PathValue("name"), sitesvc.EnvironmentChange{
 		RequiresApproval: in.RequiresApproval, Public: in.Public, InternalView: in.InternalView, Reason: in.Reason,
+		Keep: keep.Keep, KeepDefault: keep.Default,
 	})
 	a.record(r.Context(), c, sitetool.CmdEnvironment, map[string]any{paramSite: r.PathValue(paramSite), paramEnv: r.PathValue("name")}, err)
 	if err != nil {

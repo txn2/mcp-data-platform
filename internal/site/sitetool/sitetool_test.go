@@ -147,6 +147,13 @@ func (m *memStore) SetEnvironment(_ context.Context, siteID, name string, set si
 	if set.InternalView != nil {
 		e.InternalView = *set.InternalView
 	}
+	switch {
+	case set.KeepDefault:
+		e.KeepReleases, e.KeepDefault = nil, true
+	case set.Keep != nil:
+		n := *set.Keep
+		e.KeepReleases, e.Keep = &n, n
+	}
 	e.UpdatedBy = actor
 	return nil
 }
@@ -1195,4 +1202,27 @@ func TestWithNote(t *testing.T) {
 
 	unmarshalable := make(chan int)
 	assert.Equal(t, unmarshalable, withNote(unmarshalable), "an answer that cannot be written is returned as it was")
+}
+
+// keep_releases arrives as an integer, a string of digits or "default", on
+// set_environment and on add_domain creating an environment (#2602).
+func TestSetEnvironment_KeepReleasesInEveryForm(t *testing.T) {
+	f := newFixture()
+	createSite(t, f)
+	for raw, want := range map[string]int{`7`: 7, `"9"`: 9, `0`: 0} {
+		call(t, f, admin(), Input{Command: CmdEnvironment, Site: siteName, Environment: site.EnvDev, KeepReleases: json.RawMessage(raw)})
+		e := stored(f).Environment(site.EnvDev)
+		require.NotNil(t, e.KeepReleases, raw)
+		assert.Equal(t, want, *e.KeepReleases, raw)
+	}
+	call(t, f, admin(), Input{Command: CmdEnvironment, Site: siteName, Environment: site.EnvDev, KeepReleases: json.RawMessage(`"default"`)})
+	assert.Nil(t, stored(f).Environment(site.EnvDev).KeepReleases)
+	assert.Contains(t, refusal(t, f, admin(), Input{Command: CmdEnvironment, Site: siteName, Environment: site.EnvDev, KeepReleases: json.RawMessage(`"ten"`)}), "keep_releases")
+	assert.Contains(t, refusal(t, f, admin(), Input{Command: CmdAddDomain, Site: siteName, Environment: "qa", Hostname: "qa.client.example", KeepReleases: json.RawMessage(`-2`)}), "keep_releases")
+
+	call(t, f, admin(), Input{Command: CmdAddDomain, Site: siteName, Environment: "qa", Hostname: "qa.client.example", KeepReleases: json.RawMessage(`3`)})
+	qa := stored(f).Environment("qa")
+	require.NotNil(t, qa)
+	require.NotNil(t, qa.KeepReleases)
+	assert.Equal(t, 3, *qa.KeepReleases)
 }

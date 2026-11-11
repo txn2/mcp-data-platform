@@ -147,7 +147,7 @@ export const SECTION_INTROS: SectionIntroCopy[] = [
     path: "/sites",
     summary: "Web pages this platform serves, each on an address of its own.",
     about:
-      "A site is a set of web pages with environments. Its default environment answers at the site's own address to the people given access; any other environment answers on the domains added to it. A release is a set of files, and promoting or rolling back only changes which release an environment serves.",
+      "A site is a set of web pages with environments. Agents and people change dev, the working copy; a release reaches the environments people use (stage, prod) only by promote, and a rollback returns one to a release it served before. Each environment answers at <site>--<env> on the pages domain and at any domain added to it, and is private (signed-in people it is shared with) or public. Open a site to see its environments, releases and who has access.",
     storageKey: "portal.intro.sites",
   },
   {

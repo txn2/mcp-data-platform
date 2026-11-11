@@ -1,7 +1,14 @@
 package sitehttp
 
-// PublishBody names what to publish: a managed-resource archive or folder, read
-// as the caller, so someone cannot publish a file they could not open.
+import (
+	"encoding/json"
+
+	"github.com/txn2/mcp-data-platform/internal/bucketsource"
+)
+
+// PublishBody names what to publish: a managed-resource archive or folder, or
+// a bucket prefix on an S3 connection, read as the caller, so someone cannot
+// publish a file they could not open.
 type PublishBody struct {
 	// Environment is always dev, and may be left out.
 	Environment string `json:"environment,omitempty" example:"dev"`
@@ -10,6 +17,10 @@ type PublishBody struct {
 	Folder      string `json:"folder,omitempty"`
 	Scope       string `json:"scope,omitempty"`
 	ScopeID     string `json:"scope_id,omitempty"`
+	// FromBucket is the objects under a prefix of a bucket on an S3
+	// connection the caller's persona may use, inside its bucket_prefix
+	// (#2593).
+	FromBucket *bucketsource.Source `json:"from_bucket,omitempty"`
 	// Source is what the release says it came from, the file's name when
 	// given; only ever displayed.
 	Source string `json:"source,omitempty" example:"site-1108.zip"`
@@ -47,4 +58,8 @@ type EnvironmentBody struct {
 	Public           *bool  `json:"public,omitempty"`
 	InternalView     *bool  `json:"internal_view,omitempty"`
 	Reason           string `json:"reason,omitempty"`
+	// KeepReleases is how many releases the environment keeps: a whole number
+	// (0 keeps every release), or "default" for the deployment's default
+	// (#2602). The owner and administrators only.
+	KeepReleases json.RawMessage `json:"keep_releases,omitempty" swaggertype:"string" example:"50"`
 }

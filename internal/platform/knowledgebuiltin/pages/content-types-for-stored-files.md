@@ -52,7 +52,12 @@ flowchart TD
 
 `manage_resource action=create` takes the left branch by requiring the
 declaration. The upload form takes it too, because a browser declares the type
-of the file a person picked.
+of the file a person picked. `manage_resource action=extract` with
+`from_bucket` declares each object as the bucket stored it: an object put
+there under its real type keeps it, and one put there as
+`application/octet-stream` or `text/plain` goes down the right branch, so an
+SVG or an HTML page uploaded to the bucket without its type is stored
+`text/plain`. Put such files in the bucket under their types first.
 
 ## What to declare
 

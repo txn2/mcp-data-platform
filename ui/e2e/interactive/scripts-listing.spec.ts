@@ -190,7 +190,9 @@ test.describe("Scope", () => {
     // Dormant Accounts is another person's and has never run.
     const theirs = page.locator("tbody tr").filter({ hasText: "Dormant Accounts" });
     await expect(theirs).toHaveCount(1);
-    await expect(theirs.locator("td:nth-child(6)")).toHaveText("Never run");
+    // By its words, not a column index: which columns show follows the width
+    // the listing has (#2601).
+    await expect(theirs.getByText("Never run")).toBeVisible();
   });
 });
 

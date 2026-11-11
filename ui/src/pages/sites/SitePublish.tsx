@@ -1,15 +1,7 @@
 import { useRef, useState, type DragEvent } from "react";
 import { Upload } from "lucide-react";
-import {
-  DEV_ENVIRONMENT,
-  usePublishSite,
-  useSiteJob,
-  useSiteRelease,
-  useSites,
-  type Site,
-  type SiteJob,
-  type SiteLimits,
-} from "@/api/portal/hooks/sites";
+import { DEV_ENVIRONMENT, usePublishSite, useSites, type BucketSource, type Site, type SiteLimits } from "@/api/portal/hooks/sites";
+import { useCatalogConnections } from "@/api/portal/catalog";
 import { useResources, useUploadResource } from "@/api/resources/hooks";
 import type { Resource } from "@/api/resources/types";
 import { useAuthStore } from "@/stores/auth";
@@ -19,6 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { JobDialog, PublishRefused } from "./SitePublishJob";
 import { bareAddress, envOpenUrl, errorText, formatBytes } from "./siteFormat";
 
 export const number = new Intl.NumberFormat("en-US");
@@ -34,22 +27,22 @@ interface Picked {
   folder: boolean;
 }
 
-// PublishDialog uploads a folder or a zip through the managed-resource upload,
-// or picks one already there, and publishes from it, so there is one publish
-// path (#2559). A publish makes a new release and always lands in dev, the
-// working copy; other environments move only by Promote and Roll back (#2604).
-// The work runs on the server: closing the dialog does not stop it.
+// PublishDialog publishes to dev from an upload, an archive in Resources or a
+// bucket prefix (#2559, #2593). An upload goes through the managed-resource
+// upload first, so there is one publish path. A publish makes a new release
+// and always lands in dev, the working copy; other environments move only by
+// Promote and Roll back (#2604). The work runs on the server as a job: closing
+// the dialog does not stop it, and the Environments tab shows it with Stop.
 export function PublishDialog({ site, onClose, onNavigate }: { site: Site; onClose: () => void; onNavigate: (path: string) => void }) {
   const limits = useSites().data?.limits;
-  const [form, setForm] = useState<PublishForm>({ source: "upload", picked: null, resource: null, note: "" });
+  const [form, setForm] = useState<PublishForm>({ source: "upload", picked: null, resource: null, bucket: { connection: "", bucket: "", prefix: "" }, note: "" });
   const flow = usePublishFlow(site.name, form);
-  const job = flow.job;
-  if (flow.jobId && job?.status === "done") return <Published site={site} job={job} onClose={onClose} onNavigate={onNavigate} />;
-  if (flow.jobId && job?.status !== "failed") return <Publishing env={DEV_ENVIRONMENT} file={pickedLabel(form)} job={job} onClose={onClose} />;
-  const { refusal, ready } = publishState(form, limits, job, flow.failure);
+  if (flow.jobId) return <JobDialog site={site} jobId={flow.jobId} onClose={onClose} onAgain={flow.reset} onNavigate={onNavigate} />;
+  if (flow.failure) return <PublishRefused site={site} message={flow.failure} onClose={onClose} onAgain={flow.reset} />;
+  const { refusal, ready } = publishState(form, limits);
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Publish to dev</DialogTitle>
           <DialogDescription>{site.name}</DialogDescription>
@@ -60,7 +53,7 @@ export function PublishDialog({ site, onClose, onNavigate }: { site: Site; onClo
             Cancel
           </Button>
           <Button onClick={() => void flow.start()} disabled={!ready || flow.busy}>
-            Publish
+            Publish to dev
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -69,21 +62,21 @@ export function PublishDialog({ site, onClose, onNavigate }: { site: Site; onClo
 }
 
 // publishState is what the form says now: why it cannot go ahead, if so.
-function publishState(form: PublishForm, limits: SiteLimits | undefined, job: SiteJob | undefined, failure: string | null) {
+function publishState(form: PublishForm, limits: SiteLimits | undefined) {
   const tooBig = limits && form.picked ? oversize(form.picked.files, limits) : null;
-  const refusal = job?.status === "failed" ? job.error : (tooBig ?? failure);
-  const ready = form.source === "upload" ? !!form.picked && !tooBig : !!form.resource;
-  return { refusal, ready };
-}
-
-function pickedLabel(form: PublishForm): string {
-  return form.picked?.label ?? form.resource?.filename ?? "";
+  const ready = {
+    upload: !!form.picked && !tooBig,
+    resources: !!form.resource,
+    bucket: !!form.bucket.connection && !!form.bucket.bucket.trim(),
+  }[form.source];
+  return { refusal: form.source === "upload" ? tooBig : null, ready };
 }
 
 interface PublishForm {
-  source: "upload" | "resources";
+  source: "upload" | "resources" | "bucket";
   picked: Picked | null;
   resource: Resource | null;
+  bucket: Required<BucketSource>;
   note: string;
 }
 
@@ -95,12 +88,15 @@ function usePublishFlow(site: string, form: PublishForm) {
   const [uploading, setUploading] = useState<{ done: number; total: number } | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
-  const job = useSiteJob(site, jobId).data;
+  const target = async () => {
+    if (form.source === "bucket") return bucketTarget(form.bucket);
+    if (form.source === "resources") return resourceTarget(form.resource!);
+    return uploadPicked(form.picked!, { site, userId }, upload.mutateAsync, setUploading);
+  };
   const start = async () => {
     setFailure(null);
     try {
-      const target = form.source === "resources" ? resourceTarget(form.resource!) : await uploadPicked(form.picked!, { site, userId }, upload.mutateAsync, setUploading);
-      const j = await publish.mutateAsync({ note: form.note.trim(), ...target });
+      const j = await publish.mutateAsync({ note: form.note.trim(), ...(await target()) });
       setJobId(j.id);
     } catch (e) {
       setFailure(errorText(e, "The publish could not be started"));
@@ -108,7 +104,11 @@ function usePublishFlow(site: string, form: PublishForm) {
       setUploading(null);
     }
   };
-  return { start, jobId, job, failure, uploading, busy: !!uploading || publish.isPending };
+  const reset = () => {
+    setJobId(null);
+    setFailure(null);
+  };
+  return { start, reset, jobId, failure, uploading, busy: !!uploading || publish.isPending };
 }
 
 function PublishFields({
@@ -138,16 +138,13 @@ function PublishFields({
         </Alert>
       )}
       <Tabs value={form.source} onValueChange={(v) => set({ source: v as PublishForm["source"] })}>
-        <TabsList>
+        <TabsList className="h-auto flex-wrap">
           <TabsTrigger value="upload">Upload</TabsTrigger>
-          <TabsTrigger value="resources">From Resources</TabsTrigger>
+          <TabsTrigger value="resources">Archive in Resources</TabsTrigger>
+          <TabsTrigger value="bucket">Bucket prefix</TabsTrigger>
         </TabsList>
       </Tabs>
-      {form.source === "upload" ? (
-        <UploadDrop picked={form.picked} onPick={(picked) => set({ picked })} limits={limits} />
-      ) : (
-        <ResourcePicker chosen={form.resource} onChoose={(resource) => set({ resource })} />
-      )}
+      <SourceFields form={form} set={set} limits={limits} />
       {uploading && (
         <p className="text-sm text-muted-foreground">
           Uploading {uploading.done} of {uploading.total}
@@ -158,6 +155,56 @@ function PublishFields({
         <Input id="publish-note" placeholder="What changed" value={form.note} onChange={(e) => set({ note: e.target.value })} />
       </div>
       <DevOnlyNote site={site} devAt={devAt} release={(dev?.release ?? 0) + 1} />
+    </div>
+  );
+}
+
+function SourceFields({ form, set, limits }: { form: PublishForm; set: (patch: Partial<PublishForm>) => void; limits?: SiteLimits }) {
+  switch (form.source) {
+    case "upload":
+      return <UploadDrop picked={form.picked} onPick={(picked) => set({ picked })} limits={limits} />;
+    case "resources":
+      return <ResourcePicker chosen={form.resource} onChoose={(resource) => set({ resource })} />;
+    case "bucket":
+      return <BucketFields value={form.bucket} onChange={(bucket) => set({ bucket })} />;
+  }
+}
+
+// BucketFields names a prefix of a bucket on an S3 connection the person can
+// use. The server reads it with the connection's own credentials, inside its
+// bucket_prefix, and refuses a connection or prefix the person cannot read.
+function BucketFields({ value, onChange }: { value: Required<BucketSource>; onChange: (b: Required<BucketSource>) => void }) {
+  const { data, isLoading } = useCatalogConnections();
+  const s3 = (data?.connections ?? []).filter((c) => c.kind === "s3");
+  return (
+    <div className="space-y-3" data-testid="publish-bucket">
+      <div className="space-y-1">
+        <Label htmlFor="publish-connection">Connection</Label>
+        <select
+          id="publish-connection"
+          className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+          value={value.connection}
+          onChange={(e) => onChange({ ...value, connection: e.target.value })}
+        >
+          <option value="">{isLoading ? "Loading…" : s3.length === 0 ? "No S3 connection you can use" : "Choose a connection"}</option>
+          {s3.map((c) => (
+            <option key={c.name} value={c.name}>
+              {c.name} · S3
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-muted-foreground">Only connections you can use are listed. Files are read with the connection’s own credentials.</p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1">
+          <Label htmlFor="publish-bucket-name">Bucket</Label>
+          <Input id="publish-bucket-name" className="font-mono" value={value.bucket} onChange={(e) => onChange({ ...value, bucket: e.target.value })} />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="publish-prefix">Prefix</Label>
+          <Input id="publish-prefix" className="font-mono" placeholder="site/build/" value={value.prefix} onChange={(e) => onChange({ ...value, prefix: e.target.value })} />
+        </div>
+      </div>
     </div>
   );
 }
@@ -197,6 +244,12 @@ function relativePath(f: File) {
 
 function resourceTarget(r: Resource) {
   return { archive: `mcp:resource:${r.id}`, source: r.filename };
+}
+
+function bucketTarget(b: Required<BucketSource>) {
+  const from: BucketSource = { connection: b.connection, bucket: b.bucket.trim() };
+  if (b.prefix.trim()) from.prefix = b.prefix.trim();
+  return { from_bucket: from };
 }
 
 type Upload = (form: FormData) => Promise<Resource>;
@@ -302,6 +355,7 @@ function ResourcePicker({ chosen, onChoose }: { chosen: Resource | null; onChoos
       </div>
       {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
       {!isLoading && archives.length === 0 && <p className="text-sm text-muted-foreground">No archive matches.</p>}
+      <p className="text-xs text-muted-foreground">A zip or gzipped tar. A release’s limits are checked before any file is stored.</p>
       <div className="max-h-48 space-y-2 overflow-auto">
         {archives.map((r) => (
           <label key={r.id} className="flex cursor-pointer items-start gap-2 rounded border p-3">
@@ -323,80 +377,4 @@ export function bar(pct: number) {
       <div className="h-full bg-primary" style={{ width: `${Math.min(100, pct)}%` }} />
     </div>
   );
-}
-
-function Publishing({ env, file, job, onClose }: { env: string; file: string; job?: SiteJob; onClose: () => void }) {
-  const total = job?.total ?? 0;
-  const done = job?.done ?? 0;
-  return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Publishing to {env}</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div>
-            <div className="flex justify-between text-sm">
-              <span className="font-medium">{job?.phase || `Uploading ${file}`}</span>
-              <span className="text-muted-foreground">{total > 0 ? `${number.format(done)} of ${number.format(total)}` : ""}</span>
-            </div>
-            {bar(total > 0 ? (done / total) * 100 : 0)}
-          </div>
-          <p className="text-xs text-muted-foreground">{env} keeps serving its release until every file is written. You can close this and the publish continues.</p>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Close
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function Published({ site, job, onClose, onNavigate }: { site: Site; job: SiteJob; onClose: () => void; onNavigate: (path: string) => void }) {
-  const url = publishedUrl(site, job);
-  const release = useSiteRelease(site.name, job.release).data;
-  const facts: [string, string][] = [
-    ["Files", number.format(release?.file_count ?? job.total)],
-    ["Size", release ? formatBytes(release.total_bytes) : ""],
-    ["Redirects", number.format(release?.redirects.length ?? 0)],
-  ];
-  return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>
-            Release {job.release} is serving {job.environment}
-          </DialogTitle>
-        </DialogHeader>
-        <dl className="grid grid-cols-3 gap-3">
-          {facts.map(([k, v]) => (
-            <div key={k}>
-              <dt className="text-xs text-muted-foreground">{k}</dt>
-              <dd>{v}</dd>
-            </div>
-          ))}
-        </dl>
-        {url && <p className="break-all rounded border p-2 font-mono text-sm">{url}</p>}
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Done
-          </Button>
-          {url && (
-            <Button variant="outline" asChild>
-              <a href={url} target="_blank" rel="noreferrer">
-                Open site
-              </a>
-            </Button>
-          )}
-          <Button onClick={() => onNavigate(`/sites/${encodeURIComponent(site.name)}/environments`)}>Promote</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function publishedUrl(site: Site, job: SiteJob): string {
-  return envOpenUrl(site, job.environment || DEV_ENVIRONMENT);
 }

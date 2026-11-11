@@ -92,6 +92,7 @@ func (a *portalAPI) register(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+pathSite+"/access", a.access)
 	mux.HandleFunc("PUT "+pathSite+"/access", a.grant)
 	mux.HandleFunc("DELETE "+pathSite+"/access", a.revoke)
+	a.registerFiles(mux)
 }
 
 // caller is who a portal request is from.
@@ -226,6 +227,88 @@ func (a *portalAPI) view(ctx context.Context, c *caller, st *site.Site, domains 
 		domains = slices.DeleteFunc(slices.Clone(domains), func(d site.Domain) bool { return trimmed.Environment(d.Environment) == nil })
 	}
 	return SiteView{Site: *st, Address: a.svc().OwnAddress(st), Addresses: a.svc().PagesAddresses(st), Domains: domains, Permissions: perms}, nil
+}
+
+// envScope is what a caller may know of a site's environments: every one for
+// someone who manages it, and otherwise the ones they can open, the rule view
+// applies to the site itself. The release, history and job routes answer
+// through it, so a private environment is named to its managers only.
+type envScope struct {
+	manage bool
+	open   map[string]bool
+}
+
+func (a *portalAPI) scopeOf(ctx context.Context, c *caller, st *site.Site) (envScope, error) {
+	perms, err := a.svc().PermissionsOf(ctx, c.actor, st)
+	if err != nil {
+		return envScope{}, err //nolint:wrapcheck // answered by fail
+	}
+	if perms.Manage {
+		return envScope{manage: true}, nil
+	}
+	envs, err := a.svc().OpenableEnvironments(ctx, c.actor, st)
+	if err != nil {
+		return envScope{}, err //nolint:wrapcheck // answered by fail
+	}
+	open := make(map[string]bool, len(envs))
+	for _, e := range envs {
+		open[e.Name] = true
+	}
+	return envScope{open: open}, nil
+}
+
+func (s envScope) sees(env string) bool { return s.manage || s.open[env] }
+
+// names keeps what the caller may know of: for someone who does not manage
+// the site, the environments they can open, and none of the other reasons
+// (an application's pin, a pending approval), which are the managers' too.
+func (s envScope) names(in []string) []string {
+	out := []string{}
+	for _, n := range in {
+		if s.sees(n) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// releaseView is a release as the caller may see it: where it came from (a
+// connection and bucket, an archive, a crawled origin) is for the managers.
+func (s envScope) releaseView(st *site.Site, rel site.Release, kept []string) ReleaseView {
+	if kept == nil || rel.Pruned {
+		kept = []string{}
+	}
+	if !s.manage {
+		rel.Source = ""
+	}
+	return ReleaseView{Release: rel, ServedIn: s.names(servedIn(st, rel.Number)), KeptBy: s.names(kept)}
+}
+
+// scopedSite is a site a request names and what the caller may know of its
+// environments.
+type scopedSite struct {
+	*site.Site
+	scope envScope
+}
+
+// siteAndScope resolves the site a request names and what the caller may know
+// of its environments, answering the request itself on a failure.
+func (a *portalAPI) siteAndScope(w http.ResponseWriter, r *http.Request) (*scopedSite, *http.Request, bool) {
+	c, r, ok := a.who(w, r)
+	if !ok {
+		return nil, nil, false
+	}
+	st, err := a.svc().Find(r.Context(), r.PathValue(paramSite))
+	if err != nil {
+		fail(w, r, err)
+		return nil, nil, false
+	}
+	scope, err := a.scopeOf(r.Context(), c, st)
+	if err != nil {
+		fail(w, r, err)
+		return nil, nil, false
+	}
+	return &scopedSite{Site: st, scope: scope}, r, true
 }
 
 // canCreate reports whether the caller's persona may create a site: it holds
@@ -368,7 +451,7 @@ func (a *portalAPI) get(w http.ResponseWriter, r *http.Request) {
 // update handles PATCH /api/v1/portal/sites/{site}.
 //
 // @Summary      Change a site
-// @Description  Changes the description and the owner (owner and administrators).
+// @Description  Changes the description and the owner (owner and administrators), and the resource folders the site serves as media at URL prefixes (media: the whole list, [] for none; anyone who manages the site, for folders they can read; a mounted folder's files are public on a public environment and its HTML, SVG, JavaScript and XML are sent as downloads).
 // @Tags         Sites
 // @Accept       json
 // @Produce      json
@@ -391,7 +474,7 @@ func (a *portalAPI) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	st, err := a.svc().Update(r.Context(), c.actor, r.PathValue(paramSite), sitesvc.UpdateRequest{
-		Description: in.Description, Owner: in.Owner,
+		Description: in.Description, Owner: in.Owner, Media: in.Media,
 	})
 	a.record(r.Context(), c, sitetool.CmdUpdate, map[string]any{paramSite: r.PathValue(paramSite)}, err)
 	if err != nil {
@@ -430,7 +513,7 @@ func (a *portalAPI) remove(w http.ResponseWriter, r *http.Request) {
 // releases handles GET /api/v1/portal/sites/{site}/releases.
 //
 // @Summary      List a site's releases
-// @Description  Newest first, each with the environments serving it.
+// @Description  Newest first, each with the environments serving it and what keeps it from the next cleanup. Someone who does not manage the site sees only the environments they can open, and no release's source.
 // @Tags         Sites
 // @Produce      json
 // @Param        site  path      string  true  "Site name or id"
@@ -440,21 +523,34 @@ func (a *portalAPI) remove(w http.ResponseWriter, r *http.Request) {
 // @Security     BearerAuth
 // @Router       /portal/sites/{site}/releases [get]
 func (a *portalAPI) releases(w http.ResponseWriter, r *http.Request) {
-	st, err := a.svc().Find(r.Context(), r.PathValue(paramSite))
+	ss, r, ok := a.siteAndScope(w, r)
+	if !ok {
+		return
+	}
+	rels, err := a.svc().Store.Releases(r.Context(), ss.ID)
 	if err != nil {
 		fail(w, r, err)
 		return
 	}
-	rels, err := a.svc().Store.Releases(r.Context(), st.ID)
+	kept, err := a.keptBy(r, ss.ID)
 	if err != nil {
 		fail(w, r, err)
 		return
 	}
 	out := ReleaseList{Releases: make([]ReleaseView, 0, len(rels))}
 	for _, rel := range rels {
-		out.Releases = append(out.Releases, ReleaseView{Release: rel, ServedIn: servedIn(st, rel.Number)})
+		out.Releases = append(out.Releases, ss.scope.releaseView(ss.Site, rel, kept[rel.Number]))
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// keptBy is what keeps each of the site's releases; none where the deployment
+// runs without the store (a test of the routes alone).
+func (a *portalAPI) keptBy(r *http.Request, siteID string) (map[int][]string, error) {
+	if a.d.Runtime.Store == nil {
+		return map[int][]string{}, nil
+	}
+	return a.d.Runtime.Store.KeptBy(r.Context(), siteID) //nolint:wrapcheck // the store's own sentence
 }
 
 func servedIn(st *site.Site, number int) []string {
@@ -470,7 +566,7 @@ func servedIn(st *site.Site, number int) []string {
 // release handles GET /api/v1/portal/sites/{site}/releases/{number}.
 //
 // @Summary      Read a release
-// @Description  The release's file list and redirect map. Its files are served only on the site's own origins, never by this route.
+// @Description  The release's file list and redirect map. Its files are served only on the site's own origins, never by this route. Someone who does not manage the site sees only the environments they can open, and not its source.
 // @Tags         Sites
 // @Produce      json
 // @Param        site    path      string  true  "Site name or id"
@@ -481,9 +577,8 @@ func servedIn(st *site.Site, number int) []string {
 // @Security     BearerAuth
 // @Router       /portal/sites/{site}/releases/{number} [get]
 func (a *portalAPI) release(w http.ResponseWriter, r *http.Request) {
-	st, err := a.svc().Find(r.Context(), r.PathValue(paramSite))
-	if err != nil {
-		fail(w, r, err)
+	ss, r, ok := a.siteAndScope(w, r)
+	if !ok {
 		return
 	}
 	number, err := strconv.Atoi(r.PathValue("number"))
@@ -491,19 +586,26 @@ func (a *portalAPI) release(w http.ResponseWriter, r *http.Request) {
 		httpjson.WriteError(w, http.StatusBadRequest, "number: a release number")
 		return
 	}
-	rel, err := a.svc().Store.Release(r.Context(), st.ID, number)
+	rel, err := a.svc().Store.Release(r.Context(), ss.ID, number)
 	if err != nil {
 		fail(w, r, err)
 		return
 	}
-	files, err := a.svc().Store.Files(r.Context(), rel.ID)
+	files := []site.File{}
+	if !rel.Pruned {
+		// A pruned release's own rows are gone, and resolving its chain would
+		// read a kept ancestor's files as if they were its own.
+		if files, err = a.svc().Store.Files(r.Context(), rel.ID); err != nil {
+			fail(w, r, err)
+			return
+		}
+	}
+	kept, err := a.keptBy(r, ss.ID)
 	if err != nil {
 		fail(w, r, err)
 		return
 	}
-	out := ReleaseDetail{Files: files}
-	out.Release, out.ServedIn = *rel, servedIn(st, number)
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, http.StatusOK, ReleaseDetail{ReleaseView: ss.scope.releaseView(ss.Site, *rel, kept[number]), Files: files})
 }
 
 // compare handles GET /api/v1/portal/sites/{site}/compare.
@@ -521,6 +623,10 @@ func (a *portalAPI) release(w http.ResponseWriter, r *http.Request) {
 // @Security     BearerAuth
 // @Router       /portal/sites/{site}/compare [get]
 func (a *portalAPI) compare(w http.ResponseWriter, r *http.Request) {
+	_, r, ok := a.who(w, r)
+	if !ok {
+		return
+	}
 	q := r.URL.Query()
 	to, err := strconv.Atoi(q.Get("to"))
 	if err != nil {
@@ -566,7 +672,7 @@ func (a *portalAPI) applicationAddresses(w http.ResponseWriter, r *http.Request)
 // deployments handles GET /api/v1/portal/sites/{site}/deployments.
 //
 // @Summary      A site's history
-// @Description  Every move of the site's environments, newest first, or of one environment.
+// @Description  Every move of the site's environments, newest first, or of one environment. Someone who does not manage the site sees the moves of the environments they can open.
 // @Tags         Sites
 // @Produce      json
 // @Param        site         path      string  true   "Site name or id"
@@ -577,16 +683,19 @@ func (a *portalAPI) applicationAddresses(w http.ResponseWriter, r *http.Request)
 // @Security     BearerAuth
 // @Router       /portal/sites/{site}/deployments [get]
 func (a *portalAPI) deployments(w http.ResponseWriter, r *http.Request) {
-	st, err := a.svc().Find(r.Context(), r.PathValue(paramSite))
+	ss, r, ok := a.siteAndScope(w, r)
+	if !ok {
+		return
+	}
+	env, _ := site.CanonicalEnvironment(r.URL.Query().Get("environment"))
+	list, err := a.svc().Store.Deployments(r.Context(), ss.ID, env, 0)
 	if err != nil {
 		fail(w, r, err)
 		return
 	}
-	env, _ := site.CanonicalEnvironment(r.URL.Query().Get("environment"))
-	list, err := a.svc().Store.Deployments(r.Context(), st.ID, env, 0)
-	if err != nil {
-		fail(w, r, err)
-		return
+	list = slices.DeleteFunc(list, func(d site.Deployment) bool { return !ss.scope.sees(d.Environment) })
+	if list == nil {
+		list = []site.Deployment{}
 	}
 	writeJSON(w, http.StatusOK, DeploymentList{Deployments: list})
 }

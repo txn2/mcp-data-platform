@@ -2,6 +2,7 @@ package sitesvc
 
 import (
 	"context"
+	"fmt"
 	"slices"
 
 	"github.com/txn2/mcp-data-platform/internal/site"
@@ -26,17 +27,17 @@ func (s *Service) Compare(ctx context.Context, ref string, from, to int) (*Compa
 	if err != nil {
 		return nil, err
 	}
-	return s.compareTree(ctx, st.ID, comparePair{from, to}, site.TreeOutput)
+	return s.compareTree(ctx, st, comparePair{from, to}, site.TreeOutput)
 }
 
 // comparePair is two release numbers, the first 0 for no release yet.
 type comparePair struct{ from, to int }
 
-func (s *Service) compareTree(ctx context.Context, siteID string, pair comparePair, tree string) (*Comparison, error) {
+func (s *Service) compareTree(ctx context.Context, st *site.Site, pair comparePair, tree string) (*Comparison, error) {
 	from, to := pair.from, pair.to
-	target, err := s.Store.Release(ctx, siteID, to)
+	target, err := s.comparable(ctx, st, to)
 	if err != nil {
-		return nil, err //nolint:wrapcheck // read by identity
+		return nil, err
 	}
 	targetFiles, err := s.treeFiles(ctx, target, tree)
 	if err != nil {
@@ -45,8 +46,8 @@ func (s *Service) compareTree(ctx context.Context, siteID string, pair comparePa
 	base := &site.Release{Redirects: []site.Redirect{}}
 	baseFiles := []site.File{}
 	if from != 0 {
-		if base, err = s.Store.Release(ctx, siteID, from); err != nil {
-			return nil, err //nolint:wrapcheck // read by identity
+		if base, err = s.comparable(ctx, st, from); err != nil {
+			return nil, err
 		}
 		if baseFiles, err = s.treeFiles(ctx, base, tree); err != nil {
 			return nil, err
@@ -57,6 +58,22 @@ func (s *Service) compareTree(ctx context.Context, siteID string, pair comparePa
 	out.RedirectsAdded = missingFrom(target.Redirects, base.Redirects)
 	out.RedirectsRemoved = missingFrom(base.Redirects, target.Redirects)
 	return out, nil
+}
+
+// comparable reads a release a comparison or a diff reads, refusing a pruned
+// one: its own file rows are gone, and its chain would read a kept ancestor's
+// files as its own. The refusal names the release alone, since Compare
+// answers anyone who can find the site and the site's environments and their
+// limits are its managers' to know.
+func (s *Service) comparable(ctx context.Context, st *site.Site, number int) (*site.Release, error) {
+	rel, err := s.Store.Release(ctx, st.ID, number)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // read by identity
+	}
+	if rel.Pruned {
+		return nil, &RefusedError{Err: site.ErrPruned, Msg: fmt.Sprintf("release %d was removed by the release limit, so it cannot be compared", number)}
+	}
+	return rel, nil
 }
 
 func compareFiles(base, target []site.File) *Comparison {

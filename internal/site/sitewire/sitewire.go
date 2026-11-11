@@ -19,16 +19,21 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/application/appstore"
 	"github.com/txn2/mcp-data-platform/internal/approval"
+	"github.com/txn2/mcp-data-platform/internal/bucketsource"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
 	"github.com/txn2/mcp-data-platform/internal/platform/settingsjson"
 	"github.com/txn2/mcp-data-platform/internal/site"
 	"github.com/txn2/mcp-data-platform/internal/site/sitecrawl"
+	"github.com/txn2/mcp-data-platform/internal/site/sitegw"
+	"github.com/txn2/mcp-data-platform/internal/site/siteprune"
 	"github.com/txn2/mcp-data-platform/internal/site/sitestore"
 	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
 	"github.com/txn2/mcp-data-platform/internal/site/sitetool"
 	"github.com/txn2/mcp-data-platform/internal/unarchive"
+	"github.com/txn2/mcp-data-platform/pkg/blobserve"
+	"github.com/txn2/mcp-data-platform/pkg/portal/s3adapter"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
@@ -46,6 +51,9 @@ type Deps struct {
 	ReservedURLs []string
 	Approvals    *approval.Service
 	Sources      *scriptsrc.Reader
+	// Buckets reads a bucket prefix on an S3 connection as the caller, the
+	// source a publish names with from_bucket (#2593); nil refuses it.
+	Buckets *bucketsource.Access
 }
 
 // Runtime is the assembled feature.
@@ -65,6 +73,12 @@ type Runtime struct {
 	Crawler sitetool.Crawler
 	// Content answers manage_asset's content actions for a site reference.
 	Content *sitetool.Content
+	// Prune is the release sweep (#2602), run on a schedule by the serving
+	// layer and on an administrator's request.
+	Prune *siteprune.Runner
+	// Media is what a site's mounted resource folders serve (#2591); nil
+	// where the deployment has no managed-resource library.
+	Media sitegw.Media
 	// PortalURL and CookieDomain are what a saved pages domain is checked against.
 	PortalURL    string
 	CookieDomain string
@@ -121,6 +135,7 @@ func Register(server *mcp.Server, d Deps) (*Runtime, error) {
 	store := sitestore.New(d.DB)
 	apps := appstore.New(d.DB)
 	live := siteconfig.NewLive(d.Config)
+	store.KeepDefault = func() int { return live.Get().Releases.Keep() }
 	svc := &sitesvc.Service{
 		Store: store, Bucket: d.Bucket, Config: d.Config, Live: live, Apps: apps,
 		PortalHost: site.NormalizeHost(portal.Hostname()), ReservedHosts: append(reservedHosts(d.ReservedURLs), d.Config.ReservedHostnames...), CookieDomain: d.CookieDomain,
@@ -132,9 +147,12 @@ func Register(server *mcp.Server, d Deps) (*Runtime, error) {
 	if d.Approvals != nil {
 		svc.Approvals = d.Approvals
 	}
+	if d.Sources != nil {
+		svc.MediaFolders, svc.MediaStore = mediaFolders{reader: d.Sources}, store
+	}
 	tool := &sitetool.Tool{Service: svc, PortalURL: d.PortalURL}
 	if d.Sources != nil {
-		tool.Sources = sources{reader: d.Sources, live: live}
+		tool.Sources = sources{reader: d.Sources, live: live, buckets: d.Buckets}
 	}
 	crawler, err := sitecrawl.New(d.Config.Crawl)
 	if err != nil {
@@ -146,9 +164,28 @@ func Register(server *mcp.Server, d Deps) (*Runtime, error) {
 		Service: svc, Store: store, Config: d.Config, Apps: apps, Live: live,
 		Settings: settingsjson.New[siteconfig.Settings](d.DB, siteconfig.SettingsSection),
 		Sources:  tool.Sources, Crawler: crawler, PortalURL: d.PortalURL, CookieDomain: d.CookieDomain,
+		Prune: pruner(d, store, svc, live),
+	}
+	if d.Sources != nil {
+		rt.Media = mediaSource{store: store, reader: d.Sources}
 	}
 	err = rt.Refresh(context.Background())
 	return rt, err
+}
+
+// pruner is the release sweep over the store and the bucket sites are stored
+// in; it lists the bucket for orphans where the client can.
+func pruner(d Deps, store *sitestore.Store, svc *sitesvc.Service, live *siteconfig.Live) *siteprune.Runner {
+	r := &siteprune.Runner{DB: d.DB, Store: store, Bucket: d.Bucket, Config: live.Get}
+	if svc.Objects != nil {
+		r.Objects = svc.Objects
+		if w, ok := svc.Objects.(interface {
+			Walk(ctx context.Context, bucket, prefix string, fn func(s3adapter.WalkedObject) error) error
+		}); ok {
+			r.Walker = w
+		}
+	}
+	return r
 }
 
 // reservedHosts are the hostnames of the platform's other addresses.
@@ -238,8 +275,9 @@ func (rt *Runtime) SiteOrigins(ctx context.Context, applicationID string) []stri
 
 // sources reads what a publish names by reference, as its caller.
 type sources struct {
-	reader *scriptsrc.Reader
-	live   *siteconfig.Live
+	reader  *scriptsrc.Reader
+	live    *siteconfig.Live
+	buckets *bucketsource.Access
 }
 
 func (s sources) limits() siteconfig.Config { return s.live.Get().Limits() }
@@ -252,17 +290,10 @@ func (s sources) Archive(ctx context.Context, ref string) ([]sitesvc.InputFile, 
 	if err != nil {
 		return nil, &sitesvc.RefusedError{Msg: err.Error()}
 	}
-	body, err := s.reader.Bytes(ctx, res, limits.MaxReleaseBytes)
+	src, err := s.archiveSource(ctx, res, limits.MaxReleaseBytes)
 	if err != nil {
 		return nil, &sitesvc.RefusedError{Msg: err.Error()}
 	}
-	src := unarchive.Source{Name: res.Filename, Size: int64(len(body)), Fetch: func(_ context.Context, off, length int64) ([]byte, error) {
-		end := min(off+length, int64(len(body)))
-		if off >= end {
-			return nil, nil
-		}
-		return body[off:end], nil
-	}}
 	archive, err := unarchive.Open(ctx, src, "", unarchive.Limits{
 		MaxMemberBytes: limits.MaxFileBytes, MaxTotalBytes: limits.MaxReleaseBytes, MaxMembers: limits.MaxFiles + 1,
 	})
@@ -282,6 +313,34 @@ func (s sources) Archive(ctx context.Context, ref string) ([]sitesvc.InputFile, 
 		return nil, &sitesvc.RefusedError{Msg: "the archive cannot be published: " + err.Error()}
 	}
 	return files, nil
+}
+
+// archiveSource reads an archive where it is stored, by range, so a source
+// tree of thousands of files is never held whole as well as member by member
+// (#2593); a library whose store cannot read ranges is read whole, within the
+// release's byte limit.
+func (s sources) archiveSource(ctx context.Context, res *resource.Resource, limit int64) (unarchive.Source, error) {
+	blobs, bucket := s.reader.Blobs()
+	if ranger, ok := blobs.(blobserve.RangeReader); ok && res.SizeBytes > 0 {
+		return unarchive.Source{Name: res.Filename, Size: res.SizeBytes, Fetch: func(ctx context.Context, off, length int64) ([]byte, error) {
+			body, _, err := ranger.GetObjectRange(ctx, bucket, res.S3Key, off, length)
+			if err != nil {
+				return nil, fmt.Errorf("reading %s: %w", res.Filename, err)
+			}
+			return body, nil
+		}}, nil
+	}
+	body, err := s.reader.Bytes(ctx, res, limit)
+	if err != nil {
+		return unarchive.Source{}, err //nolint:wrapcheck // the reader's own sentence
+	}
+	return unarchive.Source{Name: res.Filename, Size: int64(len(body)), Fetch: func(_ context.Context, off, length int64) ([]byte, error) {
+		end := min(off+length, int64(len(body)))
+		if off >= end {
+			return nil, nil
+		}
+		return body[off:end], nil
+	}}, nil
 }
 
 // Folder reads a managed-resource folder's files.

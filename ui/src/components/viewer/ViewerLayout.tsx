@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { ChevronLeft, ChevronRight, Info } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, Info } from "lucide-react";
 import { PageHeader } from "@/components/patterns/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -20,6 +20,15 @@ interface ViewerLayoutProps {
   sidebar?: ReactNode;
   /** Whether the sidebar is showing when the page opens. */
   sidebarInitiallyOpen?: boolean;
+  /** The sidebar held by the caller, which a phone opens from its More menu
+   * (#2601); left out, the layout holds it. */
+  sidebarOpen?: boolean;
+  onSidebarOpenChange?: (open: boolean) => void;
+  /** On a phone, the compact title block: a back arrow beside a title of up to
+   * two lines and a quiet line under it, with no actions row; the caller puts
+   * its actions on the content's toolbar and the details toggle in More
+   * (#2601). */
+  phoneHeader?: boolean;
   /** The record's content, at the full width the sidebar leaves it. */
   children: ReactNode;
 }
@@ -46,12 +55,18 @@ export function ViewerLayout({
   actions,
   sidebar,
   sidebarInitiallyOpen = false,
+  sidebarOpen: heldOpen,
+  onSidebarOpenChange,
+  phoneHeader = false,
   children,
 }: ViewerLayoutProps) {
-  const [sidebarOpen, setSidebarOpen] = useState(sidebarInitiallyOpen);
+  const [ownOpen, setOwnOpen] = useState(sidebarInitiallyOpen);
+  const sidebarOpen = heldOpen ?? ownOpen;
+  const setSidebarOpen = onSidebarOpenChange ?? setOwnOpen;
   // On a phone the details open under the content, not beside it, so the
   // toggle is an information icon rather than an arrow pointing sideways.
   const isMobile = useIsMobile();
+  const compact = isMobile && phoneHeader;
 
   return (
     // Below lg the sidebar is stacked under the content rather than beside it:
@@ -63,28 +78,17 @@ export function ViewerLayout({
           height left under the header and the controls, so the page fits the
           viewport with its own padding under the content. */}
       <div data-testid="viewer-content" className="flex min-w-0 flex-1 flex-col gap-3">
-        <PageHeader
-          onBack={onBack}
-          title={<span className="min-w-0 truncate">{title}</span>}
-          subtitle={subtitle}
-          actions={
-            <>
-              {actions}
-              {sidebar && (
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => setSidebarOpen(!sidebarOpen)}
-                  title={sidebarOpen ? "Hide details" : "Show details"}
-                  aria-label={sidebarOpen ? "Hide details" : "Show details"}
-                  aria-pressed={isMobile ? sidebarOpen : undefined}
-                >
-                  {isMobile ? <Info /> : sidebarOpen ? <ChevronRight /> : <ChevronLeft />}
-                </Button>
-              )}
-            </>
-          }
-        />
+        {compact ? (
+          <PhoneTitle onBack={onBack} title={title} subtitle={subtitle} />
+        ) : (
+          <DesktopHeader
+            onBack={onBack}
+            title={title}
+            subtitle={subtitle}
+            actions={actions}
+            toggle={sidebar ? <DetailsToggle open={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} phone={isMobile} /> : null}
+          />
+        )}
         {children}
       </div>
 
@@ -94,5 +98,84 @@ export function ViewerLayout({
         </Card>
       )}
     </div>
+  );
+}
+
+/** PhoneTitle is a phone's title block: the way back as an arrow beside the
+ * title, which takes two lines before it truncates, and one quiet line under it
+ * (#2601). */
+function PhoneTitle({
+  onBack,
+  title,
+  subtitle,
+}: {
+  onBack: () => void;
+  title: ReactNode;
+  subtitle?: ReactNode;
+}) {
+  return (
+    <div className="-ml-2 flex items-start gap-1" data-testid="phone-title">
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        onClick={onBack}
+        aria-label="Back"
+        title="Back"
+        className="mt-0.5 shrink-0 text-muted-foreground"
+      >
+        <ArrowLeft />
+      </Button>
+      <div className="min-w-0 pt-1">
+        <h2 className="line-clamp-2 text-[17px] leading-[22px] font-semibold break-words">
+          {title}
+        </h2>
+        {subtitle && (
+          <div className="mt-1 text-xs leading-4 text-muted-foreground">
+            {subtitle}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** DesktopHeader is the page header with the record's actions and the
+ * details toggle beside them. */
+function DesktopHeader({
+  onBack,
+  title,
+  subtitle,
+  actions,
+  toggle,
+}: {
+  onBack: () => void;
+  title: ReactNode;
+  subtitle?: ReactNode;
+  actions?: ReactNode;
+  toggle: ReactNode;
+}) {
+  return (
+    <PageHeader
+      onBack={onBack}
+      title={<span className="min-w-0 truncate">{title}</span>}
+      subtitle={subtitle}
+      actions={
+        <>
+          {actions}
+          {toggle}
+        </>
+      }
+    />
+  );
+}
+
+/** DetailsToggle shows or hides the details: an arrow beside the content, an
+ * information icon on a phone, where they open under it. */
+function DetailsToggle({ open, onToggle, phone }: { open: boolean; onToggle: () => void; phone: boolean }) {
+  const label = open ? "Hide details" : "Show details";
+  return (
+    <Button variant="ghost" size="icon-sm" onClick={onToggle} title={label} aria-label={label} aria-pressed={phone ? open : undefined}>
+      {phone ? <Info /> : open ? <ChevronRight /> : <ChevronLeft />}
+    </Button>
   );
 }

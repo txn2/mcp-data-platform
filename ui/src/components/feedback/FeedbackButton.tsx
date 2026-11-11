@@ -16,6 +16,9 @@ interface Props {
   // canModerate hints that the caller owns/edits the target, so moderation
   // controls show without a round-trip. The backend still enforces access.
   canModerate?: boolean;
+  // compact is the icon form a phone's one-row toolbar takes (#2601): the
+  // speech bubble with the open-thread count on it.
+  compact?: boolean;
 }
 
 // FeedbackButton is the single drop-in entry point a viewer mounts in its
@@ -32,7 +35,7 @@ export function FeedbackButton(props: Props) {
   return feedback ? <FeedbackToggle {...props} /> : null;
 }
 
-function FeedbackToggle({ target, canModerate = false }: Props) {
+function FeedbackToggle({ target, canModerate = false, compact = false }: Props) {
   const [open, setOpen] = useState(false);
   const slot = useContext(ItemPanelSlot);
   useDeckArrowKeys(open);
@@ -44,20 +47,37 @@ function FeedbackToggle({ target, canModerate = false }: Props) {
 
   return (
     <>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={() => setOpen(true)}
-        title="Feedback"
-      >
-        <MessageSquare />
-        Feedback
-        {openCount > 0 && <Badge className="px-1.5 text-[11px]">{openCount}</Badge>}
-      </Button>
+      {compact ? (
+        <CompactButton openCount={openCount} onOpen={() => setOpen(true)} />
+      ) : (
+        <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)} title="Feedback">
+          <MessageSquare />
+          Feedback
+          {openCount > 0 && <Badge className="px-1.5 text-[11px]">{openCount}</Badge>}
+        </Button>
+      )}
 
       {open && placePanel(<FeedbackPanel target={target} canModerate={canModerate} onClose={() => setOpen(false)} />, slot)}
     </>
+  );
+}
+
+/** CompactButton is Feedback as an icon with the open-thread count on it, for
+ * a phone's one-row toolbar (#2601). */
+function CompactButton({ openCount, onOpen }: { openCount: number; onOpen: () => void }) {
+  const label = openCount > 0 ? `Feedback, ${openCount} open ${openCount === 1 ? "thread" : "threads"}` : "Feedback";
+  return (
+    <Button type="button" variant="outline" size="icon-sm" onClick={onOpen} title="Feedback" aria-label={label} className="relative">
+      <MessageSquare />
+      {openCount > 0 && (
+        <span
+          aria-hidden
+          className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground"
+        >
+          {openCount}
+        </span>
+      )}
+    </Button>
   );
 }
 

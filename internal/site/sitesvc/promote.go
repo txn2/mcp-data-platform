@@ -2,11 +2,14 @@ package sitesvc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/approval"
 	"github.com/txn2/mcp-data-platform/internal/site"
+	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
 )
 
 // PromoteRequest is one promotion: the release an environment serves, or one
@@ -88,7 +91,7 @@ func (s *Service) promotable(ctx context.Context, st *site.Site, req PromoteRequ
 		}
 		number = from.Release
 	}
-	return s.Store.Release(ctx, st.ID, number) //nolint:wrapcheck // read by identity
+	return s.liveRelease(ctx, st, number)
 }
 
 // approvedOrRequest is nil when the promotion may go ahead, or the request it
@@ -135,7 +138,14 @@ func (s *Service) Rollback(ctx context.Context, actor Actor, ref, environment st
 	if err != nil {
 		return nil, err //nolint:wrapcheck // read by identity
 	}
-	target, err := rollbackTarget(env, history, to)
+	gone, err := s.prunedNumbers(ctx, st.ID)
+	if err != nil {
+		return nil, err
+	}
+	target, err := rollbackTarget(env, history, to, gone)
+	if errors.Is(err, site.ErrPruned) {
+		return nil, prunedRefusal(st, to)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +155,10 @@ func (s *Service) Rollback(ctx context.Context, actor Actor, ref, environment st
 	return &Promoted{Environment: env.Name, Release: target, URL: s.Address(ctx, st, env.Name), Status: site.ActionRollback}, nil
 }
 
-func rollbackTarget(env *site.Environment, history []site.Deployment, to int) (int, error) {
+// rollbackTarget is the release a rollback returns to: the one named, which the
+// environment must have served and which must not be pruned, or the newest
+// kept release it served before the current one.
+func rollbackTarget(env *site.Environment, history []site.Deployment, to int, gone map[int]bool) (int, error) {
 	served := make([]int, 0, len(history))
 	for _, d := range history {
 		if d.To != env.Release {
@@ -153,21 +166,99 @@ func rollbackTarget(env *site.Environment, history []site.Deployment, to int) (i
 		}
 	}
 	if to != 0 {
-		if !slices.Contains(served, to) {
-			return 0, refused("environment %q has not served release %d; a release it never served is reached by promote", env.Name, to)
-		}
-		return to, nil
+		return namedTarget(env, served, to, gone)
 	}
-	// The newest release it served that is older than the current one, so a
-	// second rollback keeps going back rather than returning.
+	return previousTarget(env, served, gone)
+}
+
+// namedTarget checks the release a rollback names.
+func namedTarget(env *site.Environment, served []int, to int, gone map[int]bool) (int, error) {
+	switch {
+	case !slices.Contains(served, to):
+		return 0, refused("environment %q has not served release %d; a release it never served is reached by promote", env.Name, to)
+	case gone[to]:
+		return 0, site.ErrPruned
+	}
+	return to, nil
+}
+
+// previousTarget is the newest kept release the environment served that is
+// older than the current one, so a second rollback keeps going back rather
+// than returning.
+func previousTarget(env *site.Environment, served []int, gone map[int]bool) (int, error) {
 	before := 0
 	for _, n := range served {
-		if n < env.Release && n > before {
+		if n < env.Release && n > before && !gone[n] {
 			before = n
 		}
 	}
 	if before == 0 {
-		return 0, refused("environment %q has served no earlier release", env.Name)
+		return 0, refused("environment %q has served no earlier release it still keeps", env.Name)
 	}
 	return before, nil
+}
+
+// prunedNumbers is every release of the site a sweep pruned.
+func (s *Service) prunedNumbers(ctx context.Context, siteID string) (map[int]bool, error) {
+	rels, err := s.Store.Releases(ctx, siteID)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // read by identity
+	}
+	out := map[int]bool{}
+	for _, r := range rels {
+		if r.Pruned {
+			out[r.Number] = true
+		}
+	}
+	return out, nil
+}
+
+// Release retention (#2602): each environment keeps its last N releases, and a
+// sweep (internal/site/siteprune) prunes the rest. Lowering a limit deletes
+// rollback history at the next sweep, so changing one is the owner's or an
+// administrator's; a pruned release can be read as history and never served,
+// compared, promoted or rolled back to.
+
+// checkKeep refuses a limit out of range, and a change to it by anyone but the
+// site's owner or an administrator.
+func (s *Service) checkKeep(ctx context.Context, actor Actor, st *site.Site, c EnvironmentChange) error {
+	if c.Keep == nil && !c.KeepDefault {
+		return nil
+	}
+	if c.Keep != nil && (*c.Keep < 0 || *c.Keep > siteconfig.MaxKeepReleases) {
+		return refused("keep_releases: 0 (keep every release) to %d, or \"default\"", siteconfig.MaxKeepReleases)
+	}
+	if err := s.mayOwn(ctx, actor, st); err != nil {
+		return fmt.Errorf("only the owner of site %q or an administrator changes how many releases an environment keeps, since lowering it removes rollback history: %w",
+			st.Name, site.ErrNotAllowed)
+	}
+	return nil
+}
+
+// liveRelease reads a release that has not been pruned, or refuses it naming
+// the limits that removed it.
+func (s *Service) liveRelease(ctx context.Context, st *site.Site, number int) (*site.Release, error) {
+	rel, err := s.Store.Release(ctx, st.ID, number)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // read by identity
+	}
+	if rel.Pruned {
+		return nil, prunedRefusal(st, number)
+	}
+	return rel, nil
+}
+
+// prunedRefusal says a release is gone and which limits removed it.
+func prunedRefusal(st *site.Site, number int) error {
+	limits := make([]string, 0, len(st.Environments))
+	for _, e := range st.Environments {
+		if e.Keep == 0 {
+			limits = append(limits, e.Name+" keeps every release")
+			continue
+		}
+		limits = append(limits, fmt.Sprintf("%s keeps the last %d", e.Name, e.Keep))
+	}
+	return &RefusedError{Err: site.ErrPruned, Msg: fmt.Sprintf(
+		"release %d was removed by the release limit (%s, keep_releases): only a kept release can be served, compared, promoted or rolled back to",
+		number, strings.Join(limits, ", "))}
 }

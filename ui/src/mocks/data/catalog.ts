@@ -21,6 +21,9 @@ import type {
 export const mockCatalogConnections: CatalogConnection[] = [
   { kind: "trino", name: "acme-warehouse" },
   { kind: "api", name: "billing" },
+  // S3 connections a site can publish from (#2593); locked-s3 is refused.
+  { kind: "s3", name: "web-source" },
+  { kind: "s3", name: "locked-s3" },
 ];
 
 interface StoredDataset {

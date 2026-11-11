@@ -22,15 +22,21 @@ const VIEW_OPTIONS = [
   { value: "source" as const, label: "Source", icon: Code, text: "Source" },
 ];
 
+// ICON_VIEW_OPTIONS are the same two as icons alone, for a phone's one-row
+// toolbar (#2601); each keeps its name as its accessible name.
+const ICON_VIEW_OPTIONS = VIEW_OPTIONS.map(({ text: _text, ...rest }) => rest);
+
 /** Preview/Source switch, shown only for families the editor supports. */
 export function ViewModeToggle({
   show,
   viewMode,
   onSetViewMode,
+  iconOnly = false,
 }: {
   show: boolean;
   viewMode: ViewMode;
   onSetViewMode: (mode: ViewMode) => void;
+  iconOnly?: boolean;
 }) {
   if (!show) return null;
   return (
@@ -38,13 +44,13 @@ export function ViewModeToggle({
       label="Content view"
       value={viewMode}
       onChange={onSetViewMode}
-      options={VIEW_OPTIONS}
+      options={iconOnly ? ICON_VIEW_OPTIONS : VIEW_OPTIONS}
     />
   );
 }
 
 /** How a version names itself, in the trigger and in the list alike. */
-function versionLabel(version: number, currentVersion: number): string {
+export function versionLabel(version: number, currentVersion: number): string {
   return `v${version}${version === currentVersion ? " (current)" : ""}`;
 }
 
@@ -59,7 +65,7 @@ function versionLabel(version: number, currentVersion: number): string {
  * where a bare month and day stops identifying anything. A timestamp that will
  * not parse renders as nothing rather than "Invalid Date".
  */
-function versionTime(iso: string): string {
+export function versionTime(iso: string): string {
   if (!iso) return "";
   const at = new Date(iso);
   if (Number.isNaN(at.getTime())) return "";
@@ -82,6 +88,7 @@ export function VersionControls({
   viewingOldVersion,
   canRevert,
   onRevert,
+  compact = false,
 }: {
   asset: Asset;
   versions?: AssetVersion[];
@@ -90,6 +97,8 @@ export function VersionControls({
   viewingOldVersion: boolean;
   canRevert: boolean;
   onRevert: () => void;
+  /** compact is a phone's toolbar: the trigger names the version alone (#2601). */
+  compact?: boolean;
 }) {
   if (!versions || versions.length === 0 || !onSelectVersion) return null;
 
@@ -106,13 +115,13 @@ export function VersionControls({
           onSelectVersion(version === asset.current_version ? null : version);
         }}
       >
-        <SelectTrigger size="sm" aria-label="Asset version" className="w-36">
+        <SelectTrigger size="sm" aria-label="Asset version" className={compact ? "w-auto" : "w-36"}>
           {/*
             Giving SelectValue children stops Radix portaling the selected
             item's text into the trigger, which is what keeps the timestamp in
             the list and out of a trigger only 36 units wide.
           */}
-          <SelectValue>{versionLabel(shown, asset.current_version)}</SelectValue>
+          <SelectValue>{compact ? `v${shown}` : versionLabel(shown, asset.current_version)}</SelectValue>
         </SelectTrigger>
         <SelectContent>
           {versions.map((v) => {

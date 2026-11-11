@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/bucketsource"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
@@ -35,6 +36,12 @@ func (rangedBlobs) GetObjectRange(context.Context, string, string, int64, int64)
 // arguments.
 func extractAnswer(t *testing.T, h *Handle) string {
 	t.Helper()
+	return extractWith(t, h, map[string]any{"action": "extract", "reference": "not-a-reference", "path": "staging"})
+}
+
+// extractWith calls manage_resource with args through a real MCP session.
+func extractWith(t *testing.T, h *Handle, args map[string]any) string {
+	t.Helper()
 	server := mcp.NewServer(&mcp.Implementation{Name: "platform", Version: "v0"}, nil)
 	h.Toolkit().RegisterTools(server)
 	server.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
@@ -51,9 +58,7 @@ func extractAnswer(t *testing.T, h *Handle) string {
 	cs, err := mcp.NewClient(&mcp.Implementation{Name: "agent", Version: "v0"}, nil).Connect(t.Context(), ct, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cs.Close() })
-	res, err := cs.CallTool(t.Context(), &mcp.CallToolParams{Name: portalkit.ManageResourceToolName, Arguments: map[string]any{
-		"action": "extract", "reference": "not-a-reference", "path": "staging",
-	}})
+	res, err := cs.CallTool(t.Context(), &mcp.CallToolParams{Name: portalkit.ManageResourceToolName, Arguments: args})
 	require.NoError(t, err)
 	tc, ok := res.Content[0].(*mcp.TextContent)
 	require.True(t, ok)
@@ -136,4 +141,59 @@ func TestResourceSourcesOfNoHandleIsNil(t *testing.T) {
 	if h.ResourceSources() != nil {
 		t.Error("a nil handle has no library to read sources from")
 	}
+}
+
+// fakePrefixExtraction records what the prefix adapter handed the writer.
+type fakePrefixExtraction struct {
+	got resourcewrite.PrefixExtraction
+	out *resourcewrite.Extracted
+	err error
+}
+
+func (f *fakePrefixExtraction) ExtractPrefix(
+	_ context.Context, req resourcewrite.PrefixExtraction, _ resource.Claims,
+) (*resourcewrite.Extracted, error) {
+	f.got = req
+	return f.out, f.err
+}
+
+// TestPrefixAdapterCarriesEveryField holds the toolkit's and the writer's
+// copies of an extraction from a bucket prefix (#2593) to each other.
+func TestPrefixAdapterCarriesEveryField(t *testing.T) {
+	stop := errors.New("the object store answered AccessDenied")
+	f := &fakePrefixExtraction{
+		out: &resourcewrite.Extracted{Format: "bucket prefix", Members: []resourcewrite.ExtractedMember{{
+			Member: "logo.svg", Landing: toolkit.ResourceLanding{Reference: "mcp:resource:r1", Version: 1},
+		}}},
+		err: stop,
+	}
+	req := portalkit.PrefixExtraction{
+		Source: portalkit.BucketSource{Connection: "assets", Bucket: "web-media", Prefix: "drop/"},
+		Scope:  "persona", ScopeID: "web", Path: "media", Replace: true, Description: "d", Tags: []string{"t"}, ChangeSummary: "c", Index: "none",
+	}
+	out, err := prefixAdapter{x: f}.ExtractPrefix(context.Background(), req, resource.Claims{})
+	require.ErrorIs(t, err, stop)
+	assert.Equal(t, resourcewrite.PrefixExtraction{
+		Source: bucketsource.Source{Connection: "assets", Bucket: "web-media", Prefix: "drop/"},
+		Scope:  "persona", ScopeID: "web", Path: "media", Replace: true, Description: "d", Tags: []string{"t"}, ChangeSummary: "c", Index: "none",
+	}, f.got)
+	require.NotNil(t, out)
+	require.Len(t, out.Members, 1)
+	assert.Equal(t, "logo.svg", out.Members[0].Member)
+
+	f.out, f.err = nil, errors.New("refused")
+	out, err = prefixAdapter{x: f}.ExtractPrefix(context.Background(), req, resource.Claims{})
+	assert.Nil(t, out)
+	assert.EqualError(t, err, "refused")
+}
+
+func TestBindResourceWritesBindsThePrefixExtractor(t *testing.T) {
+	h := NewFromStores(Stores{}, nil, Config{Name: "portal"})
+	h.BindResourceWrites(ResourceWriteDeps{Store: stubStore{}, Blobs: rangedBlobs{}, Bucket: "b", Buckets: &bucketsource.Access{}})
+	args := map[string]any{"action": "extract", "path": "media", "from_bucket": map[string]any{"connection": "assets", "bucket": "b"}}
+	assert.Contains(t, extractWith(t, h, args), "no S3 connections", "a bound prefix extractor reaches the source")
+
+	unbound := NewFromStores(Stores{}, nil, Config{Name: "portal"})
+	unbound.BindResourceWrites(ResourceWriteDeps{Store: stubStore{}, Blobs: rangedBlobs{}, Bucket: "b"})
+	assert.Contains(t, extractWith(t, unbound, args), "cannot extract from a bucket")
 }

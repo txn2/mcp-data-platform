@@ -104,7 +104,7 @@ test.describe("Sites", () => {
     await expect(page.getByRole("row", { name: /web-team/ })).toContainText("dev");
     await expect(page.getByRole("row", { name: /Everyone internal/ })).toContainText("stage");
     await page.getByRole("button", { name: "Share", exact: true }).click();
-    const dialog = page.getByRole("dialog", { name: "Share stage" });
+    const dialog = page.getByRole("dialog", { name: "Share marketing" });
     await expect(dialog.getByRole("checkbox", { name: "stage" })).toBeChecked();
     await expect(dialog.getByRole("checkbox", { name: "dev" })).not.toBeChecked();
   });
@@ -120,7 +120,7 @@ test.describe("Sites", () => {
 
   test("a release lists its files and renders none of them", async ({ page }) => {
     await page.goto("/portal/sites/marketing/releases/12");
-    await expect(page.getByText("index.html")).toBeVisible();
+    await expect(page.getByRole("cell", { name: "index.html", exact: true })).toBeVisible();
     await expect(page.locator("iframe")).toHaveCount(0);
   });
 
@@ -160,7 +160,7 @@ test.describe("Sites", () => {
     }
     await page.goto("/portal/sites/marketing");
     await page.getByTestId("env-stage").getByRole("button", { name: "Share" }).click();
-    await expect(page.getByRole("dialog", { name: "Share stage" })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Share marketing" })).toBeVisible();
     await expect.poll(overflow, "the share dialog scrolls sideways").toBeLessThanOrEqual(0);
   });
 });

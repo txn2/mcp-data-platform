@@ -511,9 +511,9 @@ func TestZip64EntryCountIsRead(t *testing.T) {
 		t.Fatalf("count = %d, %v", count, err)
 	}
 	var le *LimitError
-	if _, err := Open(context.Background(), src.source("x.zip"), "", Limits{}); !errors.As(err, &le) ||
+	if _, err := Open(context.Background(), src.source("x.zip"), "", Limits{MaxMembers: 10000}); !errors.As(err, &le) ||
 		le.Limit != LimitMembers || le.Got != 1<<16 {
-		t.Errorf("an archive of 65536 entries under the 10000 default: %v", err)
+		t.Errorf("an archive of 65536 entries under a bound of 10000: %v", err)
 	}
 }
 

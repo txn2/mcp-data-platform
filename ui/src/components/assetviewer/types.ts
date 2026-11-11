@@ -39,6 +39,11 @@ export interface AssetViewerProps {
   sharePermission?: SharePermission;
   toolbarExtra?: ReactNode;
   /**
+   * toolbarExtra's compact form for a phone's one-row toolbar (#2601): the
+   * Feedback icon with its count. The shared page is a More item there.
+   */
+  phoneToolbarExtra?: ReactNode;
+  /**
    * The reader may put this asset into a collection from the viewer (#2260).
    * The portal's own viewer sets it; the admin viewer reads assets it does not
    * file.

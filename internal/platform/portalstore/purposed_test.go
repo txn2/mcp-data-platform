@@ -14,6 +14,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/objectobs"
 	"github.com/txn2/mcp-data-platform/internal/outbound"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
+	"github.com/txn2/mcp-data-platform/pkg/portal/s3adapter"
 )
 
 // observedS3 stands in for the portal's adapter: it reports each operation
@@ -88,4 +89,37 @@ func TestPurposedClients(t *testing.T) {
 	assert.Contains(t, body, `storage_operations_total{operation="delete",purpose="exports",result="ok"} 1`)
 	assert.Contains(t, body, `storage_operations_total{operation="put",purpose="script_outputs",result="ok"} 1`)
 	assert.Contains(t, body, `storage_operations_total{operation="put",purpose="portal_assets",result="ok"} 1`)
+}
+
+// walkingS3 is a backend that lists a bucket and counts its listings.
+type walkingS3 struct {
+	observedS3
+	walks int
+}
+
+func (w *walkingS3) Walk(_ context.Context, _, _ string, fn func(s3adapter.WalkedObject) error) error {
+	w.walks++
+	return fn(s3adapter.WalkedObject{Key: "sites/x/objects/a"})
+}
+
+// The purposed view passes a listing through, so the site release sweep finds
+// orphans through it (#2602), and says when the backend cannot list.
+func TestPurposedClients_Walk(t *testing.T) {
+	ctx := context.Background()
+	inner := &walkingS3{}
+	view := (&Handle{s3Client: inner}).ScriptS3Client()
+	w, ok := view.(interface {
+		Walk(ctx context.Context, bucket, prefix string, fn func(s3adapter.WalkedObject) error) error
+	})
+	require.True(t, ok)
+	var keys []string
+	require.NoError(t, w.Walk(ctx, "b", "sites/", func(o s3adapter.WalkedObject) error { keys = append(keys, o.Key); return nil }))
+	assert.Equal(t, []string{"sites/x/objects/a"}, keys)
+	assert.Equal(t, 1, inner.walks)
+
+	cannot, ok := (&Handle{s3Client: &observedS3{}}).ScriptS3Client().(interface {
+		Walk(ctx context.Context, bucket, prefix string, fn func(s3adapter.WalkedObject) error) error
+	})
+	require.True(t, ok)
+	require.ErrorIs(t, cannot.Walk(ctx, "b", "", func(s3adapter.WalkedObject) error { return nil }), errNoWalk)
 }
