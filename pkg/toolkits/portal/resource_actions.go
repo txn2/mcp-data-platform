@@ -108,6 +108,9 @@ type manageResourceInput struct {
 	Force bool `json:"force,omitempty"`
 	// Members is the glob an extract selects archive members with.
 	Members string `json:"members,omitempty"`
+	// FromBucket is a bucket prefix an extract writes out in place of an
+	// archive (#2593).
+	FromBucket *BucketSource `json:"from_bucket,omitempty"`
 	// Limit and Offset page a listing.
 	Limit  int `json:"limit,omitempty"`
 	Offset int `json:"offset,omitempty"`

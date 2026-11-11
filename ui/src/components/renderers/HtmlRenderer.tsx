@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { FileDown, LayoutGrid, Presentation } from "lucide-react";
 import { DECK_FRAME_ATTR, isSlideDeck, overviewMessage } from "@/lib/deck";
@@ -9,6 +9,7 @@ import { withLocalRefs } from "@/lib/localRefs";
 import { useAuthStore } from "@/stores/auth";
 import { ASSET_FRAME_ALLOW, ASSET_FRAME_SANDBOX } from "./assetFrame";
 import { withFormQuery } from "./formFrames";
+import { DocActionsContext, type DocAction } from "./docActions";
 
 /**
  * Whether this browser lets a page fullscreen an element it holds. Read once
@@ -133,7 +134,29 @@ export function HtmlRenderer({ content, controlsSlot, pdfUrl }: Props) {
       .finally(() => setExporting(false));
   }, [pdfUrl]);
 
-  const controls = (
+  // A page that takes the document's controls as data (the asset page on a
+  // phone, #2601) is handed them, and they render nowhere here.
+  const register = useContext(DocActionsContext);
+  const actions = useMemo<DocAction[]>(() => {
+    const out: DocAction[] = [];
+    if (canPresent) out.push({ id: "present", label: "Present", icon: Presentation, onSelect: present });
+    if (deck) out.push({ id: "overview", label: "Overview", icon: LayoutGrid, onSelect: overview });
+    if (pdfUrl) out.push({ id: "export-pdf", label: exporting ? "Exporting…" : "Export PDF", icon: FileDown, onSelect: exportPdf, disabled: exporting });
+    return out;
+  }, [canPresent, deck, pdfUrl, exporting, present, overview, exportPdf]);
+  useEffect(() => {
+    if (!register) return;
+    register(actions);
+    return () => register([]);
+  }, [register, actions]);
+
+  const controls = register ? (
+    exportError && (
+      <span role="alert" className="text-sm text-destructive">
+        {exportError}
+      </span>
+    )
+  ) : (
     <>
       {canPresent && (
         <button
@@ -199,6 +222,7 @@ export function HtmlRenderer({ content, controlsSlot, pdfUrl }: Props) {
 
 /** The controls in the page's slot when it has one, above the frame otherwise. */
 function placeControls(controls: ReactNode, slot: HTMLElement | null | undefined): ReactNode {
+  if (!controls) return null;
   if (slot) return createPortal(controls, slot);
   return <div className="flex flex-wrap justify-end gap-2">{controls}</div>;
 }

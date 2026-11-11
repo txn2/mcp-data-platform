@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { ExternalLink, Globe } from "lucide-react";
 import { SITE_NAME_RE, useCreateSite, useSites, type Site, type SiteList } from "@/api/portal/hooks/sites";
 import { EmptyState } from "@/components/patterns/EmptyState";
+import { OpenRowChevron, OpenRowHead } from "@/components/patterns/OpenRowChevron";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { openRowProps } from "@/lib/openRow";
 import { AccessBadge } from "./SiteParts";
 import { bareAddress, day, errorText, hostUrl, hostsOf, orderedEnvironments } from "./siteFormat";
 
@@ -115,15 +117,16 @@ function SiteTable({ list, onOpen }: { list: SiteList; onOpen: (site: string) =>
             <TableHead>Owner</TableHead>
             <TableHead>Main address</TableHead>
             <TableHead>Environments</TableHead>
+            <OpenRowHead />
           </TableRow>
         </TableHeader>
         <TableBody>
+          {/* The whole row opens the site (#2587); the address and each
+              domain stay links to the live site, in a new tab. */}
           {list.sites.map((s) => (
-            <TableRow key={s.id}>
+            <TableRow key={s.id} {...openRowProps(() => onOpen(s.name))} data-testid={`site-row-${s.name}`}>
               <TableCell>
-                <button type="button" className="font-medium hover:underline" onClick={() => onOpen(s.name)}>
-                  {s.name}
-                </button>
+                <span className="font-medium">{s.name}</span>
                 <p className="text-xs text-muted-foreground">{s.description}</p>
               </TableCell>
               <TableCell>{s.owner_email}</TableCell>
@@ -143,6 +146,7 @@ function SiteTable({ list, onOpen }: { list: SiteList; onOpen: (site: string) =>
               <TableCell>
                 <EnvironmentLines site={s} />
               </TableCell>
+              <OpenRowChevron />
             </TableRow>
           ))}
         </TableBody>

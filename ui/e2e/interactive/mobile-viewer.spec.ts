@@ -102,30 +102,58 @@ async function showDetails(page: Page): Promise<void> {
   await expect(open).toBeVisible();
 }
 
+// An asset's details open from More on a phone (#2601); its toolbar is the
+// one row under the title.
+async function showAssetDetails(page: Page): Promise<void> {
+  await page.getByTestId("phone-toolbar").getByRole("button", { name: "More" }).click();
+  await page.getByRole("menuitem", { name: "Details" }).click();
+  await expect(page.getByTestId("viewer-details")).toBeVisible();
+}
+
+// expectToolbarOnScreen asserts a phone's toolbar is one row wholly on the
+// screen: every control on one line, none past either edge (#2601).
+async function expectToolbarOnScreen(page: Page): Promise<void> {
+  const row = page.getByTestId("phone-toolbar");
+  await expect(row).toBeVisible();
+  const boxes = await row.evaluate((el) =>
+    Array.from(el.querySelectorAll("button")).map((b) => {
+      const r = b.getBoundingClientRect();
+      return { left: r.left, right: r.right, top: Math.round(r.top + r.height / 2), name: b.getAttribute("aria-label") ?? b.textContent ?? "" };
+    }),
+  );
+  expect(new Set(boxes.map((b) => b.top)).size, "the toolbar wraps onto more than one row").toBe(1);
+  for (const b of boxes) {
+    expect(b.left, `"${b.name}" starts off the left edge`).toBeGreaterThanOrEqual(-1);
+    expect(b.right, `"${b.name}" ends past the right edge`).toBeLessThanOrEqual(PHONE.width + 1);
+  }
+}
+
 test.describe("The viewer fits a phone screen", () => {
   test("a shared asset stacks its details under the content and draws no side scroll", async ({ page }) => {
     await openAtPhoneWidth(page, "/portal/assets/ast-ext-001");
-    await expect(page.getByText("Shared (Viewer)")).toBeVisible();
-    await showDetails(page);
+    // The share state is the quiet line under the title (#2601).
+    await expect(page.getByTestId("phone-subtitle")).toContainText("Shared with you · Viewer");
+    await showAssetDetails(page);
     await expectDetailsStacked(page);
     await expectNoSideScroll(page);
-    await expectActionsOnScreen(page);
+    await expectToolbarOnScreen(page);
   });
 
   test("a shared asset's Feedback, Download and Save to My Assets are all reachable", async ({ page }) => {
     await openAtPhoneWidth(page, "/portal/assets/ast-ext-001");
-    await showDetails(page);
-    // Feedback and More are on the header row; Download and Save to My Assets
-    // are in More (#2390). Each is wholly on screen where it is drawn.
+    await showAssetDetails(page);
+    // Feedback and More are on the toolbar row; Download and Save to My Assets
+    // are in More (#2601). Each is wholly on screen where it is drawn.
     const expectOnScreen = async (name: string, box: { x: number; width: number } | null) => {
       expect(box, `${name} is not rendered`).not.toBeNull();
       expect(box!.x, `${name} starts off the left edge`).toBeGreaterThanOrEqual(-1);
       expect(box!.x + box!.width, `${name} ends past the right edge`).toBeLessThanOrEqual(PHONE.width + 1);
     };
-    for (const name of ["Feedback", "More"]) {
-      await expectOnScreen(name, await page.getByRole("button", { name }).boundingBox());
+    const row = page.getByTestId("phone-toolbar");
+    for (const name of [/^Feedback/, /^More$/]) {
+      await expectOnScreen(String(name), await row.getByRole("button", { name }).boundingBox());
     }
-    await page.getByRole("button", { name: "More" }).click();
+    await row.getByRole("button", { name: "More" }).click();
     for (const name of ["Download", "Save to My Assets"]) {
       await expectOnScreen(name, await page.getByRole("menuitem", { name }).boundingBox());
     }
@@ -153,22 +181,32 @@ test.describe("The viewer fits a phone screen", () => {
   });
 });
 
-// On a phone an asset's header is one row and its content opens edge to edge
-// (#2390). ast-deck is an HTML document, the type whose frame scrolled inside
-// the page; the asset is the reader's own, so Share is a button and Download,
+// On a phone an asset opens with one title block and one toolbar row, and its
+// content opens edge to edge (#2390, #2601). ast-deck is an HTML document, the
+// type whose own controls (Present, Overview, Export PDF) wrapped onto a row of
+// their own; the asset is the reader's own, so Share is a button and Download,
 // Add to collection and Delete are in More.
-test.describe("An asset on a phone (#2390)", () => {
-  test("keeps the header to one row of actions with the rest in More", async ({ page }) => {
+test.describe("An asset on a phone (#2390, #2601)", () => {
+  test("is a title block and one toolbar row, with the rest in More", async ({ page }) => {
     await openAtPhoneWidth(page, "/portal/assets/ast-deck");
-    const actions = page.getByTestId("page-header-actions").first();
-    await expect(actions.getByRole("button", { name: "More" })).toBeVisible();
-    await expect(actions.getByRole("button", { name: /Download/ })).toHaveCount(0);
-    const rows = await actions.evaluate((row) => new Set(Array.from(row.children).map((el) => Math.round(el.getBoundingClientRect().top))).size);
-    expect(rows, "the header actions wrap onto more than one row").toBe(1);
-    await expectActionsOnScreen(page);
-    await actions.getByRole("button", { name: "More" }).click();
-    await expect(page.getByRole("menuitem", { name: "Download" })).toBeVisible();
-    await expect(page.getByRole("menuitem", { name: "Delete" })).toBeVisible();
+    await expect(page.getByTestId("phone-title")).toBeVisible();
+    // The section's name in the app header, and no platform version.
+    await expect(page.locator("header h1")).toHaveText("Assets");
+    await expect(page.locator("header").getByText(/^v\d+\./)).toHaveCount(0);
+    await expectToolbarOnScreen(page);
+    const row = page.getByTestId("phone-toolbar");
+    await expect(row.getByRole("button", { name: /Download/ })).toHaveCount(0);
+    // The version picker is in More > Versions, not on the row.
+    await expect(page.getByRole("combobox", { name: "Asset version" })).toHaveCount(0);
+    // The content starts under the title block and the one row.
+    const frame = await page.locator('iframe[title="HTML Preview"]').boundingBox();
+    expect(frame, "the document is not drawn").not.toBeNull();
+    expect(frame!.y, "the content starts too far down the screen").toBeLessThanOrEqual(210);
+    await row.getByRole("button", { name: "More" }).click();
+    for (const name of ["Present", "Export PDF", "Download", "Delete"]) {
+      await expect(page.getByRole("menuitem", { name })).toBeVisible();
+    }
+    await expect(page.getByRole("menuitem", { name: /Versions/ })).toBeVisible();
   });
 
   test("Expand fills the screen with the document, and Back closes it", async ({ page }) => {
@@ -189,7 +227,7 @@ test.describe("An asset on a phone (#2390)", () => {
     await page.goBack();
     await expect(view).toHaveCount(0);
     await expect(page).not.toHaveURL(/view=full/);
-    await expect(page.getByTestId("page-header-actions").first()).toBeVisible();
+    await expect(page.getByTestId("phone-toolbar")).toBeVisible();
   });
 
   test("a link with ?view=full opens expanded, and Close returns to the page", async ({ page }) => {

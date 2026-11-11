@@ -28,6 +28,12 @@ export interface SiteEnvironment {
   public: boolean;
   /** Everyone signed in whose persona is not external can open it. */
   internal_view: boolean;
+  /** How many releases it keeps (#2602): its last N distinct releases; 0 keeps every one. */
+  keep_releases: number;
+  /** True when keep_releases is the deployment's default rather than its own. */
+  keep_releases_default: boolean;
+  /** How many releases the limit keeps for it now. */
+  releases_kept: number;
   updated_by?: string;
   updated_at: string;
 }
@@ -48,6 +54,17 @@ export interface SitePermissions {
   delete: boolean;
 }
 
+/** A managed-resource folder a site serves at an address on every environment (#2591). */
+export interface SiteMedia {
+  /** The address, normalized to "/media/". */
+  prefix: string;
+  scope: "global" | "user" | "persona";
+  scope_id: string;
+  folder: string;
+  created_by: string;
+  created_at: string;
+}
+
 export interface Site {
   id: string;
   name: string;
@@ -65,6 +82,8 @@ export interface Site {
   addresses: Record<string, string>;
   domains: SiteDomain[];
   permissions: SitePermissions;
+  /** The media folders it serves, outside its releases (#2591); never null. */
+  media?: SiteMedia[];
 }
 
 export interface SiteLimits {
@@ -101,10 +120,22 @@ export interface SiteRelease {
   created_by: string;
   created_at: string;
   served_in: string[];
+  /** The release this one was derived from, 0 or absent for a whole file set. */
+  base?: number;
+  /** True once the daily cleanup removed its files (#2602); it stays listed as history. */
+  pruned?: boolean;
+  pruned_at?: string;
+  /**
+   * What keeps it: environment names whose limit keeps it, "application <name>"
+   * for an application release pinning it, "approval" for a pending request.
+   * Empty for a removed release and for one the next cleanup removes.
+   */
+  kept_by: string[];
 }
 
 export interface SiteFile {
   path: string;
+  sha256?: string;
   content_type: string;
   size: number;
   gzip_size?: number;
@@ -278,6 +309,8 @@ export function useCreateSite() {
 export interface SiteUpdate {
   description?: string;
   owner_email?: string;
+  /** Replaces the whole list of media folders; [] removes every one. */
+  media?: Pick<SiteMedia, "prefix" | "scope" | "scope_id" | "folder">[];
 }
 
 export function useUpdateSite(site: string) {
@@ -302,10 +335,19 @@ export function useDeleteSite(site: string) {
 }
 
 /** A publish always lands in dev, so it names no environment. */
+/** The objects under a prefix of a bucket on an S3 connection the person can use (#2593). */
+export interface BucketSource {
+  connection: string;
+  bucket: string;
+  prefix?: string;
+}
+
 export interface PublishBody {
   note: string;
   archive?: string;
   folder?: string;
+  /** Publish from a bucket prefix: one of archive, folder or from_bucket. */
+  from_bucket?: BucketSource;
   scope?: string;
   scope_id?: string;
   /** What the release says it came from: the file or folder's name. */
@@ -424,6 +466,8 @@ export interface EnvironmentBody {
   public?: boolean;
   internal_view?: boolean;
   reason?: string;
+  /** How many releases it keeps: a number (0 for every release) or "default". The owner and administrators only. */
+  keep_releases?: number | "default";
 }
 
 export interface EnvironmentChanged {

@@ -296,6 +296,43 @@ immutable. Dotted paths other than `.well-known` are refused, so a source tree's
 `.env` or `.git` cannot become a public address. Text files are compressed with
 gzip and brotli when published.
 
+### Releases kept
+
+Each environment keeps its last `keep_releases` distinct releases: the deployment's
+default (50 unless an administrator changed it in Admin > Settings > Sites), or its
+own, set with `set_environment keep_releases=N` (`0` keeps every release,
+`"default"` returns to the default). Only the owner or an administrator changes it,
+since lowering it removes rollback history. A daily cleanup removes every release no
+environment keeps, and the files only those releases held; a release an application
+release pins, or one a pending approval names, always stays. A removed release keeps
+its record, marked `pruned`, and can no longer be served, compared, promoted or
+rolled back to. `get` shows each environment's `keep_releases` and how many
+releases it keeps now (`releases_kept`). A publish and the cleanup never work on one
+site's stored files at once: the cleanup leaves a site alone while a publish writes
+to it, and a publish that starts while the cleanup is deleting waits up to a minute,
+then is refused, asking you to publish again in a few minutes. Nothing was published;
+send the same publish again.
+
+### Media folders
+
+Images, video and downloads that do not change with the pages belong in a
+managed-resource folder mounted at a URL prefix, not in releases:
+
+```
+manage_site command=update site=marketing
+  media=[{"prefix":"/media/","scope":"global","folder":"sites/marketing/media"}]
+```
+
+`media` is every mount, replacing the list (`[]` removes them all). A mounted file
+answers on every environment after the release's own files, so a release file at the
+same path wins, and it is public on a public environment: mounting publishes the
+folder, so it needs manage access to the site and read access to the folder. Publish,
+promote and rollback leave media alone, it counts toward no release limit, and a file
+replaced with `manage_resource replace_content` shows at once, and a file moved out
+of the folder stops answering at its old address. HTML, SVG, JavaScript and XML in a
+mount are sent as downloads. A file in a mounted folder cannot be
+deleted unless forced.
+
 ### Domains
 
 `add_domain` maps a hostname to an environment, creating the environment when it
@@ -308,6 +345,11 @@ system administrator adds the ingress, and whoever owns the domain points its DN
 at the deployment. `dev` cannot have a domain: it is the working copy.
 
 ### Moving a site here
+
+When you hold a site's source, bring it in from the source instead, following
+`mcp:knowledge_page:platform-sites-from-source`: its templates, records and media
+stay maintainable, and nothing large passes through a tool call. `crawl` is for a
+site whose source you do not have.
 
 `crawl` copies a site into a release in `dev`: each page keeps its address, an address
 that redirected becomes a redirect rule, and the sitemap and robots file come

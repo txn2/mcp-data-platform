@@ -757,3 +757,19 @@ func TestObjectInputSchema_ActionEnum(t *testing.T) {
 	assert.Equal(t, []any{"get", "metadata", "put", "copy", "delete", "presign"}, s.Properties["action"].Enum)
 	assert.Contains(t, s.Properties, "bucket", "the rest of the inferred schema is kept")
 }
+
+// ReadClient is a bucket prefix's reader outside a tool call (#2593), held to
+// the same bucket_prefix limit and refusal s3_list and s3_object apply (#2584).
+func TestReadClient_HoldsTheBucketPrefix(t *testing.T) {
+	tk, fake := newFakeToolkit(Config{BucketPrefix: "web-"})
+	c, err := tk.ReadClient("lake", "web-assets")
+	require.NoError(t, err)
+	assert.Equal(t, fake.ConnectionName(), c.ConnectionName())
+
+	_, err = tk.ReadClient("lake", "finance")
+	require.ErrorContains(t, err, `connection "lake" is limited to buckets whose name starts with "web-": bucket "finance" is outside it`)
+	_, err = tk.ReadClient("", "web-assets")
+	require.ErrorContains(t, err, "name the S3 connection", "the default connection is never read for a caller who named none")
+	_, err = tk.ReadClient("elsewhere", "web-assets")
+	require.ErrorContains(t, err, `no S3 connection named "elsewhere"`)
+}

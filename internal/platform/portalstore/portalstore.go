@@ -320,7 +320,7 @@ func (h *Handle) BindResourceWriter(w portalkit.ResourceWriter) {
 // prompt layer's, which is why that half arrives as an argument. A Handle that
 // is never bound leaves a delete saying it cannot establish what depends on the
 // file, which is the honest answer and not the same as "nothing does".
-func (h *Handle) BindResourceHolds(attachments resourceholds.Attachments) {
+func (h *Handle) BindResourceHolds(attachments resourceholds.Attachments, sites resourceholds.SiteMounts) {
 	if h == nil || h.toolkit == nil {
 		return
 	}
@@ -328,6 +328,7 @@ func (h *Handle) BindResourceHolds(attachments resourceholds.Attachments) {
 		Refs:        h.contentRefs,
 		Attachments: attachments,
 		Scripts:     resourceholds.ScriptPins{DB: h.db},
+		Sites:       sites,
 	})})
 }
 
@@ -345,7 +346,7 @@ func (h holdReader) ResourceHolds(ctx context.Context, resourceID string) (porta
 		return portalkit.ResourceHolds{}, err //nolint:wrapcheck // the checker's sentence names the lookup
 	}
 	return portalkit.ResourceHolds{
-		Assets: holds.Assets, Prompts: holds.Prompts, Scripts: holds.Scripts, More: holds.More,
+		Assets: holds.Assets, Prompts: holds.Prompts, Scripts: holds.Scripts, Sites: holds.Sites, More: holds.More,
 	}, nil
 }
 

@@ -14,6 +14,8 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/settingsjson"
 	"github.com/txn2/mcp-data-platform/internal/site"
 	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
+	"github.com/txn2/mcp-data-platform/internal/site/siteprune"
+	"github.com/txn2/mcp-data-platform/internal/site/sitestore"
 	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
 	"github.com/txn2/mcp-data-platform/internal/site/sitewire"
 )
@@ -21,6 +23,9 @@ import (
 const (
 	adminDomains  = "/api/v1/admin/sites/domains"
 	adminSettings = "/api/v1/admin/settings/sites"
+	// adminRetention is release retention (#2602): the limits in force, the
+	// recent sweeps, and a sweep run now.
+	adminRetention = "/api/v1/admin/sites/retention"
 )
 
 type adminAPI struct {
@@ -34,6 +39,8 @@ func (a *adminAPI) mount(mux *http.ServeMux, wrap func(http.Handler) http.Handle
 	mux.Handle("DELETE "+adminDomains+"/{hostname}", wrap(http.HandlerFunc(a.removeDomain)))
 	mux.Handle("GET "+adminSettings, wrap(http.HandlerFunc(a.settings)))
 	mux.Handle("PUT "+adminSettings, wrap(http.HandlerFunc(a.saveSettings)))
+	mux.Handle("GET "+adminRetention, wrap(http.HandlerFunc(a.retention)))
+	mux.Handle("POST "+adminRetention+"/run", wrap(http.HandlerFunc(a.runSweep)))
 }
 
 func (a *adminAPI) actor(r *http.Request) sitesvc.Actor {
@@ -183,7 +190,7 @@ type SiteSettings struct {
 // settings handles GET /api/v1/admin/settings/sites.
 //
 // @Summary      The sites settings
-// @Description  The pages domain and the limits a release is held to, as saved, or the configuration file's where none are.
+// @Description  The pages domain, the limits a release is held to, and how many releases each environment keeps by default and whether the daily sweep deletes or only reports (releases_keep, releases_mode), as saved, or the configuration file's where none are.
 // @Tags         Sites
 // @Produce      json
 // @Success      200  {object}  SiteSettings
@@ -202,7 +209,9 @@ func (a *adminAPI) settings(w http.ResponseWriter, r *http.Request) {
 		httpjson.WriteError(w, http.StatusInternalServerError, "the settings could not be read")
 		return
 	default:
-		out = SiteSettings{Settings: stored.Value, UpdatedBy: stored.UpdatedBy, UpdatedAt: stored.UpdatedAt.UTC().Format(timeLayout)}
+		// The values in force: a section saved before a setting existed (the
+		// release limit, #2602) reads as the file's value for it.
+		out = SiteSettings{Settings: a.rt.Config.With(stored.Value).Settings(), UpdatedBy: stored.UpdatedBy, UpdatedAt: stored.UpdatedAt.UTC().Format(timeLayout)}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -251,4 +260,91 @@ func pagesAddresses(st *site.Site, pages string) []DeploymentAddress {
 		})
 	}
 	return out
+}
+
+// recentSweeps is how many sweeps the retention view lists.
+const recentSweeps = 20
+
+// RetentionView is release retention as it stands (#2602).
+type RetentionView struct {
+	// KeepDefault is how many releases an environment with no limit of its
+	// own keeps; 0 keeps every release.
+	KeepDefault int `json:"keep_default" example:"50"`
+	// Mode is "delete" or "report".
+	Mode string `json:"mode" example:"delete"`
+	// OrphanGrace is how old an object no release names must be before a
+	// sweep deletes it, and Every how often the sweep runs.
+	OrphanGrace string            `json:"orphan_grace" example:"24h0m0s"`
+	Every       string            `json:"every" example:"24h0m0s"`
+	Sweeps      []sitestore.Sweep `json:"sweeps"`
+}
+
+// SweepBody asks for one sweep.
+type SweepBody struct {
+	// Mode is "report", which deletes nothing, or "delete".
+	Mode string `json:"mode" example:"report"`
+	// Site, when set, sweeps that site alone, by name.
+	Site string `json:"site,omitempty"`
+}
+
+// retention handles GET /api/v1/admin/sites/retention.
+//
+// @Summary      Release retention
+// @Description  How many releases each environment keeps by default, whether the daily sweep deletes or only reports, the grace before an object no release names is removed, and the most recent sweeps with what each removed (counts only).
+// @Tags         Sites
+// @Produce      json
+// @Success      200  {object}  RetentionView
+// @Failure      401  {object}  httpjson.ProblemDetail
+// @Failure      403  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/sites/retention [get]
+func (a *adminAPI) retention(w http.ResponseWriter, r *http.Request) {
+	cfg := a.rt.Live.Get().Releases
+	sweeps, err := a.rt.Store.Sweeps(r.Context(), recentSweeps)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, RetentionView{
+		KeepDefault: cfg.Keep(), Mode: cfg.SweepMode(), OrphanGrace: cfg.Grace().String(), Every: cfg.Interval().String(), Sweeps: sweeps,
+	})
+}
+
+// runSweep handles POST /api/v1/admin/sites/retention/run.
+//
+// @Summary      Run a release sweep now
+// @Description  Sweeps one site, or every site, now. In report mode it decides exactly as delete mode does and deletes nothing, answering which releases it would remove, how many files and bytes that frees, and the orphans past the grace; in delete mode it removes them. A release an environment keeps, an application release pins or a pending approval names is never removed. One sweep runs at a time across replicas.
+// @Tags         Sites
+// @Accept       json
+// @Produce      json
+// @Param        body  body      SweepBody  true  "The sweep"
+// @Success      200   {object}  siteprune.Report
+// @Failure      400   {object}  httpjson.ProblemDetail
+// @Failure      403   {object}  httpjson.ProblemDetail
+// @Failure      404   {object}  httpjson.ProblemDetail
+// @Failure      409   {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/sites/retention/run [post]
+func (a *adminAPI) runSweep(w http.ResponseWriter, r *http.Request) {
+	var in SweepBody
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.Mode != siteconfig.ModeDelete && in.Mode != siteconfig.ModeReport {
+		httpjson.WriteError(w, http.StatusBadRequest, `mode: "report" or "delete"`)
+		return
+	}
+	rep, err := a.rt.Prune.Run(r.Context(), siteprune.Request{Mode: in.Mode, Site: in.Site, RunBy: a.author(r)})
+	switch {
+	case errors.Is(err, siteprune.ErrBusy):
+		httpjson.WriteError(w, http.StatusConflict, "another sweep is running; try again when it has finished")
+	case errors.Is(err, site.ErrNotFound):
+		httpjson.WriteError(w, http.StatusNotFound, "no such site")
+	case err != nil:
+		fail(w, r, err)
+	default:
+		writeJSON(w, http.StatusOK, rep)
+	}
 }

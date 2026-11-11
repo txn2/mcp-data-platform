@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import { AlertTriangle, Globe, Loader2 } from "lucide-react";
 import { useAssetsUsingTarget } from "@/api/portal/hooks/assetRefs";
-import { useDeleteResource } from "@/api/resources/hooks";
+import { ResourceDeleteError, useDeleteResource } from "@/api/resources/hooks";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,8 +28,6 @@ export function DeleteConfirm({
    * Cancel. Absent, a successful delete just dismisses. */
   onDeleted?: () => void;
 }) {
-  const del = useDeleteResource();
-  const [error, setError] = useState("");
   // What this delete would break. A reference survives the delete of the file
   // it names, so the assets below keep rendering and keep reporting a picture
   // missing; naming them here is the difference between an owner deciding that
@@ -39,16 +37,7 @@ export function DeleteConfirm({
   // click, and a dialog that armed its destructive button while the answer was
   // still in flight would let the fastest click skip it entirely.
   const { data: usedBy, isPending: checking, isError: checkFailed } = useAssetsUsingTarget("resource", r.id);
-  const busy = del.isPending || checking;
-
-  const handleDelete = useCallback(async () => {
-    try {
-      await del.mutateAsync(r.id);
-      (onDeleted ?? onClose)();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Delete failed");
-    }
-  }, [r.id, del, onClose, onDeleted]);
+  const { del, error, served, anyway, setAnyway, busy, handleDelete } = useGuardedDelete(r.id, checking, onClose, onDeleted);
 
   return (
     <ModalScroll onClose={onClose} label="Delete Resource" busy={del.isPending}>
@@ -63,6 +52,7 @@ export function DeleteConfirm({
           truncated={usedBy?.truncated ?? false}
         />
         <CheckFailedNotice failed={checkFailed} />
+        <ServedBySite message={served} anyway={anyway} onAnyway={setAnyway} />
         {error && (
           <Alert variant="destructive">
             <AlertDescription>{error}</AlertDescription>
@@ -80,6 +70,27 @@ export function DeleteConfirm({
       </div>
     </ModalScroll>
   );
+}
+
+// useGuardedDelete deletes the resource and keeps what a refusal said. A file
+// a site serves from a mounted media folder is refused with 409 until the
+// person ticks Delete anyway (#2591), which sends force.
+function useGuardedDelete(id: string, checking: boolean, onClose: () => void, onDeleted?: () => void) {
+  const del = useDeleteResource();
+  const [error, setError] = useState("");
+  const [served, setServed] = useState("");
+  const [anyway, setAnyway] = useState(false);
+  const handleDelete = useCallback(async () => {
+    setError("");
+    try {
+      await del.mutateAsync({ id, force: !!served && anyway });
+      (onDeleted ?? onClose)();
+    } catch (err) {
+      if (err instanceof ResourceDeleteError && err.status === 409) setServed(err.message);
+      else setError(err instanceof Error ? err.message : "Delete failed");
+    }
+  }, [id, del, onClose, onDeleted, served, anyway]);
+  return { del, error, served, anyway, setAnyway, busy: del.isPending || checking || (!!served && !anyway), handleDelete };
 }
 
 // ReferencingAssetsWarning names what this delete would break. The reference
@@ -141,6 +152,26 @@ function ReferencingAssetsWarning({
             {hidden} of them {hidden === 1 ? "is" : "are"} an asset you cannot open.
           </p>
         )}
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+// ServedBySite is the server's refusal of a file a site serves from a mounted
+// media folder (#2591): pages that use it break once it goes, on every
+// environment, so Delete waits until Delete anyway is ticked.
+function ServedBySite({ message, anyway, onAnyway }: { message: string; anyway: boolean; onAnyway: (v: boolean) => void }) {
+  if (!message) return null;
+  return (
+    <Alert variant="warning" data-testid="delete-resource-served-by-site">
+      <AlertTriangle />
+      <AlertDescription className="space-y-2">
+        <p>{message}</p>
+        <p className="text-xs">Pages that use it show a broken image or link once it is deleted, including on public environments.</p>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={anyway} onChange={(e) => onAnyway(e.target.checked)} />
+          Delete anyway
+        </label>
       </AlertDescription>
     </Alert>
   );

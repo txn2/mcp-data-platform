@@ -122,7 +122,7 @@ func (s *Service) Diff(ctx context.Context, actor Actor, ref site.Ref, from, to 
 	if ref.IsFile() {
 		return s.diffFile(ctx, st, ref, from, target)
 	}
-	c, err := s.compareTree(ctx, st.ID, comparePair{from, target.Number}, site.TreeSource)
+	c, err := s.compareTree(ctx, st, comparePair{from, target.Number}, site.TreeSource)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +142,7 @@ func (s *Service) diffTarget(ctx context.Context, st *site.Site, environment str
 	if to == 0 || to == tree.rel.Number {
 		return tree.rel, nil
 	}
-	return s.Store.Release(ctx, st.ID, to) //nolint:wrapcheck // read by identity
+	return s.comparable(ctx, st, to)
 }
 
 func inFolder(paths []string, prefix string) []string {
@@ -160,9 +160,9 @@ func (s *Service) diffFile(ctx context.Context, st *site.Site, ref site.Ref, fro
 	if err != nil {
 		return nil, err
 	}
-	earlier, err := s.Store.Release(ctx, st.ID, from)
+	earlier, err := s.comparable(ctx, st, from)
 	if err != nil {
-		return nil, err //nolint:wrapcheck // read by identity
+		return nil, err
 	}
 	before, beforeOK, err := s.textIfPresent(ctx, st.ID, earlier, name)
 	if err != nil {

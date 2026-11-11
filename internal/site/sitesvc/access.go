@@ -41,7 +41,10 @@ func (s *Service) PermissionsOf(ctx context.Context, actor Actor, st *site.Site)
 	if err != nil {
 		return Permissions{}, err //nolint:wrapcheck // read by identity
 	}
-	return Permissions{Manage: level == site.LevelManage}, nil
+	// Only internal people manage a site. A grant made to an address before
+	// its first sign-in could not be judged then; it is judged on use.
+	manage := level == site.LevelManage && (s.External == nil || !s.External(ctx, actor.Email))
+	return Permissions{Manage: manage}, nil
 }
 
 // mayEdit refuses anyone who does not manage the site.

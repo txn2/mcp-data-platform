@@ -84,6 +84,10 @@ type Release struct {
 	SourceRemoved []string `json:"-"`
 	// RenderIndex is the file holding what each output read.
 	RenderIndex *File `json:"-"`
+	// Pruned is true once a sweep removed the release's files (#2602); its
+	// record stays so the deployments and approvals naming it read as before.
+	Pruned   bool       `json:"pruned,omitempty"`
+	PrunedAt *time.Time `json:"pruned_at,omitempty"`
 }
 
 // Deployment is one recorded move of an environment's pointer.

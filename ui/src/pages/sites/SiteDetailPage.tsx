@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Globe } from "lucide-react";
-import { useDeleteSite, useSite, useSiteReleases, useUpdateSite, type Site } from "@/api/portal/hooks/sites";
+import { DEV_ENVIRONMENT, useDeleteSite, useSite, useSiteReleases, useUpdateSite, type Site } from "@/api/portal/hooks/sites";
 import { PageHeader } from "@/components/patterns/PageHeader";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -13,15 +13,19 @@ import { UserPicker } from "@/components/UserPicker";
 import { SiteAccessTab } from "./SiteAccess";
 import { SiteDomainsTab } from "./SiteDomains";
 import { SiteEnvironmentsTab } from "./SiteEnvironments";
+import { SiteFilesTab } from "./SiteFiles";
+import { SiteMediaTab } from "./SiteMedia";
 import { SiteHistoryTab } from "./SiteHistory";
 import { CopySiteDialog } from "./SiteCopy";
 import { SiteReleasesTab } from "./SiteReleases";
 import { bareAddress, day, errorText } from "./siteFormat";
 
-export type SiteTab = "environments" | "releases" | "access" | "domains" | "history";
+export type SiteTab = "environments" | "files" | "media" | "releases" | "access" | "domains" | "history";
 
 const TAB_LABELS: Record<SiteTab, string> = {
   environments: "Environments",
+  files: "Files",
+  media: "Media",
   releases: "Releases",
   access: "Access",
   domains: "Domains",
@@ -45,7 +49,7 @@ export function SiteDetailPage({ site, tab, onNavigate }: { site: string; tab: S
       </div>
     );
   }
-  const tabs = (Object.keys(TAB_LABELS) as SiteTab[]).filter((t) => t !== "access" || data.permissions.manage);
+  const tabs = (Object.keys(TAB_LABELS) as SiteTab[]).filter((t) => shows(t, data));
   return (
     <div className="space-y-4">
       <PageHeader backLabel="Sites" onBack={back} icon={Globe} title={data.name} subtitle={data.description} actions={<SiteActions permissions={data.permissions} onOpen={setDialog} />} />
@@ -63,6 +67,14 @@ export function SiteDetailPage({ site, tab, onNavigate }: { site: string; tab: S
       <SiteDialogs site={data} dialog={dialog} onClose={() => setDialog(null)} onDeleted={back} />
     </div>
   );
+}
+
+// shows says who sees a tab: Access and Media (#2591) are for whoever manages
+// the site, and Files (#2590) for whoever can open dev, its tree.
+function shows(tab: SiteTab, site: Site): boolean {
+  if (tab === "access" || tab === "media") return site.permissions.manage;
+  if (tab === "files") return site.permissions.manage || site.environments.some((e) => e.name === DEV_ENVIRONMENT);
+  return true;
 }
 
 type SiteDialog = "copy" | "edit" | "delete" | null;
@@ -89,13 +101,18 @@ function SiteActions({ permissions: p, onOpen }: { permissions: Site["permission
 }
 
 function TabBody({ site, tab, onNavigate }: { site: Site; tab: SiteTab; onNavigate: (path: string) => void }) {
+  if (!shows(tab, site)) return null;
   switch (tab) {
     case "environments":
       return <SiteEnvironmentsTab site={site} onNavigate={onNavigate} />;
+    case "files":
+      return <SiteFilesTab site={site} onNavigate={onNavigate} />;
+    case "media":
+      return <SiteMediaTab site={site} />;
     case "releases":
       return <SiteReleasesTab site={site} onNavigate={onNavigate} />;
     case "access":
-      return site.permissions.manage ? <SiteAccessTab site={site} /> : null;
+      return <SiteAccessTab site={site} />;
     case "domains":
       return <SiteDomainsTab site={site} />;
     case "history":

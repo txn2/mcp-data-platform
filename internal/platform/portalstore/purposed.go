@@ -2,11 +2,13 @@ package portalstore
 
 import (
 	"context"
+	"errors"
 	"io"
 
 	"github.com/txn2/mcp-data-platform/internal/objectobs"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	"github.com/txn2/mcp-data-platform/pkg/portal/s3adapter"
 )
 
 // ExportS3Client is the portal's blob backend for the export tools
@@ -67,3 +69,19 @@ func (p purposedS3) DeleteObject(ctx context.Context, bucket, key string) error 
 // Close is a no-op: the view does not own the client, the Handle does, and a
 // consumer closing its view must not close the portal's.
 func (purposedS3) Close() error { return nil }
+
+// errNoWalk is a backend that cannot list a bucket.
+var errNoWalk = errors.New("this object store cannot list a bucket")
+
+// Walk lists every object under prefix, when the backend can. The site
+// release sweep finds the objects no release names this way (#2602): without
+// it the wrapper hid the listing and no orphan was ever found.
+func (p purposedS3) Walk(ctx context.Context, bucket, prefix string, fn func(s3adapter.WalkedObject) error) error {
+	w, ok := p.c.(interface {
+		Walk(ctx context.Context, bucket, prefix string, fn func(s3adapter.WalkedObject) error) error
+	})
+	if !ok {
+		return errNoWalk
+	}
+	return w.Walk(p.ctx(ctx), bucket, prefix, fn) //nolint:wrapcheck // a pass-through
+}

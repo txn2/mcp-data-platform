@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Globe } from "lucide-react";
-import { useSite, useSiteRelease, type SiteFile } from "@/api/portal/hooks/sites";
+import { useSite, useSiteRelease, type Site, type SiteFile, type SiteRelease, type SiteReleaseDetail } from "@/api/portal/hooks/sites";
 import { PageHeader } from "@/components/patterns/PageHeader";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -8,7 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { envOpenUrl, formatBytes, when } from "./siteFormat";
+import { ChangesFrom } from "./SiteReleaseChanges";
+import { day, envOpenUrl, formatBytes, when } from "./siteFormat";
 
 const PAGE = 50;
 
@@ -28,24 +29,9 @@ export function SiteReleasePage({ site, number, onNavigate }: { site: string; nu
   const back = () => onNavigate(`/sites/${encodeURIComponent(site)}/releases`);
   const files = useMemo(() => (data?.files ?? []).filter((f) => f.path.includes(filter)), [data, filter]);
   if (isLoading) return <p className="text-sm text-muted-foreground">Loading…</p>;
-  if (error || !data) {
-    return (
-      <div className="space-y-4">
-        <PageHeader backLabel={site} onBack={back} icon={Globe} title={`Release ${number}`} />
-        <Alert variant="destructive">
-          <AlertDescription>{error?.message ?? "This release could not be loaded."}</AlertDescription>
-        </Alert>
-      </div>
-    );
-  }
-  const openAt = (() => {
-    if (!owner) return "";
-    for (const env of data.served_in) {
-      const at = envOpenUrl(owner, env);
-      if (at) return at;
-    }
-    return "";
-  })();
+  if (error || !data) return <ReleaseFailure site={site} number={number} message={error?.message} onBack={back} />;
+  const openAt = openAddress(owner, data.served_in);
+  if (data.pruned) return <RemovedRelease site={site} release={data} onBack={back} />;
   const shown = files.slice(page * PAGE, (page + 1) * PAGE);
   const has404 = data.files.some((f) => f.path === "404.html");
   return (
@@ -73,25 +59,8 @@ export function SiteReleasePage({ site, number, onNavigate }: { site: string; nu
           </div>
         }
       />
-      <dl className="grid gap-3 sm:grid-cols-3">
-        <div>
-          <dt className="text-xs text-muted-foreground">Published</dt>
-          <dd className="text-sm">
-            {when(data.created_at)} by {data.created_by}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-xs text-muted-foreground">Source</dt>
-          <dd className="break-all text-sm">{data.source}</dd>
-        </div>
-        <div>
-          <dt className="text-xs text-muted-foreground">Contents</dt>
-          <dd className="text-sm">
-            {data.file_count} files, {formatBytes(data.total_bytes)}
-            {has404 ? ", a 404 page" : ""}
-          </dd>
-        </div>
-      </dl>
+      <ReleaseFacts site={site} release={data} has404={has404} onNavigate={onNavigate} />
+      {data.base ? <ChangesFrom site={site} from={data.base} to={number} manage={!!owner?.permissions.manage} /> : null}
       <SectionCard
         title="Files"
         action={
@@ -167,6 +136,79 @@ export function SiteReleasePage({ site, number, onNavigate }: { site: string; nu
           </Table>
         )}
       </SectionCard>
+    </div>
+  );
+}
+
+// RemovedRelease is a release the daily cleanup removed (#2602): its record
+// stays as history, and its files are gone.
+function RemovedRelease({ site, release: r, onBack }: { site: string; release: SiteRelease; onBack: () => void }) {
+  return (
+    <div className="space-y-4">
+      <PageHeader backLabel={site} onBack={onBack} icon={Globe} title={`Release ${r.number}`} subtitle={r.note} actions={<Badge variant="muted">Removed</Badge>} />
+      <Alert data-testid="release-removed">
+        <AlertDescription>
+          Release {r.number} was removed{r.pruned_at ? ` on ${day(r.pruned_at)}` : ""} by the daily cleanup, because no environment keeps it any longer. Its files are gone, so it can’t be opened, promoted or rolled back
+          to. Published {when(r.created_at)} by {r.created_by}.
+        </AlertDescription>
+      </Alert>
+    </div>
+  );
+}
+
+/** Where a release can be opened: the first environment serving it that has an address. */
+function openAddress(owner: Site | undefined, servedIn: string[]): string {
+  if (!owner) return "";
+  for (const env of servedIn) {
+    const at = envOpenUrl(owner, env);
+    if (at) return at;
+  }
+  return "";
+}
+
+function ReleaseFacts({ site, release: data, has404, onNavigate }: { site: string; release: SiteReleaseDetail; has404: boolean; onNavigate: (path: string) => void }) {
+  return (
+        <dl className="grid gap-3 sm:grid-cols-4">
+          <div>
+            <dt className="text-xs text-muted-foreground">Published</dt>
+            <dd className="text-sm">
+              {when(data.created_at)} by {data.created_by}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs text-muted-foreground">Source</dt>
+            <dd className="break-all text-sm">{data.source}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-muted-foreground">Based on</dt>
+            <dd className="text-sm">
+              {data.base ? (
+                <button type="button" className="text-primary hover:underline" onClick={() => onNavigate(`/sites/${encodeURIComponent(site)}/releases/${data.base}`)}>
+                  Release {data.base}
+                </button>
+              ) : (
+                "None: published whole"
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs text-muted-foreground">Contents</dt>
+            <dd className="text-sm">
+              {data.file_count} files, {formatBytes(data.total_bytes)}
+              {has404 ? ", a 404 page" : ""}
+            </dd>
+          </div>
+        </dl>
+  );
+}
+
+function ReleaseFailure({ site, number, message, onBack }: { site: string; number: number; message?: string; onBack: () => void }) {
+  return (
+    <div className="space-y-4">
+      <PageHeader backLabel={site} onBack={onBack} icon={Globe} title={`Release ${number}`} />
+      <Alert variant="destructive">
+        <AlertDescription>{message ?? "This release could not be loaded."}</AlertDescription>
+      </Alert>
     </div>
   );
 }

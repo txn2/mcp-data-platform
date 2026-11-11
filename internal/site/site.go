@@ -12,10 +12,13 @@ package site
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -67,12 +70,15 @@ var (
 	ErrNameTaken     = errors.New("a site with that name exists")
 	ErrNoEnvironment = errors.New("the site has no such environment")
 	ErrNoRelease     = errors.New("the site has no such release")
-	ErrNotAllowed    = errors.New("not allowed")
-	ErrStale         = errors.New("another change to the environment was recorded first")
-	ErrNoDomain      = errors.New("no such domain")
-	ErrDomainTaken   = errors.New("that hostname is already mapped")
-	ErrNoGrant       = errors.New("that person has no access to this site")
-	ErrNoJob         = errors.New("no such job")
+	// ErrPruned is a release whose files a sweep removed (#2602): its record
+	// stays as history, and nothing can serve, compare or move to it.
+	ErrPruned      = errors.New("the release was removed by the release limit")
+	ErrNotAllowed  = errors.New("not allowed")
+	ErrStale       = errors.New("another change to the environment was recorded first")
+	ErrNoDomain    = errors.New("no such domain")
+	ErrDomainTaken = errors.New("that hostname is already mapped")
+	ErrNoGrant     = errors.New("that person has no access to this site")
+	ErrNoJob       = errors.New("no such job")
 )
 
 // Site is the record.
@@ -86,9 +92,12 @@ type Site struct {
 	// found.
 	MainEnvironment string        `json:"main_environment" example:"prod"`
 	Environments    []Environment `json:"environments"`
-	CreatedBy       string        `json:"created_by"`
-	CreatedAt       time.Time     `json:"created_at"`
-	UpdatedAt       time.Time     `json:"updated_at"`
+	// Media is the resource folders the site serves at URL prefixes (#2591),
+	// filled by a read of one site.
+	Media     []Mount   `json:"media"`
+	CreatedBy string    `json:"created_by"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // Environment is one named place a release is served from.
@@ -96,6 +105,16 @@ type Environment struct {
 	Name string `json:"name" example:"prod"`
 	// Release is the number of the release served, 0 before the first.
 	Release int `json:"release" example:"3"`
+	// KeepReleases is the environment's own release limit, nil when it
+	// follows the deployment's default (#2602).
+	KeepReleases *int `json:"-"`
+	// Keep is the limit in force: the last Keep distinct releases the
+	// environment pointed at are kept, and 0 keeps every one.
+	Keep int `json:"keep_releases" example:"50"`
+	// KeepDefault is true when Keep is the deployment's default.
+	KeepDefault bool `json:"keep_releases_default"`
+	// Kept is how many releases the limit keeps for this environment now.
+	Kept int `json:"releases_kept" example:"37"`
 	// RequiresApproval makes a promotion here, and making it public, a request
 	// in the Approvals queue.
 	RequiresApproval bool `json:"requires_approval"`
@@ -119,6 +138,10 @@ type EnvironmentSettings struct {
 	RequiresApproval *bool
 	Public           *bool
 	InternalView     *bool
+	// Keep changes the release limit when set; KeepDefault, when Keep is nil,
+	// returns it to the deployment's default.
+	Keep        *int
+	KeepDefault bool
 }
 
 // Environment is the named environment, nil for none.
@@ -294,4 +317,51 @@ func ValidateHostname(hostname string) error {
 // SameOrUnder reports whether host is domain or a name beneath it.
 func SameOrUnder(host, domain string) bool {
 	return domain != "" && (host == domain || strings.HasSuffix(host, "."+domain))
+}
+
+// KeepSetting is a change to an environment's release limit (#2602).
+type KeepSetting struct {
+	// Keep is the new limit; nil with Default false changes nothing.
+	Keep *int
+	// Default returns the environment to the deployment's default.
+	Default bool
+}
+
+// errKeep is how a keep_releases a caller cannot have meant is refused.
+var errKeep = errors.New(`keep_releases: a whole number (0 keeps every release) or "default"`)
+
+// ParseKeep reads keep_releases as a caller sends it: a whole number, a
+// string of digits, or "default". Absent or null changes nothing.
+func ParseKeep(raw json.RawMessage) (KeepSetting, error) {
+	text := strings.TrimSpace(string(raw))
+	if text == "" || text == "null" {
+		return KeepSetting{}, nil
+	}
+	if !strings.HasPrefix(text, `"`) {
+		return keepNumber(text)
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return KeepSetting{}, errKeep
+	}
+	s = strings.TrimSpace(s)
+	if strings.EqualFold(s, "default") {
+		return KeepSetting{Default: true}, nil
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 0 {
+		return KeepSetting{}, errKeep
+	}
+	return KeepSetting{Keep: &n}, nil
+}
+
+// keepNumber reads a JSON number that is a whole number, which JSON Schema's
+// integer admits written 50, 50.0 or 5e1.
+func keepNumber(text string) (KeepSetting, error) {
+	f, err := json.Number(text).Float64()
+	if err != nil || f != math.Trunc(f) || f < 0 || f > math.MaxInt32 {
+		return KeepSetting{}, errKeep
+	}
+	n := int(f)
+	return KeepSetting{Keep: &n}, nil
 }

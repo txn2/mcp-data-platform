@@ -5,6 +5,8 @@ package sitestore
 import (
 	"context"
 	"database/sql"
+	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -645,4 +647,273 @@ func TestRealDB_ATreeIsResolvedOnItsOwn(t *testing.T) {
 	got, err := s.Release(ctx, st.ID, tip.Number)
 	require.NoError(t, err)
 	assert.True(t, got.Rendered)
+}
+
+// A sweep (#2602) of a chain of 40 derived releases keeps what each
+// environment's window, the release it serves and nothing else holds; every
+// kept release resolves to the files it held before; report mode decides the
+// same and writes nothing; and the objects it returns are exactly those no
+// kept release names, a file under an old release's prefix included.
+func TestRealDB_PruneKeepsEveryRetainedReleaseIntact(t *testing.T) {
+	db := testdb.New(t)
+	ctx := context.Background()
+	s := New(db)
+	st := realSite(ctx, t, s, "pruned")
+	require.NoError(t, s.SetEnvironment(ctx, st.ID, "stage", site.EnvironmentSettings{}, realOwner))
+	file := func(p, sum string) site.File {
+		return site.File{Path: p, SHA256: sum, ContentType: "text/plain", Size: 1, GzipSize: 1}
+	}
+	note := func(n int) string { return "note" + strconv.Itoa(n) }
+
+	rels := map[int]*site.Release{}
+	root := &site.Release{
+		ID: NewReleaseID(), SiteID: st.ID, ManifestSHA256: "digest", CreatedBy: realOwner, Redirects: []site.Redirect{},
+		Files: []site.File{file("index", "i1"), file("shared", "sh"), file("n1", note(1))},
+	}
+	require.NoError(t, s.RecordRelease(ctx, root, &site.Pointer{SiteID: st.ID, Environment: site.EnvDev, Action: site.ActionPublish, Actor: realOwner}))
+	rels[1] = root
+	// A file stored under the first release's own prefix, as releases before
+	// content addressing were, carried by every later release by path.
+	_, err := db.ExecContext(ctx, `INSERT INTO site_release_files (release_id, tree, path, sha256, content_type, size, stored_in)
+		VALUES ($1, 'output', 'legacy', 'lg', 'text/plain', 1, $1)`, root.ID)
+	require.NoError(t, err)
+	for n := 2; n <= 40; n++ {
+		prev := rels[n-1]
+		r := &site.Release{
+			ID: NewReleaseID(), SiteID: st.ID, ManifestSHA256: "digest", CreatedBy: realOwner, Redirects: []site.Redirect{},
+			Base: prev.Number, ManifestParent: prev.ID, ManifestDepth: prev.ManifestDepth + 1,
+			Files: []site.File{file("index", "i"+strconv.Itoa(n)), file("n"+strconv.Itoa(n), note(n))}, Removed: []string{"n" + strconv.Itoa(n-1)},
+		}
+		require.NoError(t, s.RecordRelease(ctx, r, &site.Pointer{SiteID: st.ID, Environment: site.EnvDev, After: prev.Number, Action: site.ActionPublish, Actor: realOwner}))
+		rels[n] = r
+	}
+	require.NoError(t, s.Point(ctx, site.Pointer{SiteID: st.ID, Environment: realProd, To: 10, Action: site.ActionPromote, Actor: realOwner}))
+	require.NoError(t, s.Point(ctx, site.Pointer{SiteID: st.ID, Environment: "stage", To: 20, Action: site.ActionPromote, Actor: realOwner}))
+	for env, keep := range map[string]int{site.EnvDev: 5, realProd: 1, "stage": 1} {
+		require.NoError(t, s.SetEnvironment(ctx, st.ID, env, site.EnvironmentSettings{Keep: &keep}, realOwner))
+	}
+
+	kept := []int{10, 20, 36, 37, 38, 39, 40}
+	before := map[int]map[string][]site.File{}
+	for _, n := range kept {
+		before[n] = map[string][]site.File{}
+		for _, kind := range treeKinds {
+			files, err := s.Tree(ctx, rels[n].ID, kind)
+			require.NoError(t, err)
+			before[n][kind] = files
+		}
+	}
+	var want []int
+	for n := 1; n <= 40; n++ {
+		if !slices.Contains(kept, n) {
+			want = append(want, n)
+		}
+	}
+
+	report, err := s.Prune(ctx, st.ID, false)
+	require.NoError(t, err)
+	assert.Equal(t, want, report.Releases)
+	got, err := s.Release(ctx, st.ID, 5)
+	require.NoError(t, err)
+	assert.False(t, got.Pruned, "report mode writes nothing")
+
+	done, err := s.Prune(ctx, st.ID, true)
+	require.NoError(t, err)
+	assert.Equal(t, report.Releases, done.Releases)
+	assert.Equal(t, report.Bytes, done.Bytes)
+	assert.Len(t, done.Objects, len(report.Objects))
+
+	gone := map[string]bool{}
+	for _, f := range done.Objects {
+		gone[objectKey(f)] = true
+	}
+	for _, n := range want {
+		assert.True(t, gone["d:"+note(n)], "release %d's note is named by no kept release", n)
+	}
+	for _, n := range kept {
+		assert.False(t, gone["d:"+note(n)], "release %d's note is kept", n)
+	}
+	assert.False(t, gone["d:sh"], "a file every release shares stays")
+	assert.False(t, gone["r:"+root.ID+"\x00legacy"], "a file under a pruned release's prefix that kept releases name stays")
+
+	for _, n := range kept {
+		for _, kind := range treeKinds {
+			files, err := s.Tree(ctx, rels[n].ID, kind)
+			require.NoError(t, err)
+			assert.Equal(t, before[n][kind], files, "release %d still resolves to its %s tree", n, kind)
+		}
+	}
+	for _, n := range want {
+		got, err := s.Release(ctx, st.ID, n)
+		require.NoError(t, err)
+		assert.True(t, got.Pruned, "release %d keeps its record, marked", n)
+		var rows int
+		require.NoError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM site_release_files WHERE release_id = $1`, rels[n].ID).Scan(&rows))
+		assert.Zero(t, rows, "release %d's file rows are gone", n)
+	}
+	deployments, err := s.Deployments(ctx, st.ID, site.EnvDev, 100)
+	require.NoError(t, err)
+	assert.Len(t, deployments, 40, "the deployment history naming pruned releases stays")
+
+	again, err := s.Prune(ctx, st.ID, true)
+	require.NoError(t, err)
+	assert.Empty(t, again.Releases, "a second sweep finds nothing more")
+
+	why, err := s.KeptBy(ctx, st.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{realProd}, why[10])
+	assert.Equal(t, []string{"stage"}, why[20])
+	assert.Equal(t, []string{site.EnvDev}, why[38])
+	assert.Empty(t, why[5])
+
+	fresh, err := s.Get(ctx, st.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 5, fresh.Environment(site.EnvDev).Kept)
+	assert.Equal(t, 1, fresh.Environment(realProd).Kept)
+}
+
+// A site with a job running is left for the next sweep, and one where every
+// environment keeps every release is never pruned.
+func TestRealDB_PruneLeavesBusyAndKeepAllSitesAlone(t *testing.T) {
+	db := testdb.New(t)
+	ctx := context.Background()
+	s := New(db)
+	st := realSite(ctx, t, s, "busy")
+	for n := 1; n <= 3; n++ {
+		realRelease(ctx, t, s, st.ID, n)
+	}
+	zero := 0
+	for _, env := range []string{site.EnvDev, realProd} {
+		require.NoError(t, s.SetEnvironment(ctx, st.ID, env, site.EnvironmentSettings{Keep: &zero}, realOwner))
+	}
+	res, err := s.Prune(ctx, st.ID, true)
+	require.NoError(t, err)
+	assert.Empty(t, res.Releases, "every environment keeps every release, including those never served")
+
+	one := 1
+	require.NoError(t, s.SetEnvironment(ctx, st.ID, site.EnvDev, site.EnvironmentSettings{Keep: &one}, realOwner))
+	require.NoError(t, s.CreateJob(ctx, &site.Job{ID: "job_" + uuid.NewString(), SiteID: st.ID, Kind: site.JobPublish, Environment: site.EnvDev, CreatedBy: realOwner}))
+	res, err = s.Prune(ctx, st.ID, true)
+	require.NoError(t, err)
+	assert.True(t, res.Skipped)
+
+	_, err = s.Prune(ctx, NewSiteID(), true)
+	require.ErrorIs(t, err, site.ErrNotFound)
+
+	w := &Sweep{Mode: "delete", Sites: 1, StartedAt: time.Now().UTC()}
+	require.NoError(t, s.RecordSweep(ctx, w))
+	sweeps, err := s.Sweeps(ctx, 5)
+	require.NoError(t, err)
+	require.NotEmpty(t, sweeps)
+	assert.Equal(t, 1, sweeps[0].Sites)
+	refs, err := s.SiteRefs(ctx)
+	require.NoError(t, err)
+	assert.Contains(t, refs, SiteRef{ID: st.ID, Name: st.Name})
+}
+
+// A publish's hold on a site's stored files and a sweep's exclude each other
+// (#2602): while a publish holds them a sweep takes no hold and prunes
+// nothing; while a sweep holds them a publish is refused past its wait; a
+// hold left by a process that died stops counting when it expires; and a
+// publish whose hold ran out records nothing.
+func TestRealDB_HoldsKeepPublishAndSweepApart(t *testing.T) {
+	db := testdb.New(t)
+	ctx := context.Background()
+	s := New(db)
+	s.holds = holdTiming{wait: 50 * time.Millisecond, poll: 10 * time.Millisecond, renewAfter: time.Nanosecond}
+	st := realSite(ctx, t, s, "held")
+	for n := 1; n <= 3; n++ {
+		realRelease(ctx, t, s, st.ID, n)
+	}
+	one := 1
+	require.NoError(t, s.SetEnvironment(ctx, st.ID, site.EnvDev, site.EnvironmentSettings{Keep: &one}, realOwner))
+	expire := func(t *testing.T, kind string) {
+		t.Helper()
+		_, err := db.ExecContext(ctx, `UPDATE site_object_holds SET expires_at = clock_timestamp() - interval '1 second' WHERE site_id = $1 AND kind = $2`, st.ID, kind)
+		require.NoError(t, err)
+	}
+
+	upload, err := s.HoldUpload(ctx, st.ID)
+	require.NoError(t, err)
+	require.NotNil(t, upload)
+	sweep, err := s.HoldSweep(ctx, st.ID)
+	require.NoError(t, err)
+	assert.Nil(t, sweep, "a sweep takes no hold while a publish stores files")
+	res, err := s.Prune(ctx, st.ID, true)
+	require.NoError(t, err)
+	assert.True(t, res.Skipped, "nor does it prune")
+	require.NoError(t, upload.Renew(ctx), "a live hold renews")
+	upload.Release(ctx)
+
+	sweep, err = s.HoldSweep(ctx, st.ID)
+	require.NoError(t, err)
+	require.NotNil(t, sweep)
+	_, err = s.HoldUpload(ctx, st.ID)
+	require.ErrorIs(t, err, ErrCleanupRunning, "a publish never stores while a sweep deletes")
+	expire(t, holdSweep)
+	upload, err = s.HoldUpload(ctx, st.ID)
+	require.NoError(t, err)
+	require.NotNil(t, upload, "a sweep's hold that expired stops counting")
+	require.ErrorIs(t, sweep.Renew(ctx), ErrHoldExpired, "and the sweep that held it must stop")
+
+	expire(t, holdUpload)
+	r := &site.Release{ID: NewReleaseID(), SiteID: st.ID, Source: "ci", ManifestSHA256: "d", CreatedBy: realOwner, Redirects: []site.Redirect{}}
+	require.ErrorIs(t, s.RecordRelease(WithHold(ctx, upload), r, nil), ErrHoldExpired)
+	rels, err := s.Releases(ctx, st.ID)
+	require.NoError(t, err)
+	assert.Len(t, rels, 3, "a publish whose hold ran out records nothing")
+	require.ErrorIs(t, upload.Renew(ctx), ErrHoldExpired)
+
+	sweep, err = s.HoldSweep(ctx, st.ID)
+	require.NoError(t, err)
+	require.NotNil(t, sweep, "an upload hold that expired stops counting too")
+	sweep.Release(ctx)
+	upload, err = s.HoldUpload(ctx, st.ID)
+	require.NoError(t, err)
+	require.NoError(t, s.RecordRelease(WithHold(ctx, upload), r, nil), "a live hold records")
+	upload.Release(ctx)
+}
+
+// A move never lands on a release a sweep pruned under it (#2602): a move
+// started while a sweep holds the site's row waits for the sweep and is then
+// refused, where before it moved after the sweep committed.
+func TestRealDB_AMoveNeverLandsOnAPrunedRelease(t *testing.T) {
+	db := testdb.New(t)
+	ctx := context.Background()
+	s := New(db)
+	st := realSite(ctx, t, s, "moving")
+	for n := 1; n <= 3; n++ {
+		realRelease(ctx, t, s, st.ID, n)
+		require.NoError(t, s.Point(ctx, site.Pointer{SiteID: st.ID, Environment: site.EnvDev, After: n - 1, To: n, Action: site.ActionPublish, Actor: realOwner}))
+	}
+
+	sweep, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer func() { _ = sweep.Rollback() }()
+	_, err = sweep.ExecContext(ctx, `SELECT 1 FROM sites WHERE id = $1 FOR UPDATE`, st.ID)
+	require.NoError(t, err)
+	_, err = sweep.ExecContext(ctx, `UPDATE site_releases SET pruned_at = NOW() WHERE site_id = $1 AND number = 2`, st.ID)
+	require.NoError(t, err)
+
+	moved := make(chan error, 1)
+	go func() {
+		moved <- s.Point(ctx, site.Pointer{SiteID: st.ID, Environment: site.EnvDev, After: 3, To: 2, Action: site.ActionRollback, Actor: realOwner})
+	}()
+	waiting := false
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline) && !waiting; time.Sleep(10 * time.Millisecond) {
+		require.NoError(t, db.QueryRowContext(ctx, `
+			SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock')`).Scan(&waiting))
+	}
+	assert.True(t, waiting, "the move waits for the sweep's lock")
+	require.NoError(t, sweep.Commit())
+
+	select {
+	case err := <-moved:
+		require.ErrorIs(t, err, site.ErrPruned)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the move never finished")
+	}
+	got, err := s.GetByName(ctx, "moving")
+	require.NoError(t, err)
+	assert.Equal(t, 3, got.Environment(site.EnvDev).Release, "dev still serves what it served")
 }

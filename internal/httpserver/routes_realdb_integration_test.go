@@ -51,7 +51,7 @@ var routesUnmountedHere = []struct {
 	{regexp.MustCompile(`^(GET|POST|PUT|DELETE) /api/v1/admin/webhooks/`), "mountWebhookAdminAPI: no object store for a webhook source"},
 	{regexp.MustCompile(`^(GET|POST|DELETE) /api/v1/portal/api-keys`), "userkeywire.Wire: no API key store with principals"},
 	{regexp.MustCompile(`^GET /api/v1/portal/scripts/\{id\}/thumbnail$`), "flowhttp.RegisterPortal: tiles need the renderer"},
-	{regexp.MustCompile(`^(GET|POST|PUT|PATCH|DELETE) /api/v1/(admin/sites/domains|admin/settings/sites|portal/sites|portal/application-addresses)`), "sitehttp: sites need a portal bucket, which this platform has none of"},
+	{regexp.MustCompile(`^(GET|POST|PUT|PATCH|DELETE) /api/v1/(admin/sites/domains|admin/sites/retention|admin/settings/sites|portal/sites|portal/application-addresses)`), "sitehttp: sites need a portal bucket, which this platform has none of"},
 	{regexp.MustCompile(`^GET /sites/handoff$`), "sitehttp.Build: a site's own address needs a portal bucket"},
 	{regexp.MustCompile(`^GET /pages/handoff$`), "sitehttp.Build: a page origin needs sites.pages_domain and a portal bucket"},
 	{regexp.MustCompile(`^GET /api/v1/portal/(assets/\{id\}/content-url|content/\{token\})$`), "contentURLsReady: no content URL signing key"},

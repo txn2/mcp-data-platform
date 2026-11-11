@@ -24,6 +24,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/application/apptool"
 	"github.com/txn2/mcp-data-platform/internal/approval/apprtool"
 	"github.com/txn2/mcp-data-platform/internal/botcheck"
+	"github.com/txn2/mcp-data-platform/internal/bucketsource"
 	"github.com/txn2/mcp-data-platform/internal/connlimit"
 	"github.com/txn2/mcp-data-platform/internal/dbobs"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epwire"
@@ -1901,7 +1902,7 @@ func (p *Platform) initManagedResources() error {
 		MaxUploadBytes: p.config.Resources.Managed.MaxUploadBytes, Extract: p.config.Resources.Managed.Extract,
 		Registered: p.RegisterManagedResource, Unregistered: p.UnregisterManagedResource,
 		Attachments: prompt.AsAttachmentStore(p.PromptStore()),
-		IndexPolicy: p.config.Resources.Index.Resolver(),
+		IndexPolicy: p.config.Resources.Index.Resolver(), Buckets: bucketsource.FromToolkits(p.toolkitRegistry, p.personaRegistry),
 	})
 
 	// The document reader's PDF extractor holds a WebAssembly instance pool

@@ -406,11 +406,11 @@ var manageResourceSchema = json.RawMessage(`{
     "action": {
       "type": "string",
       "enum": ["create", "replace_content", "update", "get", "list", "delete", "extract"],
-      "description": "What to do: file new content as a managed resource (create), write new content over an existing one (replace_content), change an existing one's display_name, description, tags or index without touching its content (update; given a path and a description and no reference, update describes the folder instead, which is what search matches a folder of files that are not indexed one by one on), read what is filed at a path or a reference without its bytes (get), report the files under a folder (list), remove a file and its version history (delete), or write the files inside a stored zip, gzip or gzipped tar archive out as managed resources of their own (extract). A get finding nothing is an answer and not a failure: an empty address and a reference naming a file that is gone or outside what you can see both report found=false, the same way fetch reports a dangling reference, so a create-or-replace decides on it. A replacement moves every table registered over the file that follows it (the default) onto the new contents, and reports each table in its result; a table registered with follow=false stays on the version it was registered over and is reported as behind."
+      "description": "What to do: file new content as a managed resource (create), write new content over an existing one (replace_content), change an existing one's display_name, description, tags or index without touching its content (update; given a path and a description and no reference, update describes the folder instead, which is what search matches a folder of files that are not indexed one by one on), read what is filed at a path or a reference without its bytes (get), report the files under a folder (list), remove a file and its version history (delete), or write the files inside a stored zip, gzip or gzipped tar archive, or the objects under a bucket prefix (from_bucket), out as managed resources of their own (extract). A get finding nothing is an answer and not a failure: an empty address and a reference naming a file that is gone or outside what you can see both report found=false, the same way fetch reports a dangling reference, so a create-or-replace decides on it. A replacement moves every table registered over the file that follows it (the default) onto the new contents, and reports each table in its result; a table registered with follow=false stays on the version it was registered over and is reported as behind."
     },
     "reference": {
       "type": "string",
-      "description": "The managed resource to act on, named by the mcp:resource:<id> reference a search hit, a fetch document, or a create reported. Required for replace_content and update, and for extract, where it names the archive. For get and delete it is the alternative to naming the address (scope + path + filename); pass one or the other, and pass it verbatim."
+      "description": "The managed resource to act on, named by the mcp:resource:<id> reference a search hit, a fetch document, or a create reported. Required for replace_content and update, and for extract, where it names the archive (or pass from_bucket instead). For get and delete it is the alternative to naming the address (scope + path + filename); pass one or the other, and pass it verbatim."
     },
     "if_exists": {
       "type": "string",
@@ -420,6 +420,17 @@ var manageResourceSchema = json.RawMessage(`{
     "members": {
       "type": "string",
       "description": "Which files of the archive to extract (extract), as a glob: *.csv takes every CSV wherever it is filed in the archive, and a pattern with a slash, such as exports/*.csv, is matched against the member's whole path. Omit it to extract every file. A pattern matching nothing is refused and the refusal lists what the archive holds."
+    },
+    "from_bucket": {
+      "type": "object",
+      "required": ["connection", "bucket"],
+      "additionalProperties": false,
+      "description": "For extract, in place of reference: write the objects under a prefix of a bucket on an S3 connection out as managed resources of path, each at its path under the prefix, so a media folder of tens of thousands of files arrives from where it already sits without a tool call carrying its bytes. Your persona must hold s3_list and s3_object and may use the connection, and the bucket must be inside its bucket_prefix: nothing beyond what those two tools reach; the resources.managed.extract limits (files, bytes per file, total bytes) are checked from the listing before anything is written, and if_exists works as for an archive. The objects are read and written one at a time inside this call.",
+      "properties": {
+        "connection": {"type": "string", "description": "The S3 connection, by name; always named."},
+        "bucket": {"type": "string", "description": "The bucket."},
+        "prefix": {"type": "string", "description": "The folder in the bucket, for example exports/media/; empty for the whole bucket."}
+      }
     },
     "force": {
       "type": "boolean",

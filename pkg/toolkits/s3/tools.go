@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -161,11 +162,36 @@ func (t *Toolkit) refuseOutsidePrefix(connection, prefix string, buckets ...stri
 	}
 	for _, bucket := range buckets {
 		if !strings.HasPrefix(bucket, prefix) {
-			return s3tools.ErrorResultf("connection %q is limited to buckets whose name starts with %q: bucket %q is outside it",
-				t.boundName(connection), prefix, bucket)
+			return s3tools.ErrorResult(outsidePrefix(t.boundName(connection), prefix, bucket))
 		}
 	}
 	return nil
+}
+
+// outsidePrefix is the refusal of a bucket outside a connection's
+// bucket_prefix, in the one wording every surface answers with.
+func outsidePrefix(connection, prefix, bucket string) string {
+	return fmt.Sprintf("connection %q is limited to buckets whose name starts with %q: bucket %q is outside it", connection, prefix, bucket)
+}
+
+// ReadClient is the client a reader of bucket on the named connection uses
+// outside a tool call (#2593: a site or a resource folder loaded from a bucket
+// prefix), refused for an unknown connection and for a bucket outside the
+// connection's bucket_prefix, the limit s3_list and s3_object apply (#2584). A
+// connection is always named: the default connection is never chosen for a
+// caller who named none.
+func (t *Toolkit) ReadClient(connection, bucket string) (s3tools.S3Client, error) {
+	if connection == "" {
+		return nil, errors.New("name the S3 connection to read from")
+	}
+	client, err := t.s3Toolkit.GetClient(connection)
+	if err != nil {
+		return nil, fmt.Errorf("no S3 connection named %q", connection)
+	}
+	if prefix, outside := t.OutsideBucketPrefix(connection, bucket); outside {
+		return nil, errors.New(outsidePrefix(connection, prefix, bucket))
+	}
+	return client, nil
 }
 
 // OutsideBucketPrefix reports whether a bucket lies outside the bucket_prefix

@@ -1054,6 +1054,31 @@ func TestGrant_NoExternalCheckConfiguredAdmitsAManager(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// A manage grant made to an address before its first sign-in, when no one
+// could say whether it was external, gives an external person no management
+// once they sign in: they view, as an external person may.
+func TestPermissions_AManageGrantIsJudgedOnUse(t *testing.T) {
+	ctx := context.Background()
+	svc, _ := matrixFixture(t)
+	signedIn := map[string]bool{}
+	svc.External = func(_ context.Context, email string) bool { return signedIn[email] }
+	_, err := svc.Grant(ctx, owner, "marketing", GrantRequest{Email: "pat@client.example", Level: site.LevelManage})
+	require.NoError(t, err, "not yet known to be external")
+	st, err := svc.Find(ctx, "marketing")
+	require.NoError(t, err)
+	pat := Actor{Email: "pat@client.example", Persona: "client"}
+	perms, err := svc.PermissionsOf(ctx, pat, st)
+	require.NoError(t, err)
+	assert.True(t, perms.Manage)
+
+	signedIn["pat@client.example"] = true
+	perms, err = svc.PermissionsOf(ctx, pat, st)
+	require.NoError(t, err)
+	assert.False(t, perms.Manage, "an external person never manages a site")
+	_, err = svc.Promote(ctx, pat, PromoteRequest{Site: "marketing", From: site.EnvDev, To: "stage"})
+	require.ErrorIs(t, err, site.ErrNotAllowed)
+}
+
 func TestGrant_StoreFailures(t *testing.T) {
 	ctx := context.Background()
 	boom := errors.New("down")

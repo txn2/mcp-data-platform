@@ -1,91 +1,164 @@
+import { BookOpen, FileCode2 } from "lucide-react";
 import { PrincipalLabel } from "@/components/PrincipalLabel";
+import { OpenRowChevron } from "@/components/patterns/OpenRowChevron";
 import { Badge } from "@/components/ui/badge";
 import { TableCell, TableRow } from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { PortalScriptRow } from "@/api/portal/hooks/scripts";
+import { openRowProps } from "@/lib/openRow";
+import { cn } from "@/lib/utils";
 import { scheduleLine, scheduleState } from "./cadence";
-import { formatWhen, runStatusLabel, runStatusVariant, runWhen } from "./runFormat";
+import { agoText, endpointTail, endpointURL, exactWhen, nextFireText } from "./listingFormat";
+import { runStatusLabel, runStatusVariant } from "./runFormat";
 
-// One row of the scripts listing, and the four cells that need more than a
-// string. Split out of ScriptListing for that file's line budget; the listing
-// above it is the bar, the health line and the table, and this is what a row
-// of that table says.
+// One row of the scripts listing, and the cells that need more than a string.
+// Split out of ScriptListing for that file's line budget; the listing above it
+// is the bar, the health line and the table, and this is what a row of that
+// table says.
+//
+// The row is laid out for a fixed-width table (#2601): every cell is at most
+// two lines, each line truncates rather than wrapping, and the full value is on
+// hover. Which columns show is the listing's call, from the width it has.
+
+/** RowColumns is which of the optional columns the listing has room for. */
+export interface RowColumns {
+  endpoint: boolean;
+  updated: boolean;
+}
+
+const ALL_COLUMNS: RowColumns = { endpoint: true, updated: true };
 
 export function ScriptRow({
   row,
   basePath,
   onNavigate,
+  columns = ALL_COLUMNS,
 }: {
   row: PortalScriptRow;
   basePath: string;
   onNavigate: (path: string) => void;
+  columns?: RowColumns;
 }) {
   const { script } = row;
+  const open = openRowProps(() => onNavigate(`${basePath}/${script.id}`));
   return (
-    // The row opens the script, which is how every other listing in the portal
-    // opens a record (assets, collections, resources, prompts, insights).
-    <TableRow
-      className="cursor-pointer align-top"
-      onClick={() => onNavigate(`${basePath}/${script.id}`)}
-      data-testid={`script-row-${script.id}`}
-    >
-      <TableCell className="whitespace-normal">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-medium" data-testid="script-name">
-            {script.display_name || script.name}
-          </span>
-          {/* The category appears once, beside the name. Tags leave the row
-              entirely: a tag is how a script is FOUND, which is the facet
-              above, not what a reader needs while scanning (#1795). */}
-          <LibraryBadge row={row} />
-          {script.category && <Badge variant="muted">{script.category}</Badge>}
-          <InertBadge row={row} />
-        </div>
-        <div className="font-mono text-xs text-muted-foreground">{script.name}</div>
+    // The whole row opens the script (#2601, #2587): a click anywhere on it,
+    // or Enter on the focused row, with a chevron at its end saying so.
+    <TableRow {...open} className={cn(open.className, "align-top")} data-testid={`script-row-${script.id}`}>
+      <TableCell className="py-2.5 pr-0 pl-3">
+        <KindIcon library={!!script.library} />
       </TableCell>
-      <TableCell className="text-xs" data-testid="automation-kind">
-        {script.library ? "Library" : "Script"}
+      <TableCell className="min-w-0 py-2.5 pl-2">
+        <NameCell row={row} chip={!columns.endpoint} />
       </TableCell>
-      <TableCell className="text-xs">
+      <TableCell className="py-2.5 text-xs">
         {script.owner_email ? (
-          // The author reads as a person, the way every other people-bearing
-          // table in the portal renders one, rather than as a bare email in a
-          // text cell (#1795). The owner is identified by email here, which is
-          // what a script record carries.
           <PrincipalLabel userId={script.owner_email} email={script.owner_email} />
         ) : (
           <span className="text-muted-foreground">nobody</span>
         )}
       </TableCell>
-      <TableCell>
+      <TableCell className="py-2.5">
         <ScheduleCell row={row} />
       </TableCell>
-      <TableCell>
-        <EndpointCell row={row} />
-      </TableCell>
-      <TableCell>
+      {columns.endpoint && (
+        <TableCell className="py-2.5">
+          <EndpointCell row={row} />
+        </TableCell>
+      )}
+      <TableCell className="py-2.5">
         <LastRunCell row={row} />
       </TableCell>
-      <TableCell className="text-xs whitespace-nowrap text-muted-foreground">
-        {formatWhen(script.updated_at)}
-      </TableCell>
+      {columns.updated && (
+        <TableCell className="py-2.5 text-xs whitespace-nowrap text-muted-foreground">
+          <span title={exactWhen(script.updated_at)} data-testid="script-updated">
+            {agoText(script.updated_at)}
+          </span>
+        </TableCell>
+      )}
+      <OpenRowChevron />
     </TableRow>
   );
 }
 
-// LibraryBadge marks a library (#1941): code other scripts load, which is
-// never run or scheduled itself, so a reader scanning for what runs can pass
-// over it.
+/** The name on one line with its badge, then the slug and the category. */
+function NameCell({ row, chip }: { row: PortalScriptRow; chip: boolean }) {
+  const { script } = row;
+  const name = script.display_name || script.name;
+  return (
+    <div className="min-w-0">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span className="min-w-0 truncate font-medium" title={name} data-testid="script-name">
+          {name}
+        </span>
+        <InertBadge row={row} />
+      </div>
+      {/* The slug and the category, and where Endpoint has no column a bound
+          endpoint as a chip at the line's end, so the row stays two lines. */}
+      <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+        <span className="min-w-0 flex-1 truncate">
+          <span className="font-mono">{script.name}</span>
+          {script.category && (
+            <>
+              <span aria-hidden> · </span>
+              <span>{script.category}</span>
+            </>
+          )}
+        </span>
+        {chip && row.endpoint && (
+          <span className="inline-flex max-w-[60%] min-w-0 shrink-0 items-center gap-1 rounded border bg-background px-1.5 text-[11px] text-foreground">
+            <EndpointText path={row.endpoint.path} />
+            {!row.endpoint.enabled && <span className="shrink-0 text-muted-foreground">· Off</span>}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// KIND_TEXT says what each kind is, as the icon's tooltip and its accessible
+// name (#2601). The words are the Kind filter's.
+export const KIND_TEXT = {
+  script: "Script: runs on a schedule, on demand, or when its endpoint is called.",
+  library: "Library: code other automations load. It never runs on its own.",
+} as const;
+
+/** KindIcon is a row's kind as an icon, a file-code for a script and a book
+ * for a library, which replaces the Library badge beside the name. */
+export function KindIcon({ library }: { library: boolean }) {
+  const text = library ? KIND_TEXT.library : KIND_TEXT.script;
+  const Icon = library ? BookOpen : FileCode2;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          role="img"
+          aria-label={text}
+          data-testid="automation-kind"
+          data-kind={library ? "library" : "script"}
+          className={cn(
+            "mt-0.5 inline-flex size-[22px] items-center justify-center rounded-md",
+            library ? "bg-blue-100 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300" : "bg-muted text-muted-foreground",
+          )}
+        >
+          <Icon className="size-[15px]" aria-hidden />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-64">{text}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+// LibraryBadge marks a library (#1941) on a grid card, whose drawn tile may not
+// say so: code other scripts load, never run or scheduled itself.
 export function LibraryBadge({ row }: { row: PortalScriptRow }) {
   if (!row.script.library) return null;
   return <Badge variant="info">Library</Badge>;
 }
 
 // InertBadge marks a script that will execute nothing — disabled, or retired.
-// It is a badge on the name rather than a column of its own (#1407): the
-// column it replaces said "Runs v3" on almost every row, which is a fact about
-// every healthy script and therefore not one worth a column. What a reader
-// scans a listing for is the exception, and the version a run executes is on
-// the script's own page.
+// It is a badge on the name rather than a column of its own (#1407): what a
+// reader scans a listing for is the exception.
 export function InertBadge({ row }: { row: PortalScriptRow }) {
   const { script } = row;
   if (script.enabled && script.status === "active") return null;
@@ -93,11 +166,9 @@ export function InertBadge({ row }: { row: PortalScriptRow }) {
 }
 
 // ScheduleCell reports the cadence and what it is doing, in the words the
-// schedule editor states them in (#1358). This column is the surface a reader
-// scans to answer "what is running and when", and a cron expression is not an
-// answer to that question for the person whose report it is — so this column
-// never shows one (#1405), and the editor is where an expression is read and
-// written.
+// schedule editor states them in (#1358), never as a cron expression (#1405):
+// the cadence on the first line, and on the second when it fires next with its
+// zone, or that it is paused.
 export function ScheduleCell({ row }: { row: PortalScriptRow }) {
   const { schedule } = row;
   // A library is never scheduled, so "On demand" would promise a run it
@@ -108,10 +179,16 @@ export function ScheduleCell({ row }: { row: PortalScriptRow }) {
   if (!schedule) {
     return <span className="text-xs text-muted-foreground">On demand</span>;
   }
+  const line = scheduleLine(schedule.cron_spec, schedule.timezone);
+  const when = scheduleWhen(schedule);
   return (
-    <div className="text-xs">
-      <div>{scheduleLine(schedule.cron_spec, schedule.timezone)}</div>
-      <div className="text-muted-foreground">{scheduleWhen(schedule)}</div>
+    <div className="min-w-0 text-xs">
+      <div className="truncate" title={line}>
+        {line}
+      </div>
+      <div className="truncate text-muted-foreground" title={when.title}>
+        {when.text}
+      </div>
     </div>
   );
 }
@@ -119,34 +196,75 @@ export function ScheduleCell({ row }: { row: PortalScriptRow }) {
 // scheduleWhen is the schedule's state in the few words this column has. The
 // editor says the same thing at greater length; both read it off scheduleState,
 // so neither can call a paused schedule due.
-function scheduleWhen(schedule: NonNullable<PortalScriptRow["schedule"]>): string {
+function scheduleWhen(schedule: NonNullable<PortalScriptRow["schedule"]>): { text: string; title?: string } {
   const state = scheduleState(schedule);
   switch (state.kind) {
     case "paused":
-      return "Paused";
+      return { text: "Paused" };
     case "idle":
-      return "No fire due";
-    case "due":
-      return `Next ${formatWhen(state.at)}`;
+      return { text: "No fire due" };
+    case "due": {
+      const zone = schedule.timezone.trim() || "UTC";
+      return { text: `Next ${nextFireText(state.at)} · ${zone}`, title: exactWhen(state.at) };
+    }
   }
 }
 
+/**
+ * EndpointText is an endpoint's path without the /endpoints/ prefix every one
+ * shares, cut from the LEFT when it is still too long, so the end that tells
+ * two endpoints apart stays visible; the full address is on hover.
+ */
+export function EndpointText({ path }: { path: string }) {
+  return (
+    <span
+      dir="rtl"
+      className="block min-w-0 truncate text-left font-mono"
+      title={endpointURL(path)}
+      data-testid="endpoint-path"
+    >
+      <span dir="ltr">{endpointTail(path)}</span>
+    </span>
+  );
+}
+
 // EndpointCell is the address a script answers HTTP requests at (#2259), and
-// Off beside it when its binding is turned off; blank for a script bound to
-// no endpoint, which is most of them.
+// Off beside it when its binding is turned off; a dash for a script bound to
+// no endpoint, like the other columns.
 export function EndpointCell({ row }: { row: PortalScriptRow }) {
   const { endpoint } = row;
-  if (!endpoint) return null;
+  if (!endpoint) return <span className="text-xs text-muted-foreground">—</span>;
   return (
-    <div className="flex flex-wrap items-center gap-1.5 text-xs" data-testid="script-endpoint">
-      <span className="break-all font-mono">{endpoint.path}</span>
+    <div className="flex min-w-0 items-center gap-1.5 text-xs" data-testid="script-endpoint">
+      <EndpointText path={endpoint.path} />
       {!endpoint.enabled && <Badge variant="muted">Off</Badge>}
     </div>
   );
 }
 
+// RUN_DOT is a run status as a colored dot, beside the status in words.
+const RUN_DOT: Record<ReturnType<typeof runStatusVariant>, string> = {
+  success: "bg-green-500",
+  danger: "bg-red-500",
+  info: "bg-blue-500",
+  warning: "bg-amber-500",
+  muted: "bg-slate-400 dark:bg-slate-600",
+};
+
+/** RunDot is a run's status as a dot, for the listing and the phone list. */
+export function RunDot({ status }: { status?: string }) {
+  const variant = status ? runStatusVariant(status) : "muted";
+  return <span aria-hidden className={cn("inline-block size-2 shrink-0 rounded-full", RUN_DOT[variant])} />;
+}
+
+/** runMoment is when a run happened: finished, else started, else its fire. */
+export function runMoment(run: NonNullable<PortalScriptRow["last_run"]>): string | undefined {
+  return run.finished_at ?? run.started_at ?? run.fire_time;
+}
+
 // LastRunCell reports the most recent run, for every row: how a script is
 // going is every reader's (#1994), what its run was given and printed is not.
+// The status with its dot, then how long ago.
 export function LastRunCell({ row }: { row: PortalScriptRow }) {
   // A library never runs, so "Never run" would read as a script waiting for
   // its first run.
@@ -156,12 +274,18 @@ export function LastRunCell({ row }: { row: PortalScriptRow }) {
   if (!row.last_run) {
     return <span className="text-xs text-muted-foreground">Never run</span>;
   }
+  const run = row.last_run;
+  const at = runMoment(run);
+  const ago = agoText(at);
   return (
-    <div className="flex flex-col gap-1 text-xs">
-      <Badge variant={runStatusVariant(row.last_run.status)}>
-        {runStatusLabel(row.last_run.status)}
-      </Badge>
-      <span className="text-muted-foreground">{runWhen(row.last_run)}</span>
+    <div className="text-xs" data-testid="script-last-run">
+      <div className="flex items-center gap-1.5 whitespace-nowrap">
+        <RunDot status={run.status} />
+        <span>{runStatusLabel(run.status)}</span>
+      </div>
+      <div className="text-muted-foreground" title={exactWhen(at)}>
+        {run.status === "running" ? `started ${ago}` : ago}
+      </div>
     </div>
   );
 }

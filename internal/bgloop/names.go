@@ -92,6 +92,9 @@ const (
 	NameSiteHandoffSweep = "site_handoff_sweep"
 	// NameSiteSettingsRefresh reads the sites settings another replica saved.
 	NameSiteSettingsRefresh = "site_settings_refresh"
+	// NameSiteReleaseSweep prunes releases past each environment's limit and
+	// removes objects no release names (#2602).
+	NameSiteReleaseSweep = "site_release_sweep"
 
 	// LISTEN connections (Listen). The two pglisten channels report under
 	// "listen_" + their channel name.

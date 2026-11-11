@@ -2449,3 +2449,45 @@ func TestHandleList_DirectFolder(t *testing.T) {
 		t.Errorf("an empty level must list [] not null: %v", empty["resources"])
 	}
 }
+
+// A file a site serves from a mounted media folder is refused deletion unless
+// forced (#2591).
+func TestHandleDelete_AMountedFileNeedsForce(t *testing.T) {
+	store := newMockStore()
+	s3 := newMockS3()
+	deps := Deps{Store: mountingStore{store}, S3Client: s3, S3Bucket: "test-bucket", URIScheme: "mcp"}
+	h := NewHandler(deps, okExtractor, nil)
+	seedResource(store, s3, "res-1", ScopeGlobal, "", "user-123")
+	seedResource(store, s3, "res-err", ScopeGlobal, "", "user-123")
+
+	do := func(target string) *httptest.ResponseRecorder {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, target, http.NoBody)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	rec := do("/api/v1/resources/res-1")
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "a site serves this file") {
+		t.Fatalf("expected 409 saying a site serves it, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if _, ok := store.resources["res-1"]; !ok {
+		t.Fatal("a refused delete removed the file")
+	}
+	if rec := do("/api/v1/resources/res-err"); rec.Code != http.StatusInternalServerError {
+		t.Fatalf("a failed check must not delete: %d", rec.Code)
+	}
+	if rec := do("/api/v1/resources/res-1?force=true"); rec.Code != http.StatusNoContent {
+		t.Fatalf("force deletes: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// mountingStore is the mock store counting two sites serving every file, and
+// failing for res-err.
+type mountingStore struct{ *mockStore }
+
+func (mountingStore) CountMounting(_ context.Context, id string, _ int) (int, error) {
+	if id == "res-err" {
+		return 0, errors.New("down")
+	}
+	return 2, nil
+}

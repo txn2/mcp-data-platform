@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { authenticate } from "../screenshots/helpers/auth";
 
 // Interactive coverage for libraries on the portal script pages (#1941),
-// against the mock server: the listing's Library badge and kind filter, a
+// against the mock server: the listing's kind icon and kind filter, a
 // library's own page, and the refusal to delete one a script still loads.
 
 async function gotoScripts(page: Page): Promise<void> {
@@ -26,12 +26,13 @@ test.describe("Portal script libraries", () => {
     const main = page.locator("main");
 
     const libraryRow = page.getByRole("row").filter({ hasText: "Date Windows" });
-    // The badge beside the name, and the Kind column.
-    await expect(libraryRow.getByText("Library", { exact: true })).toHaveCount(2);
-    await expect(libraryRow.getByTestId("automation-kind")).toHaveText("Library");
+    // The Kind column's icon says what the kind is (#2601); it replaced the
+    // Library badge beside the name.
+    await expect(libraryRow.getByRole("img", { name: /^Library: code other automations load/ })).toBeVisible();
+    await expect(libraryRow.getByText("Library", { exact: true })).toHaveCount(0);
     await expect(
-      page.getByRole("row").filter({ hasText: "Daily Sales Report" }).getByText("Library", { exact: true }),
-    ).toHaveCount(0);
+      page.getByRole("row").filter({ hasText: "Daily Sales Report" }).getByRole("img", { name: /^Script: / }),
+    ).toBeVisible();
 
     await main.getByLabel("Filter by kind").click();
     await page.getByRole("option", { name: "Libraries" }).click();

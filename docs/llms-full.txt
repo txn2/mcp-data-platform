@@ -796,7 +796,7 @@ Managed resources are human-uploaded reference files (data, samples, playbooks, 
 | `resources.managed.s3_connection` | string | `""` | Name of the S3 toolkit instance used for blob storage |
 | `resources.managed.s3_bucket` | string | `managed-resources` | S3 bucket for resource file blobs |
 | `resources.managed.max_versions` | int | `10` | Content revisions kept per resource, counting the current one. A revision past the cap deletes the oldest version's blob; the live content is never pruned. Non-positive selects the default; below 2 is raised to 2 |
-| `resources.managed.extract.max_member_bytes` / `max_total_bytes` / `max_members` / `max_ratio` | int64 / int64 / int / int64 | 2 GiB / 4 GiB / 10000 / 500 | Limits on `manage_resource extract` (#1879); see "Archive extraction limits" below. Independent of `max_upload_bytes` |
+| `resources.managed.extract.max_member_bytes` / `max_total_bytes` / `max_members` / `max_ratio` | int64 / int64 / int / int64 | 2 GiB / 4 GiB / 100000 / 500 | Limits on `manage_resource extract` (#1879); see "Archive extraction limits" below. Independent of `max_upload_bytes` |
 | `resources.managed.max_upload_bytes` | int64 | `1073741824` (1 GiB) | Largest file `POST /api/v1/resources` and `POST /api/v1/resources/{id}/content` accept. Non-positive selects the default, 1 GiB since #2069. The refusal names this deployment's number, and the portal's file chooser reads it from `GET /api/v1/portal/me` rather than holding a second copy. It bounds bytes streamed rather than bytes held: the upload path streams into the multipart uploader (see below). A CSV or JSON-lines table registration reads by `table_registration_max_bytes` instead: unset, this number when it is set (#1634), else 100 MB (#2069) |
 
 Example:
@@ -813,13 +813,13 @@ resources:
     extract:
       max_member_bytes: 2147483648
       max_total_bytes: 4294967296
-      max_members: 10000
+      max_members: 100000
       max_ratio: 500
 ```
 
 #### Archive extraction limits (`resources.managed.extract`)
 
-`manage_resource action=extract` (#1879) writes the members of a stored zip, gzip or gzipped tar out as managed resources, and `resources.managed.extract` bounds it. `max_member_bytes` (default 2 GiB) is the largest one member may be uncompressed; `max_total_bytes` (default 4 GiB) is the most the selected members may add up to; `max_members` (default 10000) is how many entries an archive may hold, directories included, and since a zip's directory is read whole to open it (`archive/zip.NewReader`), it is checked against the count the end-of-directory record declares, zip64 locator followed, before the directory is parsed; `max_ratio` (default 500) is the furthest a member may expand past its compressed size, checked once a member passes 1 MiB. Each field takes its default when absent, zero or negative. The struct is `unarchive.Limits` (`internal/unarchive`), used directly as the config section, so the key a `LimitError` names is the key an operator sets. The limits are apart from `max_upload_bytes` on purpose: an archive is delivered by an upstream rather than picked at an upload form, and the file inside a monthly delivery is routinely several times the upload ceiling, so the extractor lands each member with an unbounded lander ceiling (`Lander.landPlanned` with ceiling 0) and enforces its own limits in the archive reader.
+`manage_resource action=extract` (#1879) writes the members of a stored zip, gzip or gzipped tar out as managed resources, and `resources.managed.extract` bounds it. `max_member_bytes` (default 2 GiB) is the largest one member may be uncompressed; `max_total_bytes` (default 4 GiB) is the most the selected members may add up to; `max_members` (default 100000, raised from 10000 by #2593 so one archive carries a site's media folder) is how many entries an archive may hold, directories included, and since a zip's directory is read whole to open it (`archive/zip.NewReader`), it is checked against the count the end-of-directory record declares, zip64 locator followed, before the directory is parsed; `max_ratio` (default 500) is the furthest a member may expand past its compressed size, checked once a member passes 1 MiB. Each field takes its default when absent, zero or negative. The struct is `unarchive.Limits` (`internal/unarchive`), used directly as the config section, so the key a `LimitError` names is the key an operator sets. The limits are apart from `max_upload_bytes` on purpose: an archive is delivered by an upstream rather than picked at an upload form, and the file inside a monthly delivery is routinely several times the upload ceiling, so the extractor lands each member with an unbounded lander ceiling (`Lander.landPlanned` with ceiling 0) and enforces its own limits in the archive reader.
 
 Extraction streams both ways: the archive is read by range (`GetObjectRange`) through a two-block cache of 8 MiB blocks, and each member is streamed into `PutObjectStream`. A zip declares every member's name, size, flags and method up front, and a gzipped tar is read through once before its members are written, so for both every refusal (unsafe name, encryption, method, limit, empty selection) comes before the first write; a plain gzip's single member has no declared size, so its limits are enforced as it streams, and a gzip past one leaves nothing stored because its one multipart upload is abandoned.
 
@@ -6407,6 +6407,11 @@ sites:
     max_pages: 2000
     max_bytes: 536870912
   reserved_hostnames: []         # names the deployment answers on itself
+  releases:
+    keep_default: 50             # releases each environment keeps; 0 keeps every one
+    mode: delete                 # delete, or report: the cleanup counts and deletes nothing
+    orphan_grace: 24h            # how old an object no release names must be before it goes
+    every: 24h                   # how often the cleanup runs
 ```
 
 The file's values are the seed. Once an administrator saves **Admin > Settings >
@@ -6655,6 +6660,86 @@ Every `manage_site` call and every portal write is audited. Requests to a site
 are counted in the platform's HTTP metrics and are not audited individually.
 
 A release is never rendered on the portal's origin.
+
+## Releases kept
+
+Each environment keeps its last `keep_releases` distinct releases, the deployment's
+default (`sites.releases.keep_default`, 50, or **Releases kept per environment** in
+Admin > Settings > Sites) unless it has its own: `manage_site set_environment
+keep_releases=N`, `0` for every release, `"default"` to return to the default, also
+in the environment's Settings dialog in the portal. Only the owner or an
+administrator changes it, since a lower limit removes rollback history at the next
+cleanup.
+
+A release stays while it is in any environment's window, an environment points at
+it, an application release pins it, or a pending approval request names it. The
+daily cleanup (one replica at a time, under an advisory lock) removes every other
+release's file rows and the objects no kept release names, compressed forms
+included. A removed release keeps its record, marked `pruned`, so the deployments
+and approvals that name it read as before; it cannot be served, compared, promoted
+or rolled back to, and the refusal names the limits (a comparison's refusal names
+only the release). A move that started while a cleanup was deciding waits for it
+and is then refused if the cleanup removed its release. A kept release that read its
+files through a removed one is rewritten first, onto its nearest kept ancestor or
+whole, and checked to resolve to exactly the files it held. Files stored before
+v1.157.0 under a release's own prefix stay while any kept release names them.
+
+The same cleanup deletes objects under a site that no release names (a render that
+failed, a delete that failed) once they are older than `orphan_grace`, and refuses
+a site where more than half of what it holds reads as orphaned. In report mode it
+decides exactly as delete mode does and deletes nothing.
+
+A publish and a cleanup never overlap on one site's stored files. A publish holds
+them from its first stored file until its release is recorded, and a cleanup holds
+them from before it decides until its deletes finish (`site_object_holds`). The
+cleanup leaves a site with a publish in progress for the next run, and a publish
+that starts while a cleanup is deleting waits up to a minute and is then refused,
+saying the cleanup is running. Holds expire, so a replica that stopped while
+holding one blocks the other only for a few minutes; a publish whose hold ran out
+is refused rather than recorded. A site whose bucket cannot be listed still has
+its releases cleaned up, and the run reports `orphans_unchecked` for it.
+
+| Route | What it does |
+|---|---|
+| `GET /api/v1/admin/sites/retention` | The default, the mode, the grace, the interval, and the recent cleanups' counts |
+| `POST /api/v1/admin/sites/retention/run` | `{mode: "report" or "delete", site?}`: a cleanup now, answering which releases it removes per site and the files, bytes and orphans |
+
+`manage_site get` shows each environment's `keep_releases`,
+`keep_releases_default` and `releases_kept`; `releases` and the portal's release
+reads carry `pruned` and `kept_by` (the environments, `application <name>` and
+`approval` that keep each release).
+
+## Media folders
+
+A site mounts managed-resource folders at URL prefixes for images, video and
+downloads that do not change with its pages:
+
+```
+manage_site command=update site=marketing
+  media=[{"prefix":"/media/","scope":"global","folder":"sites/marketing/media"}]
+```
+
+`media` is the whole list (`[]` removes every mount), also `PATCH
+/api/v1/portal/sites/{site}` with `{"media": [...]}` and the Media tab in the
+portal. A prefix is a path under the site such as `/media/`, never `/`, `/_...` or
+`/.well-known/`; a site has at most 20.
+
+The gateway answers a path from the release first, then the longest mount whose
+prefix it starts with, then the redirects and the 404 page. A mounted file is
+served by range with its validators on every environment, with that environment's
+access; publish, promote and rollback leave media alone and it counts toward no
+release limit. A file replaced with `manage_resource replace_content` shows at once.
+A mount serves only what its folder holds now: a file moved out of it stops
+answering at its old address at once (the library's own reference to the old
+address keeps working for the file's readers), and a file moved within it answers
+at its new path.
+HTML, SVG, JavaScript and XML in a mount are sent as downloads, so a media folder
+cannot become a second, unreviewed site.
+
+Mounting publishes the folder: whoever mounts must manage the site and be able to
+read the folder, and its files are then public on a public environment. A file in a
+mounted folder is refused deletion (`manage_resource delete`, or `DELETE
+/api/v1/resources/{id}` answering 409) unless forced (`force=true`).
 
 ## Domains
 

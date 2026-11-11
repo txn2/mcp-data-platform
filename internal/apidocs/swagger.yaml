@@ -4772,6 +4772,15 @@ definitions:
           type: string
         type: array
     type: object
+  bucketsource.Source:
+    properties:
+      bucket:
+        type: string
+      connection:
+        type: string
+      prefix:
+        type: string
+    type: object
   callrecord.Artifact:
     properties:
       id:
@@ -15243,6 +15252,15 @@ definitions:
           InternalView opens a private environment to everyone signed in whose
           persona is not external: a company intranet.
         type: boolean
+      keep_releases:
+        description: |-
+          Keep is the limit in force: the last Keep distinct releases the
+          environment pointed at are kept, and 0 keeps every one.
+        example: 50
+        type: integer
+      keep_releases_default:
+        description: KeepDefault is true when Keep is the deployment's default.
+        type: boolean
       name:
         example: prod
         type: string
@@ -15255,6 +15273,11 @@ definitions:
       release:
         description: Release is the number of the release served, 0 before the first.
         example: 3
+        type: integer
+      releases_kept:
+        description: Kept is how many releases the limit keeps for this environment
+          now.
+        example: 37
         type: integer
       requires_approval:
         description: |-
@@ -15362,6 +15385,31 @@ definitions:
       updated_at:
         type: string
     type: object
+  site.Mount:
+    properties:
+      created_at:
+        type: string
+      created_by:
+        type: string
+      folder:
+        description: Folder is the folder in that library, "sites/marketing/media".
+        example: sites/marketing/media
+        type: string
+      prefix:
+        description: |-
+          Prefix is where the folder answers, "/media/": it starts and ends with a
+          slash and is never the site's root.
+        example: /media/
+        type: string
+      scope:
+        description: |-
+          Scope and ScopeID name the resource library: global, persona with the
+          persona's name, or user with the person's subject.
+        example: global
+        type: string
+      scope_id:
+        type: string
+    type: object
   site.Redirect:
     properties:
       from:
@@ -15373,6 +15421,62 @@ definitions:
       to:
         example: /new/:splat
         type: string
+    type: object
+  site.Release:
+    properties:
+      base:
+        description: |-
+          Base is the number of the release this one was derived from, 0 for a
+          release built from a complete file set.
+        example: 41
+        type: integer
+      created_at:
+        type: string
+      created_by:
+        type: string
+      file_count:
+        type: integer
+      files:
+        description: |-
+          Files is filled by a read that asks for them. Written with a
+          ManifestParent it holds only what differs from the parent.
+        items:
+          $ref: '#/definitions/site.File'
+        type: array
+      id:
+        type: string
+      manifest_sha256:
+        description: |-
+          ManifestSHA256 fixes the file set: the digest of every path and content
+          digest, in path order.
+        type: string
+      note:
+        type: string
+      number:
+        example: 3
+        type: integer
+      pruned:
+        description: |-
+          Pruned is true once a sweep removed the release's files (#2602); its
+          record stays so the deployments and approvals naming it read as before.
+        type: boolean
+      pruned_at:
+        type: string
+      redirects:
+        items:
+          $ref: '#/definitions/site.Redirect'
+        type: array
+      rendered:
+        description: |-
+          Rendered is true for a release with a source tree of its own; a release
+          without one serves the files it was published with.
+        type: boolean
+      site_id:
+        type: string
+      source:
+        type: string
+      total_bytes:
+        type: integer
     type: object
   site.Site:
     properties:
@@ -15396,6 +15500,13 @@ definitions:
           found.
         example: prod
         type: string
+      media:
+        description: |-
+          Media is the resource folders the site serves at URL prefixes (#2591),
+          filled by a read of one site.
+        items:
+          $ref: '#/definitions/site.Mount'
+        type: array
       name:
         example: marketing
         type: string
@@ -15433,6 +15544,18 @@ definitions:
         type: integer
       pages_domain:
         example: pages.example.net
+        type: string
+      releases_keep:
+        description: |-
+          ReleasesKeep is how many releases an environment with no limit of its
+          own keeps, 0 for every release (#2602). A section saved before it
+          existed carries none, and keeps the file's value.
+        example: 50
+        type: integer
+      releases_mode:
+        description: ReleasesMode is "delete" or "report"; empty keeps the file's
+          value.
+        example: delete
         type: string
     type: object
   sitehttp.AccessList:
@@ -15550,6 +15673,13 @@ definitions:
     properties:
       internal_view:
         type: boolean
+      keep_releases:
+        description: |-
+          KeepReleases is how many releases the environment keeps: a whole number
+          (0 keeps every release), or "default" for the deployment's default
+          (#2602). The owner and administrators only.
+        example: "50"
+        type: string
       public:
         type: boolean
       reason:
@@ -15571,6 +15701,57 @@ definitions:
           waits in Approvals.
         example: done
         type: string
+    type: object
+  sitehttp.FileDiffView:
+    properties:
+      diff:
+        type: string
+      from:
+        example: 14
+        type: integer
+      path:
+        type: string
+      to:
+        example: 15
+        type: integer
+    type: object
+  sitehttp.FileSaveBody:
+    properties:
+      base:
+        description: Base is the release the editor read, which dev must still serve.
+        example: 14
+        type: integer
+      content:
+        description: 'Content is the whole file: text, or base64 with encoding "base64".'
+        type: string
+      dry_run:
+        description: DryRun checks the save, renders a rendered site, and stores nothing.
+        type: boolean
+      encoding:
+        example: utf-8
+        type: string
+      note:
+        type: string
+      path:
+        example: pricing/index.html
+        type: string
+    type: object
+  sitehttp.FileTextView:
+    properties:
+      body:
+        type: string
+      content_type:
+        example: text/html; charset=utf-8
+        type: string
+      environment:
+        example: dev
+        type: string
+      path:
+        example: pricing/index.html
+        type: string
+      release:
+        example: 14
+        type: integer
     type: object
   sitehttp.FormList:
     properties:
@@ -15637,6 +15818,13 @@ definitions:
         type: string
       folder:
         type: string
+      from_bucket:
+        allOf:
+        - $ref: '#/definitions/bucketsource.Source'
+        description: |-
+          FromBucket is the objects under a prefix of a bucket on an S3
+          connection the caller's persona may use, inside its bucket_prefix
+          (#2593).
       note:
         type: string
       scope:
@@ -15670,6 +15858,14 @@ definitions:
         type: array
       id:
         type: string
+      kept_by:
+        description: |-
+          KeptBy is the environments whose release limit keeps it, an
+          "application <name>" release pinning it, or "approval" for a pending
+          request; empty for a release the next sweep removes, or one it removed.
+        items:
+          type: string
+        type: array
       manifest_sha256:
         description: |-
           ManifestSHA256 fixes the file set: the digest of every path and content
@@ -15680,6 +15876,13 @@ definitions:
       number:
         example: 3
         type: integer
+      pruned:
+        description: |-
+          Pruned is true once a sweep removed the release's files (#2602); its
+          record stays so the deployments and approvals naming it read as before.
+        type: boolean
+      pruned_at:
+        type: string
       redirects:
         items:
           $ref: '#/definitions/site.Redirect'
@@ -15730,6 +15933,14 @@ definitions:
         type: array
       id:
         type: string
+      kept_by:
+        description: |-
+          KeptBy is the environments whose release limit keeps it, an
+          "application <name>" release pinning it, or "approval" for a pending
+          request; empty for a release the next sweep removes, or one it removed.
+        items:
+          type: string
+        type: array
       manifest_sha256:
         description: |-
           ManifestSHA256 fixes the file set: the digest of every path and content
@@ -15740,6 +15951,13 @@ definitions:
       number:
         example: 3
         type: integer
+      pruned:
+        description: |-
+          Pruned is true once a sweep removed the release's files (#2602); its
+          record stays so the deployments and approvals naming it read as before.
+        type: boolean
+      pruned_at:
+        type: string
       redirects:
         items:
           $ref: '#/definitions/site.Redirect'
@@ -15759,6 +15977,32 @@ definitions:
         type: string
       total_bytes:
         type: integer
+    type: object
+  sitehttp.RetentionView:
+    properties:
+      every:
+        example: 24h0m0s
+        type: string
+      keep_default:
+        description: |-
+          KeepDefault is how many releases an environment with no limit of its
+          own keeps; 0 keeps every release.
+        example: 50
+        type: integer
+      mode:
+        description: Mode is "delete" or "report".
+        example: delete
+        type: string
+      orphan_grace:
+        description: |-
+          OrphanGrace is how old an object no release names must be before a
+          sweep deletes it, and Every how often the sweep runs.
+        example: 24h0m0s
+        type: string
+      sweeps:
+        items:
+          $ref: '#/definitions/sitestore.Sweep'
+        type: array
     type: object
   sitehttp.RollbackBody:
     properties:
@@ -15836,6 +16080,18 @@ definitions:
       pages_domain:
         example: pages.example.net
         type: string
+      releases_keep:
+        description: |-
+          ReleasesKeep is how many releases an environment with no limit of its
+          own keeps, 0 for every release (#2602). A section saved before it
+          existed carries none, and keeps the file's value.
+        example: 50
+        type: integer
+      releases_mode:
+        description: ReleasesMode is "delete" or "report"; empty keeps the file's
+          value.
+        example: delete
+        type: string
       updated_at:
         type: string
       updated_by:
@@ -15845,6 +16101,14 @@ definitions:
     properties:
       description:
         type: string
+      media:
+        description: |-
+          Media, when set, is every resource folder the site serves at a URL
+          prefix (#2591); [] removes them all. Anyone who manages the site, for a
+          folder they can read.
+        items:
+          $ref: '#/definitions/site.Mount'
+        type: array
       owner_email:
         type: string
     type: object
@@ -15885,6 +16149,13 @@ definitions:
           found.
         example: prod
         type: string
+      media:
+        description: |-
+          Media is the resource folders the site serves at URL prefixes (#2591),
+          filled by a read of one site.
+        items:
+          $ref: '#/definitions/site.Mount'
+        type: array
       name:
         example: marketing
         type: string
@@ -15896,6 +16167,124 @@ definitions:
         - $ref: '#/definitions/sitesvc.Permissions'
         description: Permissions is what the caller may do to this site.
       updated_at:
+        type: string
+    type: object
+  sitehttp.SweepBody:
+    properties:
+      mode:
+        description: Mode is "report", which deletes nothing, or "delete".
+        example: report
+        type: string
+      site:
+        description: Site, when set, sweeps that site alone, by name.
+        type: string
+    type: object
+  siteprune.Report:
+    properties:
+      bytes:
+        type: integer
+      failed:
+        type: integer
+      files:
+        type: integer
+      finished_at:
+        type: string
+      mode:
+        example: delete
+        type: string
+      orphan_bytes:
+        type: integer
+      orphans:
+        type: integer
+      refused:
+        type: integer
+      releases:
+        type: integer
+      rewritten:
+        type: integer
+      run_by:
+        type: string
+      scope:
+        type: string
+      sites:
+        items:
+          $ref: '#/definitions/siteprune.SiteReport'
+        type: array
+      sites_swept:
+        type: integer
+      skipped:
+        type: integer
+      started_at:
+        type: string
+    type: object
+  siteprune.SiteReport:
+    properties:
+      bytes:
+        type: integer
+      files:
+        type: integer
+      orphan_bytes:
+        type: integer
+      orphans:
+        type: integer
+      orphans_unchecked:
+        description: |-
+          OrphansUnchecked is a site whose prune counts stand but whose orphans
+          were not checked: the bucket could not be listed, or a publish held
+          the site's stored files when the sweep came to delete them.
+        type: boolean
+      refused:
+        description: |-
+          Refused is a site whose orphans were left alone because more than half
+          of what it holds read as orphans: a database restored apart from its
+          bucket would otherwise be emptied.
+        type: boolean
+      releases:
+        items:
+          type: integer
+        type: array
+      rewritten:
+        type: integer
+      site:
+        type: string
+      skipped:
+        description: |-
+          Skipped is a site left for the next sweep because a job was running or
+          a publish held its stored files.
+        type: boolean
+    type: object
+  sitestore.Sweep:
+    properties:
+      bytes:
+        type: integer
+      failed:
+        type: integer
+      files:
+        type: integer
+      finished_at:
+        type: string
+      mode:
+        example: delete
+        type: string
+      orphan_bytes:
+        type: integer
+      orphans:
+        type: integer
+      refused:
+        type: integer
+      releases:
+        type: integer
+      rewritten:
+        type: integer
+      run_by:
+        type: string
+      scope:
+        type: string
+      sites_swept:
+        type: integer
+      skipped:
+        type: integer
+      started_at:
         type: string
     type: object
   sitesvc.ApprovalRequest:
@@ -16015,6 +16404,41 @@ definitions:
       status:
         example: promoted
         type: string
+    type: object
+  sitesvc.Published:
+    properties:
+      address:
+        description: Address is where the environment answers, "" before it has one.
+        type: string
+      environment:
+        type: string
+      outputs_changed:
+        description: |-
+          OutputsChanged is how many served files a dry run would add, change or
+          remove.
+        type: integer
+      release:
+        $ref: '#/definitions/site.Release'
+      unchanged:
+        description: |-
+          Unchanged is true when the overlay changed nothing: no release was
+          written, and Release is the one the environment already serves.
+        type: boolean
+    type: object
+  sitesvc.TreeListing:
+    properties:
+      environment:
+        type: string
+      files:
+        items:
+          $ref: '#/definitions/site.File'
+        type: array
+      total:
+        type: integer
+      truncated:
+        type: boolean
+      version:
+        type: integer
     type: object
   smtp.SettingsInput:
     properties:
@@ -26195,8 +26619,10 @@ paths:
       - Settings
   /admin/settings/sites:
     get:
-      description: The pages domain and the limits a release is held to, as saved,
-        or the configuration file's where none are.
+      description: The pages domain, the limits a release is held to, and how many
+        releases each environment keeps by default and whether the daily sweep deletes
+        or only reports (releases_keep, releases_mode), as saved, or the configuration
+        file's where none are.
       produces:
       - application/json
       responses:
@@ -26574,6 +27000,79 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Remove a hostname
+      tags:
+      - Sites
+  /admin/sites/retention:
+    get:
+      description: How many releases each environment keeps by default, whether the
+        daily sweep deletes or only reports, the grace before an object no release
+        names is removed, and the most recent sweeps with what each removed (counts
+        only).
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sitehttp.RetentionView'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Release retention
+      tags:
+      - Sites
+  /admin/sites/retention/run:
+    post:
+      consumes:
+      - application/json
+      description: Sweeps one site, or every site, now. In report mode it decides
+        exactly as delete mode does and deletes nothing, answering which releases
+        it would remove, how many files and bytes that frees, and the orphans past
+        the grace; in delete mode it removes them. A release an environment keeps,
+        an application release pins or a pending approval names is never removed.
+        One sweep runs at a time across replicas.
+      parameters:
+      - description: The sweep
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/sitehttp.SweepBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/siteprune.Report'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Run a release sweep now
       tags:
       - Sites
   /admin/storage:
@@ -37222,7 +37721,11 @@ paths:
     patch:
       consumes:
       - application/json
-      description: Changes the description and the owner (owner and administrators).
+      description: 'Changes the description and the owner (owner and administrators),
+        and the resource folders the site serves as media at URL prefixes (media:
+        the whole list, [] for none; anyone who manages the site, for folders they
+        can read; a mounted folder''s files are public on a public environment and
+        its HTML, SVG, JavaScript and XML are sent as downloads).'
       parameters:
       - description: Site name or id
         in: path
@@ -37459,7 +37962,8 @@ paths:
   /portal/sites/{site}/deployments:
     get:
       description: Every move of the site's environments, newest first, or of one
-        environment.
+        environment. Someone who does not manage the site sees the moves of the environments
+        they can open.
       parameters:
       - description: Site name or id
         in: path
@@ -37571,13 +38075,15 @@ paths:
     put:
       consumes:
       - application/json
-      description: Creates the environment (private unless public is true), or changes
-        whether it is public, whether everyone internal may open it, and whether promoting
-        to it needs approval. Only the owner or an administrator makes an environment
-        public, and where it requires approval a non-administrator's request waits
-        in Approvals (status awaiting_approval) until approved, after which the same
-        request succeeds. dev is always private. Only an administrator takes the approval
-        rule off.
+      description: 'Creates the environment (private unless public is true), or changes
+        whether it is public, whether everyone internal may open it, whether promoting
+        to it needs approval, and how many releases it keeps (keep_releases: a whole
+        number, 0 for every release, or "default"; the owner and administrators only,
+        since a lower limit removes rollback history at the next sweep). Only the
+        owner or an administrator makes an environment public, and where it requires
+        approval a non-administrator''s request waits in Approvals (status awaiting_approval)
+        until approved, after which the same request succeeds. dev is always private.
+        Only an administrator takes the approval rule off.'
       parameters:
       - description: Site name or id
         in: path
@@ -37620,6 +38126,307 @@ paths:
       summary: Create or change an environment
       tags:
       - Sites
+  /portal/sites/{site}/file:
+    delete:
+      description: Writes a release of dev without the file, derived from base, which
+        must be the release dev serves now. Rolling back to base brings it back. The
+        people who manage the site only.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: The file
+        in: query
+        name: path
+        required: true
+        type: string
+      - description: The release dev serves
+        in: query
+        name: base
+        required: true
+        type: integer
+      - description: What changed
+        in: query
+        name: note
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sitesvc.Published'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete one file
+      tags:
+      - Sites
+    get:
+      description: The text of one file dev serves, with the release it was read from,
+        which a save names as its base. A file that is not text is refused.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: The file
+        in: query
+        name: path
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sitehttp.FileTextView'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: One file's text
+      tags:
+      - Sites
+    put:
+      consumes:
+      - application/json
+      description: 'Writes one file, new or changed, as a new release of dev derived
+        from base, which must be the release dev serves now: a save against an older
+        release is refused with 409 and nothing is written. With dry_run it stores
+        nothing and reports how many served files would change, which on a rendered
+        site is how many pages a layout touches. The people who manage the site only.'
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: The file
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/sitehttp.FileSaveBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sitesvc.Published'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Save one file
+      tags:
+      - Sites
+  /portal/sites/{site}/file/diff:
+    get:
+      description: 'A unified diff of one file between two releases: to defaults to
+        the release dev serves and from to the release to was derived from. The people
+        who manage the site only, since an earlier release can hold what a later one
+        took out.'
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: The file
+        in: query
+        name: path
+        required: true
+        type: string
+      - description: The earlier release
+        in: query
+        name: from
+        type: integer
+      - description: The later release
+        in: query
+        name: to
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sitehttp.FileDiffView'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: One file's change
+      tags:
+      - Sites
+  /portal/sites/{site}/files:
+    get:
+      description: The files dev serves, or its source on a rendered site, under a
+        folder (path ending in /, or "" for every file), one page at a time. The people
+        who manage the site read the source; someone dev is shared with reads what
+        it serves.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: A folder, ending in /
+        in: query
+        name: path
+        type: string
+      - description: Files to skip
+        in: query
+        name: offset
+        type: integer
+      - description: Files on the page, at most 1000
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sitesvc.TreeListing'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: A site's files
+      tags:
+      - Sites
+    post:
+      consumes:
+      - multipart/form-data
+      description: 'Writes the uploaded files into a folder of dev as one new release
+        derived from base, which must be the release dev serves now; a file at a path
+        that is taken replaces it. Multipart form: base, folder, note and one or more
+        files. The people who manage the site only.'
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: The release dev serves
+        in: formData
+        name: base
+        required: true
+        type: integer
+      - description: The folder, \
+        in: formData
+        name: folder
+        type: string
+      - description: What changed
+        in: formData
+        name: note
+        type: string
+      - description: The files
+        in: formData
+        name: files
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sitesvc.Published'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Upload files
+      tags:
+      - Sites
   /portal/sites/{site}/forms:
     get:
       description: The endpoints of this deployment that are forms, for someone who
@@ -37653,7 +38460,9 @@ paths:
       - Sites
   /portal/sites/{site}/jobs:
     get:
-      description: The publishes and copies still running on the site.
+      description: The publishes and copies still running on the site. Someone who
+        does not manage the site sees those to the environments they can open, without
+        their source.
       parameters:
       - description: Site name or id
         in: path
@@ -37833,9 +38642,13 @@ paths:
     post:
       consumes:
       - application/json
-      description: Publishes a managed-resource archive or folder as a new release,
-        in the background. The answer is the job to follow; it continues if the caller
-        goes away.
+      description: 'Publishes a managed-resource archive or folder, or the objects
+        under a prefix of a bucket on an S3 connection (from_bucket: connection, bucket,
+        prefix; the connection must be one the caller''s persona may use and the bucket
+        inside its bucket_prefix, refused here before a job starts), as a new release,
+        in the background. Each object is a file at its path under the prefix, and
+        the release limits apply. The answer is the job to follow; it continues if
+        the caller goes away.'
       parameters:
       - description: Site name or id
         in: path
@@ -37875,7 +38688,9 @@ paths:
       - Sites
   /portal/sites/{site}/releases:
     get:
-      description: Newest first, each with the environments serving it.
+      description: Newest first, each with the environments serving it and what keeps
+        it from the next cleanup. Someone who does not manage the site sees only the
+        environments they can open, and no release's source.
       parameters:
       - description: Site name or id
         in: path
@@ -37902,7 +38717,8 @@ paths:
   /portal/sites/{site}/releases/{number}:
     get:
       description: The release's file list and redirect map. Its files are served
-        only on the site's own origins, never by this route.
+        only on the site's own origins, never by this route. Someone who does not
+        manage the site sees only the environments they can open, and not its source.
       parameters:
       - description: Site name or id
         in: path
@@ -38946,13 +39762,18 @@ paths:
   /resources/{id}:
     delete:
       description: Delete a managed resource, removing both the S3 blob and database
-        metadata.
+        metadata. A file a site serves from a mounted media folder is refused with
+        409 unless force is true.
       parameters:
       - description: Resource ID
         in: path
         name: id
         required: true
         type: string
+      - description: Delete a file a site serves from a mounted media folder
+        in: query
+        name: force
+        type: boolean
       responses:
         "204":
           description: No Content
@@ -38966,6 +39787,10 @@ paths:
             $ref: '#/definitions/resource.errorResponse'
         "404":
           description: Not Found
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "409":
+          description: Conflict
           schema:
             $ref: '#/definitions/resource.errorResponse'
         "500":

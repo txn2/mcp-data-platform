@@ -47,8 +47,10 @@ const (
 	DefaultMaxTotalBytes = 4 << 30
 	// DefaultMaxMembers is how many entries an archive may hold, directories
 	// included. A zip's directory is parsed whole, so this is also what bounds
-	// the memory opening one takes.
-	DefaultMaxMembers = 10000
+	// the memory opening one takes: about 20 MB at this bound. It admits a
+	// site's media folder of tens of thousands of images in one archive
+	// (#2593); the total stays bounded by DefaultMaxTotalBytes.
+	DefaultMaxMembers = 100000
 	// DefaultMaxRatio is the largest uncompressed-to-compressed ratio a member
 	// may have. A CSV compresses around ten to one and a very repetitive one
 	// a few hundred to one; an archive built to expand runs to millions.

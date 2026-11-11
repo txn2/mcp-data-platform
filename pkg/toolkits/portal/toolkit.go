@@ -416,6 +416,8 @@ type Toolkit struct {
 	// resourceExtractor writes an archive's members out as managed resources
 	// (#1879). Nil leaves extract reporting that the deployment cannot.
 	resourceExtractor ResourceExtractor
+	// prefixExtractor writes a bucket prefix out as managed resources (#2593).
+	prefixExtractor PrefixExtractor
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider

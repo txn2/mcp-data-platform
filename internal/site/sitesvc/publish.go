@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"path"
@@ -374,6 +375,9 @@ func (s *Service) storeFile(ctx context.Context, siteID string, in InputFile, ba
 	if f, ok := base.reusable(in, contentType); ok {
 		return &f, nil
 	}
+	if err := sitestore.HoldOf(ctx).Renew(ctx); err != nil {
+		return nil, err //nolint:wrapcheck // the hold's own sentence
+	}
 	f := &site.File{Path: in.Path, SHA256: in.sum, ContentType: contentType, Size: int64(len(in.Body))}
 	if err := s.Objects.PutObject(ctx, s.Bucket, ObjectKey(siteID, *f, ""), in.Body, contentType); err != nil {
 		return nil, fmt.Errorf("putting the file: %w", err)
@@ -542,11 +546,20 @@ type publication struct {
 }
 
 // record stores the files and writes the release with the move to it, in the
-// one transaction: a move that loses to another leaves no release behind.
+// one transaction: a move that loses to another leaves no release behind. The
+// site's stored files are held from the first file stored until the release
+// is recorded, so a release sweep cannot delete one in between
+// (sitestore/holds.go).
 func (s *Service) record(ctx context.Context, actor Actor, p publication) (*site.Release, error) {
-	trees, err := s.buildTrees(ctx, p)
+	hold, err := s.holdUpload(ctx, p.st.ID)
 	if err != nil {
 		return nil, err
+	}
+	defer hold.Release(ctx)
+	ctx = sitestore.WithHold(ctx, hold)
+	trees, err := s.buildTrees(ctx, p)
+	if err != nil {
+		return nil, holdRefusal(err)
 	}
 	rel := &site.Release{
 		ID: sitestore.NewReleaseID(), SiteID: p.st.ID, Source: p.req.Source, Note: p.req.Note, Base: p.req.Base, Rendered: trees.rendered,
@@ -559,9 +572,35 @@ func (s *Service) record(ctx context.Context, actor Actor, p publication) (*site
 	}
 	move := &site.Pointer{SiteID: p.st.ID, Environment: p.env.Name, After: p.env.Release, Action: site.ActionPublish, Actor: actor.Email}
 	if err := s.Store.RecordRelease(ctx, rel, move); err != nil {
-		return nil, err //nolint:wrapcheck // read by identity
+		return nil, holdRefusal(err)
 	}
 	return rel, nil
+}
+
+// uploadHolder is a store that holds a site's stored files for a publish; the
+// PostgreSQL store is one, and a store that is not holds nothing.
+type uploadHolder interface {
+	HoldUpload(ctx context.Context, siteID string) (*sitestore.Hold, error)
+}
+
+func (s *Service) holdUpload(ctx context.Context, siteID string) (*sitestore.Hold, error) {
+	h, ok := s.Store.(uploadHolder)
+	if !ok {
+		return nil, nil //nolint:nilnil // a nil hold holds nothing
+	}
+	hold, err := h.HoldUpload(ctx, siteID)
+	return hold, holdRefusal(err)
+}
+
+// holdRefusal is a publish stopped by its hold on the site's stored files, in
+// the hold's words; any other error as it was.
+func holdRefusal(err error) error {
+	for _, held := range []error{sitestore.ErrCleanupRunning, sitestore.ErrHoldExpired} {
+		if errors.Is(err, held) {
+			return &RefusedError{Err: held, Msg: held.Error()}
+		}
+	}
+	return err
 }
 
 func totalSize(files []site.File) int64 {

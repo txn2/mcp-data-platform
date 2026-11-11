@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuthStore } from "@/stores/auth";
 import { EVERYONE_INTERNAL, Failure, grantName, grantOpens } from "./SiteParts";
 import { bareAddress, envOpenUrl, errorText, orderedEnvironments } from "./siteFormat";
+import { rollbackChoices, rollbackNote } from "./SiteRetention";
 
 // Promote serves a release that already exists in another environment;
 // Roll back returns an environment to a release it served before (#2559). Both
@@ -171,11 +172,11 @@ export function RollbackDialog({ site, env, onClose }: { site: Site; env: SiteEn
   const rollback = useRollbackSite(site.name);
   const deployments = useSiteDeployments(site.name, env.name);
   const releases = useSiteReleases(site.name);
-  const options = useMemo(() => {
-    const seen = new Set<number>();
-    for (const d of deployments.data?.deployments ?? []) if (d.to !== env.release) seen.add(d.to);
-    return [...seen].sort((a, b) => b - a);
-  }, [deployments.data, env.release]);
+  // Only a kept release can be chosen (#2602): one the cleanup removed is gone.
+  const options = useMemo(
+    () => rollbackChoices(env, (deployments.data?.deployments ?? []).map((d) => d.to), releases.data?.releases),
+    [deployments.data, releases.data, env],
+  );
   const [picked, setPicked] = useState<number | null>(null);
   const chosen = picked ?? options[0] ?? 0;
   const [failure, setFailure] = useState<string | null>(null);
@@ -197,7 +198,7 @@ export function RollbackDialog({ site, env, onClose }: { site: Site; env: SiteEn
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
-          {options.length === 0 && <p className="text-sm text-muted-foreground">{env.name} has served no earlier release.</p>}
+          {options.length === 0 && <p className="text-sm text-muted-foreground">{env.name} has served no earlier release it still keeps.</p>}
           {options.map((n) => (
             <label key={n} className="flex cursor-pointer items-start gap-2 rounded border p-3">
               <input type="radio" name="rollback" checked={chosen === n} onChange={() => setPicked(n)} className="mt-1" />
@@ -207,6 +208,9 @@ export function RollbackDialog({ site, env, onClose }: { site: Site; env: SiteEn
               </span>
             </label>
           ))}
+          <p className="text-xs text-muted-foreground" data-testid="rollback-kept">
+            {rollbackNote(env)}
+          </p>
           <Failure text={failure} />
         </div>
         <DialogFooter>

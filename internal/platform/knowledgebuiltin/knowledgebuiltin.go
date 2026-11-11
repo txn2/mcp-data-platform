@@ -80,6 +80,7 @@ const (
 	slugAppDB         = "platform-application-databases"
 	slugApps          = "platform-applications"
 	slugSites         = "platform-pages-and-sites"
+	slugFromSource    = "platform-sites-from-source"
 	// The PostgreSQL design pages (#2448).
 	slugPGWrites    = "platform-postgres-write-patterns"
 	slugPGIntegrity = "platform-postgres-integrity"
@@ -152,7 +153,14 @@ var pageMetas = []pageMeta{
 		slug:    slugSites,
 		summary: "Browser pages and static sites the platform serves on hostnames of their own: response_mode page and its content policy and nonce, an application's own origin and how a viewer signs in to it, and sites with environments, releases, promote and rollback, hostnames, TLS and moving a site off a CMS with crawl.",
 		tags:    []string{"pages", "sites", "applications", "endpoints", "hosting"},
-		related: []string{slugApps, slugWriting},
+		related: []string{slugApps, slugWriting, slugFromSource},
+	},
+	{
+		file:    "sites-from-source.md",
+		slug:    slugFromSource,
+		summary: "Bringing an existing site in from its source rather than crawling it: list its content types, listings and dynamic features, extract the layout and records, load the source tree from an archive or a bucket prefix, load media into a mounted folder, write the redirect map, and prove every URL before cutover.",
+		tags:    []string{"sites", "migration", "media", "hosting"},
+		related: []string{slugSites, slugApps},
 	},
 	{
 		file:    "reference-script.md",

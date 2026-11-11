@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { HtmlRenderer } from "./HtmlRenderer";
+import { DocActionsContext, type DocAction } from "./docActions";
 import { useAuthStore } from "@/stores/auth";
 import { OPEN_LINK_MESSAGE, withAssetLinks } from "@/lib/assetLinks";
 
@@ -227,5 +228,34 @@ describe("HtmlRenderer links (#2501)", () => {
       ["https://example.com/", "_blank", "noopener,noreferrer"],
       ["mailto:a@example.com", "_blank", "noopener,noreferrer"],
     ]);
+  });
+});
+
+// #2601: on a phone the asset page takes the document's own controls as data,
+// for its More menu, and the renderer draws no buttons of its own.
+describe("HtmlRenderer handing its controls to the page", () => {
+  it("registers Present, Overview and Export PDF and renders none of them", () => {
+    enableFullscreen();
+    const register = vi.fn();
+    render(
+      <DocActionsContext.Provider value={register}>
+        <HtmlRenderer content={DECK} pdfUrl="/api/v1/portal/assets/a1/pdf" />
+      </DocActionsContext.Provider>,
+    );
+    const last = register.mock.calls[register.mock.calls.length - 1]![0] as DocAction[];
+    expect(last.map((a) => a.label)).toEqual(["Present", "Overview", "Export PDF"]);
+    expect(screen.queryByRole("button", { name: /present/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /export pdf/i })).toBeNull();
+  });
+
+  it("takes them back when it goes", () => {
+    const register = vi.fn();
+    const { unmount } = render(
+      <DocActionsContext.Provider value={register}>
+        <HtmlRenderer content={DASHBOARD} pdfUrl="/pdf" />
+      </DocActionsContext.Provider>,
+    );
+    unmount();
+    expect(register).toHaveBeenLastCalledWith([]);
   });
 });

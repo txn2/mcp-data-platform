@@ -1,13 +1,17 @@
 import { http, HttpResponse } from "msw";
-import type { Site, SiteGrant, SiteJob, SiteRelease } from "@/api/portal/hooks/sites";
+import type { Site, SiteEnvironment, SiteGrant, SiteJob, SiteRelease } from "@/api/portal/hooks/sites";
+import { siteFileHandlers, resetSiteFiles } from "./siteFiles";
 
 // Sites (#2559, #2604): the routes the portal's Sites section reads and writes,
 // over module state so a write in one mock session is what the page reads back.
 // `?state=` on the document's URL selects a state of the list for a screenshot.
 
 const at = "2026-11-08T13:52:00Z";
-const env = (name: string, release: number, requires_approval = false, isPublic = false, internal_view = false) => ({
+const DEFAULT_KEEP = 50;
+/** An environment; keep is its own release limit, undefined for the deployment's default. */
+const env = (name: string, release: number, requires_approval = false, isPublic = false, internal_view = false, keep?: number, kept?: number): SiteEnvironment => ({
   name, release, requires_approval, public: isPublic, internal_view, updated_by: "jane.doe@example.com", updated_at: at,
+  keep_releases: keep ?? DEFAULT_KEEP, keep_releases_default: keep === undefined, releases_kept: kept ?? Math.min(release, keep || DEFAULT_KEEP),
 });
 const PAGES = "pages.example.net";
 const PERSONAS = ["admin", "analyst", "finance-team", "management-team", "web-team"];
@@ -37,11 +41,23 @@ function makeSites(): Site[] {
     site("docs", "Product documentation", "sam.lee@example.com", [env("prod", 30, true)], [domain("docs.example.com", "docs", "prod")], { manage: false, own: false, delete: false }, ""),
     site(
       "marketing", "Company website", "jane.doe@example.com",
-      [env("dev", 12), env("stage", 11, false, false, true), env("prod", 9, true, true)],
+      // dev keeps its last 3, stage the deployment's default, prod every release it served (#2602).
+      [env("dev", 12, false, false, false, 3, 3), env("stage", 11, false, false, true, undefined, 1), env("prod", 9, true, true, false, 0, 2)],
       [domain("go.example.com", "marketing", "stage"), domain("example.com", "marketing", "prod"), domain("www.example.com", "marketing", "prod")],
       admin,
     ),
-  ];
+  ].map((st) => ({ ...st, media: st.name === "marketing" ? [media("/media/", "sites/marketing/media"), media("/downloads/", "sites/marketing/downloads")] : [] }));
+}
+
+function media(prefix: string, folder: string) {
+  return { prefix, scope: "global" as const, scope_id: "", folder, created_by: "jane.doe@example.com", created_at: at };
+}
+
+/** A media address as the server stores it, or why it cannot be one. */
+function mediaPrefix(raw: string): string | { detail: string } {
+  const p = `/${raw.trim().replace(/^\/+|\/+$/g, "")}/`;
+  if (p === "//" || p.startsWith("/_") || p.startsWith("/.well-known/")) return { detail: `media prefix ${raw}: "/", a path under /_ and /.well-known/ are the platform's` };
+  return p;
 }
 
 let sites = makeSites();
@@ -56,11 +72,20 @@ const makeGrants = (): Record<string, SiteGrant[]> => ({
 let grants = makeGrants();
 const jobs = new Map<string, SiteJob>();
 
-const release = (number: number, note: string, served_in: string[]): SiteRelease => ({
-  id: `srel_${number}`, number, source: `site-${number}.zip`, note, file_count: 418, total_bytes: 61_200_000,
-  redirects: [{ from: "/old", to: "/new", status: 301 }], created_by: "jane.doe@example.com", created_at: at, served_in,
+const release = (number: number, note: string, served_in: string[], kept_by: string[], base = number - 1, source = `patch index.html`): SiteRelease => ({
+  id: `srel_${number}`, number, source, note, file_count: 418, total_bytes: 61_200_000, base,
+  redirects: [{ from: "/old", to: "/new", status: 301 }], created_by: "jane.doe@example.com", created_at: at, served_in, kept_by,
 });
-const releases = [release(12, "New pricing page", ["dev"]), release(11, "Footer links, new logo", ["stage"]), release(9, "Fall homepage", ["prod"])];
+const removed = (number: number, note: string): SiteRelease => ({ ...release(number, note, [], []), pruned: true, pruned_at: "2026-11-10T03:00:00Z" });
+const releases: SiteRelease[] = [
+  release(12, "New pricing page", ["dev"], ["dev"], 11, "edit pricing/index.html"),
+  release(11, "Footer links, new logo", ["stage"], ["dev", "stage"]),
+  release(10, "Header spacing", [], ["dev"]),
+  release(9, "Fall homepage", ["prod"], ["prod", "application shop"]),
+  removed(8, "Try a new header"),
+  removed(7, "Fix a typo"),
+  release(5, "Launch", [], ["prod"], 0, "site-5.zip"),
+];
 
 const page = () => new URLSearchParams(window.location.search).get("state");
 const find = (name: string) => sites.find((s) => s.name === name);
@@ -70,6 +95,41 @@ const LIMITS = { max_release_files: 20000, max_file_bytes: 67108864, max_release
 export function resetSitesMock() {
   sites = makeSites();
   grants = makeGrants();
+  jobs.clear();
+  resetSiteFiles();
+}
+
+const REFUSED =
+  "nothing was published: 2 files can't be served: .env and .git/HEAD have a segment starting with a dot. A release is public, so only .well-known may. Leave them out of the archive or the prefix.";
+
+/**
+ * publishJob starts a publish (#2593): running, in its second phase. In mock
+ * mode a note naming "done", "refuse" or "stop" ends it that way at once, so
+ * each ending can be looked at; a test ends one with endSiteJob.
+ */
+function publishJob(source: string, note: string): SiteJob {
+  const j: SiteJob = {
+    id: `sjob_${jobs.size + 1}`, kind: "publish", status: "running", phase: "Writing files", environment: "dev", source,
+    done: 3020, total: 5214, pages: 0, bytes: 1_181_116_006, skipped_count: 0, redirects: 0, skipped: [], release: 0, created_by: "admin@example.com", created_at: at,
+  };
+  jobs.set(j.id, j);
+  if (/\bdone\b/i.test(note)) endSiteJob(j.id, "done");
+  else if (/\brefuse\b/i.test(note)) endSiteJob(j.id, "failed", REFUSED);
+  else if (/\bstop\b/i.test(note)) endSiteJob(j.id, "stopped");
+  return j;
+}
+
+/** endSiteJob ends a mocked job: published as release 13 with 6,118 pages, refused with error, or stopped. */
+export function endSiteJob(id: string, status: "done" | "failed" | "stopped", error?: string) {
+  const j = jobs.get(id);
+  if (!j) return;
+  Object.assign(j, { status, phase: "", ...(status === "done" ? { release: 13, done: j.total, pages: 6118 } : {}), ...(error ? { error } : {}) });
+}
+
+/** advanceSiteJob moves a running mocked job to another phase. */
+export function advanceSiteJob(id: string, phase: string, done: number) {
+  const j = jobs.get(id);
+  if (j) Object.assign(j, { phase, done });
 }
 
 function job(kind: SiteJob["kind"], environment: string): SiteJob {
@@ -109,7 +169,21 @@ export const siteHandlers = [
   http.patch(`${base}/:site`, async ({ params, request }) => {
     const s = find(params.site as string);
     if (!s) return missing();
-    Object.assign(s, await request.json());
+    const b = (await request.json()) as Partial<Site> & { media?: { prefix: string; scope: string; scope_id: string; folder: string }[] };
+    if (b.media) {
+      if (!s.permissions.manage) return HttpResponse.json({ detail: "you do not have permission to do this on this site" }, { status: 403 });
+      const next = [];
+      for (const m of b.media) {
+        const prefix = mediaPrefix(m.prefix);
+        if (typeof prefix !== "string") return HttpResponse.json(prefix, { status: 422 });
+        if (m.folder.startsWith("reports/")) return HttpResponse.json({ detail: `there is no folder ${m.folder} in that library that you can read` }, { status: 422 });
+        const kept = s.media?.find((x) => x.prefix === prefix && x.folder === m.folder);
+        next.push(kept ?? { ...media(prefix, m.folder), scope: m.scope as "global", scope_id: m.scope_id, created_by: "admin@example.com" });
+      }
+      s.media = next;
+      delete b.media;
+    }
+    Object.assign(s, b);
     return HttpResponse.json(s);
   }),
   http.delete(`${base}/:site`, ({ params }) => {
@@ -120,32 +194,58 @@ export const siteHandlers = [
   http.get(`${base}/:site/releases/:n`, ({ params }) => {
     const r = releases.find((x) => x.number === Number(params.n));
     if (!r) return HttpResponse.json({ detail: "no such release" }, { status: 404 });
-    return HttpResponse.json({
-      ...r,
-      files: [
-        { path: "index.html", content_type: "text/html", size: 38000, gzip_size: 9000, brotli_size: 7000 },
-        { path: "404.html", content_type: "text/html", size: 6000 },
-      ],
-    });
+    if (r.pruned) return HttpResponse.json({ ...r, files: [] });
+    const files = [
+      { path: "index.html", content_type: "text/html", size: 38000, gzip_size: 9000, brotli_size: 7000 },
+      { path: "404.html", content_type: "text/html", size: 6000 },
+    ];
+    return HttpResponse.json({ ...r, files });
   }),
-  http.get(`${base}/:site/compare`, () =>
-    HttpResponse.json({ from: 9, to: 11, changed: ["index.html", "css/site.css"], added: ["images/logo-2026.svg"], removed: ["images/logo.svg"], redirects_added: [{ from: "/a", to: "/b", status: 301 }], redirects_removed: [] }),
-  ),
-  http.get(`${base}/:site/deployments`, () =>
-    HttpResponse.json({
-      deployments: [
-        { environment: "dev", action: "publish", from: 11, to: 12, actor: "jane.doe@example.com", created_at: at },
-        { environment: "prod", action: "promote", from: 8, to: 9, actor: "sarah.chen@example.com", created_at: at },
-        { environment: "prod", action: "rollback", from: 9, to: 8, actor: "sarah.chen@example.com", created_at: at },
-      ],
-    }),
-  ),
-  http.post(`${base}/:site/publish`, () => HttpResponse.json(job("publish", "dev"), { status: 202 })),
+  http.get(`${base}/:site/compare`, ({ request }) => {
+    const q = new URL(request.url).searchParams;
+    const from = Number(q.get("from") ?? 0);
+    const to = Number(q.get("to") ?? 0);
+    if (releases.find((r) => r.number === from || r.number === to)?.pruned) {
+      return HttpResponse.json({ detail: "release 8 was removed by the release limit (dev keeps the last 3, prod keeps every release, keep_releases)" }, { status: 422 });
+    }
+    return HttpResponse.json({ from, to, changed: ["pricing/index.html", "css/site.css"], added: ["images/logo-2026.svg"], removed: ["images/logo.svg"], redirects_added: [{ from: "/a", to: "/b", status: 301 }], redirects_removed: [] });
+  }),
+  http.get(`${base}/:site/deployments`, ({ request }) => {
+    const all = [
+      { environment: "dev", action: "publish", from: 11, to: 12, actor: "jane.doe@example.com", created_at: at },
+      { environment: "dev", action: "publish", from: 10, to: 11, actor: "jane.doe@example.com", created_at: at },
+      { environment: "dev", action: "publish", from: 8, to: 10, actor: "jane.doe@example.com", created_at: at },
+      { environment: "dev", action: "publish", from: 7, to: 8, actor: "jane.doe@example.com", created_at: at },
+      { environment: "stage", action: "promote", from: 0, to: 11, actor: "jane.doe@example.com", created_at: at },
+      { environment: "prod", action: "promote", from: 5, to: 9, actor: "sarah.chen@example.com", created_at: at },
+      { environment: "prod", action: "promote", from: 0, to: 5, actor: "sarah.chen@example.com", created_at: at },
+    ];
+    const environment = new URL(request.url).searchParams.get("environment");
+    return HttpResponse.json({ deployments: environment ? all.filter((d) => d.environment === environment) : all });
+  }),
+  http.post(`${base}/:site/publish`, async ({ request }) => {
+    const b = (await request.json()) as { note?: string; archive?: string; folder?: string; source?: string; from_bucket?: { connection: string; bucket: string; prefix?: string } };
+    if ([b.archive, b.folder, b.from_bucket].filter(Boolean).length !== 1) {
+      return HttpResponse.json({ detail: "publish names one source: an archive, a folder or from_bucket" }, { status: 422 });
+    }
+    const from = b.from_bucket;
+    if (from?.connection === "locked-s3") {
+      return HttpResponse.json(
+        { detail: `nothing was published: ${from.connection} refused to list ${from.bucket}/${from.prefix ?? ""}: access denied. The connection's credentials can't read that prefix.` },
+        { status: 422 },
+      );
+    }
+    const label = b.source ?? (from ? `s3://${from.bucket}/${from.prefix ?? ""} on connection ${from.connection}` : (b.archive ?? b.folder ?? ""));
+    return HttpResponse.json(publishJob(label, b.note ?? ""), { status: 202 });
+  }),
   http.post(`${base}/:site/copy`, () => HttpResponse.json(job("crawl", "dev"), { status: 202 })),
   http.get(`${base}/:site/forms`, () => HttpResponse.json({ forms: ["contact-us", "newsletter"] })),
-  http.get(`${base}/:site/jobs`, () => HttpResponse.json({ jobs: [] })),
+  http.get(`${base}/:site/jobs`, () => HttpResponse.json({ jobs: [...jobs.values()].filter((j) => j.status === "running") })),
   http.get(`${base}/:site/jobs/:id`, ({ params }) => HttpResponse.json(jobs.get(params.id as string))),
-  http.post(`${base}/:site/jobs/:id/stop`, () => new HttpResponse(null, { status: 204 })),
+  http.post(`${base}/:site/jobs/:id/stop`, ({ params }) => {
+    endSiteJob(params.id as string, "stopped");
+    return new HttpResponse(null, { status: 204 });
+  }),
   http.post(`${base}/:site/promote`, async ({ request }) => {
     const b = (await request.json()) as { to: string };
     return HttpResponse.json({ environment: b.to, release: 11, status: "promoted" });
@@ -195,7 +295,7 @@ export const siteHandlers = [
   http.put(`${base}/:site/environments/:name`, async ({ params, request }) => {
     const s = find(params.site as string);
     if (!s) return missing();
-    const b = (await request.json()) as { requires_approval?: boolean; public?: boolean; internal_view?: boolean };
+    const b = (await request.json()) as { requires_approval?: boolean; public?: boolean; internal_view?: boolean; keep_releases?: number | "default" };
     const name = params.name as string;
     let e = s.environments.find((x) => x.name === name);
     if (!e) {
@@ -203,6 +303,7 @@ export const siteHandlers = [
       s.environments.push(e);
     }
     if (b.public && name === "dev") return HttpResponse.json({ detail: "dev is the working copy, so it is always private" }, { status: 422 });
+    if (b.keep_releases !== undefined && !s.permissions.own) return HttpResponse.json({ detail: "you do not have permission to do this on this site" }, { status: 403 });
     if (b.public && e.requires_approval) {
       return HttpResponse.json({ site: s, status: "awaiting_approval", approval: { id: "apr_public1" } });
     }
@@ -211,6 +312,10 @@ export const siteHandlers = [
       ...(b.public !== undefined ? { public: b.public } : {}),
       ...(b.internal_view !== undefined ? { internal_view: b.internal_view } : {}),
     });
+    if (b.keep_releases !== undefined) {
+      const keep = b.keep_releases === "default" ? DEFAULT_KEEP : b.keep_releases;
+      Object.assign(e, { keep_releases: keep, keep_releases_default: b.keep_releases === "default", releases_kept: keep === 0 ? e.releases_kept : Math.min(e.releases_kept, keep) });
+    }
     Object.assign(s, withAddresses(s));
     return HttpResponse.json({ site: s, status: "done" });
   }),
@@ -233,12 +338,41 @@ export const siteHandlers = [
   ),
   http.post("/api/v1/admin/sites/domains", () => HttpResponse.json({}, { status: 201 })),
   http.delete("/api/v1/admin/sites/domains/:hostname", () => new HttpResponse(null, { status: 204 })),
-  http.get("/api/v1/admin/settings/sites", () => HttpResponse.json({ pages_domain: "pages.example.net", ...LIMITS, updated_by: "sarah.chen@example.com", updated_at: at })),
+  http.get("/api/v1/admin/settings/sites", () =>
+    HttpResponse.json({ pages_domain: "pages.example.net", ...LIMITS, releases_keep: retention.keep_default, releases_mode: retention.mode, updated_by: "sarah.chen@example.com", updated_at: at }),
+  ),
   http.put("/api/v1/admin/settings/sites", async ({ request }) => {
-    const b = (await request.json()) as { pages_domain: string };
+    const b = (await request.json()) as { pages_domain: string; releases_keep?: number; releases_mode?: "delete" | "report" };
     if (b.pages_domain.includes("portal.")) {
       return HttpResponse.json({ detail: "sites.pages_domain holds the portal's host, so a page could be served where the portal is" }, { status: 422 });
     }
+    if (b.releases_keep !== undefined && b.releases_keep < 0) {
+      return HttpResponse.json({ detail: "sites.releases.keep_default: 0 (keep every release) to 100000, not -1" }, { status: 422 });
+    }
+    if (b.releases_keep !== undefined) retention.keep_default = b.releases_keep;
+    if (b.releases_mode) retention.mode = b.releases_mode;
     return HttpResponse.json({ ...b, updated_by: "admin@example.com", updated_at: at });
   }),
+  http.get("/api/v1/admin/sites/retention", () => {
+    const sweep = { ...SWEEP, mode: retention.mode };
+    return HttpResponse.json({ keep_default: retention.keep_default, mode: retention.mode, orphan_grace: "24h0m0s", every: "24h0m0s", sweeps: page() === "no-cleanup" ? [] : [sweep] });
+  }),
+  ...siteFileHandlers,
+  // A file a site serves from a mounted media folder goes only with force (#2591).
+  http.delete("/api/v1/resources/:id", ({ params, request }) => {
+    const served = String(params.id).startsWith("res-media-");
+    if (served && new URL(request.url).searchParams.get("force") !== "true") {
+      return HttpResponse.json(
+        { detail: "1 site(s) serve this file from a mounted media folder; delete it with force=true to take it off their pages" },
+        { status: 409 },
+      );
+    }
+    return HttpResponse.json({ status: "deleted" });
+  }),
 ];
+
+const retention: { keep_default: number; mode: "delete" | "report" } = { keep_default: DEFAULT_KEEP, mode: "delete" };
+const SWEEP = {
+  mode: "delete", sites_swept: 23, releases: 1284, rewritten: 4, files: 312, bytes: 3_435_973_837, orphans: 6, orphan_bytes: 1_200_000,
+  skipped: 0, refused: 0, failed: 0, started_at: "2026-11-11T03:00:00Z", finished_at: "2026-11-11T03:00:41Z",
+};

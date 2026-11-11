@@ -487,7 +487,7 @@ resources:
     extract:                  # manage_resource extract limits (#1879); independent of max_upload_bytes
       max_member_bytes: 2147483648  # default 2 GiB
       max_total_bytes: 4294967296   # default 4 GiB
-      max_members: 10000
+      max_members: 100000
       max_ratio: 500
 ```
 

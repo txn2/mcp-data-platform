@@ -149,7 +149,9 @@ work at the page's own size. **Overview** shows every slide at once, as the
 runtime's own grid; a click on a slide goes to it, and a second press returns
 to the deck. **Export PDF** downloads the deck as a PDF the platform prints
 in its renderer, one page per slide, in the deck's own colors and
-backgrounds, ready to send. The deck itself is not changed by either.
+backgrounds, ready to send. The deck itself is not changed by either. On a
+phone the asset page keeps its header to one row, and the three controls are
+in its More menu.
 
 A slide that is right on screen is right on the page: the print view uses the
 deck's configured slide size, so a deck designed at the default 960 by 700

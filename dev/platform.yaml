@@ -754,6 +754,10 @@ sites:
   pages_domain: pages.localhost
   crawl:
     allow_private_cidrs: ["127.0.0.0/8", "::1/128"]
+  releases:
+    # Seconds rather than the 24h default: #2602's criteria put an object no
+    # release names in the bucket and wait for a sweep to remove it.
+    orphan_grace: 30s
 
 webhooks:
   receiver:

@@ -89,6 +89,8 @@ type Deps struct {
 	Access *Access
 	// Metrics records what the gateway answers (#2597); nil records nothing.
 	Metrics *observability.Metrics
+	// Media serves a site's mounted resource folders (#2591); nil serves none.
+	Media Media
 }
 
 // Gateway routes by Host.
@@ -102,6 +104,7 @@ type Gateway struct {
 	hosts    map[string]bool
 	hostsAt  time.Time
 	manifest map[string]*manifest
+	media    map[string]mediaEntry
 }
 
 type routeEntry struct {
@@ -119,7 +122,7 @@ func New(d Deps) *Gateway {
 	limits := d.Config.Limits()
 	g := &Gateway{
 		deps: d, cache: newCache(limits.Cache.MemoryBytes, limits.Cache.Dir, limits.Cache.DiskBytes),
-		routes: map[string]routeEntry{}, manifest: map[string]*manifest{},
+		routes: map[string]routeEntry{}, manifest: map[string]*manifest{}, media: map[string]mediaEntry{},
 	}
 	if d.Pages != nil {
 		d.Pages.gateway = g
@@ -144,6 +147,7 @@ func (g *Gateway) Invalidate(string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.routes = map[string]routeEntry{}
+	g.media = map[string]mediaEntry{}
 	g.hostsAt = time.Time{}
 }
 
@@ -377,6 +381,9 @@ func (g *Gateway) answer(w http.ResponseWriter, r *http.Request, route *site.Rou
 	p := path.Clean(pathSep + r.URL.Path)
 	if f, ok := m.resolve(p, strings.HasSuffix(r.URL.Path, pathSep)); ok {
 		g.serveFile(w, r, route, f, http.StatusOK)
+		return
+	}
+	if g.serveMedia(w, r, route, p) {
 		return
 	}
 	if target, status, ok := matchRedirect(route.Release.Redirects, p); ok {

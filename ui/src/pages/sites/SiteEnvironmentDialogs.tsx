@@ -11,16 +11,20 @@ import { AddDomainDialog } from "./SiteDomains";
 import { envNameProblem } from "./envName";
 import { AccessBadge, Failure } from "./SiteParts";
 import { PromoteDialog, RollbackDialog } from "./SitePromote";
+import { ReleasesKeptSection, keepBody, keepChoiceOf, type KeepChoice } from "./SiteRetention";
 import { PublishDialog } from "./SitePublish";
+import { JobDialog } from "./SitePublishJob";
 import { ShareDialog } from "./SiteShare";
 import { bareAddress, envAddress, errorText, hostsOf, orderedEnvironments } from "./siteFormat";
 
 export type EnvDialog =
   | { kind: "promote" | "rollback" | "share" | "settings"; env: SiteEnvironment }
   | { kind: "publish" | "domain" | "new" | "main" }
+  | { kind: "job"; id: string }
   | null;
 
 export function EnvironmentDialogs({ site, dialog, onClose, onNavigate }: { site: Site; dialog: EnvDialog; onClose: () => void; onNavigate: (path: string) => void }) {
+  if (dialog && "env" in dialog) return <EnvironmentDialog site={site} dialog={dialog} onClose={onClose} />;
   switch (dialog?.kind) {
     case "publish":
       return <PublishDialog site={site} onClose={onClose} onNavigate={onNavigate} />;
@@ -30,6 +34,16 @@ export function EnvironmentDialogs({ site, dialog, onClose, onNavigate }: { site
       return <NewEnvironmentDialog site={site} onClose={onClose} />;
     case "main":
       return <MainAddressDialog site={site} onClose={onClose} />;
+    case "job":
+      return <JobDialog site={site} jobId={dialog.id} onClose={onClose} onNavigate={onNavigate} />;
+    default:
+      return null;
+  }
+}
+
+// EnvironmentDialog is a dialog about one environment.
+function EnvironmentDialog({ site, dialog, onClose }: { site: Site; dialog: { kind: "promote" | "rollback" | "share" | "settings"; env: SiteEnvironment }; onClose: () => void }) {
+  switch (dialog.kind) {
     case "share":
       return <ShareDialog site={site} env={dialog.env.name} onClose={onClose} />;
     case "settings":
@@ -38,8 +52,6 @@ export function EnvironmentDialogs({ site, dialog, onClose, onNavigate }: { site
       return <PromoteDialog site={site} target={dialog.env} onClose={onClose} />;
     case "rollback":
       return <RollbackDialog site={site} env={dialog.env} onClose={onClose} />;
-    default:
-      return null;
   }
 }
 
@@ -154,9 +166,11 @@ export function EnvironmentSettingsDialog({ site, env, onClose }: { site: Site; 
   const [approval, setApproval] = useState(env.requires_approval);
   const [makePublic, setMakePublic] = useState(false);
   const [makePrivate, setMakePrivate] = useState(false);
+  const [keep, setKeep] = useState<KeepChoice>(() => keepChoiceOf(env));
   const [failure, setFailure] = useState<string | null>(null);
   const working = env.name === DEV_ENVIRONMENT;
   if (makePublic) return <MakePublicDialog site={site} env={env} onClose={onClose} />;
+  const keepReleases = site.permissions.own ? keepBody(env, keep) : undefined;
   const submit = () => {
     setFailure(null);
     const body = {
@@ -164,13 +178,14 @@ export function EnvironmentSettingsDialog({ site, env, onClose }: { site: Site; 
       internal_view: internal,
       ...(working ? {} : { requires_approval: approval }),
       ...(makePrivate ? { public: false } : {}),
+      ...(keepReleases !== undefined ? { keep_releases: keepReleases } : {}),
     };
     set.mutate(body, { onSuccess: onClose, onError: (e) => setFailure(errorText(e, "The settings could not be saved")) });
   };
   const isPublic = env.public && !makePrivate;
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{env.name} settings</DialogTitle>
           <DialogDescription>{site.name}</DialogDescription>
@@ -210,6 +225,7 @@ export function EnvironmentSettingsDialog({ site, env, onClose }: { site: Site; 
           {site.main_environment === env.name && site.address && (
             <SettingNote title="Main address" text={`${env.name} serves the main address, ${bareAddress(site.address)}. Change that with Main address on the Environments tab.`} />
           )}
+          <ReleasesKeptSection site={site} env={env} choice={keep} onChange={setKeep} />
           <Failure text={failure} />
         </div>
         <DialogFooter>

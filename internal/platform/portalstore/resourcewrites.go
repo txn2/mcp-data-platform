@@ -3,6 +3,7 @@ package portalstore
 import (
 	"context"
 
+	"github.com/txn2/mcp-data-platform/internal/bucketsource"
 	"github.com/txn2/mcp-data-platform/internal/indexpolicy"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceholds"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
@@ -24,6 +25,9 @@ type ResourceWriteDeps struct {
 	MaxVersions    int
 	MaxUploadBytes int64
 	Extract        unarchive.Limits
+	// Buckets reads a bucket prefix as the caller, for an extract from one
+	// (#2593); nil refuses it.
+	Buckets *bucketsource.Access
 	// Registered re-announces a written resource so resources/list_changed
 	// reaches a client that already listed it; Unregistered takes a deleted
 	// one out of that list.
@@ -67,11 +71,15 @@ func (h *Handle) BindResourceWrites(d ResourceWriteDeps) {
 	h.BindResourceLander(lander)
 	ranges, _ := d.Blobs.(resourcewrite.RangeReader)
 	if x := resourcewrite.NewExtractor(resourcewrite.ExtractorDeps{
-		Lander: lander, Ranges: ranges, Limits: d.Extract,
+		Lander: lander, Ranges: ranges, Limits: d.Extract, Buckets: d.Buckets,
 	}); x != nil && h != nil && h.toolkit != nil {
 		h.toolkit.SetResourceExtractor(extractorAdapter{x: x})
+		if d.Buckets != nil {
+			h.toolkit.SetPrefixExtractor(prefixAdapter{x: x})
+		}
 	}
-	h.BindResourceHolds(d.Attachments)
+	sites, _ := d.Store.(resourceholds.SiteMounts)
+	h.BindResourceHolds(d.Attachments, sites)
 }
 
 // extractorAdapter carries an extraction across between the asset toolkit's
@@ -100,6 +108,35 @@ func (a extractorAdapter) ExtractArchive(
 	result := &portalkit.ExtractedArchive{
 		Format: out.Format, Members: make([]portalkit.ExtractedMember, 0, len(out.Members)), Skipped: out.Skipped,
 	}
+	for _, m := range out.Members {
+		result.Members = append(result.Members, portalkit.ExtractedMember{Member: m.Member, ResourceLanding: m.Landing})
+	}
+	return result, err //nolint:wrapcheck // as above
+}
+
+// prefixAdapter carries an extraction from a bucket prefix (#2593) across
+// between the asset toolkit's types and the writer's, as extractorAdapter
+// carries an archive's.
+type prefixAdapter struct {
+	x interface {
+		ExtractPrefix(ctx context.Context, req resourcewrite.PrefixExtraction, claims resource.Claims) (*resourcewrite.Extracted, error)
+	}
+}
+
+// ExtractPrefix runs the extraction and reports what it wrote, including on a
+// failure part way through.
+func (a prefixAdapter) ExtractPrefix(
+	ctx context.Context, req portalkit.PrefixExtraction, claims resource.Claims,
+) (*portalkit.ExtractedArchive, error) {
+	out, err := a.x.ExtractPrefix(ctx, resourcewrite.PrefixExtraction{
+		Source: bucketsource.Source{Connection: req.Source.Connection, Bucket: req.Source.Bucket, Prefix: req.Source.Prefix},
+		Scope:  req.Scope, ScopeID: req.ScopeID, Path: req.Path, Replace: req.Replace,
+		Description: req.Description, Tags: req.Tags, ChangeSummary: req.ChangeSummary, Index: req.Index,
+	}, claims)
+	if out == nil {
+		return nil, err //nolint:wrapcheck // the writer's sentence names the source and what stopped it
+	}
+	result := &portalkit.ExtractedArchive{Format: out.Format, Members: make([]portalkit.ExtractedMember, 0, len(out.Members)), Skipped: out.Skipped}
 	for _, m := range out.Members {
 		result.Members = append(result.Members, portalkit.ExtractedMember{Member: m.Member, ResourceLanding: m.Landing})
 	}

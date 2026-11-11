@@ -18,6 +18,8 @@ import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/stores/auth";
 import { EnvironmentDialogs, type EnvDialog } from "./SiteEnvironmentDialogs";
 import { AccessBadge, AddressLink, EVERYONE_INTERNAL, Failure, ShareChip, grantName, grantOpens } from "./SiteParts";
+import { PublishBanner } from "./SitePublishJob";
+import { KeptLine } from "./SiteRetention";
 import { bareAddress, envAddress, errorText, hostUrl, hostsOf, orderedEnvironments, when } from "./siteFormat";
 
 const EXPLAINER_KEY = "sites.explainer.hidden";
@@ -56,6 +58,7 @@ export function SiteEnvironmentsTab({ site, onNavigate }: { site: Site; onNaviga
   return (
     <>
       <ApprovalBanners site={site} onNavigate={onNavigate} />
+      <PublishBanner site={site} onShow={(id) => setDialog({ kind: "job", id })} />
       <Guide site={site} canEdit={canEdit} hidden={hidden} onHide={hide} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold">Environments</h3>
@@ -216,6 +219,7 @@ function EnvironmentCard({
       <Release env={env} />
       <Addresses site={site} env={env} />
       <WhoCanOpen site={site} env={env} access={access} />
+      {canEdit && <KeptLine env={env} />}
       {canEdit && <CardActions env={env} onAct={onAct} />}
     </section>
   );

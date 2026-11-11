@@ -11844,7 +11844,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "The pages domain and the limits a release is held to, as saved, or the configuration file's where none are.",
+                "description": "The pages domain, the limits a release is held to, and how many releases each environment keeps by default and whether the daily sweep deletes or only reports (releases_keep, releases_mode), as saved, or the configuration file's where none are.",
                 "produces": [
                     "application/json"
                 ],
@@ -12407,6 +12407,112 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/sites/retention": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "How many releases each environment keeps by default, whether the daily sweep deletes or only reports, the grace before an object no release names is removed, and the most recent sweeps with what each removed (counts only).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Release retention",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.RetentionView"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/sites/retention/run": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Sweeps one site, or every site, now. In report mode it decides exactly as delete mode does and deletes nothing, answering which releases it would remove, how many files and bytes that frees, and the orphans past the grace; in delete mode it removes them. A release an environment keeps, an application release pins or a pending approval names is never removed. One sweep runs at a time across replicas.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Run a release sweep now",
+                "parameters": [
+                    {
+                        "description": "The sweep",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.SweepBody"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/siteprune.Report"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -28184,7 +28290,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Changes the description and the owner (owner and administrators).",
+                "description": "Changes the description and the owner (owner and administrators), and the resource folders the site serves as media at URL prefixes (media: the whole list, [] for none; anyone who manages the site, for folders they can read; a mounted folder's files are public on a public environment and its HTML, SVG, JavaScript and XML are sent as downloads).",
                 "consumes": [
                     "application/json"
                 ],
@@ -28547,7 +28653,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Every move of the site's environments, newest first, or of one environment.",
+                "description": "Every move of the site's environments, newest first, or of one environment. Someone who does not manage the site sees the moves of the environments they can open.",
                 "produces": [
                     "application/json"
                 ],
@@ -28719,7 +28825,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creates the environment (private unless public is true), or changes whether it is public, whether everyone internal may open it, and whether promoting to it needs approval. Only the owner or an administrator makes an environment public, and where it requires approval a non-administrator's request waits in Approvals (status awaiting_approval) until approved, after which the same request succeeds. dev is always private. Only an administrator takes the approval rule off.",
+                "description": "Creates the environment (private unless public is true), or changes whether it is public, whether everyone internal may open it, whether promoting to it needs approval, and how many releases it keeps (keep_releases: a whole number, 0 for every release, or \"default\"; the owner and administrators only, since a lower limit removes rollback history at the next sweep). Only the owner or an administrator makes an environment public, and where it requires approval a non-administrator's request waits in Approvals (status awaiting_approval) until approved, after which the same request succeeds. dev is always private. Only an administrator takes the approval rule off.",
                 "consumes": [
                     "application/json"
                 ],
@@ -28770,6 +28876,453 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/sites/{site}/file": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The text of one file dev serves, with the release it was read from, which a save names as its base. A file that is not text is refused.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "One file's text",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "The file",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.FileTextView"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Writes one file, new or changed, as a new release of dev derived from base, which must be the release dev serves now: a save against an older release is refused with 409 and nothing is written. With dry_run it stores nothing and reports how many served files would change, which on a rendered site is how many pages a layout touches. The people who manage the site only.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Save one file",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The file",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.FileSaveBody"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sitesvc.Published"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Writes a release of dev without the file, derived from base, which must be the release dev serves now. Rolling back to base brings it back. The people who manage the site only.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Delete one file",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "The file",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "The release dev serves",
+                        "name": "base",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "What changed",
+                        "name": "note",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sitesvc.Published"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/sites/{site}/file/diff": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "A unified diff of one file between two releases: to defaults to the release dev serves and from to the release to was derived from. The people who manage the site only, since an earlier release can hold what a later one took out.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "One file's change",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "The file",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "The earlier release",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "The later release",
+                        "name": "to",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.FileDiffView"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/sites/{site}/files": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The files dev serves, or its source on a rendered site, under a folder (path ending in /, or \"\" for every file), one page at a time. The people who manage the site read the source; someone dev is shared with reads what it serves.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "A site's files",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "A folder, ending in /",
+                        "name": "path",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Files to skip",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Files on the page, at most 1000",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sitesvc.TreeListing"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Writes the uploaded files into a folder of dev as one new release derived from base, which must be the release dev serves now; a file at a path that is taken replaces it. Multipart form: base, folder, note and one or more files. The people who manage the site only.",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Upload files",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "The release dev serves",
+                        "name": "base",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "The folder, \\",
+                        "name": "folder",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "What changed",
+                        "name": "note",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "file",
+                        "description": "The files",
+                        "name": "files",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sitesvc.Published"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -28842,7 +29395,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "The publishes and copies still running on the site.",
+                "description": "The publishes and copies still running on the site. Someone who does not manage the site sees those to the environments they can open, without their source.",
                 "produces": [
                     "application/json"
                 ],
@@ -29119,7 +29672,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Publishes a managed-resource archive or folder as a new release, in the background. The answer is the job to follow; it continues if the caller goes away.",
+                "description": "Publishes a managed-resource archive or folder, or the objects under a prefix of a bucket on an S3 connection (from_bucket: connection, bucket, prefix; the connection must be one the caller's persona may use and the bucket inside its bucket_prefix, refused here before a job starts), as a new release, in the background. Each object is a file at its path under the prefix, and the release limits apply. The answer is the job to follow; it continues if the caller goes away.",
                 "consumes": [
                     "application/json"
                 ],
@@ -29186,7 +29739,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Newest first, each with the environments serving it.",
+                "description": "Newest first, each with the environments serving it and what keeps it from the next cleanup. Someone who does not manage the site sees only the environments they can open, and no release's source.",
                 "produces": [
                     "application/json"
                 ],
@@ -29229,7 +29782,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "The release's file list and redirect map. Its files are served only on the site's own origins, never by this route.",
+                "description": "The release's file list and redirect map. Its files are served only on the site's own origins, never by this route. Someone who does not manage the site sees only the environments they can open, and not its source.",
                 "produces": [
                     "application/json"
                 ],
@@ -31394,7 +31947,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Delete a managed resource, removing both the S3 blob and database metadata.",
+                "description": "Delete a managed resource, removing both the S3 blob and database metadata. A file a site serves from a mounted media folder is refused with 409 unless force is true.",
                 "tags": [
                     "Resources"
                 ],
@@ -31406,6 +31959,12 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Delete a file a site serves from a mounted media folder",
+                        "name": "force",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -31426,6 +31985,12 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/resource.errorResponse"
                         }
@@ -39048,6 +39613,20 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "bucketsource.Source": {
+            "type": "object",
+            "properties": {
+                "bucket": {
+                    "type": "string"
+                },
+                "connection": {
+                    "type": "string"
+                },
+                "prefix": {
+                    "type": "string"
                 }
             }
         },
@@ -52027,6 +52606,15 @@ const docTemplate = `{
                     "description": "InternalView opens a private environment to everyone signed in whose\npersona is not external: a company intranet.",
                     "type": "boolean"
                 },
+                "keep_releases": {
+                    "description": "Keep is the limit in force: the last Keep distinct releases the\nenvironment pointed at are kept, and 0 keeps every one.",
+                    "type": "integer",
+                    "example": 50
+                },
+                "keep_releases_default": {
+                    "description": "KeepDefault is true when Keep is the deployment's default.",
+                    "type": "boolean"
+                },
                 "name": {
                     "type": "string",
                     "example": "prod"
@@ -52039,6 +52627,11 @@ const docTemplate = `{
                     "description": "Release is the number of the release served, 0 before the first.",
                     "type": "integer",
                     "example": 3
+                },
+                "releases_kept": {
+                    "description": "Kept is how many releases the limit keeps for this environment now.",
+                    "type": "integer",
+                    "example": 37
                 },
                 "requires_approval": {
                     "description": "RequiresApproval makes a promotion here, and making it public, a request\nin the Approvals queue.",
@@ -52181,6 +52774,35 @@ const docTemplate = `{
                 }
             }
         },
+        "site.Mount": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "folder": {
+                    "description": "Folder is the folder in that library, \"sites/marketing/media\".",
+                    "type": "string",
+                    "example": "sites/marketing/media"
+                },
+                "prefix": {
+                    "description": "Prefix is where the folder answers, \"/media/\": it starts and ends with a\nslash and is never the site's root.",
+                    "type": "string",
+                    "example": "/media/"
+                },
+                "scope": {
+                    "description": "Scope and ScopeID name the resource library: global, persona with the\npersona's name, or user with the person's subject.",
+                    "type": "string",
+                    "example": "global"
+                },
+                "scope_id": {
+                    "type": "string"
+                }
+            }
+        },
         "site.Redirect": {
             "type": "object",
             "properties": {
@@ -52195,6 +52817,72 @@ const docTemplate = `{
                 "to": {
                     "type": "string",
                     "example": "/new/:splat"
+                }
+            }
+        },
+        "site.Release": {
+            "type": "object",
+            "properties": {
+                "base": {
+                    "description": "Base is the number of the release this one was derived from, 0 for a\nrelease built from a complete file set.",
+                    "type": "integer",
+                    "example": 41
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "file_count": {
+                    "type": "integer"
+                },
+                "files": {
+                    "description": "Files is filled by a read that asks for them. Written with a\nManifestParent it holds only what differs from the parent.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/site.File"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "manifest_sha256": {
+                    "description": "ManifestSHA256 fixes the file set: the digest of every path and content\ndigest, in path order.",
+                    "type": "string"
+                },
+                "note": {
+                    "type": "string"
+                },
+                "number": {
+                    "type": "integer",
+                    "example": 3
+                },
+                "pruned": {
+                    "description": "Pruned is true once a sweep removed the release's files (#2602); its\nrecord stays so the deployments and approvals naming it read as before.",
+                    "type": "boolean"
+                },
+                "pruned_at": {
+                    "type": "string"
+                },
+                "redirects": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/site.Redirect"
+                    }
+                },
+                "rendered": {
+                    "description": "Rendered is true for a release with a source tree of its own; a release\nwithout one serves the files it was published with.",
+                    "type": "boolean"
+                },
+                "site_id": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "total_bytes": {
+                    "type": "integer"
                 }
             }
         },
@@ -52224,6 +52912,13 @@ const docTemplate = `{
                     "description": "MainEnvironment is the environment the main address,\n\u003csite\u003e.\u003cpages domain\u003e, serves; \"\" is none, and the address answers not\nfound.",
                     "type": "string",
                     "example": "prod"
+                },
+                "media": {
+                    "description": "Media is the resource folders the site serves at URL prefixes (#2591),\nfilled by a read of one site.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/site.Mount"
+                    }
                 },
                 "name": {
                     "type": "string",
@@ -52277,6 +52972,16 @@ const docTemplate = `{
                 "pages_domain": {
                     "type": "string",
                     "example": "pages.example.net"
+                },
+                "releases_keep": {
+                    "description": "ReleasesKeep is how many releases an environment with no limit of its\nown keeps, 0 for every release (#2602). A section saved before it\nexisted carries none, and keeps the file's value.",
+                    "type": "integer",
+                    "example": 50
+                },
+                "releases_mode": {
+                    "description": "ReleasesMode is \"delete\" or \"report\"; empty keeps the file's value.",
+                    "type": "string",
+                    "example": "delete"
                 }
             }
         },
@@ -52443,6 +53148,11 @@ const docTemplate = `{
                 "internal_view": {
                     "type": "boolean"
                 },
+                "keep_releases": {
+                    "description": "KeepReleases is how many releases the environment keeps: a whole number\n(0 keeps every release), or \"default\" for the deployment's default\n(#2602). The owner and administrators only.",
+                    "type": "string",
+                    "example": "50"
+                },
                 "public": {
                     "type": "boolean"
                 },
@@ -52470,6 +53180,78 @@ const docTemplate = `{
                     "description": "Status is done, or awaiting_approval when making the environment public\nwaits in Approvals.",
                     "type": "string",
                     "example": "done"
+                }
+            }
+        },
+        "sitehttp.FileDiffView": {
+            "type": "object",
+            "properties": {
+                "diff": {
+                    "type": "string"
+                },
+                "from": {
+                    "type": "integer",
+                    "example": 14
+                },
+                "path": {
+                    "type": "string"
+                },
+                "to": {
+                    "type": "integer",
+                    "example": 15
+                }
+            }
+        },
+        "sitehttp.FileSaveBody": {
+            "type": "object",
+            "properties": {
+                "base": {
+                    "description": "Base is the release the editor read, which dev must still serve.",
+                    "type": "integer",
+                    "example": 14
+                },
+                "content": {
+                    "description": "Content is the whole file: text, or base64 with encoding \"base64\".",
+                    "type": "string"
+                },
+                "dry_run": {
+                    "description": "DryRun checks the save, renders a rendered site, and stores nothing.",
+                    "type": "boolean"
+                },
+                "encoding": {
+                    "type": "string",
+                    "example": "utf-8"
+                },
+                "note": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string",
+                    "example": "pricing/index.html"
+                }
+            }
+        },
+        "sitehttp.FileTextView": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "content_type": {
+                    "type": "string",
+                    "example": "text/html; charset=utf-8"
+                },
+                "environment": {
+                    "type": "string",
+                    "example": "dev"
+                },
+                "path": {
+                    "type": "string",
+                    "example": "pricing/index.html"
+                },
+                "release": {
+                    "type": "integer",
+                    "example": 14
                 }
             }
         },
@@ -52565,6 +53347,14 @@ const docTemplate = `{
                 "folder": {
                     "type": "string"
                 },
+                "from_bucket": {
+                    "description": "FromBucket is the objects under a prefix of a bucket on an S3\nconnection the caller's persona may use, inside its bucket_prefix\n(#2593).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/bucketsource.Source"
+                        }
+                    ]
+                },
                 "note": {
                     "type": "string"
                 },
@@ -52607,6 +53397,13 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "kept_by": {
+                    "description": "KeptBy is the environments whose release limit keeps it, an\n\"application \u003cname\u003e\" release pinning it, or \"approval\" for a pending\nrequest; empty for a release the next sweep removes, or one it removed.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "manifest_sha256": {
                     "description": "ManifestSHA256 fixes the file set: the digest of every path and content\ndigest, in path order.",
                     "type": "string"
@@ -52617,6 +53414,13 @@ const docTemplate = `{
                 "number": {
                     "type": "integer",
                     "example": 3
+                },
+                "pruned": {
+                    "description": "Pruned is true once a sweep removed the release's files (#2602); its\nrecord stays so the deployments and approvals naming it read as before.",
+                    "type": "boolean"
+                },
+                "pruned_at": {
+                    "type": "string"
                 },
                 "redirects": {
                     "type": "array",
@@ -52683,6 +53487,13 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "kept_by": {
+                    "description": "KeptBy is the environments whose release limit keeps it, an\n\"application \u003cname\u003e\" release pinning it, or \"approval\" for a pending\nrequest; empty for a release the next sweep removes, or one it removed.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "manifest_sha256": {
                     "description": "ManifestSHA256 fixes the file set: the digest of every path and content\ndigest, in path order.",
                     "type": "string"
@@ -52693,6 +53504,13 @@ const docTemplate = `{
                 "number": {
                     "type": "integer",
                     "example": 3
+                },
+                "pruned": {
+                    "description": "Pruned is true once a sweep removed the release's files (#2602); its\nrecord stays so the deployments and approvals naming it read as before.",
+                    "type": "boolean"
+                },
+                "pruned_at": {
+                    "type": "string"
                 },
                 "redirects": {
                     "type": "array",
@@ -52718,6 +53536,36 @@ const docTemplate = `{
                 },
                 "total_bytes": {
                     "type": "integer"
+                }
+            }
+        },
+        "sitehttp.RetentionView": {
+            "type": "object",
+            "properties": {
+                "every": {
+                    "type": "string",
+                    "example": "24h0m0s"
+                },
+                "keep_default": {
+                    "description": "KeepDefault is how many releases an environment with no limit of its\nown keeps; 0 keeps every release.",
+                    "type": "integer",
+                    "example": 50
+                },
+                "mode": {
+                    "description": "Mode is \"delete\" or \"report\".",
+                    "type": "string",
+                    "example": "delete"
+                },
+                "orphan_grace": {
+                    "description": "OrphanGrace is how old an object no release names must be before a\nsweep deletes it, and Every how often the sweep runs.",
+                    "type": "string",
+                    "example": "24h0m0s"
+                },
+                "sweeps": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sitestore.Sweep"
+                    }
                 }
             }
         },
@@ -52826,6 +53674,16 @@ const docTemplate = `{
                     "type": "string",
                     "example": "pages.example.net"
                 },
+                "releases_keep": {
+                    "description": "ReleasesKeep is how many releases an environment with no limit of its\nown keeps, 0 for every release (#2602). A section saved before it\nexisted carries none, and keeps the file's value.",
+                    "type": "integer",
+                    "example": 50
+                },
+                "releases_mode": {
+                    "description": "ReleasesMode is \"delete\" or \"report\"; empty keeps the file's value.",
+                    "type": "string",
+                    "example": "delete"
+                },
                 "updated_at": {
                     "type": "string"
                 },
@@ -52839,6 +53697,13 @@ const docTemplate = `{
             "properties": {
                 "description": {
                     "type": "string"
+                },
+                "media": {
+                    "description": "Media, when set, is every resource folder the site serves at a URL\nprefix (#2591); [] removes them all. Anyone who manages the site, for a\nfolder they can read.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/site.Mount"
+                    }
                 },
                 "owner_email": {
                     "type": "string"
@@ -52889,6 +53754,13 @@ const docTemplate = `{
                     "type": "string",
                     "example": "prod"
                 },
+                "media": {
+                    "description": "Media is the resource folders the site serves at URL prefixes (#2591),\nfilled by a read of one site.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/site.Mount"
+                    }
+                },
                 "name": {
                     "type": "string",
                     "example": "marketing"
@@ -52906,6 +53778,169 @@ const docTemplate = `{
                     ]
                 },
                 "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "sitehttp.SweepBody": {
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "description": "Mode is \"report\", which deletes nothing, or \"delete\".",
+                    "type": "string",
+                    "example": "report"
+                },
+                "site": {
+                    "description": "Site, when set, sweeps that site alone, by name.",
+                    "type": "string"
+                }
+            }
+        },
+        "siteprune.Report": {
+            "type": "object",
+            "properties": {
+                "bytes": {
+                    "type": "integer"
+                },
+                "failed": {
+                    "type": "integer"
+                },
+                "files": {
+                    "type": "integer"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "mode": {
+                    "type": "string",
+                    "example": "delete"
+                },
+                "orphan_bytes": {
+                    "type": "integer"
+                },
+                "orphans": {
+                    "type": "integer"
+                },
+                "refused": {
+                    "type": "integer"
+                },
+                "releases": {
+                    "type": "integer"
+                },
+                "rewritten": {
+                    "type": "integer"
+                },
+                "run_by": {
+                    "type": "string"
+                },
+                "scope": {
+                    "type": "string"
+                },
+                "sites": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/siteprune.SiteReport"
+                    }
+                },
+                "sites_swept": {
+                    "type": "integer"
+                },
+                "skipped": {
+                    "type": "integer"
+                },
+                "started_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "siteprune.SiteReport": {
+            "type": "object",
+            "properties": {
+                "bytes": {
+                    "type": "integer"
+                },
+                "files": {
+                    "type": "integer"
+                },
+                "orphan_bytes": {
+                    "type": "integer"
+                },
+                "orphans": {
+                    "type": "integer"
+                },
+                "orphans_unchecked": {
+                    "description": "OrphansUnchecked is a site whose prune counts stand but whose orphans\nwere not checked: the bucket could not be listed, or a publish held\nthe site's stored files when the sweep came to delete them.",
+                    "type": "boolean"
+                },
+                "refused": {
+                    "description": "Refused is a site whose orphans were left alone because more than half\nof what it holds read as orphans: a database restored apart from its\nbucket would otherwise be emptied.",
+                    "type": "boolean"
+                },
+                "releases": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "rewritten": {
+                    "type": "integer"
+                },
+                "site": {
+                    "type": "string"
+                },
+                "skipped": {
+                    "description": "Skipped is a site left for the next sweep because a job was running or\na publish held its stored files.",
+                    "type": "boolean"
+                }
+            }
+        },
+        "sitestore.Sweep": {
+            "type": "object",
+            "properties": {
+                "bytes": {
+                    "type": "integer"
+                },
+                "failed": {
+                    "type": "integer"
+                },
+                "files": {
+                    "type": "integer"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "mode": {
+                    "type": "string",
+                    "example": "delete"
+                },
+                "orphan_bytes": {
+                    "type": "integer"
+                },
+                "orphans": {
+                    "type": "integer"
+                },
+                "refused": {
+                    "type": "integer"
+                },
+                "releases": {
+                    "type": "integer"
+                },
+                "rewritten": {
+                    "type": "integer"
+                },
+                "run_by": {
+                    "type": "string"
+                },
+                "scope": {
+                    "type": "string"
+                },
+                "sites_swept": {
+                    "type": "integer"
+                },
+                "skipped": {
+                    "type": "integer"
+                },
+                "started_at": {
                     "type": "string"
                 }
             }
@@ -53068,6 +54103,52 @@ const docTemplate = `{
                 "status": {
                     "type": "string",
                     "example": "promoted"
+                }
+            }
+        },
+        "sitesvc.Published": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "description": "Address is where the environment answers, \"\" before it has one.",
+                    "type": "string"
+                },
+                "environment": {
+                    "type": "string"
+                },
+                "outputs_changed": {
+                    "description": "OutputsChanged is how many served files a dry run would add, change or\nremove.",
+                    "type": "integer"
+                },
+                "release": {
+                    "$ref": "#/definitions/site.Release"
+                },
+                "unchanged": {
+                    "description": "Unchanged is true when the overlay changed nothing: no release was\nwritten, and Release is the one the environment already serves.",
+                    "type": "boolean"
+                }
+            }
+        },
+        "sitesvc.TreeListing": {
+            "type": "object",
+            "properties": {
+                "environment": {
+                    "type": "string"
+                },
+                "files": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/site.File"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "truncated": {
+                    "type": "boolean"
+                },
+                "version": {
+                    "type": "integer"
                 }
             }
         },

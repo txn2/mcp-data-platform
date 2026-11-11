@@ -241,6 +241,11 @@ internal/approval/apprtool -> pkg/toolkit
 internal/bgloop -> pkg/observability
 internal/botcheck -> internal/outbound
 internal/botcheck -> pkg/portal/shareguest
+internal/bucketsource -> internal/logsan
+internal/bucketsource -> pkg/middleware
+internal/bucketsource -> pkg/persona
+internal/bucketsource -> pkg/registry
+internal/bucketsource -> pkg/toolkits/s3
 internal/catalogfake -> pkg/catalog
 internal/conncatchup -> internal/logsan
 internal/connlimit -> internal/advisorylock
@@ -838,6 +843,7 @@ internal/httpserver/scripthttp/submissionshttp -> internal/logsan
 internal/httpserver/scripthttp/transferwords -> internal/producedview
 internal/httpserver/sitehttp -> internal/application
 internal/httpserver/sitehttp -> internal/bgloop
+internal/httpserver/sitehttp -> internal/bucketsource
 internal/httpserver/sitehttp -> internal/endpoint/epbinding
 internal/httpserver/sitehttp -> internal/endpoint/epform
 internal/httpserver/sitehttp -> internal/httpjson
@@ -850,6 +856,8 @@ internal/httpserver/sitehttp -> internal/site
 internal/httpserver/sitehttp -> internal/site/siteconfig
 internal/httpserver/sitehttp -> internal/site/sitecrawl
 internal/httpserver/sitehttp -> internal/site/sitegw
+internal/httpserver/sitehttp -> internal/site/siteprune
+internal/httpserver/sitehttp -> internal/site/sitestore
 internal/httpserver/sitehttp -> internal/site/sitesvc
 internal/httpserver/sitehttp -> internal/site/sitetool
 internal/httpserver/sitehttp -> internal/site/sitewire
@@ -860,6 +868,7 @@ internal/httpserver/sitehttp -> pkg/middleware
 internal/httpserver/sitehttp -> pkg/notification
 internal/httpserver/sitehttp -> pkg/platform
 internal/httpserver/sitehttp -> pkg/portal
+internal/httpserver/sitehttp -> pkg/textpatch
 internal/httpserver/sources -> pkg/catalog
 internal/httpserver/sources -> pkg/toolkits/gateway/enrichment
 internal/httpserver/standalonehttp -> internal/egressguard
@@ -1297,6 +1306,7 @@ internal/platform/platformstate -> pkg/query
 internal/platform/platformstate -> pkg/registry
 internal/platform/platformstate -> pkg/semantic
 internal/platform/platformstate -> pkg/toolkit
+internal/platform/portalstore -> internal/bucketsource
 internal/platform/portalstore -> internal/indexpolicy
 internal/platform/portalstore -> internal/objectobs
 internal/platform/portalstore -> internal/platform/assetindex
@@ -1318,6 +1328,7 @@ internal/platform/portalstore -> pkg/observability
 internal/platform/portalstore -> pkg/persona
 internal/platform/portalstore -> pkg/portal
 internal/platform/portalstore -> pkg/portal/knowledgepage
+internal/platform/portalstore -> pkg/portal/s3adapter
 internal/platform/portalstore -> pkg/resource
 internal/platform/portalstore -> pkg/toolkits/portal
 internal/platform/promptindex -> pkg/indexjobs
@@ -1382,6 +1393,7 @@ internal/platform/resourcereclass -> pkg/resource
 internal/platform/resourcetemplates -> pkg/catalog
 internal/platform/resourcetemplates -> pkg/query
 internal/platform/resourcetemplates -> pkg/semantic
+internal/platform/resourcewrite -> internal/bucketsource
 internal/platform/resourcewrite -> internal/indexpolicy
 internal/platform/resourcewrite -> internal/opsobs
 internal/platform/resourcewrite -> internal/producedby
@@ -1685,6 +1697,7 @@ internal/platform/scriptwiring -> internal/application
 internal/platform/scriptwiring -> internal/application/appsvc
 internal/platform/scriptwiring -> internal/application/appwire
 internal/platform/scriptwiring -> internal/approval/apprtool
+internal/platform/scriptwiring -> internal/bucketsource
 internal/platform/scriptwiring -> internal/endpoint/epwire
 internal/platform/scriptwiring -> internal/logsan
 internal/platform/scriptwiring -> internal/platform/catalogstore
@@ -2008,9 +2021,19 @@ internal/site/sitegw -> internal/site
 internal/site/sitegw -> internal/site/siteconfig
 internal/site/sitegw -> internal/site/sitesvc
 internal/site/sitegw -> internal/wirejson
+internal/site/sitegw -> pkg/blobserve
 internal/site/sitegw -> pkg/observability
 internal/site/sitegw -> pkg/portal/shareguest
+internal/site/siteprune -> internal/advisorylock
+internal/site/siteprune -> internal/bgloop
+internal/site/siteprune -> internal/logsan
+internal/site/siteprune -> internal/site
+internal/site/siteprune -> internal/site/siteconfig
+internal/site/siteprune -> internal/site/sitestore
+internal/site/siteprune -> internal/site/sitesvc
+internal/site/siteprune -> pkg/portal/s3adapter
 internal/site/sitestore -> internal/site
+internal/site/sitestore -> internal/site/siteconfig
 internal/site/sitesvc -> internal/application
 internal/site/sitesvc -> internal/approval
 internal/site/sitesvc -> internal/contentenc
@@ -2022,6 +2045,7 @@ internal/site/sitesvc -> internal/site/siterender
 internal/site/sitesvc -> internal/site/sitestore
 internal/site/sitesvc -> pkg/contenttype
 internal/site/sitesvc -> pkg/textpatch
+internal/site/sitetool -> internal/bucketsource
 internal/site/sitetool -> internal/site
 internal/site/sitetool -> internal/site/sitecrawl
 internal/site/sitetool -> internal/site/sitesvc
@@ -2034,6 +2058,7 @@ internal/site/sitetool -> pkg/toolkit
 internal/site/sitetool -> pkg/toolkits/portal
 internal/site/sitewire -> internal/application/appstore
 internal/site/sitewire -> internal/approval
+internal/site/sitewire -> internal/bucketsource
 internal/site/sitewire -> internal/endpoint/epbinding
 internal/site/sitewire -> internal/platform/resourcewrite
 internal/site/sitewire -> internal/platform/scriptsrc
@@ -2041,10 +2066,14 @@ internal/site/sitewire -> internal/platform/settingsjson
 internal/site/sitewire -> internal/site
 internal/site/sitewire -> internal/site/siteconfig
 internal/site/sitewire -> internal/site/sitecrawl
+internal/site/sitewire -> internal/site/sitegw
+internal/site/sitewire -> internal/site/siteprune
 internal/site/sitewire -> internal/site/sitestore
 internal/site/sitewire -> internal/site/sitesvc
 internal/site/sitewire -> internal/site/sitetool
 internal/site/sitewire -> internal/unarchive
+internal/site/sitewire -> pkg/blobserve
+internal/site/sitewire -> pkg/portal/s3adapter
 internal/site/sitewire -> pkg/resource
 internal/soap -> internal/xmltree
 internal/sourcecheck -> pkg/contenttype
@@ -2356,6 +2385,7 @@ pkg/platform -> internal/apidocs
 pkg/platform -> internal/application/apptool
 pkg/platform -> internal/approval/apprtool
 pkg/platform -> internal/botcheck
+pkg/platform -> internal/bucketsource
 pkg/platform -> internal/cfgmap
 pkg/platform -> internal/connlimit
 pkg/platform -> internal/dbobs

@@ -19,7 +19,10 @@ type DomainRequest struct {
 	// environment, which is private unless Public asks otherwise.
 	RequiresApproval bool
 	Public           bool
-	Application      string
+	// Keep is the release limit of an environment the request creates, nil
+	// for the deployment's default (#2602).
+	Keep        *int
+	Application string
 }
 
 // AddDomain maps a hostname to one of a site's environments, creating the
@@ -115,7 +118,7 @@ func (s *Service) ensureEnvironment(ctx context.Context, actor Actor, st *site.S
 	if st.Environment(req.Environment) != nil {
 		return nil
 	}
-	c := EnvironmentChange{RequiresApproval: &req.RequiresApproval}
+	c := EnvironmentChange{RequiresApproval: &req.RequiresApproval, Keep: req.Keep}
 	if req.Public {
 		c.Public = &req.Public
 	}
@@ -126,7 +129,7 @@ func (s *Service) ensureEnvironment(ctx context.Context, actor Actor, st *site.S
 		return refused("an environment that requires approval is made public through Approvals: add the domain private, then make %s public", req.Environment)
 	}
 	return s.Store.SetEnvironment(ctx, st.ID, req.Environment, site.EnvironmentSettings{ //nolint:wrapcheck // read by identity
-		RequiresApproval: &req.RequiresApproval, Public: &req.Public,
+		RequiresApproval: &req.RequiresApproval, Public: &req.Public, Keep: req.Keep,
 	}, actor.Email)
 }
 

@@ -128,7 +128,8 @@ describe("ScriptListing", () => {
     list();
 
     expect(screen.getByRole("columnheader", { name: "Kind" })).toBeInTheDocument();
-    expect(screen.getByTestId("automation-kind")).toHaveTextContent("Script");
+    // An icon whose accessible name says what the kind is (#2601).
+    expect(screen.getByTestId("automation-kind")).toHaveAccessibleName(/^Script: runs on a schedule/);
   });
 
   it("says no automations exist when every script is listed and there are none", () => {
@@ -478,17 +479,17 @@ describe("ScriptListing: libraries", () => {
     fireEvent.click(screen.getByRole("option", { name: option }));
   }
 
-  it("badges a library and no other row", () => {
+  it("marks a library by its kind icon, with no Library badge beside the name", () => {
     mockScripts.mockReturnValue(answer([row(), library()]));
     list();
 
+    // The Kind column tells kinds apart (#2601); the badge it replaced is gone.
     const lib = screen.getByTestId("script-row-script-006");
-    // The badge beside the name, and the Kind column that tells kinds apart.
-    expect(within(lib).getAllByText("Library")).toHaveLength(2);
-    expect(within(lib).getByTestId("automation-kind")).toHaveTextContent("Library");
+    expect(within(lib).queryByText("Library")).not.toBeInTheDocument();
+    expect(within(lib).getByTestId("automation-kind")).toHaveAccessibleName(/^Library: code other automations load/);
+    expect(within(lib).getByTestId("automation-kind")).toHaveAttribute("data-kind", "library");
     const automation = screen.getByTestId("script-row-script-001");
-    expect(within(automation).queryByText("Library")).not.toBeInTheDocument();
-    expect(within(automation).getByTestId("automation-kind")).toHaveTextContent("Script");
+    expect(within(automation).getByTestId("automation-kind")).toHaveAttribute("data-kind", "script");
   });
 
   it("promises a library neither a schedule nor a run", () => {
@@ -565,13 +566,19 @@ describe("ScriptListing: libraries", () => {
     );
     list();
     expect(screen.getByRole("columnheader", { name: "Endpoint" })).toBeInTheDocument();
+    // The /endpoints/ prefix every endpoint shares is dropped, and the full
+    // address is on hover (#2601).
     const bound = within(screen.getByTestId("script-row-script-001")).getByTestId("script-endpoint");
-    expect(bound).toHaveTextContent("/endpoints/orders/{id}");
+    expect(bound).toHaveTextContent("orders/{id}");
+    expect(bound).not.toHaveTextContent("/endpoints/");
     expect(bound).not.toHaveTextContent("Off");
-    expect(within(screen.getByTestId("script-row-script-002")).getByTestId("script-endpoint")).toHaveTextContent(
-      "/endpoints/contactOff",
-    );
-    expect(within(screen.getByTestId("script-row-script-003")).queryByTestId("script-endpoint")).toBeNull();
+    expect(within(bound).getByTestId("endpoint-path")).toHaveAttribute("title", `${window.location.origin}/endpoints/orders/{id}`);
+    const off = within(screen.getByTestId("script-row-script-002")).getByTestId("script-endpoint");
+    expect(off).toHaveTextContent("contact");
+    expect(off).toHaveTextContent("Off");
+    const none = screen.getByTestId("script-row-script-003");
+    expect(within(none).queryByTestId("script-endpoint")).toBeNull();
+    expect(within(none).getAllByText("—").length).toBeGreaterThan(0);
   });
 
   it("asks the server for the bound or the unbound scripts, and for neither once All is chosen", () => {
@@ -590,5 +597,95 @@ describe("ScriptListing: libraries", () => {
     expect(listingFilter()["endpoint"]).toBe("unbound");
     choose("All");
     expect(listingFilter()).not.toHaveProperty("endpoint");
+  });
+});
+
+// #2601: the table follows the width it has, and a phone gets a list.
+describe("ScriptListing: layout", () => {
+  const realObserver = globalThis.ResizeObserver;
+  const realWidth = window.innerWidth;
+
+  function measureAt(width: number) {
+    globalThis.ResizeObserver = class {
+      constructor(private readonly cb: ResizeObserverCallback) {}
+      observe() {
+        this.cb([{ contentRect: { width } } as ResizeObserverEntry], this as unknown as ResizeObserver);
+      }
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+  }
+
+  afterEach(() => {
+    globalThis.ResizeObserver = realObserver;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: realWidth });
+    cleanup();
+  });
+
+  function bound(): PortalScriptRow {
+    return row({ endpoint: { name: "orders", path: "/endpoints/order-intake/v1/orders/{id}", auth_mode: "authenticated", enabled: true } });
+  }
+
+  it("shows every column with room for them", () => {
+    measureAt(1200);
+    mockScripts.mockReturnValue(answer([bound()]));
+    list();
+    expect(screen.getByTestId("script-table")).toHaveAttribute("data-layout", "wide");
+    expect(screen.getByRole("columnheader", { name: "Endpoint" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: /Updated/ })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Open" })).toBeInTheDocument();
+  });
+
+  it("folds Endpoint under the name at a 1280px window's width, and keeps Updated", () => {
+    measureAt(940);
+    mockScripts.mockReturnValue(answer([bound()]));
+    list();
+    expect(screen.getByTestId("script-table")).toHaveAttribute("data-layout", "medium");
+    expect(screen.queryByRole("columnheader", { name: "Endpoint" })).not.toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: /Updated/ })).toBeInTheDocument();
+    const r = screen.getByTestId("script-row-script-001");
+    expect(within(r).getByTestId("endpoint-path")).toHaveTextContent("order-intake/v1/orders/{id}");
+  });
+
+  it("drops Updated too when narrow", () => {
+    measureAt(700);
+    mockScripts.mockReturnValue(answer([row()]));
+    list();
+    expect(screen.getByTestId("script-table")).toHaveAttribute("data-layout", "narrow");
+    expect(screen.queryByRole("columnheader", { name: /Updated/ })).not.toBeInTheDocument();
+  });
+
+  it("says when it was updated in a short form, with the exact time on hover", () => {
+    measureAt(1200);
+    const at = new Date(Date.now() - 5 * 3600_000).toISOString();
+    mockScripts.mockReturnValue(answer([row({ script: { ...row().script, updated_at: at } })]));
+    list();
+    const updated = screen.getByTestId("script-updated");
+    expect(updated).toHaveTextContent("5h ago");
+    expect(updated.getAttribute("title")).toMatch(/\d/);
+    expect(updated.textContent).not.toMatch(/:\d\d:\d\d/);
+  });
+
+  it("is a list on a phone, each item opening its automation", () => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    mockScripts.mockReturnValue(answer([row(), bound()]));
+    list();
+    expect(screen.queryByTestId("script-table")).not.toBeInTheDocument();
+    const items = within(screen.getByTestId("script-list")).getAllByRole("button");
+    expect(items[0]).toHaveTextContent("Daily Sales Report");
+    expect(items[0]).toHaveTextContent("sarah.chen@example.com");
+    fireEvent.click(items[0]!);
+    expect(onNavigate).toHaveBeenCalledWith("/automations/script-001");
+  });
+
+  it("reduces the bar to search and Filters on a phone", () => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    mockScripts.mockReturnValue(answer([row()]));
+    list();
+    expect(screen.getByLabelText("Search automations")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Filter by kind")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
+    expect(screen.getByRole("dialog", { name: "Filters" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Filter by kind")).toBeInTheDocument();
   });
 });

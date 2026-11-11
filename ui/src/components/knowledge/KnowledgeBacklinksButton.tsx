@@ -27,9 +27,13 @@ import { backlinksSummary } from "./KnowledgeBacklinks";
 export function KnowledgeBacklinksButton({
   urn,
   onNavigate,
+  compact = false,
 }: {
   urn: string;
   onNavigate?: (path: string) => void;
+  /** compact is the icon form a phone's one-row toolbar takes (#2601): the
+   * book with the count on it. */
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const { data } = useKnowledgeBacklinks(urn);
@@ -39,11 +43,20 @@ export function KnowledgeBacklinksButton({
   const summary = backlinksSummary(pages.length);
   return (
     <>
-      <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)} title={summary}>
-        <BookOpen />
-        Referenced by
-        <Badge className="px-1.5 text-[11px]">{pages.length}</Badge>
-      </Button>
+      {compact ? (
+        <Button type="button" variant="outline" size="icon-sm" onClick={() => setOpen(true)} title={summary} aria-label={summary} className="relative">
+          <BookOpen />
+          <span aria-hidden className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
+            {pages.length}
+          </span>
+        </Button>
+      ) : (
+        <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)} title={summary}>
+          <BookOpen />
+          Referenced by
+          <Badge className="px-1.5 text-[11px]">{pages.length}</Badge>
+        </Button>
+      )}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>

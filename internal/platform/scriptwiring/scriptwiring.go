@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/bucketsource"
 	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
 
 	"github.com/txn2/mcp-data-platform/internal/approval/apprtool"
@@ -179,6 +180,7 @@ func wireSites(deps Deps, endpoints *epwire.Endpoints) (*sitewire.Runtime, error
 	rt, err := sitewire.Register(deps.Server, sitewire.Deps{
 		DB: deps.DB, Objects: objectsOf(deps), Bucket: deps.Bucket, Config: deps.Sites, PortalURL: deps.PortalURL,
 		CookieDomain: deps.CookieDomain, ReservedURLs: deps.ReservedURLs, Approvals: endpoints.Approvals, Sources: deps.Sources,
+		Buckets: bucketsource.FromToolkits(deps.Toolkits, deps.SitePersonas),
 	})
 	if err != nil {
 		return nil, err //nolint:wrapcheck // the configuration's own sentence
