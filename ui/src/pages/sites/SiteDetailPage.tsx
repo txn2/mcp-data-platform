@@ -114,7 +114,7 @@ function Facts({ site }: { site: Site }) {
   const domains = site.domains.map((d) => d.hostname).join(", ");
   const facts: [string, string, boolean?][] = [
     ["Owner", site.owner_email],
-    ["Address", site.address ? bareAddress(site.address) : "None", true],
+    ["Main address", site.address ? bareAddress(site.address) : "None", true],
     ["Domains", domains || "None"],
     ["Created", `${day(site.created_at)} by ${site.created_by}`],
   ];
@@ -189,7 +189,7 @@ function DeleteSiteDialog({ site, onClose, onDeleted }: { site: Site; onClose: (
   const releases = useSiteReleases(site.name);
   const [typed, setTyped] = useState("");
   const [failure, setFailure] = useState<string | null>(null);
-  const addresses = [...site.domains.map((d) => d.hostname), ...(site.address ? [bareAddress(site.address)] : [])];
+  const addresses = [...new Set([...Object.values(site.addresses ?? {}).filter(Boolean).map(bareAddress), ...site.domains.map((d) => d.hostname)])];
   const submit = () => {
     setFailure(null);
     remove.mutate(undefined, { onSuccess: onDeleted, onError: (e) => setFailure(errorText(e, "The site could not be deleted")) });

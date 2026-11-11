@@ -311,15 +311,15 @@ func (a *portalAPI) rollback(w http.ResponseWriter, r *http.Request) {
 
 // setEnvironment handles PUT /api/v1/portal/sites/{site}/environments/{name}.
 //
-// @Summary      Set an environment's approval rule
-// @Description  Creates the environment, or changes whether promoting to it needs approval. Only an administrator can take the rule off.
+// @Summary      Create or change an environment
+// @Description  Creates the environment (private unless public is true), or changes whether it is public, whether everyone internal may open it, and whether promoting to it needs approval. Only the owner or an administrator makes an environment public, and where it requires approval a non-administrator's request waits in Approvals (status awaiting_approval) until approved, after which the same request succeeds. dev is always private. Only an administrator takes the approval rule off.
 // @Tags         Sites
 // @Accept       json
 // @Produce      json
 // @Param        site  path      string           true  "Site name or id"
 // @Param        name  path      string           true  "Environment"
-// @Param        body  body      EnvironmentBody  true  "The rule"
-// @Success      200   {object}  site.Site
+// @Param        body  body      EnvironmentBody  true  "The change"
+// @Success      200   {object}  EnvironmentResponse
 // @Failure      403   {object}  httpjson.ProblemDetail
 // @Failure      404   {object}  httpjson.ProblemDetail
 // @Failure      422   {object}  httpjson.ProblemDetail
@@ -335,13 +335,67 @@ func (a *portalAPI) setEnvironment(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	st, err := a.svc().SetEnvironment(r.Context(), c.actor, r.PathValue(paramSite), r.PathValue("name"), in.RequiresApproval)
+	out, err := a.svc().SetEnvironment(r.Context(), c.actor, r.PathValue(paramSite), r.PathValue("name"), sitesvc.EnvironmentChange{
+		RequiresApproval: in.RequiresApproval, Public: in.Public, InternalView: in.InternalView, Reason: in.Reason,
+	})
 	a.record(r.Context(), c, sitetool.CmdEnvironment, map[string]any{paramSite: r.PathValue(paramSite), paramEnv: r.PathValue("name")}, err)
 	if err != nil {
 		fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, st)
+	view, err := a.fullView(r.Context(), c, out.Site)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, EnvironmentResponse{Site: view, Status: out.Status, Approval: out.Approval, Note: out.Note})
+}
+
+// setMainEnvironment handles PUT /api/v1/portal/sites/{site}/main-environment.
+//
+// @Summary      Move the main address
+// @Description  Gives the site's main address, <site>.<pages domain>, to one of its environments, or to none with environment "" (it then answers not found). Every environment keeps its <site>--<env> address. The owner and administrators only.
+// @Tags         Sites
+// @Accept       json
+// @Produce      json
+// @Param        site  path      string               true  "Site name or id"
+// @Param        body  body      MainEnvironmentBody  true  "The environment"
+// @Success      200   {object}  SiteView
+// @Failure      403   {object}  httpjson.ProblemDetail
+// @Failure      404   {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/sites/{site}/main-environment [put]
+func (a *portalAPI) setMainEnvironment(w http.ResponseWriter, r *http.Request) {
+	c, r, ok := a.who(w, r)
+	if !ok {
+		return
+	}
+	var in MainEnvironmentBody
+	if !decode(w, r, &in) {
+		return
+	}
+	st, err := a.svc().SetMainEnvironment(r.Context(), c.actor, r.PathValue(paramSite), in.Environment)
+	a.record(r.Context(), c, sitetool.CmdUpdate, map[string]any{paramSite: r.PathValue(paramSite), "main_environment": in.Environment}, err)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	view, err := a.fullView(r.Context(), c, st)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, view)
+}
+
+// fullView is a site as the portal shows it, with its domains read.
+func (a *portalAPI) fullView(ctx context.Context, c *caller, st *site.Site) (SiteView, error) {
+	domains, err := a.svc().Store.SiteDomains(ctx, st.ID)
+	if err != nil {
+		return SiteView{}, err //nolint:wrapcheck // answered by fail
+	}
+	return a.view(ctx, c, st, domains)
 }
 
 // addDomain handles POST /api/v1/portal/sites/{site}/domains.
@@ -371,7 +425,7 @@ func (a *portalAPI) addDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d, err := a.svc().AddDomain(r.Context(), c.actor, sitesvc.DomainRequest{
-		Hostname: in.Hostname, Site: r.PathValue(paramSite), Environment: in.Environment, RequiresApproval: in.RequiresApproval,
+		Hostname: in.Hostname, Site: r.PathValue(paramSite), Environment: in.Environment, RequiresApproval: in.RequiresApproval, Public: in.Public,
 	})
 	a.record(r.Context(), c, sitetool.CmdAddDomain, map[string]any{paramSite: r.PathValue(paramSite), "hostname": in.Hostname}, err)
 	if err != nil {
@@ -457,14 +511,18 @@ func (a *portalAPI) access(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, AccessList{Owner: st.OwnerEmail, InternalView: st.InternalView, Grants: grants})
+	personas := []string{}
+	if a.d.Personas != nil {
+		personas = append(personas, a.d.Personas()...)
+	}
+	writeJSON(w, http.StatusOK, AccessList{Owner: st.OwnerEmail, Grants: grants, Personas: personas})
 }
 
 // grant handles PUT /api/v1/portal/sites/{site}/access. The email is in the
 // body, not the path: the API gateway refuses a path holding "@" (#2578).
 //
 // @Summary      Give someone access
-// @Description  Adds a person or changes their level. Anyone who manages the site shares view access; only its owner and administrators add or change someone who manages it, and that person must be internal.
+// @Description  Adds a person (email) or a persona, or changes their grant. A view grant names the private environments it opens (none is every one); a persona is always view and is matched against the viewer's persona on every request. Anyone who manages the site shares view access; only its owner and administrators add or change someone who manages it, and that person must be internal.
 // @Tags         Sites
 // @Accept       json
 // @Produce      json
@@ -486,21 +544,25 @@ func (a *portalAPI) grant(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	g, err := a.svc().Grant(r.Context(), c.actor, r.PathValue(paramSite), in.Email, in.Level)
-	a.record(r.Context(), c, sitetool.CmdGrant, map[string]any{paramSite: r.PathValue(paramSite), paramEmail: in.Email, "level": in.Level}, err)
+	g, err := a.svc().Grant(r.Context(), c.actor, r.PathValue(paramSite), sitesvc.GrantRequest{
+		Email: in.Email, Persona: in.Persona, Level: in.Level, Environments: in.Environments,
+	})
+	a.record(r.Context(), c, sitetool.CmdGrant, map[string]any{
+		paramSite: r.PathValue(paramSite), paramEmail: in.Email, "persona": in.Persona, "level": in.Level, "environments": in.Environments,
+	}, err)
 	if err != nil {
 		fail(w, r, err)
 		return
 	}
-	if in.Notify {
-		a.share(r.Context(), c, r.PathValue(paramSite), g.Email)
+	if in.Notify && g.Email != "" {
+		a.share(r.Context(), c, r.PathValue(paramSite), g)
 	}
 	writeJSON(w, http.StatusOK, g)
 }
 
 // share emails someone the site's address. It is a courtesy on top of the
 // grant: a failure is logged and the grant stands.
-func (a *portalAPI) share(ctx context.Context, c *caller, ref, email string) {
+func (a *portalAPI) share(ctx context.Context, c *caller, ref string, g *site.Grant) {
 	if a.d.Sharer == nil {
 		return
 	}
@@ -508,9 +570,9 @@ func (a *portalAPI) share(ctx context.Context, c *caller, ref, email string) {
 	if err != nil {
 		return
 	}
-	_, err = a.d.Sharer.Notify(ctx, email, notification.CategoryShare, notification.Payload{
+	_, err = a.d.Sharer.Notify(ctx, g.Email, notification.CategoryShare, notification.Payload{
 		Kind: paramSite, ItemID: st.ID, ItemTitle: st.Name, Actor: c.user.Email,
-		Message: "shared a site with you", Link: a.svc().OwnAddress(st.Name),
+		Message: "shared a site with you", Link: shareLink(ctx, a.svc(), st, g),
 	})
 	if err != nil && !errors.Is(err, context.Canceled) {
 		slog.WarnContext(ctx, "sites: emailing a shared site failed", "error", logsan.SanitizeForLog(err.Error()))
@@ -524,7 +586,8 @@ func (a *portalAPI) share(ctx context.Context, c *caller, ref, email string) {
 // @Description  Takes effect on their next request. Anyone who manages the site removes someone who can view it; only its owner and administrators remove someone who manages it.
 // @Tags         Sites
 // @Param        site   path   string  true  "Site name or id"
-// @Param        email  query  string  true  "Their email"
+// @Param        email    query  string  false  "Their email"
+// @Param        persona  query  string  false  "A persona, in place of email"
 // @Success      204
 // @Failure      400  {object}  httpjson.ProblemDetail
 // @Failure      403  {object}  httpjson.ProblemDetail
@@ -537,16 +600,27 @@ func (a *portalAPI) revoke(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	email := r.URL.Query().Get(paramEmail)
-	if email == "" {
-		httpjson.WriteError(w, http.StatusBadRequest, "email is required")
+	email, persona := r.URL.Query().Get(paramEmail), r.URL.Query().Get("persona")
+	if email == "" && persona == "" {
+		httpjson.WriteError(w, http.StatusBadRequest, "email or persona is required")
 		return
 	}
-	err := a.svc().Revoke(r.Context(), c.actor, r.PathValue(paramSite), email)
-	a.record(r.Context(), c, sitetool.CmdRevoke, map[string]any{paramSite: r.PathValue(paramSite), paramEmail: email}, err)
+	err := a.svc().Revoke(r.Context(), c.actor, r.PathValue(paramSite), email, persona)
+	a.record(r.Context(), c, sitetool.CmdRevoke, map[string]any{paramSite: r.PathValue(paramSite), paramEmail: email, "persona": persona}, err)
 	if err != nil {
 		fail(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// shareLink is the address a share email points at: the first private
+// environment the grant opens, by its address on the pages domain.
+func shareLink(ctx context.Context, svc *sitesvc.Service, st *site.Site, g *site.Grant) string {
+	for _, e := range st.Environments {
+		if !e.Public && g.Opens(e.Name) {
+			return svc.Address(ctx, st, e.Name)
+		}
+	}
+	return svc.OwnAddress(st)
 }

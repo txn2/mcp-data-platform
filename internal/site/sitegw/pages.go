@@ -58,6 +58,7 @@ const (
 	staticCache     = "public, max-age=60, must-revalidate"
 	queryCode       = "code"
 	queryPath       = "path"
+	queryHost       = "host"
 	appTTL          = 500 * time.Millisecond
 	schemeHTTPS     = "https"
 	noStore         = "no-store"
@@ -487,4 +488,59 @@ func (p *Pages) static(w http.ResponseWriter, r *http.Request, entry *appEntry, 
 	h.Set(hdrCache, staticCache)
 	h.Set("ETag", fmt.Sprintf(`"%s-%d"`, as.ID, as.CurrentVersion))
 	serveBytes(w, r, body)
+}
+
+// siteEndpoint answers an application's endpoint on the host of a site
+// environment that is a part of it (#2604), run as the person the environment
+// let in, or as nobody on a public environment. Every request that names the
+// viewer must come from this origin, whatever its method: every site and
+// environment under the pages domain is one site to a browser, so a sibling's
+// page could otherwise fire this environment's endpoints as its viewer.
+func (p *Pages) siteEndpoint(w http.ResponseWriter, r *http.Request, appName string, viewer *epform.Viewer, access *Access) {
+	entry := p.application(r.Context(), appName)
+	if entry == nil {
+		http.NotFound(w, r)
+		return
+	}
+	var raw [18]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		http.Error(w, "the page could not be served", http.StatusInternalServerError)
+		return
+	}
+	name, rest, found := strings.Cut(strings.TrimPrefix(r.URL.Path, prefixEP), "/")
+	if found {
+		rest = pathSep + rest
+	}
+	p.Server.ServePage(w, r, ephttp.PageRoute{
+		Application: entry.app.ID, Name: name, Rest: rest, Nonce: base64.RawStdEncoding.EncodeToString(raw[:]),
+		Caller: func(req *http.Request) (*eprun.Caller, error) { return siteCaller(req, viewer, access) },
+		SignIn: func(rw http.ResponseWriter, _ *http.Request) {
+			httpjson.WriteError(rw, http.StatusUnauthorized, "this endpoint needs a signed-in person, and this site is public; make the environment private to sign people in")
+		},
+	})
+}
+
+// siteCaller is who a site environment's endpoint runs as. Administrator is
+// read from the live persona, never from the cookie.
+func siteCaller(r *http.Request, viewer *epform.Viewer, access *Access) (*eprun.Caller, error) {
+	if viewer == nil {
+		return nil, nil //nolint:nilnil // nobody
+	}
+	if !fromThisOrigin(r) {
+		return nil, ephttp.ErrForbidden
+	}
+	admin := access != nil && access.IsAdmin != nil && access.IsAdmin(viewer.Persona)
+	return &eprun.Caller{UserID: viewer.UserID, Email: viewer.Email, AuthType: "browser_session", Admin: admin, Persona: viewer.Persona}, nil
+}
+
+// fromThisOrigin reports whether the browser says the request came from this
+// origin, or was typed or bookmarked by the person.
+func fromThisOrigin(r *http.Request) bool {
+	switch r.Header.Get("Sec-Fetch-Site") {
+	case "same-origin", "none":
+		return true
+	case "":
+		return sameOrigin(r)
+	}
+	return false
 }

@@ -83,6 +83,11 @@ func (s *memStore) RouteOwn(_ context.Context, siteName string) (*site.Route, er
 	return nil, site.ErrNoDomain
 }
 
+// RouteEnv reads <site>--<env> from the same map, under that label.
+func (s *memStore) RouteEnv(ctx context.Context, siteName, env string) (*site.Route, error) {
+	return s.RouteOwn(ctx, site.EnvLabel(siteName, env))
+}
+
 func (s *memStore) Files(_ context.Context, releaseID string) ([]site.File, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -260,19 +265,19 @@ func TestWrap_RoutesByHost(t *testing.T) {
 		{name: "an added host with a port and upper case is the same host", host: "WWW.client.example:8443", status: http.StatusOK, body: "prod home"},
 		{name: "a site's own address with no guard answers nothing", host: testOwnHost, status: http.StatusNotFound, body: "404 page not found\n"},
 		{name: "the bare pages domain is 404", host: testPagesDomain, status: http.StatusNotFound, body: "404 page not found\n"},
-		{name: "a name two labels under the pages domain is 404", host: "a.b.pages.example.com", status: http.StatusNotFound, body: "404 page not found\n"},
-		{name: "a label naming nothing is 404 and never reaches next", host: "shop.pages.example.com", status: http.StatusNotFound, body: "404 page not found\n"},
+		{name: "a name two labels under the pages domain is the not-published page", host: "a.b.pages.example.com", status: http.StatusNotFound, body: "Nothing is published here"},
+		{name: "a label naming nothing is the not-published page and never reaches next", host: "shop.pages.example.com", status: http.StatusNotFound, body: "Nothing is published here"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := newHarness(Deps{})
 			h.mapHost(h.addRelease(1, nil, testFile{path: indexFile, body: "prod home", contentType: ctHTML}))
 			def := h.addRelease(2, nil, testFile{path: indexFile, body: "private home", contentType: ctHTML})
-			h.store.own["marketing"] = &site.Route{SiteID: testSiteID, Site: "marketing", Environment: site.EnvDefault, Release: def, Private: true}
+			h.store.own["marketing"] = &site.Route{SiteID: testSiteID, Site: "marketing", Environment: site.EnvDev, Release: def, Private: true}
 
 			rec := h.get(tt.host, "/")
 			assert.Equal(t, tt.status, rec.Code)
-			assert.Equal(t, tt.body, rec.Body.String())
+			assert.Contains(t, rec.Body.String(), tt.body)
 			assert.Equal(t, tt.nextHits, h.nextHits)
 		})
 	}
@@ -284,6 +289,16 @@ func TestWrap_ThePortalsOwnHostCostsNoStoreRead(t *testing.T) {
 	assert.Equal(t, 0, h.store.hostsReads)
 	assert.Equal(t, 0, h.store.routeHostReads)
 	assert.Equal(t, 0, h.store.ownReads)
+}
+
+func TestWrap_ADoubleHyphenLabelNamesAnEnvironment(t *testing.T) {
+	h := newHarness(Deps{})
+	rel := h.addRelease(1, nil, testFile{path: indexFile, body: "prod home", contentType: ctHTML})
+	h.store.own[site.EnvLabel("marketing", "prod")] = &site.Route{SiteID: testSiteID, Site: "marketing", Environment: "prod", Release: rel}
+	rec := h.get("marketing--prod.pages.example.com", "/")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "prod home", rec.Body.String(), "a public environment serves at <site>--<env> with no sign-in")
+	assert.Equal(t, []string{"marketing--prod"}, h.store.ownAsked)
 }
 
 func TestWrap_ALabelUnderThePagesDomainNamesASite(t *testing.T) {
@@ -352,7 +367,7 @@ func TestLookup_ALabelIsAnApplicationBeforeASite(t *testing.T) {
 func TestServe_APrivateRouteWithNoGuardIsNever200(t *testing.T) {
 	h := newHarness(Deps{})
 	rel := h.addRelease(1, nil, testFile{path: indexFile, body: "RELEASE BYTES", contentType: ctHTML})
-	h.store.own["marketing"] = &site.Route{SiteID: testSiteID, Site: "marketing", Environment: site.EnvDefault, Release: rel, Private: true}
+	h.store.own["marketing"] = &site.Route{SiteID: testSiteID, Site: "marketing", Environment: site.EnvDev, Release: rel, Private: true}
 
 	rec := h.get(testOwnHost, "/")
 	assert.Equal(t, http.StatusNotFound, rec.Code)

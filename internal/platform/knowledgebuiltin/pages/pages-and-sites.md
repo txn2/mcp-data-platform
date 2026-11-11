@@ -9,7 +9,7 @@ script.
 flowchart LR
   B["Browser"] -- "Host" --> G{"Serving layer"}
   G -- "application.pages_domain" --> P["Page origin<br/>pages, static files, endpoints"]
-  G -- "site.pages_domain, signed in<br/>or an added domain" --> R["The release an<br/>environment points at"]
+  G -- "site.pages_domain, site--env.pages_domain<br/>or an added domain" --> R["The release an<br/>environment points at,<br/>signed in when private"]
   G -- "any other host" --> M["The platform's routes"]
   S["manage_site publish"] --> R
   A["manage_application release"] -. "pins" .-> P & R
@@ -70,31 +70,59 @@ all of them together.
 
 ## A static site
 
-`manage_site` makes a site with one environment, `default`, pointing at one
-immutable release. A person does the same from the portal's Sites section.
+**Agents work in dev, people use what was promoted.** `dev` is a site's working
+copy: every publish, patch and in-place edit lands there and nowhere else, and
+nothing people rely on is served from it. Change `dev`, let a person review it, and
+`promote` the exact release to an environment people use (`stage`, `prod`). Those
+environments are read-only: they move only by `promote` and `rollback`, and a
+publish, overlay or patch aimed at one is refused, naming `dev` and `promote`. Never
+try to change `prod` directly.
 
 ```
 manage_site command=create name=marketing
 manage_site command=publish site=marketing files=[{"path":"index.html","content":"<h1>Hello</h1>"}]
-manage_site command=add_domain site=marketing hostname=dev.example.com environment=dev
-manage_site command=promote site=marketing from=default to=dev
+manage_site command=set_environment site=marketing environment=prod
+manage_site command=promote site=marketing from=dev to=prod
 ```
 
 `publish` takes `files` inline, an `archive` (a zip or gzipped tar managed
 resource), or a `folder` of managed resources, which is how a script's build
-output reaches a site. With no `environment` it lands in `default`. `promote` and
-`rollback` only move an environment's pointer: no file is copied and the change
-shows at once. `rollback` returns to a release that environment served before.
+output reaches a site. It always lands in `dev`. `promote` and `rollback` only move
+an environment's pointer: no file is copied and the change shows at once.
+`rollback` returns to a release that environment served before.
 
-The site's own address, `https://<site>.<pages_domain>/`, serves `default` to
-people who sign in and have access. Every other environment is created by adding
-a domain to it, and answers there to anyone: who may use a domain is the site's
-own business.
+### Addresses
+
+| Address | What answers |
+|---|---|
+| `https://<site>.<pages_domain>/` | The main address: one environment the owner chooses (`dev` on a new site), or none, when it answers "Nothing is published here" |
+| `https://<site>--<env>.<pages_domain>/` | That environment |
+| A domain added to an environment | That environment |
+
+`set_environment ... main=true` gives an environment the main address, and
+`update main_environment=""` gives it to none; both are the owner's or an
+administrator's. Every environment keeps its `<site>--<env>` address. A site or
+environment whose address would be longer than 63 characters, or a site named
+`xn`, is refused with the reason.
+
+### Private and public
+
+Each environment is private or public. **Private** asks for the platform's sign-in
+and opens only for administrators, the owner, the people who manage the site and
+whoever it is shared with. **Public** opens for anyone, and the site builds any
+sign-in it wants itself. A new environment is private unless `public=true` is
+asked for, and `dev` is always private. Only the owner or an administrator makes an
+environment public; where the environment requires approval, the request waits in
+`manage_approval`, and the same request after approval makes it public. Anyone who
+manages the site makes one private.
 
 An environment can require approval (`requires_approval` on `add_domain` or
 `set_environment`). It is then reached only by `promote`: an administrator's
 promote records its own approval, and anyone else's files a request in
 `manage_approval` and goes through when they promote again after it is approved.
+
+`default`, the old name of `dev`, is read as `dev` for one minor release, and the
+answer carries a `note`.
 
 ### Changing a site
 
@@ -104,24 +132,24 @@ what to work on:
 
 | Reference | What it names |
 |---|---|
-| `mcp:site:marketing/default/pricing/index.html` | one file, as that environment serves it |
-| `mcp:site:marketing/default/docs/` | the files in a folder |
-| `mcp:site:marketing/default` | the whole tree |
+| `mcp:site:marketing/dev/pricing/index.html` | one file, as that environment serves it |
+| `mcp:site:marketing/dev/docs/` | the files in a folder |
+| `mcp:site:marketing/dev` | the whole tree |
 
 ```
-manage_asset action=outline asset_id=mcp:site:marketing/default
-manage_asset action=locate  asset_id=mcp:site:marketing/default find="From $99"
-manage_asset action=patch   asset_id=mcp:site:marketing/default/pricing/index.html
+manage_asset action=outline asset_id=mcp:site:marketing/dev
+manage_asset action=locate  asset_id=mcp:site:marketing/dev find="From $99"
+manage_asset action=patch   asset_id=mcp:site:marketing/dev/pricing/index.html
              base_version=41 change_summary="Fix the pricing headline"
              edits=[{"find":"From $99","replace":"From $89"}]
-manage_site  command=promote site=marketing from=default to=dev
+manage_site  command=promote site=marketing from=dev to=prod
 ```
 
 | `manage_asset` | On a site file |
 |---|---|
 | `version` | the release number |
 | `base_version` | the release you read; a moved one is refused and nothing is written |
-| `patch` | a new release derived from the current one, with `default` moved to it |
+| `patch` | a new release derived from the current one, with `dev` moved to it |
 | `change_summary` | the release note |
 | `dry_run` | reports the diff and creates no release |
 | `from_version`, `to_version` | two release numbers |
@@ -132,15 +160,14 @@ manage_site  command=promote site=marketing from=default to=dev
 file it is a unified diff. `share`, `delete` and the other asset actions do not
 apply: a site's sharing and lifecycle are `manage_site`'s.
 
-Edits land only on `default`, which is behind sign-in, and `promote` moves the
-result to any other environment. So a change spread over several patches reaches
-the public in one step. Every other environment can be read here and not changed.
-Patching needs manage access and a persona that holds `manage_site`; reading needs
-the access that opens the site's own address, and earlier releases need manage.
+Edits land only on `dev`, and `promote` moves the result to any other environment.
+So a change spread over several patches reaches people in one step. Every other
+environment can be read here and not changed. Patching needs manage access and a
+persona that holds `manage_site`, and earlier releases need manage.
 
 `patch` covers text. For new files, binaries, deletions or several files that must
 change in one release, `publish` with `base` overlays that release, which must be
-the one `default` serves now:
+the one `dev` serves now:
 
 ```
 manage_site command=publish site=marketing base=42 note="New pricing page"
@@ -198,12 +225,62 @@ loop iterations, include depth and bytes; going past one fails that page.
 
 ### Who has access
 
-`grant` and `revoke` take `email` and `level`. `manage` publishes, promotes, rolls
-back, adds domains and shares view access; it is for internal people, and only the
-owner or an administrator adds it. `view` opens the site's own address and reads
-the files it serves now, and changes nothing, so a client on an external persona can have it, and anyone who
-manages the site can give it. `update internal_view=true` opens the address to
-everyone internal, for an intranet.
+`grant` names **who** and **which environments**:
+
+```
+manage_site command=grant site=intranet persona=management-team environments=["prod"]
+manage_site command=grant site=cool-site email=client@example.com level=view environments=["stage"]
+manage_site command=grant site=cool-site email=dev@example.com level=manage
+manage_site command=revoke site=intranet persona=management-team
+```
+
+`view` opens the private environments it names (none named is every private
+environment) and changes nothing, so a client
+on an external persona can have it, and anyone who manages the site can give it. A
+**persona** is always given view and is matched on every request against the
+viewer's persona, so moving someone out of it applies on their next request.
+`manage` is for a person, site-wide: it publishes and edits `dev`, promotes, rolls
+back, adds domains and shares; it is for internal people, and only the owner or an
+administrator adds it. `set_environment ... internal_view=true` opens one private
+environment to everyone internal, for an intranet.
+
+### Inside a private environment
+
+The platform decides who may open an environment; anything finer is the site's.
+A private environment answers `/_viewer` with the signed-in person (`email`,
+`user_id`, `persona`, `name`), so the site's script knows who is there; a public
+one answers 401, nobody signed in. When the environment is a part of an
+application (`manage_application add_part kind=site part_id="<site>/<environment>"`),
+its hosts also serve that application's endpoints at `/endpoints/<name>/...`, run
+as the signed-in person (`req["caller"]`), so the site enforces its own rules on
+the server. Only requests the browser marks as coming from the site's own origin
+carry the viewer.
+
+### Two shapes
+
+An intranet: `dev` for its developers, `prod` private on the main address for a
+persona.
+
+```
+manage_site command=create name=intranet
+manage_site command=set_environment site=intranet environment=prod requires_approval=true main=true
+manage_site command=grant site=intranet persona=management-team environments=["prod"]
+manage_site command=publish site=intranet files=[...]
+manage_site command=promote site=intranet from=dev to=prod
+```
+
+A client site: `dev` on the main address for the web team, `stage` for the client,
+`prod` public on the client's domain after approval.
+
+```
+manage_site command=grant site=cool-site persona=web-team environments=["dev"]
+manage_site command=set_environment site=cool-site environment=stage
+manage_site command=grant site=cool-site email=client@example.com level=view environments=["stage"]
+manage_site command=add_domain site=cool-site hostname=cool-site.example.com environment=prod requires_approval=true
+manage_site command=set_environment site=cool-site environment=prod public=true
+manage_site command=promote site=cool-site from=dev to=stage
+manage_site command=promote site=cool-site from=stage to=prod
+```
 
 ### What a release holds
 
@@ -222,15 +299,17 @@ gzip and brotli when published.
 ### Domains
 
 `add_domain` maps a hostname to an environment, creating the environment when it
-does not exist, or an administrator's `application` maps it to an application's
-endpoints and pages. It routes as soon as it is added. The platform does not check
-DNS, certificates or who owns the name; a system administrator adds the ingress,
-and whoever owns the domain points its DNS at the deployment. `default` cannot have
-a domain, since a domain is public.
+does not exist (private, unless the owner or an administrator asks for
+`public=true`), or an administrator's `application` maps it to an application's
+endpoints and pages. A domain answers with its environment's access: a private one
+signs people in on that domain and sends them back to it. It routes as soon as it
+is added. The platform does not check DNS, certificates or who owns the name; a
+system administrator adds the ingress, and whoever owns the domain points its DNS
+at the deployment. `dev` cannot have a domain: it is the working copy.
 
 ### Moving a site here
 
-`crawl` copies a site into a release: each page keeps its address, an address
+`crawl` copies a site into a release in `dev`: each page keeps its address, an address
 that redirected becomes a redirect rule, and the sitemap and robots file come
 along. So do the files each page loads: stylesheets and scripts (one linked as
 `/site.css?ver=1.2` is copied as `site.css`, and the page keeps its link), every

@@ -54,7 +54,7 @@ func TestIssue2597_SiteTrafficIsCountedAsTheSite(t *testing.T) {
 	c := connect(t)
 	s := newSite2518(t, c)
 	s.publish(t, "dev", "v1")
-	host := s.preview("dev")
+	host := s.toStage(t) // dev is the working copy and has no domain (#2604); stage's is public
 	served2518(t, host, "v1")
 
 	routeBefore := issue2597Series(t, `http_server_request_duration_seconds_count{method="GET",route="site",status_class="2xx"}`)
@@ -67,9 +67,9 @@ func TestIssue2597_SiteTrafficIsCountedAsTheSite(t *testing.T) {
 		t.Fatalf("a path the site has no file for answered %d: %.200s; want the site's own 404 page", r.status, r.body)
 	}
 
-	ok := fmt.Sprintf(`site_requests_total{environment="dev",kind="site",site=%q,status_class="2xx"}`, s.name)
-	missing := fmt.Sprintf(`site_requests_total{environment="dev",kind="site",site=%q,status_class="4xx"}`, s.name)
-	duration := fmt.Sprintf(`site_request_duration_seconds_count{environment="dev",kind="site",site=%q}`, s.name)
+	ok := fmt.Sprintf(`site_requests_total{environment="stage",kind="site",site=%q,status_class="2xx"}`, s.name)
+	missing := fmt.Sprintf(`site_requests_total{environment="stage",kind="site",site=%q,status_class="4xx"}`, s.name)
+	duration := fmt.Sprintf(`site_request_duration_seconds_count{environment="stage",kind="site",site=%q}`, s.name)
 	deadline := time.Now().Add(30 * time.Second)
 	for {
 		okN, missingN, durationN := issue2597Series(t, ok), issue2597Series(t, missing), issue2597Series(t, duration)

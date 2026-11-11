@@ -31,6 +31,7 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/site"
 	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
@@ -61,6 +62,7 @@ const (
 type Store interface {
 	RouteHost(ctx context.Context, hostname string) (*site.Route, error)
 	RouteOwn(ctx context.Context, siteName string) (*site.Route, error)
+	RouteEnv(ctx context.Context, siteName, env string) (*site.Route, error)
 	Files(ctx context.Context, releaseID string) ([]site.File, error)
 	Hosts(ctx context.Context) ([]string, error)
 }
@@ -121,6 +123,9 @@ func New(d Deps) *Gateway {
 	}
 	if d.Pages != nil {
 		d.Pages.gateway = g
+	}
+	if d.Access != nil {
+		d.Access.resolve = g.route
 	}
 	return g
 }
@@ -206,7 +211,7 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, host string) {
 	route, err := g.route(r.Context(), host)
 	switch {
 	case errors.Is(err, site.ErrNoDomain) || errors.Is(err, site.ErrNotFound):
-		http.NotFound(w, r)
+		notPublished(w, r, host)
 		return
 	case err != nil:
 		slog.ErrorContext(r.Context(), "sites: reading a route failed", logKeyError, logsan.SanitizeForLog(err.Error()))
@@ -224,16 +229,38 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, host string) {
 		g.deps.Pages.serve(w, r, route.Application)
 		return
 	}
+	var viewer *epform.Viewer
 	if route.Private {
 		if g.deps.Access == nil {
 			http.NotFound(w, r)
 			return
 		}
-		if !g.deps.Access.allow(w, r, route) {
+		v, ok := g.deps.Access.allow(w, r, route)
+		if !ok {
 			return
 		}
+		viewer = &v
+	}
+	if g.serveSiteRoutes(w, r, route, viewer) {
+		return
 	}
 	g.serveSite(w, r, route)
+}
+
+// serveSiteRoutes answers the routes an environment keeps for itself beside
+// its files: who is signed in, and, for an environment that is a part of an
+// application, that application's endpoints run as the viewer. It reports
+// whether it answered. A public environment has no viewer.
+func (g *Gateway) serveSiteRoutes(w http.ResponseWriter, r *http.Request, route *site.Route, viewer *epform.Viewer) bool {
+	switch {
+	case r.URL.Path == pathViewer:
+		writeSiteViewer(w, viewer)
+		return true
+	case route.PartOf != "" && g.deps.Pages != nil && strings.HasPrefix(r.URL.Path, prefixEP):
+		g.deps.Pages.siteEndpoint(w, r, route.PartOf, viewer, g.deps.Access)
+		return true
+	}
+	return false
 }
 
 // route is what host serves, held for a moment per replica.
@@ -265,6 +292,10 @@ func (g *Gateway) route(ctx context.Context, host string) (*site.Route, error) {
 // cannot be created with one name, and a pair from before that rule goes to the
 // application so that nobody takes over a live page origin by creating a site.
 // Anything else is an added domain.
+//
+// A label holding "--" is <site>--<env>, an environment's own address; no
+// site or environment name holds "--", and an application created after #2604
+// cannot either, so an application keeps the label only when it held it first.
 func (g *Gateway) lookup(ctx context.Context, host string) (*site.Route, error) {
 	domain := g.pagesDomain()
 	label, under := strings.CutSuffix(host, "."+domain)
@@ -276,6 +307,9 @@ func (g *Gateway) lookup(ctx context.Context, host string) (*site.Route, error) 
 	}
 	if g.deps.Pages != nil && g.deps.Pages.application(ctx, label) != nil {
 		return &site.Route{Application: label}, nil
+	}
+	if siteName, env, ok := site.ParseEnvLabel(label); ok {
+		return g.deps.Store.RouteEnv(ctx, siteName, env) //nolint:wrapcheck // read by identity
 	}
 	return g.deps.Store.RouteOwn(ctx, label) //nolint:wrapcheck // read by identity
 }

@@ -63,13 +63,15 @@ test("criterion 3: someone with no access sees the page and Use another account 
   await signInToPortal(page);
 
   await page.goto(env("SITE_SIGNIN_CLOSED_URL"));
-  await expect(page.getByRole("heading", { name: "You don't have access to this preview" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "You don't have access to this site" })).toBeVisible();
 
   await page.getByRole("button", { name: "Use another account" }).click();
 
   await expect.poll(() => logout, "the portal's sign-out was reached").toHaveLength(1);
   expect(logout[0], "the portal's sign-out answered").toBeLessThan(400);
-  expect(new URL(page.url()).host, "the page stayed on the site").not.toBe(new URL(env("SITE_SIGNIN_CLOSED_URL")).host);
+  // The sign-out's response can arrive before the navigation it starts is
+  // committed, so the page's address is waited for, not read once.
+  await expect.poll(() => new URL(page.url()).host, "the page stayed on the site").not.toBe(new URL(env("SITE_SIGNIN_CLOSED_URL")).host);
   expect(seen, "a policy blocked the sign-out").toEqual([]);
 });
 
@@ -90,7 +92,7 @@ test("criterion 4: the Sign in link on the page a form post gets signs in", asyn
     document.body.appendChild(f);
     f.submit();
   });
-  await expect(page.getByRole("heading", { name: "Sign in to view this preview" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sign in to open this site" })).toBeVisible();
 
   await page.getByRole("link", { name: "Sign in" }).click();
 
@@ -112,13 +114,18 @@ test("access panel: the portal grants and revokes with the email out of the path
   await expect(key).toHaveCount(0);
   await page.goto(`/portal/sites/${site}/access`);
 
-  await page.getByRole("button", { name: "Add person" }).click();
-  await page.getByPlaceholder("Name or email").fill(email);
-  await page.getByRole("radio", { name: "Can view" }).check();
+  await page.getByRole("button", { name: "Share", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  const box = dialog.getByRole("combobox", { name: "Name, email or persona" });
+  await box.fill(email);
+  await expect(dialog.getByRole("option", { name: new RegExp(email.replace(/[.+]/g, "\\$&")) })).toBeVisible();
+  await box.press("Enter");
+  const dev = dialog.getByRole("checkbox", { name: "dev" });
+  if (!(await dev.isChecked())) await dev.check();
   const put = page.waitForRequest((r) => r.method() === "PUT" && new URL(r.url()).pathname === accessPath);
-  await page.getByRole("dialog").getByRole("button", { name: "Add person" }).click();
+  await dialog.getByRole("button", { name: "Share" }).click();
   const sent = await put;
-  expect(sent.postDataJSON()).toMatchObject({ email, level: "view" });
+  expect(sent.postDataJSON()).toMatchObject({ email, level: "view", environments: expect.arrayContaining(["dev"]) });
 
   const row = page.getByRole("row", { name: new RegExp(email) });
   await expect(row).toBeVisible();

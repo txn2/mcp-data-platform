@@ -28,9 +28,13 @@ type Route struct {
 	// Application is the application whose endpoints and pages the host
 	// serves, empty for a site.
 	Application string
-	// Hostname is the added hostname as stored, empty for a site's own address.
+	// Hostname is the added hostname as stored, empty for an address on the
+	// pages domain.
 	Hostname string
-	// Private is true on a site's own address: it answers only to people who
-	// have signed in and may open the site.
+	// Private is true for a private environment: it answers only to people who
+	// have signed in and may open it.
 	Private bool
+	// PartOf is the application this environment is a part of, "" for none;
+	// its endpoints answer on the environment's own hosts.
+	PartOf string
 }

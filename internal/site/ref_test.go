@@ -13,10 +13,13 @@ func TestParseRef(t *testing.T) {
 		want   Ref
 		isFile bool
 	}{
-		{in: "mcp:site:marketing/default/pricing/index.html", want: Ref{Site: "marketing", Environment: "default", Path: "pricing/index.html"}, isFile: true},
-		{in: "mcp:site:marketing/default", want: Ref{Site: "marketing", Environment: "default"}},
-		{in: "mcp:site:marketing/default/", want: Ref{Site: "marketing", Environment: "default"}},
-		{in: "mcp:site:marketing/default/docs/", want: Ref{Site: "marketing", Environment: "default", Path: "docs/"}},
+		{in: "mcp:site:marketing/dev/pricing/index.html", want: Ref{Site: "marketing", Environment: "dev", Path: "pricing/index.html"}, isFile: true},
+		{in: "mcp:site:marketing/dev", want: Ref{Site: "marketing", Environment: "dev"}},
+		{in: "mcp:site:marketing/dev/", want: Ref{Site: "marketing", Environment: "dev"}},
+		{in: "mcp:site:marketing/dev/docs/", want: Ref{Site: "marketing", Environment: "dev", Path: "docs/"}},
+		{in: "mcp:site:marketing/prod/a.html", want: Ref{Site: "marketing", Environment: "prod", Path: "a.html"}, isFile: true},
+		// The old name of dev is read as dev for one release (#2604).
+		{in: "mcp:site:marketing/default/pricing/index.html", want: Ref{Site: "marketing", Environment: "dev", Path: "pricing/index.html"}, isFile: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {

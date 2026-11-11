@@ -26,6 +26,9 @@ func Registrar(p *platform.Platform, resolver portal.PersonaResolver, notify *no
 		Runtime: p.Endpoints().Sites, Persona: resolver,
 		IsAdmin: p.PersonaRegistry().AdminRule(p.Config().Admin.Persona),
 		Forms:   siteForms(p),
+		Personas: func() []string {
+			return p.PersonaRegistry().Names()
+		},
 	}
 	if s := p.Audit().Store(); s != nil {
 		d.Audit = s

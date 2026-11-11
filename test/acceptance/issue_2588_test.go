@@ -42,9 +42,9 @@ func site2588(t *testing.T, c *client) *siteClient {
 
 func (s *siteClient) ref(path string) string {
 	if path == "" {
-		return "mcp:site:" + s.name + "/default"
+		return "mcp:site:" + s.name + "/dev"
 	}
-	return "mcp:site:" + s.name + "/default/" + path
+	return "mcp:site:" + s.name + "/dev/" + path
 }
 
 func editOf(find, replace string) []map[string]any {
@@ -121,15 +121,15 @@ func TestIssue2588_AnAgentFindsTheLineChangesItAndPromotes(t *testing.T) {
 		t.Errorf("the file's diff: %v", fileDiff)
 	}
 
-	c.call("manage_site", map[string]any{"command": "promote", "site": s.name, "from": "default", "to": "dev"})
+	c.call("manage_site", map[string]any{"command": "promote", "site": s.name, "from": "dev", "to": "stage"})
 	got := pollUntil2518(t, func() (pageResponse, bool) {
-		r := onHost(t, s.preview("dev"), http.MethodGet, "/", nil, "")
+		r := onHost(t, s.preview("stage"), http.MethodGet, "/", nil, "")
 		return r, r.status == http.StatusOK && strings.Contains(r.body, "$89")
 	})
 	if !strings.Contains(got.body, marker2588) {
 		t.Errorf("the rest of the page must survive the edit: %s", got.body)
 	}
-	if about := onHost(t, s.preview("dev"), http.MethodGet, "/about/", nil, ""); about.status != http.StatusOK || !strings.Contains(about.body, "about") {
+	if about := onHost(t, s.preview("stage"), http.MethodGet, "/about/", nil, ""); about.status != http.StatusOK || !strings.Contains(about.body, "about") {
 		t.Errorf("a file the patch left alone: %d %s", about.status, about.body)
 	}
 	rels := releases2588(t, c, s)
@@ -197,7 +197,7 @@ func TestIssue2588_APublishWithABaseOverlaysAndRollbackRestoresTheManifest(t *te
 	if strings.Contains(listed, "about/index.html") {
 		t.Errorf("a deleted file is still there: %s", listed)
 	}
-	c.call("manage_site", map[string]any{"command": "rollback", "site": s.name, "environment": "default", "release": 1})
+	c.call("manage_site", map[string]any{"command": "rollback", "site": s.name, "environment": "dev", "release": 1})
 	again := c.call("manage_asset", map[string]any{"action": "get_content", "asset_id": s.ref("about/index.html")})
 	if again["content"] != about2588 || number2588(again["version"]) != 1 {
 		t.Errorf("rolling back must restore the deleted file: %v", again)
@@ -220,8 +220,8 @@ func TestIssue2588_APublishWithABaseOverlaysAndRollbackRestoresTheManifest(t *te
 func TestIssue2588_OnlyTheWorkingEnvironmentTakesEdits(t *testing.T) {
 	c := connect(t)
 	s := site2588(t, c)
-	c.call("manage_site", map[string]any{"command": "promote", "site": s.name, "from": "default", "to": "dev"})
-	dev := "mcp:site:" + s.name + "/dev/index.html"
+	c.call("manage_site", map[string]any{"command": "promote", "site": s.name, "from": "dev", "to": "stage"})
+	dev := "mcp:site:" + s.name + "/stage/index.html"
 	prod := "mcp:site:" + s.name + "/prod/index.html"
 	if got := c.call("manage_asset", map[string]any{"action": "get_content", "asset_id": dev}); got["content"] != home2588 {
 		t.Errorf("another environment still reads: %v", got)
@@ -232,11 +232,11 @@ func TestIssue2588_OnlyTheWorkingEnvironmentTakesEdits(t *testing.T) {
 	if msg := refused2588(t, c, map[string]any{"action": "patch", "asset_id": prod, "edits": editOf("$99", "$1")}); !strings.Contains(msg, "read-only") && !strings.Contains(msg, "requires approval") {
 		t.Errorf("an environment that requires approval: %s", msg)
 	}
-	res, text, err := c.callRaw("manage_site", map[string]any{"command": "publish", "site": s.name, "environment": "dev", "base": 1, "files": []map[string]any{{"path": "index.html", "content": "<h1>x</h1>"}}})
+	res, text, err := c.callRaw("manage_site", map[string]any{"command": "publish", "site": s.name, "environment": "stage", "base": 1, "files": []map[string]any{{"path": "index.html", "content": "<h1>x</h1>"}}})
 	if err != nil || !res.IsError || !strings.Contains(text, "read-only") {
 		t.Errorf("an overlay on a public environment: %v %s", err, text)
 	}
-	if rel := onHost(t, s.preview("dev"), http.MethodGet, "/", nil, ""); !strings.Contains(rel.body, "$99") {
+	if rel := onHost(t, s.preview("stage"), http.MethodGet, "/", nil, ""); !strings.Contains(rel.body, "$99") {
 		t.Errorf("the public environment moved: %s", rel.body)
 	}
 }
@@ -338,9 +338,9 @@ func TestIssue2588_TheRedirectMapReadsAndPatchesAsAFile(t *testing.T) {
 		t.Errorf("a map that does not parse: %s", msg)
 	}
 	c.call("manage_asset", map[string]any{"action": "patch", "asset_id": s.ref("index.html"), "edits": editOf("$99", "$89")})
-	c.call("manage_site", map[string]any{"command": "promote", "site": s.name, "from": "default", "to": "dev"})
+	c.call("manage_site", map[string]any{"command": "promote", "site": s.name, "from": "dev", "to": "stage"})
 	r := pollUntil2518(t, func() (pageResponse, bool) {
-		r := onHost(t, s.preview("dev"), http.MethodGet, "/old", nil, "")
+		r := onHost(t, s.preview("stage"), http.MethodGet, "/old", nil, "")
 		return r, r.status == http.StatusFound
 	})
 	if loc := r.header.Get("Location"); loc != "/newer" {

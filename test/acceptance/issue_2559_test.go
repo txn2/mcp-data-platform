@@ -272,12 +272,20 @@ func (s *site2559) revoke(t *testing.T, key, email string) {
 	want2559(t, "revoking", status, http.StatusNoContent, got)
 }
 
+// addDomain adds a public domain: since #2604 an environment is private unless
+// public is asked for, and an environment that requires approval is made
+// public through Approvals, which an administrator's own request skips.
 func (s *site2559) addDomain(t *testing.T, key, host, env string, approval bool) {
 	t.Helper()
-	status, got := rest2559(t, key, http.MethodPost, s.path("/domains"), map[string]any{"hostname": host, "environment": env, "requires_approval": approval})
+	direct := !approval || key == keyAdmin2559
+	status, got := rest2559(t, key, http.MethodPost, s.path("/domains"), map[string]any{"hostname": host, "environment": env, "requires_approval": approval, "public": direct})
 	want2559(t, "adding a domain", status, http.StatusCreated, got)
 	if _, has := got["token"]; has {
 		t.Errorf("a domain carries a verification token: %v", got["_raw"])
+	}
+	if !direct {
+		status, got = rest2559(t, keyAdmin2559, http.MethodPut, s.path("/environments/"+env), map[string]any{"public": true})
+		want2559(t, "making it public", status, http.StatusOK, got)
 	}
 }
 
@@ -299,7 +307,7 @@ func TestIssue2559_APersonCreatesASiteUploadsAZipAndOpensItsOwnAddress(t *testin
 	status, got := rest2559(t, keyEngineer2559, http.MethodGet, s.path(""), nil)
 	want2559(t, "reading the site", status, http.StatusOK, got)
 	envs, _ := got["environments"].([]any)
-	if len(envs) != 1 || envs[0].(map[string]any)["name"] != "default" {
+	if len(envs) != 1 || envs[0].(map[string]any)["name"] != "dev" {
 		t.Fatalf("a new site's environments: %v", envs)
 	}
 	if want := "://" + s.host(); !strings.Contains(fmt.Sprint(got["address"]), want) {
@@ -324,7 +332,7 @@ func TestIssue2559_PromoteMovesARollBackReturnsAndHistoryShowsThem(t *testing.T)
 	s := newSite2559(t, keyAdmin2559)
 	s.addDomain(t, keyAdmin2559, s.name+"-prod.example.test", "prod", true)
 	s.publish(t, keyAdmin2559, "", "first")
-	status, got := rest2559(t, keyAdmin2559, http.MethodPost, s.path("/promote"), map[string]any{"from": "default", "to": "prod"})
+	status, got := rest2559(t, keyAdmin2559, http.MethodPost, s.path("/promote"), map[string]any{"from": "dev", "to": "prod"})
 	want2559(t, "promoting", status, http.StatusOK, got)
 	if got["status"] != "promoted" {
 		t.Fatalf("an administrator's promote: %v", got["_raw"])
@@ -332,7 +340,7 @@ func TestIssue2559_PromoteMovesARollBackReturnsAndHistoryShowsThem(t *testing.T)
 	served2518(t, s.name+"-prod.example.test", "first")
 
 	s.publish(t, keyAdmin2559, "", "second")
-	status, got = rest2559(t, keyAdmin2559, http.MethodPost, s.path("/promote"), map[string]any{"from": "default", "to": "prod"})
+	status, got = rest2559(t, keyAdmin2559, http.MethodPost, s.path("/promote"), map[string]any{"from": "dev", "to": "prod"})
 	want2559(t, "promoting again", status, http.StatusOK, got)
 	served2518(t, s.name+"-prod.example.test", "second")
 
@@ -364,7 +372,7 @@ func TestIssue2559_ANonAdministratorsPromoteWaitsInApprovalsAndFinishes(t *testi
 	host := s.name + "-live.example.test"
 	s.addDomain(t, keyEngineer2559, host, "prod", true)
 	s.publish(t, keyEngineer2559, "", "reviewed")
-	body := map[string]any{"from": "default", "to": "prod", "reason": "ready"}
+	body := map[string]any{"from": "dev", "to": "prod", "reason": "ready"}
 	status, got := rest2559(t, keyEngineer2559, http.MethodPost, s.path("/promote"), body)
 	want2559(t, "asking", status, http.StatusOK, got)
 	if got["status"] != "awaiting_approval" {
@@ -390,14 +398,16 @@ func TestIssue2559_ANonAdministratorsPromoteWaitsInApprovalsAndFinishes(t *testi
 
 func TestIssue2559_ADomainServesAsSoonAsItIsAddedAndAnyoneCanOpenIt(t *testing.T) {
 	s := newSite2559(t, keyEngineer2559)
-	host := s.name + "-dev.example.test"
-	s.addDomain(t, keyEngineer2559, host, "dev", false)
-	s.publish(t, keyEngineer2559, "dev", "public")
+	host := s.name + "-stage.example.test"
+	s.addDomain(t, keyEngineer2559, host, "stage", false)
+	s.publish(t, keyEngineer2559, "", "public")
+	status, got := rest2559(t, keyEngineer2559, http.MethodPost, s.path("/promote"), map[string]any{"from": "dev", "to": "stage"})
+	want2559(t, "promoting to stage", status, http.StatusOK, got)
 	served2518(t, host, "public")
 	if r := onHost(t, host, http.MethodGet, "/", nil, ""); strings.Contains(r.header.Get("Cache-Control"), "private") {
 		t.Errorf("a domain is served as private: %v", r.header)
 	}
-	status, got := rest2559(t, keyEngineer2559, http.MethodDelete, s.path("/domains/"+host), nil)
+	status, got = rest2559(t, keyEngineer2559, http.MethodDelete, s.path("/domains/"+host), nil)
 	want2559(t, "removing the domain", status, http.StatusNoContent, got)
 	pollUntil2518(t, func() (pageResponse, bool) {
 		r := onHost(t, host, http.MethodGet, "/", nil, "")
@@ -408,8 +418,10 @@ func TestIssue2559_ADomainServesAsSoonAsItIsAddedAndAnyoneCanOpenIt(t *testing.T
 func TestIssue2559_TheSitesOwnAddressServesItsDefaultEnvironmentNotAnother(t *testing.T) {
 	s := newSite2559(t, keyEngineer2559)
 	s.addDomain(t, keyEngineer2559, s.name+"-other.example.test", "other", false)
+	s.publish(t, keyEngineer2559, "", "the-other")
+	status, got := rest2559(t, keyEngineer2559, http.MethodPost, s.path("/promote"), map[string]any{"from": "dev", "to": "other"})
+	want2559(t, "promoting to other", status, http.StatusOK, got)
 	s.publish(t, keyEngineer2559, "", "the-default")
-	s.publish(t, keyEngineer2559, "other", "the-other")
 	s.grant(t, keyEngineer2559, emailKCAnalyst, "view")
 	openUntil2559(t, s, viewer2559(t, s, emailKCAnalyst, passKCAnalyst), "the-default")
 	if r := onHost(t, "other--"+s.host(), http.MethodGet, "/", nil, ""); r.status != http.StatusNotFound {
@@ -648,7 +660,7 @@ func TestIssue2559_EveryoneInternalCanViewWhenTheSiteSaysSoAndNoExternalPerson(t
 	cookie := viewer2559(t, s, emailKCAnalyst, passKCAnalyst)
 	refusedNoContent2559(t, onHost(t, s.host(), http.MethodGet, "/", withCookie2559(cookie), ""), http.StatusForbidden, "before it is opened to everyone internal")
 
-	status, got := rest2559(t, keyEngineer2559, http.MethodPatch, s.path(""), map[string]any{"internal_view": true})
+	status, got := rest2559(t, keyEngineer2559, http.MethodPut, s.path("/environments/dev"), map[string]any{"internal_view": true})
 	want2559(t, "opening it", status, http.StatusOK, got)
 	openUntil2559(t, s, cookie, "intranet")
 
@@ -874,7 +886,7 @@ func TestIssue2559_GrantAndRevokeThroughManageSiteAndAPublishRefusedNamesTheFile
 		t.Error("get shows who has access to someone who does not manage the site")
 	}
 	owner.call("manage_site", map[string]any{"command": "revoke", "site": s.name, "email": emailKCAnalyst})
-	owner.call("manage_site", map[string]any{"command": "update", "site": s.name, "internal_view": true})
+	owner.call("manage_site", map[string]any{"command": "set_environment", "site": s.name, "environment": "dev", "internal_view": true})
 
 	big := upload2559(t, keyEngineer2559, s.name+"-big.zip", zip2559(t, map[string]string{".env": "SECRET=1"}))
 	status, job := rest2559(t, keyEngineer2559, http.MethodPost, s.path("/publish"), map[string]any{"archive": "mcp:resource:" + big})

@@ -3,7 +3,8 @@ package sitehttp
 // PublishBody names what to publish: a managed-resource archive or folder, read
 // as the caller, so someone cannot publish a file they could not open.
 type PublishBody struct {
-	Environment string `json:"environment" example:"default"`
+	// Environment is always dev, and may be left out.
+	Environment string `json:"environment,omitempty" example:"dev"`
 	Note        string `json:"note"`
 	Archive     string `json:"archive,omitempty"`
 	Folder      string `json:"folder,omitempty"`
@@ -17,7 +18,7 @@ type PublishBody struct {
 // CopyBody names a site to copy into a release.
 type CopyBody struct {
 	URL         string `json:"url" example:"https://www.example.com"`
-	Environment string `json:"environment" example:"default"`
+	Environment string `json:"environment,omitempty" example:"dev"`
 	Note        string `json:"note"`
 	MaxPages    int    `json:"max_pages,omitempty"`
 	MaxBytes    int64  `json:"max_bytes,omitempty"`
@@ -39,7 +40,11 @@ type RollbackBody struct {
 	Release     int    `json:"release,omitempty"`
 }
 
-// EnvironmentBody says whether an environment requires approval.
+// EnvironmentBody creates or changes an environment; a field left out is left
+// alone, and a new environment is private.
 type EnvironmentBody struct {
-	RequiresApproval bool `json:"requires_approval"`
+	RequiresApproval *bool  `json:"requires_approval,omitempty"`
+	Public           *bool  `json:"public,omitempty"`
+	InternalView     *bool  `json:"internal_view,omitempty"`
+	Reason           string `json:"reason,omitempty"`
 }

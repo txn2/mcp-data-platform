@@ -74,7 +74,7 @@ func TestValidateEnvironment(t *testing.T) {
 
 func TestSiteValidate(t *testing.T) {
 	good := func() *Site {
-		return &Site{Name: "marketing", Environments: []Environment{{Name: EnvDefault}, {Name: "prod"}}}
+		return &Site{Name: "marketing", Environments: []Environment{{Name: EnvDev}, {Name: "prod"}}}
 	}
 	require.NoError(t, good().Validate())
 
@@ -101,13 +101,13 @@ func TestSiteValidate(t *testing.T) {
 }
 
 func TestSiteEnvironment(t *testing.T) {
-	s := &Site{Environments: []Environment{{Name: EnvDefault, Release: 1}, {Name: "prod", Release: 3}}}
+	s := &Site{Environments: []Environment{{Name: EnvDev, Release: 1}, {Name: "prod", Release: 3}}}
 	got := s.Environment("prod")
 	require.NotNil(t, got)
 	assert.Equal(t, 3, got.Release)
 	assert.Same(t, &s.Environments[1], got, "the environment read is the site's own, not a copy")
 	assert.Nil(t, s.Environment("stage"))
-	assert.Nil(t, (&Site{}).Environment(EnvDefault))
+	assert.Nil(t, (&Site{}).Environment(EnvDev))
 }
 
 func TestValidLevel(t *testing.T) {
@@ -294,4 +294,55 @@ func TestValidateRedirect(t *testing.T) {
 			require.ErrorContains(t, err, tc.want)
 		})
 	}
+}
+
+func TestCanonicalEnvironment(t *testing.T) {
+	got, aliased := CanonicalEnvironment(EnvAlias)
+	assert.Equal(t, EnvDev, got)
+	assert.True(t, aliased, "the old name is read as dev and said to be")
+	for _, name := range []string{EnvDev, "prod", "", "defaults"} {
+		got, aliased = CanonicalEnvironment(name)
+		assert.Equal(t, name, got)
+		assert.False(t, aliased, name)
+	}
+	assert.Contains(t, AliasNote, `"dev"`)
+}
+
+func TestEnvLabel_RoundTrips(t *testing.T) {
+	assert.Equal(t, "intranet--dev", EnvLabel("intranet", "dev"))
+	siteName, env, ok := ParseEnvLabel("intranet--prod")
+	require.True(t, ok)
+	assert.Equal(t, "intranet", siteName)
+	assert.Equal(t, "prod", env)
+	for _, bad := range []string{"intranet", "--prod", "intranet--", "", "--"} {
+		_, _, ok = ParseEnvLabel(bad)
+		assert.False(t, ok, bad)
+	}
+}
+
+func TestValidateLabel(t *testing.T) {
+	require.NoError(t, ValidateLabel("intranet", "prod"))
+	require.NoError(t, ValidateLabel(strings.Repeat("a", 58), "dev"), "58 + 2 + 3 is 63, the most a label holds")
+
+	err := ValidateLabel(strings.Repeat("a", 59), "dev")
+	require.Error(t, err, "64 characters is one too many")
+	assert.Contains(t, err.Error(), "64 characters")
+	assert.Contains(t, err.Error(), "at most 63")
+
+	err = ValidateLabel("employee-benefits-open-enrollment-2026-information-hub", "review-copy")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "choose a name of 7 characters or fewer")
+
+	err = ValidateLabel("xn", "dev")
+	require.Error(t, err, "xn--dev would be read as an international name")
+	assert.Contains(t, err.Error(), "cannot be named xn")
+}
+
+func TestGrantOpens(t *testing.T) {
+	all := Grant{Level: LevelView}
+	assert.True(t, all.Opens("dev"), "no environments is every environment")
+	assert.True(t, all.Opens("prod"))
+	one := Grant{Level: LevelView, Environments: []string{"prod"}}
+	assert.True(t, one.Opens("prod"))
+	assert.False(t, one.Opens("dev"), "a grant naming prod does not open dev")
 }

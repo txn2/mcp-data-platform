@@ -3,6 +3,7 @@ package sitesvc
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/site"
@@ -79,51 +80,104 @@ func (s *Service) Grants(ctx context.Context, actor Actor, ref string) ([]site.G
 	return s.Store.Grants(ctx, st.ID) //nolint:wrapcheck // read by identity
 }
 
-// Grant gives a person access. The people who manage a site share view access;
-// only its owner and administrators add or change someone who manages it, and
-// that person must be internal.
-func (s *Service) Grant(ctx context.Context, actor Actor, ref, email, level string) (*site.Grant, error) {
+// GrantRequest gives a person, by email, or a persona access. A persona is
+// always given view. Environments narrow a view grant to those private
+// environments; none is every private environment.
+type GrantRequest struct {
+	Email        string
+	Persona      string
+	Level        string
+	Environments []string
+}
+
+// Grant gives a person or a persona access. The people who manage a site share
+// view access; only its owner and administrators add or change someone who
+// manages it, and that person must be internal.
+func (s *Service) Grant(ctx context.Context, actor Actor, ref string, req GrantRequest) (*site.Grant, error) {
 	st, err := s.Find(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
-	email = site.NormalizeEmail(email)
-	if !site.ValidLevel(level) {
+	g := &site.Grant{Email: site.NormalizeEmail(req.Email), Persona: strings.TrimSpace(req.Persona), Level: req.Level, GrantedBy: actor.Email}
+	if g.Persona != "" && g.Level == "" {
+		g.Level = site.LevelView
+	}
+	if !site.ValidLevel(g.Level) {
 		return nil, refused("level: %s or %s", site.LevelManage, site.LevelView)
+	}
+	if (g.Email == "") == (g.Persona == "") {
+		return nil, refused("a grant names an email or a persona, not both")
 	}
 	// Authorized first: what checkGrant refuses says who owns the site and who
 	// is external, which someone with no rights here must not learn by asking.
-	if err := s.mayChange(ctx, actor, st, email, level); err != nil {
+	if err := s.mayChange(ctx, actor, st, g.Email, g.Level); err != nil {
 		return nil, err
 	}
-	if err := s.checkGrant(ctx, st, email, level); err != nil {
+	if g.Environments, err = s.grantEnvironments(st, g.Level, req.Environments); err != nil {
 		return nil, err
 	}
-	g := &site.Grant{Email: email, Level: level, GrantedBy: actor.Email}
+	if err := s.checkGrant(ctx, st, g); err != nil {
+		return nil, err
+	}
 	if err := s.Store.SetGrant(ctx, st.ID, g); err != nil {
 		return nil, err //nolint:wrapcheck // read by identity
 	}
 	return g, nil
 }
 
-func (s *Service) checkGrant(ctx context.Context, st *site.Site, email, level string) error {
+// grantEnvironments is the environments a grant names, each one the site has.
+// A manage grant is site-wide.
+func (*Service) grantEnvironments(st *site.Site, level string, names []string) ([]string, error) {
+	out := []string{}
+	if len(names) == 0 {
+		return out, nil
+	}
+	if level == site.LevelManage {
+		return nil, refused("a manage grant is for the whole site; environments narrow a view grant")
+	}
+	for _, n := range names {
+		n, _ = site.CanonicalEnvironment(strings.TrimSpace(n))
+		if st.Environment(n) == nil {
+			return nil, noEnvironment(n)
+		}
+		if !slices.Contains(out, n) {
+			out = append(out, n)
+		}
+	}
+	return out, nil
+}
+
+func (s *Service) checkGrant(ctx context.Context, st *site.Site, g *site.Grant) error {
+	if g.Persona != "" {
+		switch {
+		case g.Level != site.LevelView:
+			return refused("a persona is given view; manage is given to a person")
+		case s.PersonaExists != nil && !s.PersonaExists(g.Persona):
+			return refused("persona %q does not exist", g.Persona)
+		}
+		return nil
+	}
 	switch {
-	case !strings.Contains(email, "@"):
+	case !strings.Contains(g.Email, "@"):
 		return refused("email: an email address")
-	case strings.EqualFold(email, st.OwnerEmail):
-		return refused("%s owns this site", email)
-	case level == site.LevelManage && s.External != nil && s.External(ctx, email):
-		return refused("%s is external, and only internal people can manage a site", email)
+	case strings.EqualFold(g.Email, st.OwnerEmail):
+		return refused("%s owns this site", g.Email)
+	case g.Level == site.LevelManage && s.External != nil && s.External(ctx, g.Email):
+		return refused("%s is external, and only internal people can manage a site", g.Email)
 	}
 	return nil
 }
 
 // mayChange decides whether actor may set email to level: touching someone
-// who manages the site, or making someone do so, is the owner's.
+// who manages the site, or making someone do so, is the owner's. A persona is
+// only ever given view, which anyone who manages the site shares.
 func (s *Service) mayChange(ctx context.Context, actor Actor, st *site.Site, email, level string) error {
-	current, err := s.Store.GrantLevel(ctx, st.ID, email)
-	if err != nil {
-		return err //nolint:wrapcheck // read by identity
+	current := ""
+	if email != "" {
+		var err error
+		if current, err = s.Store.GrantLevel(ctx, st.ID, email); err != nil {
+			return err //nolint:wrapcheck // read by identity
+		}
 	}
 	if level == site.LevelManage || current == site.LevelManage {
 		return s.mayOwn(ctx, actor, st)
@@ -131,22 +185,71 @@ func (s *Service) mayChange(ctx context.Context, actor Actor, st *site.Site, ema
 	return s.mayEdit(ctx, actor, st)
 }
 
-// Revoke takes a person's access away; it applies on their next request.
-func (s *Service) Revoke(ctx context.Context, actor Actor, ref, email string) error {
+// Revoke takes access away from a person by email or, with email "", from a
+// persona; it applies on their next request.
+func (s *Service) Revoke(ctx context.Context, actor Actor, ref, email, persona string) error {
 	st, err := s.Find(ctx, ref)
 	if err != nil {
 		return err
 	}
-	email = site.NormalizeEmail(email)
-	current, err := s.Store.GrantLevel(ctx, st.ID, email)
-	if err != nil {
-		return err //nolint:wrapcheck // read by identity
+	email, persona = site.NormalizeEmail(email), strings.TrimSpace(persona)
+	if (email == "") == (persona == "") {
+		return refused("name an email or a persona")
 	}
-	if current == "" {
-		return site.ErrNoGrant
+	level := site.LevelView
+	if email != "" {
+		if level, err = s.Store.GrantLevel(ctx, st.ID, email); err != nil {
+			return err //nolint:wrapcheck // read by identity
+		}
+		if level == "" {
+			return site.ErrNoGrant
+		}
 	}
-	if err := s.mayChange(ctx, actor, st, email, current); err != nil {
+	if err := s.mayChange(ctx, actor, st, email, level); err != nil {
 		return err
 	}
-	return s.Store.RemoveGrant(ctx, st.ID, email) //nolint:wrapcheck // read by identity
+	return s.Store.RemoveGrant(ctx, st.ID, email, persona) //nolint:wrapcheck // read by identity
+}
+
+// OpenableEnvironments is the environments of a site the actor can open: every
+// public one, and each private one the access check opens for them. It is what
+// someone who does not manage the site is shown.
+func (s *Service) OpenableEnvironments(ctx context.Context, actor Actor, st *site.Site) ([]site.Environment, error) {
+	out := []site.Environment{}
+	for _, e := range st.Environments {
+		if e.Public {
+			out = append(out, e)
+			continue
+		}
+		ok, err := s.opens(ctx, actor, st, e.Name)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			out = append(out, e)
+		}
+	}
+	return out, nil
+}
+
+// opens is the gateway's check of one private environment, for the portal.
+func (s *Service) opens(ctx context.Context, actor Actor, st *site.Site, env string) (bool, error) {
+	if actor.Admin {
+		return true, nil
+	}
+	a, err := s.Store.SiteAccess(ctx, st.ID, env, actor.Email, actor.Persona)
+	if err != nil {
+		return false, err //nolint:wrapcheck // read by identity
+	}
+	if a.ByPersona || s.internalOpens(ctx, actor, a) {
+		return true, nil
+	}
+	verified := actor.Email != "" && !actor.EmailUnverified
+	return verified && (a.ByEmail || strings.EqualFold(actor.Email, a.OwnerEmail)), nil
+}
+
+// internalOpens reports whether an environment open to everyone internal
+// opens for the actor: someone with a persona that is not external.
+func (s *Service) internalOpens(ctx context.Context, actor Actor, a *site.Access) bool {
+	return a.InternalView && actor.Persona != "" && (s.External == nil || !s.External(ctx, actor.Email))
 }

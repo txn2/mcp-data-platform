@@ -20,8 +20,8 @@ const (
 )
 
 var (
-	homeRef = site.Ref{Site: "marketing", Environment: site.EnvDefault, Path: "index.html"}
-	treeRef = site.Ref{Site: "marketing", Environment: site.EnvDefault}
+	homeRef = site.Ref{Site: "marketing", Environment: site.EnvDev, Path: "index.html"}
+	treeRef = site.Ref{Site: "marketing", Environment: site.EnvDev}
 )
 
 func edit(find, replace string) []textpatch.Edit {
@@ -51,7 +51,7 @@ func seeded(t *testing.T) (*Service, *memStore, *memObjects) {
 }
 
 func envRelease(store *memStore) int {
-	return store.sites[siteID].Environment(site.EnvDefault).Release
+	return store.sites[siteID].Environment(site.EnvDev).Release
 }
 
 func TestPublishBase_AddsReplacesAndDeletesInOneRelease(t *testing.T) {
@@ -82,7 +82,7 @@ func TestPublishBase_AddsReplacesAndDeletesInOneRelease(t *testing.T) {
 
 	first, err := store.Release(ctx, siteID, 1)
 	require.NoError(t, err)
-	_, err = svc.Rollback(ctx, owner, "marketing", site.EnvDefault, 1)
+	_, err = svc.Rollback(ctx, owner, "marketing", site.EnvDev, 1)
 	require.NoError(t, err)
 	restored, err := store.Files(ctx, first.ID)
 	require.NoError(t, err)
@@ -166,7 +166,7 @@ func TestPublish_AnOlderFileIsNeverReusedUnderAnotherName(t *testing.T) {
 	svc, store, objects, _ := fixture(t)
 	legacy := site.File{Path: "old.html", SHA256: "digest", ContentType: "text/html; charset=utf-8", Size: 3, StoredIn: "srel_old"}
 	store.releases[siteID] = []site.Release{{ID: "srel_old", SiteID: siteID, Number: 1, Files: []site.File{legacy}, Redirects: []site.Redirect{}}}
-	store.sites[siteID].Environment(site.EnvDefault).Release = 1
+	store.sites[siteID].Environment(site.EnvDev).Release = 1
 	require.NoError(t, objects.PutObject(ctx, "portal", ObjectKey(siteID, legacy, ""), []byte("old"), legacy.ContentType))
 
 	got, err := svc.Publish(ctx, owner, PublishRequest{Site: "marketing", Base: 1, Files: []InputFile{{Path: "new.html", Body: []byte("<p>n</p>")}}})
@@ -242,13 +242,13 @@ func TestPatchFile_LeavesNothingBehindWhenItCannotApply(t *testing.T) {
 		"an anchor that matches nothing":  {req: PatchRequest{Ref: homeRef, Edits: edit("$12345", "$1")}, code: textpatch.CodeNoMatch},
 		"a stale base":                    {req: PatchRequest{Ref: homeRef, Base: 7, Edits: edit("$99", "$89")}, code: textpatch.CodeStaleBase},
 		"a dry run":                       {req: PatchRequest{Ref: homeRef, Edits: edit("$99", "$89"), DryRun: true}},
-		"a binary file":                   {req: PatchRequest{Ref: site.Ref{Site: "marketing", Environment: site.EnvDefault, Path: "logo.png"}, Edits: edit("a", "b")}, code: textpatch.CodeNotText},
-		"a file the release lacks":        {req: PatchRequest{Ref: site.Ref{Site: "marketing", Environment: site.EnvDefault, Path: "no.html"}, Edits: edit("a", "b")}, want: `no file "no.html"`},
+		"a binary file":                   {req: PatchRequest{Ref: site.Ref{Site: "marketing", Environment: site.EnvDev, Path: "logo.png"}, Edits: edit("a", "b")}, code: textpatch.CodeNotText},
+		"a file the release lacks":        {req: PatchRequest{Ref: site.Ref{Site: "marketing", Environment: site.EnvDev, Path: "no.html"}, Edits: edit("a", "b")}, want: `no file "no.html"`},
 		"a whole tree":                    {req: PatchRequest{Ref: treeRef, Edits: edit("a", "b")}, want: "names a tree"},
-		"a hidden path":                   {req: PatchRequest{Ref: site.Ref{Site: "marketing", Environment: site.EnvDefault, Path: ".env"}, Edits: edit("a", "b")}, want: "dotted segment"},
-		"a parent reference":              {req: PatchRequest{Ref: site.Ref{Site: "marketing", Environment: site.EnvDefault, Path: "a/../../b"}, Edits: edit("a", "b")}, want: "relative and clean"},
+		"a hidden path":                   {req: PatchRequest{Ref: site.Ref{Site: "marketing", Environment: site.EnvDev, Path: ".env"}, Edits: edit("a", "b")}, want: "dotted segment"},
+		"a parent reference":              {req: PatchRequest{Ref: site.Ref{Site: "marketing", Environment: site.EnvDev, Path: "a/../../b"}, Edits: edit("a", "b")}, want: "relative and clean"},
 		"another environment":             {req: PatchRequest{Ref: site.Ref{Site: "marketing", Environment: "stage", Path: "index.html"}, Edits: edit("a", "b")}, want: "read-only"},
-		"an environment needing approval": {req: PatchRequest{Ref: site.Ref{Site: "marketing", Environment: envProd, Path: "index.html"}, Edits: edit("a", "b")}, want: "requires approval"},
+		"an environment needing approval": {req: PatchRequest{Ref: site.Ref{Site: "marketing", Environment: envProd, Path: "index.html"}, Edits: edit("a", "b")}, want: `environment "prod" is read-only`},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -291,7 +291,7 @@ func TestPatchFile_LosingARaceLeavesNoRelease(t *testing.T) {
 func TestPatchFile_RedirectsFilePatchesTheMap(t *testing.T) {
 	ctx := context.Background()
 	svc, store, _ := seeded(t)
-	ref := site.Ref{Site: "marketing", Environment: site.EnvDefault, Path: "_redirects"}
+	ref := site.Ref{Site: "marketing", Environment: site.EnvDev, Path: "_redirects"}
 	read, err := svc.ReadFile(ctx, owner, ref)
 	require.NoError(t, err)
 	assert.Equal(t, "/old /new 302\n", read.Body, "it reads as the map it became")
@@ -326,7 +326,8 @@ func TestContentAccess(t *testing.T) {
 		{name: "someone with nothing", actor: stranger},
 		{name: "no one", actor: Actor{}},
 		{name: "an email the provider did not verify", actor: unverified},
-		{name: "anyone internal on an open site", actor: stranger, internal: true, reads: true},
+		{name: "anyone internal on an open site", actor: Actor{Email: stranger.Email, Persona: "analyst"}, internal: true, reads: true},
+		{name: "someone with no persona on an open site", actor: stranger, internal: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -334,7 +335,7 @@ func TestContentAccess(t *testing.T) {
 			svc.External = internalOnly
 			grant(store, manager.Email, site.LevelManage)
 			grant(store, viewer.Email, site.LevelView)
-			store.sites[siteID].InternalView = tt.internal
+			store.sites[siteID].Environment(site.EnvDev).InternalView = tt.internal
 
 			_, readErr := svc.ReadFile(ctx, tt.actor, homeRef)
 			_, treeErr := svc.Tree(ctx, tt.actor, treeRef, 0, 0)
@@ -366,7 +367,7 @@ func TestContentAccess_ARefusalSaysNothingAboutTheFiles(t *testing.T) {
 	ctx := context.Background()
 	svc, _, _ := seeded(t)
 	_, exists := svc.ReadFile(ctx, stranger, homeRef)
-	_, missing := svc.ReadFile(ctx, stranger, site.Ref{Site: "marketing", Environment: site.EnvDefault, Path: "secret-plans.html"})
+	_, missing := svc.ReadFile(ctx, stranger, site.Ref{Site: "marketing", Environment: site.EnvDev, Path: "secret-plans.html"})
 	_, noEnv := svc.ReadFile(ctx, stranger, site.Ref{Site: "marketing", Environment: "nope", Path: "index.html"})
 	require.Error(t, exists)
 	assert.Equal(t, exists.Error(), missing.Error())
@@ -397,12 +398,12 @@ func TestDiff(t *testing.T) {
 	t.Run("a file one side lacks", func(t *testing.T) {
 		_, err := svc.Publish(ctx, owner, PublishRequest{Site: "marketing", Base: 2, Files: []InputFile{{Path: "new.html", Body: []byte("<p>n</p>\n")}}})
 		require.NoError(t, err)
-		got, err := svc.Diff(ctx, owner, site.Ref{Site: "marketing", Environment: site.EnvDefault, Path: "new.html"}, 2, 3)
+		got, err := svc.Diff(ctx, owner, site.Ref{Site: "marketing", Environment: site.EnvDev, Path: "new.html"}, 2, 3)
 		require.NoError(t, err)
 		assert.Contains(t, got.Diff, "+<p>n</p>")
 	})
 	t.Run("a file neither side has", func(t *testing.T) {
-		_, err := svc.Diff(ctx, owner, site.Ref{Site: "marketing", Environment: site.EnvDefault, Path: "no.html"}, 1, 2)
+		_, err := svc.Diff(ctx, owner, site.Ref{Site: "marketing", Environment: site.EnvDev, Path: "no.html"}, 1, 2)
 		require.ErrorContains(t, err, "neither release")
 	})
 	t.Run("the first release has nothing before it", func(t *testing.T) {
@@ -421,7 +422,7 @@ func TestTree(t *testing.T) {
 	assert.False(t, all.Truncated)
 	assert.Equal(t, "_redirects", all.Files[0].Path)
 
-	folder, err := svc.Tree(ctx, owner, site.Ref{Site: "marketing", Environment: site.EnvDefault, Path: "about/"}, 0, 0)
+	folder, err := svc.Tree(ctx, owner, site.Ref{Site: "marketing", Environment: site.EnvDev, Path: "about/"}, 0, 0)
 	require.NoError(t, err)
 	require.Equal(t, 1, folder.Total)
 	assert.Equal(t, "about/index.html", folder.Files[0].Path)
@@ -483,7 +484,7 @@ func TestDiff_AFolderNamesOnlyItsOwnFiles(t *testing.T) {
 		{Path: "about/index.html", Body: []byte("<p>y</p>\n")},
 	}})
 	require.NoError(t, err)
-	got, err := svc.Diff(ctx, owner, site.Ref{Site: "marketing", Environment: site.EnvDefault, Path: "about/"}, 0, 0)
+	got, err := svc.Diff(ctx, owner, site.Ref{Site: "marketing", Environment: site.EnvDev, Path: "about/"}, 0, 0)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"about/index.html"}, got.Comparison.Changed)
 }
@@ -514,11 +515,11 @@ func TestReadFailuresAreReported(t *testing.T) {
 	})
 	t.Run("a site that does not exist", func(t *testing.T) {
 		svc, _, _ := seeded(t)
-		_, err := svc.ReadFile(ctx, owner, site.Ref{Site: "nope", Environment: site.EnvDefault, Path: "a"})
+		_, err := svc.ReadFile(ctx, owner, site.Ref{Site: "nope", Environment: site.EnvDev, Path: "a"})
 		require.Error(t, err)
-		_, err = svc.PatchFile(ctx, owner, PatchRequest{Ref: site.Ref{Site: "nope", Environment: site.EnvDefault, Path: "a"}})
+		_, err = svc.PatchFile(ctx, owner, PatchRequest{Ref: site.Ref{Site: "nope", Environment: site.EnvDev, Path: "a"}})
 		require.Error(t, err)
-		_, err = svc.Diff(ctx, owner, site.Ref{Site: "nope", Environment: site.EnvDefault}, 0, 0)
+		_, err = svc.Diff(ctx, owner, site.Ref{Site: "nope", Environment: site.EnvDev}, 0, 0)
 		require.Error(t, err)
 	})
 	t.Run("the file list cannot be read", func(t *testing.T) {
@@ -553,7 +554,7 @@ func TestReadFailuresAreReported(t *testing.T) {
 	})
 	t.Run("a binary file cannot be diffed", func(t *testing.T) {
 		svc, _, _ := seeded(t)
-		_, err := svc.Diff(ctx, owner, site.Ref{Site: "marketing", Environment: site.EnvDefault, Path: "logo.png"}, 1, 1)
+		_, err := svc.Diff(ctx, owner, site.Ref{Site: "marketing", Environment: site.EnvDev, Path: "logo.png"}, 1, 1)
 		var e *textpatch.Error
 		require.ErrorAs(t, err, &e)
 		assert.Equal(t, textpatch.CodeNotText, e.Code)
@@ -564,7 +565,7 @@ func TestReadFailuresAreReported(t *testing.T) {
 		require.ErrorIs(t, err, site.ErrNoRelease)
 		_, err = svc.Diff(ctx, owner, homeRef, 1, 9)
 		require.ErrorIs(t, err, site.ErrNoRelease)
-		_, err = svc.Diff(ctx, owner, site.Ref{Site: "marketing", Environment: site.EnvDefault, Path: ".env"}, 1, 1)
+		_, err = svc.Diff(ctx, owner, site.Ref{Site: "marketing", Environment: site.EnvDev, Path: ".env"}, 1, 1)
 		require.ErrorContains(t, err, "dotted segment")
 	})
 }

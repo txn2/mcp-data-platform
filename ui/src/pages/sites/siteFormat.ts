@@ -1,7 +1,7 @@
 import { compareNames } from "@/lib/sortByName";
 import { formatBytes } from "@/pages/scripts/runFormat";
 import type { Site, SiteDomain, SiteEnvironment } from "@/api/portal/hooks/sites";
-import { DEFAULT_ENVIRONMENT } from "@/api/portal/hooks/sites";
+import { DEV_ENVIRONMENT } from "@/api/portal/hooks/sites";
 
 export { formatBytes };
 
@@ -29,22 +29,37 @@ export function hostsOf(site: Site, env: string): SiteDomain[] {
   return site.domains.filter((d) => d.environment === env);
 }
 
-/** A hostname as a link target, on the scheme the site's own address uses. */
+/** A hostname as a link target, on the scheme the site's pages addresses use. */
 export function hostUrl(site: Site, host: string): string {
-  const secure = !site.address || site.address.startsWith("https:");
+  const any = site.address || Object.values(site.addresses ?? {}).find(Boolean) || "";
+  const secure = !any || any.startsWith("https:");
   return `${secure ? "https" : "http"}://${host}`;
 }
 
-/** The site's own address without its scheme, for reading. */
+/** An address without its scheme, for reading. */
 export function bareAddress(address: string): string {
   return address.replace(/^https?:\/\//, "");
 }
 
-/** Default first, then by name, so a site reads the way it was built up. */
+// The names a release usually reaches last, so they are drawn at the end of the
+// promote order.
+const LAST = ["prod", "production", "live"];
+
+/** dev first and prod last, the rest by name between: the order a release is promoted in. */
 export function orderedEnvironments(envs: SiteEnvironment[]): SiteEnvironment[] {
-  return [...envs].sort((a, b) => {
-    if (a.name === DEFAULT_ENVIRONMENT) return -1;
-    if (b.name === DEFAULT_ENVIRONMENT) return 1;
-    return compareNames(a.name, b.name);
-  });
+  const rank = (n: string) => (n === DEV_ENVIRONMENT ? 0 : LAST.includes(n) ? 2 : 1);
+  return [...envs].sort((a, b) => rank(a.name) - rank(b.name) || compareNames(a.name, b.name));
+}
+
+/** An environment's address on the pages domain: the main address for the one holding it, "" with no pages domain. */
+export function envAddress(site: Site, env: string): string {
+  return site.addresses?.[env] ?? "";
+}
+
+/** Where a release in env can be opened: its pages address, else its first domain. */
+export function envOpenUrl(site: Site, env: string): string {
+  const own = envAddress(site, env);
+  if (own) return own;
+  const host = hostsOf(site, env)[0];
+  return host ? hostUrl(site, host.hostname) : "";
 }

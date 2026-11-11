@@ -32,7 +32,7 @@ func (m *memStore) Insert(_ context.Context, r *Request) error {
 	}
 	for _, x := range m.rows {
 		if x.Status == StatusPending && x.ScriptID == r.ScriptID && x.Purpose == r.Purpose && x.Version == r.Version &&
-			x.SiteReleaseID == r.SiteReleaseID && x.Target == r.Target {
+			x.SiteReleaseID == r.SiteReleaseID && x.Target == r.Target && x.SiteID == r.SiteID {
 			return ErrPending
 		}
 	}
@@ -61,7 +61,7 @@ func (m *memStore) List(_ context.Context, f Filter) ([]Request, error) {
 	out := []Request{}
 	for _, r := range m.rows {
 		if (f.Status == "" || r.Status == f.Status) && (f.Requester == "" || r.RequesterEmail == f.Requester) &&
-			(f.ScriptID == "" || r.ScriptID == f.ScriptID) {
+			(f.ScriptID == "" || r.ScriptID == f.ScriptID) && (f.SiteID == "" || r.SiteID == f.SiteID) {
 			out = append(out, *r)
 		}
 	}
@@ -92,6 +92,18 @@ func (m *memStore) ReleaseApproved(_ context.Context, releaseID, target, digest 
 	}
 	for _, r := range m.rows {
 		if r.SiteReleaseID == releaseID && r.Target == target && r.SourceSHA256 == digest && r.Status == StatusApproved {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (m *memStore) EnvironmentApproved(_ context.Context, siteID, target, stamp string) (bool, error) {
+	if m.failApproved != nil {
+		return false, m.failApproved
+	}
+	for _, r := range m.rows {
+		if r.SubjectKind == SubjectSiteEnvironment && r.SiteID == siteID && r.Target == target && r.SourceSHA256 == stamp && r.Status == StatusApproved {
 			return true, nil
 		}
 	}
@@ -572,4 +584,89 @@ func TestDecide_ASiteReleaseReadsNoScript(t *testing.T) {
 
 	_, err = svc.Decide(ctx, jane, r.ID, DecisionApprove, "")
 	require.ErrorIs(t, err, ErrNotAllowed)
+}
+
+var prodPublic = SubmitEnvironment{SiteID: "site_1", Site: "docs", Target: "prod", Stamp: "public:t0", Reason: "  ready  "}
+
+// Making an environment public is a request about the environment, fixed by
+// the access stamp it was asked against, told to the approvers (#2604).
+func TestSubmitEnvironment(t *testing.T) {
+	svc, st, n := service()
+	ctx := context.Background()
+
+	r, err := svc.SubmitEnvironment(ctx, jane, prodPublic)
+	require.NoError(t, err)
+	assert.Equal(t, SubjectSiteEnvironment, r.SubjectKind)
+	assert.Equal(t, PurposeSitePublic, r.Purpose)
+	assert.Equal(t, "public:t0", r.SourceSHA256)
+	assert.Equal(t, "site_1", r.SiteID)
+	assert.Equal(t, "docs", r.SiteName)
+	assert.Equal(t, "prod", r.Target)
+	assert.Empty(t, r.SiteReleaseID, "it names no release")
+	assert.Equal(t, "ready", r.Reason)
+	assert.Equal(t, StatusPending, r.Status)
+	assert.Equal(t, [][]string{{"admin@example.com"}}, n.requested)
+
+	again, err := svc.SubmitEnvironment(ctx, bob, prodPublic)
+	require.NoError(t, err, "a second ask waits on the same request")
+	assert.Equal(t, r.ID, again.ID)
+	assert.Len(t, st.rows, 1)
+	assert.Len(t, n.requested, 1, "the administrators are told once")
+
+	other := prodPublic
+	other.Target = "stage"
+	second, err := svc.SubmitEnvironment(ctx, jane, other)
+	require.NoError(t, err)
+	assert.NotEqual(t, r.ID, second.ID, "another environment is another request")
+
+	assert.False(t, svc.EnvironmentApproved(ctx, "site_1", "prod", "public:t0"), "pending is not approved")
+	_, err = svc.Decide(ctx, admin, r.ID, DecisionApprove, "")
+	require.NoError(t, err, "an environment request is approved without reading a script")
+	assert.True(t, svc.EnvironmentApproved(ctx, "site_1", "prod", "public:t0"))
+	assert.False(t, svc.EnvironmentApproved(ctx, "site_1", "prod", "public:t1"), "an approval holds for the access it was asked against")
+	assert.False(t, svc.EnvironmentApproved(ctx, "site_2", "prod", "public:t0"), "and for that site")
+}
+
+func TestSubmitEnvironment_Refusals(t *testing.T) {
+	ctx := context.Background()
+	var refused *RefusedError
+	t.Run("no email", func(t *testing.T) {
+		svc, st, _ := service()
+		_, err := svc.SubmitEnvironment(ctx, Actor{}, prodPublic)
+		require.ErrorAs(t, err, &refused)
+		assert.Empty(t, st.rows)
+	})
+	t.Run("a long reason", func(t *testing.T) {
+		svc, _, _ := service()
+		in := prodPublic
+		in.Reason = strings.Repeat("x", MaxReason+1)
+		_, err := svc.SubmitEnvironment(ctx, jane, in)
+		require.ErrorAs(t, err, &refused)
+	})
+	t.Run("the store fails", func(t *testing.T) {
+		svc, st, n := service()
+		st.failIns = errors.New("down")
+		_, err := svc.SubmitEnvironment(ctx, jane, prodPublic)
+		require.ErrorContains(t, err, "filing the request")
+		assert.Empty(t, n.requested)
+	})
+	t.Run("the waiting request cannot be read", func(t *testing.T) {
+		svc, st, _ := service()
+		_, err := svc.SubmitEnvironment(ctx, jane, prodPublic)
+		require.NoError(t, err)
+		st.failList = errors.New("down")
+		_, err = svc.SubmitEnvironment(ctx, bob, prodPublic)
+		require.ErrorContains(t, err, "reading the waiting requests")
+	})
+	t.Run("the waiting request is gone", func(t *testing.T) {
+		svc, st, _ := service()
+		st.failIns = ErrPending
+		_, err := svc.SubmitEnvironment(ctx, bob, prodPublic)
+		require.ErrorIs(t, err, ErrPending, "a conflict with no request to show is said as one")
+	})
+	t.Run("an approval that cannot be read approves nothing", func(t *testing.T) {
+		svc, st, _ := service()
+		st.failApproved = errors.New("down")
+		assert.False(t, svc.EnvironmentApproved(ctx, "site_1", "prod", "public:t0"))
+	})
 }

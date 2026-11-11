@@ -57,8 +57,8 @@ func (s *Store) withTx(ctx context.Context, fn func(tx *sql.Tx) error) error {
 func (s *Store) Create(ctx context.Context, st *site.Site) error {
 	return s.withTx(ctx, func(tx *sql.Tx) error {
 		err := tx.QueryRowContext(ctx, `
-			INSERT INTO sites (id, name, description, owner_email, created_by) VALUES ($1, $2, $3, $4, $5)
-			RETURNING created_at, updated_at`, st.ID, st.Name, st.Description, st.OwnerEmail, st.CreatedBy,
+			INSERT INTO sites (id, name, description, owner_email, created_by, main_environment) VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''))
+			RETURNING created_at, updated_at`, st.ID, st.Name, st.Description, st.OwnerEmail, st.CreatedBy, st.MainEnvironment,
 		).Scan(&st.CreatedAt, &st.UpdatedAt)
 		if isUnique(err) {
 			return site.ErrNameTaken
@@ -68,8 +68,8 @@ func (s *Store) Create(ctx context.Context, st *site.Site) error {
 		}
 		for _, env := range st.Environments {
 			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO site_environments (site_id, name, requires_approval, updated_by) VALUES ($1, $2, $3, $4)`,
-				st.ID, env.Name, env.RequiresApproval, st.CreatedBy); err != nil {
+				INSERT INTO site_environments (site_id, name, requires_approval, public, internal_view, updated_by) VALUES ($1, $2, $3, $4, $5, $6)`,
+				st.ID, env.Name, env.RequiresApproval, env.Public, env.InternalView, st.CreatedBy); err != nil {
 				return fmt.Errorf("create environment %s: %w", env.Name, err)
 			}
 		}
@@ -77,11 +77,11 @@ func (s *Store) Create(ctx context.Context, st *site.Site) error {
 	})
 }
 
-const siteColumns = `id, name, description, owner_email, internal_view, created_by, created_at, updated_at`
+const siteColumns = `id, name, description, owner_email, COALESCE(main_environment, ''), created_by, created_at, updated_at`
 
 func scanSite(row interface{ Scan(...any) error }) (*site.Site, error) {
 	st := &site.Site{Environments: []site.Environment{}}
-	err := row.Scan(&st.ID, &st.Name, &st.Description, &st.OwnerEmail, &st.InternalView, &st.CreatedBy, &st.CreatedAt, &st.UpdatedAt)
+	err := row.Scan(&st.ID, &st.Name, &st.Description, &st.OwnerEmail, &st.MainEnvironment, &st.CreatedBy, &st.CreatedAt, &st.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, site.ErrNotFound
 	}
@@ -114,7 +114,7 @@ func (s *Store) one(ctx context.Context, query, arg string) (*site.Site, error) 
 
 func (s *Store) environments(ctx context.Context, siteID string) ([]site.Environment, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT name, COALESCE(release_number, 0), requires_approval, updated_by, updated_at
+		SELECT name, COALESCE(release_number, 0), requires_approval, public, internal_view, access_changed_at, updated_by, updated_at
 		  FROM site_environments WHERE site_id = $1 ORDER BY name`, siteID)
 	if err != nil {
 		return nil, fmt.Errorf("list environments: %w", err)
@@ -123,7 +123,7 @@ func (s *Store) environments(ctx context.Context, siteID string) ([]site.Environ
 	out := []site.Environment{}
 	for rows.Next() {
 		var e site.Environment
-		if err := rows.Scan(&e.Name, &e.Release, &e.RequiresApproval, &e.UpdatedBy, &e.UpdatedAt); err != nil {
+		if err := rows.Scan(&e.Name, &e.Release, &e.RequiresApproval, &e.Public, &e.InternalView, &e.AccessChangedAt, &e.UpdatedBy, &e.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("read environment: %w", err)
 		}
 		out = append(out, e)
@@ -160,12 +160,11 @@ func (s *Store) List(ctx context.Context) ([]site.Site, error) {
 	return out, nil
 }
 
-// Update writes the description, the owner and whether everyone internal may
-// view the site.
+// Update writes the description and the owner.
 func (s *Store) Update(ctx context.Context, st *site.Site) error {
 	res, err := s.db.ExecContext(ctx, `
-		UPDATE sites SET description = $2, owner_email = $3, internal_view = $4, updated_at = NOW() WHERE id = $1`,
-		st.ID, st.Description, st.OwnerEmail, st.InternalView)
+		UPDATE sites SET description = $2, owner_email = $3, updated_at = NOW() WHERE id = $1`,
+		st.ID, st.Description, st.OwnerEmail)
 	if err != nil {
 		return fmt.Errorf("update site: %w", err)
 	}
@@ -192,17 +191,38 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	return oneRow(res, site.ErrNotFound)
 }
 
-// SetEnvironment creates an environment or changes its approval rule.
-func (s *Store) SetEnvironment(ctx context.Context, siteID, name string, requiresApproval bool, actor string) error {
+// SetEnvironment creates an environment or changes its settings. A nil
+// setting keeps what the environment has, or false on a new one; a change to
+// public stamps access_changed_at.
+func (s *Store) SetEnvironment(ctx context.Context, siteID, name string, set site.EnvironmentSettings, actor string) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO site_environments (site_id, name, requires_approval, updated_by) VALUES ($1, $2, $3, $4)
+		INSERT INTO site_environments (site_id, name, requires_approval, public, internal_view, updated_by)
+		VALUES ($1, $2, COALESCE($3, FALSE), COALESCE($4, FALSE), COALESCE($5, FALSE), $6)
 		ON CONFLICT (site_id, name) DO UPDATE
-		   SET requires_approval = EXCLUDED.requires_approval, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
-		siteID, name, requiresApproval, actor)
+		   SET requires_approval = COALESCE($3, site_environments.requires_approval),
+		       public = COALESCE($4, site_environments.public),
+		       internal_view = COALESCE($5, site_environments.internal_view),
+		       access_changed_at = CASE WHEN COALESCE($4, site_environments.public) <> site_environments.public
+		                                THEN NOW() ELSE site_environments.access_changed_at END,
+		       updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+		siteID, name, set.RequiresApproval, set.Public, set.InternalView, actor)
 	if err != nil {
 		return fmt.Errorf("set environment: %w", err)
 	}
 	return nil
+}
+
+// SetMainEnvironment gives the main address to an environment of the site, or
+// to none with env "".
+func (s *Store) SetMainEnvironment(ctx context.Context, siteID, env string) error {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE sites SET main_environment = NULLIF($2, ''), updated_at = NOW()
+		 WHERE id = $1 AND ($2 = '' OR EXISTS (SELECT 1 FROM site_environments e WHERE e.site_id = $1 AND e.name = $2))`,
+		siteID, env)
+	if err != nil {
+		return fmt.Errorf("set main environment: %w", err)
+	}
+	return oneRow(res, site.ErrNoEnvironment)
 }
 
 // RecordRelease writes a release and its files, numbering it next under the
@@ -551,10 +571,13 @@ func (s *Store) RemoveDomain(ctx context.Context, hostname string) error {
 	return oneRow(res, site.ErrNoDomain)
 }
 
-// routeSelect reads an environment and the release it serves.
+// routeSelect reads an environment, the release it serves, whether it is
+// private, and the application it is a part of.
 const routeSelect = `
-	SELECT s.id, s.name, e.name, COALESCE(e.release_number, 0)
-	  FROM site_environments e JOIN sites s ON s.id = e.site_id`
+	SELECT s.id, s.name, e.name, COALESCE(e.release_number, 0), NOT e.public, COALESCE(a.name, '')
+	  FROM site_environments e JOIN sites s ON s.id = e.site_id
+	  LEFT JOIN application_parts p ON p.kind = 'site' AND p.part_id = s.name || '/' || e.name
+	  LEFT JOIN applications a ON a.id = p.application_id`
 
 // RouteHost is what an added hostname serves.
 func (s *Store) RouteHost(ctx context.Context, hostname string) (*site.Route, error) {
@@ -568,21 +591,21 @@ func (s *Store) RouteHost(ctx context.Context, hostname string) (*site.Route, er
 	return s.routeOf(ctx, routeSelect+` WHERE s.id = $1 AND e.name = $2`, d.SiteID, d.Environment)
 }
 
-// RouteOwn is what a site's own address serves: its default environment, to
-// the people who may open it.
+// RouteOwn is what a site's main address serves: the environment it is given
+// to, ErrNoDomain when it is given to none.
 func (s *Store) RouteOwn(ctx context.Context, siteName string) (*site.Route, error) {
-	r, err := s.routeOf(ctx, routeSelect+` WHERE s.name = $1 AND e.name = $2`, siteName, site.EnvDefault)
-	if err != nil {
-		return nil, err
-	}
-	r.Private = true
-	return r, nil
+	return s.routeOf(ctx, routeSelect+` WHERE s.name = $1 AND e.name = s.main_environment`, siteName)
 }
 
-func (s *Store) routeOf(ctx context.Context, query, a, b string) (*site.Route, error) {
+// RouteEnv is what <site>--<env> serves.
+func (s *Store) RouteEnv(ctx context.Context, siteName, env string) (*site.Route, error) {
+	return s.routeOf(ctx, routeSelect+` WHERE s.name = $1 AND e.name = $2`, siteName, env)
+}
+
+func (s *Store) routeOf(ctx context.Context, query string, args ...any) (*site.Route, error) {
 	r := &site.Route{}
 	var number int
-	err := s.db.QueryRowContext(ctx, query, a, b).Scan(&r.SiteID, &r.Site, &r.Environment, &number)
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(&r.SiteID, &r.Site, &r.Environment, &number, &r.Private, &r.PartOf)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, site.ErrNoDomain
 	}
@@ -629,9 +652,14 @@ func (s *Store) ApplicationHosts(ctx context.Context, applicationID, pagesDomain
 		  JOIN site_domains d ON d.site_id = st.id AND d.environment = split_part(p.part_id, '/', 2)
 		 WHERE p.application_id = $1 AND p.kind = 'site'
 		UNION ALL
-		SELECT split_part(p.part_id, '/', 1) || '.' || $2
+		SELECT split_part(p.part_id, '/', 1) || '--' || split_part(p.part_id, '/', 2) || '.' || $2
 		  FROM application_parts p
-		 WHERE p.application_id = $1 AND p.kind = 'site' AND split_part(p.part_id, '/', 2) = $3 AND $2 <> ''`, applicationID, pagesDomain, site.EnvDefault)
+		 WHERE p.application_id = $1 AND p.kind = 'site' AND $2 <> ''
+		UNION ALL
+		SELECT st.name || '.' || $2
+		  FROM application_parts p
+		  JOIN sites st ON st.name = split_part(p.part_id, '/', 1) AND st.main_environment = split_part(p.part_id, '/', 2)
+		 WHERE p.application_id = $1 AND p.kind = 'site' AND $2 <> ''`, applicationID, pagesDomain)
 	if err != nil {
 		return nil, fmt.Errorf("list application hosts: %w", err)
 	}

@@ -1,7 +1,7 @@
 import { useRef, useState, type DragEvent } from "react";
 import { Upload } from "lucide-react";
 import {
-  DEFAULT_ENVIRONMENT,
+  DEV_ENVIRONMENT,
   usePublishSite,
   useSiteJob,
   useSiteRelease,
@@ -15,18 +15,13 @@ import type { Resource } from "@/api/resources/types";
 import { useAuthStore } from "@/stores/auth";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { errorText, formatBytes, hostUrl, orderedEnvironments } from "./siteFormat";
+import { bareAddress, envOpenUrl, errorText, formatBytes } from "./siteFormat";
 
 export const number = new Intl.NumberFormat("en-US");
-
-function publishable(site: Site) {
-  return orderedEnvironments(site.environments).filter((e) => !e.requires_approval);
-}
 
 function limitsText(l?: SiteLimits): string {
   if (!l) return "";
@@ -41,20 +36,23 @@ interface Picked {
 
 // PublishDialog uploads a folder or a zip through the managed-resource upload,
 // or picks one already there, and publishes from it, so there is one publish
-// path (#2559). The work runs on the server: closing the dialog does not stop it.
+// path (#2559). A publish makes a new release and always lands in dev, the
+// working copy; other environments move only by Promote and Roll back (#2604).
+// The work runs on the server: closing the dialog does not stop it.
 export function PublishDialog({ site, onClose, onNavigate }: { site: Site; onClose: () => void; onNavigate: (path: string) => void }) {
   const limits = useSites().data?.limits;
-  const [form, setForm] = useState<PublishForm>({ source: "upload", picked: null, resource: null, env: DEFAULT_ENVIRONMENT, note: "" });
+  const [form, setForm] = useState<PublishForm>({ source: "upload", picked: null, resource: null, note: "" });
   const flow = usePublishFlow(site.name, form);
   const job = flow.job;
   if (flow.jobId && job?.status === "done") return <Published site={site} job={job} onClose={onClose} onNavigate={onNavigate} />;
-  if (flow.jobId && job?.status !== "failed") return <Publishing env={form.env} file={pickedLabel(form)} job={job} onClose={onClose} />;
+  if (flow.jobId && job?.status !== "failed") return <Publishing env={DEV_ENVIRONMENT} file={pickedLabel(form)} job={job} onClose={onClose} />;
   const { refusal, ready } = publishState(form, limits, job, flow.failure);
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Publish to {site.name}</DialogTitle>
+          <DialogTitle>Publish to dev</DialogTitle>
+          <DialogDescription>{site.name}</DialogDescription>
         </DialogHeader>
         <PublishFields site={site} form={form} onChange={setForm} limits={limits} refusal={refusal} uploading={flow.uploading} />
         <DialogFooter>
@@ -86,7 +84,6 @@ interface PublishForm {
   source: "upload" | "resources";
   picked: Picked | null;
   resource: Resource | null;
-  env: string;
   note: string;
 }
 
@@ -103,7 +100,7 @@ function usePublishFlow(site: string, form: PublishForm) {
     setFailure(null);
     try {
       const target = form.source === "resources" ? resourceTarget(form.resource!) : await uploadPicked(form.picked!, { site, userId }, upload.mutateAsync, setUploading);
-      const j = await publish.mutateAsync({ environment: form.env, note: form.note.trim(), ...target });
+      const j = await publish.mutateAsync({ note: form.note.trim(), ...target });
       setJobId(j.id);
     } catch (e) {
       setFailure(errorText(e, "The publish could not be started"));
@@ -130,7 +127,8 @@ function PublishFields({
   uploading: { done: number; total: number } | null;
 }) {
   const set = (patch: Partial<PublishForm>) => onChange({ ...form, ...patch });
-  const held = site.environments.filter((e) => e.requires_approval).map((e) => e.name);
+  const devAt = envOpenUrl(site, DEV_ENVIRONMENT);
+  const dev = site.environments.find((e) => e.name === DEV_ENVIRONMENT);
   return (
     <div className="space-y-3">
       {refusal && (
@@ -155,37 +153,28 @@ function PublishFields({
           Uploading {uploading.done} of {uploading.total}
         </p>
       )}
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-1">
-          <EnvironmentSelect site={site} value={form.env} onChange={(env) => set({ env })} />
-          {held.length > 0 && <p className="text-xs text-muted-foreground">{held.join(", ")} requires approval, so it is reached by Promote.</p>}
-        </div>
-        <div className="space-y-1">
-          <Label htmlFor="publish-note">Note</Label>
-          <Input id="publish-note" placeholder="What changed" value={form.note} onChange={(e) => set({ note: e.target.value })} />
-        </div>
+      <div className="space-y-1">
+        <Label htmlFor="publish-note">What changed</Label>
+        <Input id="publish-note" placeholder="What changed" value={form.note} onChange={(e) => set({ note: e.target.value })} />
       </div>
+      <DevOnlyNote site={site} devAt={devAt} release={(dev?.release ?? 0) + 1} />
     </div>
   );
 }
 
-export function EnvironmentSelect({ site, value, onChange }: { site: Site; value: string; onChange: (v: string) => void }) {
+// DevOnlyNote says that a publish changes dev and nothing else, which is what
+// keeps an agent's or a person's work away from what people use.
+export function DevOnlyNote({ site, devAt, release }: { site: Site; devAt: string; release: number }) {
+  const others = site.environments.filter((e) => e.name !== DEV_ENVIRONMENT && e.release > 0);
   return (
-    <>
-      <Label>Environment</Label>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger aria-label="Environment">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {publishable(site).map((e) => (
-            <SelectItem key={e.name} value={e.name}>
-              {e.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </>
+    <Alert>
+      <AlertTitle>This changes dev only</AlertTitle>
+      <AlertDescription>
+        dev becomes release {release}
+        {devAt ? ` at ${bareAddress(devAt)}` : ""}, for the people who manage this site.{" "}
+        {others.length > 0 ? `${others.map((e) => `${e.name} keeps serving release ${e.release}`).join(", ")} until you promote.` : "Promote it when people should use it."}
+      </AlertDescription>
+    </Alert>
   );
 }
 
@@ -409,7 +398,5 @@ function Published({ site, job, onClose, onNavigate }: { site: Site; job: SiteJo
 }
 
 function publishedUrl(site: Site, job: SiteJob): string {
-  if (job.environment === DEFAULT_ENVIRONMENT) return site.address;
-  const host = site.domains.find((d) => d.environment === job.environment)?.hostname;
-  return host ? hostUrl(site, host) : "";
+  return envOpenUrl(site, job.environment || DEV_ENVIRONMENT);
 }

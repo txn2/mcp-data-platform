@@ -86,4 +86,38 @@ describe("ApprovalsPage", () => {
     expect(card).not.toHaveTextContent("Preview version");
     expect(screen.getByRole("button", { name: "Approve" })).toBeTruthy();
   });
+
+  // A request to make a private site environment public (#2604) names the
+  // environment and every address that would stop asking for a sign-in.
+  it("shows a request to make a site environment public, with the addresses that would open", async () => {
+    const publicRequest = {
+      id: "apr_pub1", subject_kind: "site_release", purpose: "site_public", script_id: "", version: 0,
+      site_name: "docs", target: "prod", source_sha256: "public:site_docs:prod:1",
+      requester_email: "priya.nair@example.com", reason: "4.1 docs are ready for customers", changes: { approved_version: 0, added: 0, removed: 0 },
+      status: "pending", self_approved: false, created_at: "2026-11-10T10:15:00Z",
+    };
+    const docs = {
+      id: "site_docs", name: "docs", description: "", owner_email: "priya.nair@example.com", main_environment: "",
+      environments: [{ name: "prod", release: 29, requires_approval: true, public: false, internal_view: false, updated_at: "2026-11-05T11:20:00Z" }],
+      created_by: "priya.nair@example.com", created_at: "2026-08-21T00:00:00Z", updated_at: "2026-11-05T11:20:00Z", address: "",
+      addresses: { prod: "https://docs--prod.pages.example.net" }, domains: [{ hostname: "docs.example.com", environment: "prod", created_by: "x", created_at: "2026-11-01T00:00:00Z" }],
+      permissions: { manage: true, own: true, delete: true },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string) =>
+        String(input).includes("/sites/docs")
+          ? new Response(JSON.stringify(docs), { status: 200 })
+          : new Response(JSON.stringify({ requests: [publicRequest], count: 1 }), { status: 200 }),
+      ),
+    );
+    signIn("admin@example.com", true);
+    renderWithQuery(<ApprovalsPage onNavigate={vi.fn()} />);
+    const card = await screen.findByTestId("approval-apr_pub1");
+    expect(card).toHaveTextContent("Make public");
+    expect(card).toHaveTextContent("Open prod to anyone, without a sign-in.");
+    await waitFor(() => expect(card).toHaveTextContent("docs.example.com"));
+    expect(card).toHaveTextContent("docs--prod.pages.example.net");
+    expect(card).toHaveTextContent("prod serves release 29 today.");
+  });
 });

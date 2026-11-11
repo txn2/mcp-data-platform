@@ -47,7 +47,7 @@ func TestStartPublish_RunsApartFromTheRequest(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, site.JobPublish, job.Kind)
-	assert.Equal(t, site.EnvDefault, job.Environment, "no environment named is the default")
+	assert.Equal(t, site.EnvDev, job.Environment, "no environment named is the default")
 	assert.Equal(t, phaseReading, job.Phase)
 	assert.Equal(t, owner.Email, job.CreatedBy)
 
@@ -59,14 +59,14 @@ func TestStartPublish_RunsApartFromTheRequest(t *testing.T) {
 	assert.Equal(t, "jane", who, "the job keeps who asked")
 	assert.Equal(t, site.JobDone, done.Status)
 	assert.Equal(t, 1, done.Release)
-	assert.Equal(t, 1, store.sites[siteID].Environment(site.EnvDefault).Release, "the environment moved")
+	assert.Equal(t, 1, store.sites[siteID].Environment(site.EnvDev).Release, "the environment moved")
 
 	phases := make([]string, 0, len(store.reports))
 	for _, p := range store.reports {
 		phases = append(phases, p.Phase)
 	}
 	assert.Contains(t, phases, phaseWriting)
-	assert.Contains(t, phases, "Switching default to the new release")
+	assert.Contains(t, phases, "Switching dev to the new release")
 	last := store.reports[len(store.reports)-1]
 	assert.Equal(t, 1, last.Done, "the last file's report is always written")
 	assert.Equal(t, 1, last.Total)
@@ -82,7 +82,6 @@ func TestStartPublish_RefusesInTheRequest(t *testing.T) {
 	}{
 		{"no such site", owner, PublishJob{Site: "nope"}, site.ErrNotFound},
 		{"someone who does not manage it", stranger, PublishJob{Site: "marketing"}, site.ErrNotAllowed},
-		{"no such environment", owner, PublishJob{Site: "marketing", Environment: "qa"}, site.ErrNoEnvironment},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -97,14 +96,16 @@ func TestStartPublish_RefusesInTheRequest(t *testing.T) {
 		})
 	}
 
-	t.Run("an environment that requires approval", func(t *testing.T) {
-		svc, store, _, _ := fixture(t)
-		_, err := svc.StartPublish(ctx, admin, PublishJob{Site: "marketing", Environment: envProd, Read: readFiles()})
-		var r *RefusedError
-		require.ErrorAs(t, err, &r)
-		assert.Contains(t, r.Msg, "requires approval")
-		assert.Empty(t, store.jobs)
-	})
+	for _, env := range []string{envProd, "stage", "qa"} {
+		t.Run("an environment other than dev: "+env, func(t *testing.T) {
+			svc, store, _, _ := fixture(t)
+			_, err := svc.StartPublish(ctx, admin, PublishJob{Site: "marketing", Environment: env, Read: readFiles()})
+			var r *RefusedError
+			require.ErrorAs(t, err, &r)
+			assert.Contains(t, r.Msg, "is read-only")
+			assert.Empty(t, store.jobs)
+		})
+	}
 	t.Run("the job cannot be recorded", func(t *testing.T) {
 		svc, store, _, _ := fixture(t)
 		boom := errors.New("down")
@@ -140,7 +141,7 @@ func TestStartPublish_EachWayItEnds(t *testing.T) {
 			assert.Contains(t, done.Error, tc.wantError)
 			assert.NotContains(t, done.Error, "10.1.2.3", "what broke underneath is logged, never shown")
 			assert.Zero(t, done.Release)
-			assert.Zero(t, store.sites[siteID].Environment(site.EnvDefault).Release)
+			assert.Zero(t, store.sites[siteID].Environment(site.EnvDev).Release)
 		})
 	}
 

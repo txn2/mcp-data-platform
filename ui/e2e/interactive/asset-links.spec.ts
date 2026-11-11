@@ -199,9 +199,9 @@ test.describe("a JSX asset", () => {
 
 test.describe("a Markdown asset", () => {
   test("opens a link to another site in a new tab and keeps the portal page", async ({ page: signIn, context }) => {
-    const { page } = await openAsset(signIn, "ast-003", `# Links\n\nSee [the site](${SITE}/md) or [mail us](mailto:someone@example.com).\n`, `[data-testid="viewer-content"] a[href="${SITE}/md"]`);
+    const { page } = await openAsset(signIn, "ast-003", `# Links\n\nSee [an outside page](${SITE}/md) or [mail us](mailto:someone@example.com).\n`, `[data-testid="viewer-content"] a[href="${SITE}/md"]`);
     const portalURL = page.url();
-    const link = page.getByRole("link", { name: "the site" });
+    const link = page.getByRole("link", { name: "an outside page" });
     await expect(link).toHaveAttribute("target", "_blank");
     await expect(link).toHaveAttribute("rel", "noopener noreferrer");
     const tab = await nextTab(context, () => link.click());

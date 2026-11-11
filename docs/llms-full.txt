@@ -6326,24 +6326,68 @@ People run sites from the portal's **Sites** section and agents through
 `manage_site`. Both act through one service, so they cannot disagree about who
 may do what.
 
+## Agents work in dev, people use what was promoted
+
+`dev` is a site's working copy. Every publish, patch and in-place edit lands
+there and nowhere else, whether a person or an agent makes it, and nothing
+anyone relies on is served from it. You change `dev`, review it at its address,
+and **promote** the exact release to an environment people use, such as `stage`
+or `prod`. Those environments are read-only: they move only by promote and
+rollback, with approval where an environment requires it. A publish, an overlay
+or a patch aimed at one is refused, naming `dev` and `promote`, even for an
+administrator.
+
+Each environment is **private** or **public**:
+
+- **Private** asks for the platform's sign-in and opens only for administrators,
+  the site's owner, the people who manage the site, and whoever the environment
+  is shared with. Anything finer is the site's own business, using the identity
+  the platform hands it (see [Inside a private environment](#inside-a-private-environment)).
+- **Public** opens for anyone. The platform asks no one to sign in; a site that
+  wants a sign-in builds its own.
+
+A new environment is private unless public is asked for, and `dev` is always
+private. Only the owner or an administrator makes an environment public.
+
 ## How a site is used
 
-1. Someone whose persona holds `manage_site` creates a site. They own it.
-2. The site has one environment, `default`, at `<site>.<pages_domain>`.
-3. A system administrator adds an ingress rule for that address.
-4. The owner invites internal people to work on it (**Can manage**).
-5. All of them see their work at the site's own address after signing in.
-6. They share it view-only with anyone, internal or external, such as a client
-   approving the work (**Can view**), or tick **Everyone internal can view** for
-   an intranet.
-7. They add domains such as `dev.example.com` and `example.com`, each serving an
-   environment. A domain is public at the platform: who may use it is the site's
-   own business.
-8. A system administrator adds an ingress rule for each domain. Admin > Domains
-   lists every address that needs one.
+1. Someone whose persona holds `manage_site` creates a site. They own it. It has
+   one environment, `dev`, at the site's main address, `<site>.<pages_domain>`.
+2. The owner invites internal people to work on it (**Can manage**). They and
+   their agents publish and edit `dev`.
+3. They create the environments people use (`stage`, `prod`) with **New
+   environment** or `set_environment`, and promote releases to them.
+4. They share each private environment with people and personas, and give the
+   main address to the environment people should reach there, or to none.
+5. They add domains such as `example.com` to any environment but `dev`. A
+   domain answers with its environment's access.
+6. A system administrator adds an ingress rule for each domain. Admin > Domains
+   lists every address that needs one. The pages domain needs one wildcard.
 
 The platform does not manage or check DNS, certificates or who owns a name, and
 TLS belongs to the ingress.
+
+## Addresses
+
+| Address | What answers |
+|---|---|
+| `<site>.<pages_domain>` | The **main address**: the one environment the owner gives it to (`dev` on a new site), or, given to none, a "Nothing is published here" page |
+| `<site>--<env>.<pages_domain>` | That environment, whichever environment holds the main address |
+| A domain added to an environment | That environment |
+
+Every address on the pages domain is one label under it, so one
+`*.<pages_domain>` wildcard certificate and one wildcard ingress rule cover
+every site and environment, and moving the main address needs no DNS or ingress
+change. Moving the main address is the owner's or an administrator's, since it
+changes what people reach at the site's main address.
+
+No site or environment name holds `--`, and an application created since #2604
+cannot either, so `<site>--<env>` is never another site's or application's
+address. An application whose name held `--` before then keeps its address. A
+site or environment whose address could not be one DNS label is refused with
+the reason: a composed label longer than 63 characters (a new site's `dev`
+address counts, so a site name is at most 58), and a label beginning `xn--`,
+which is read as an encoded international name (a site named `xn`).
 
 ## Configuration
 
@@ -6372,9 +6416,9 @@ with no restart. `sites.tls` and `sites.verify` no longer exist, and a
 configuration that sets them is refused at startup.
 
 `pages_domain` is the parent of every application's page origin
-(`<application>.<pages_domain>`) and every site's own address
-(`<site>.<pages_domain>`). With none set, no page and no site address is
-served, and a domain added to a site still is.
+(`<application>.<pages_domain>`) and every site address (`<site>.<pages_domain>`
+and `<site>--<env>.<pages_domain>`). With none set, no page and no site address
+is served, and a domain added to a site still is.
 
 !!! warning "Use a registrable domain of its own"
     Give `pages_domain` a registrable domain the portal is not on. A sibling of
@@ -6395,61 +6439,126 @@ this release signs everyone out once.
 flowchart LR
   R[Request] --> H{Host}
   H -- "portal or unknown" --> P[Platform routes]
-  H -- "name.pages" --> N{Named}
+  H -- "label.pages" --> N{Label}
   N -- "an application" --> A[Application's page origin]
-  N -- "a site" --> G{Signed in, with access}
-  G --> S[Default environment's release]
+  N -- "site--env" --> E[That environment]
+  N -- "site" --> M[The environment holding the main address, or not found]
   H -- "added domain" --> V{Maps to}
-  V --> E[Environment's release]
+  V --> E
   V --> A
+  E --> X{Private?}
+  M --> X
+  X -- "yes" --> G{Signed in and let in}
+  G --> F[Its release]
+  X -- "no" --> F
 ```
 
-A hostname routes as soon as it is added. Which release it serves is read again
-every half second per replica and at once on the replica that moved it, so a
-promote or rollback takes effect immediately. File bytes are cached by content
+A hostname routes as soon as it is added. Which release it serves, and whether
+it is private, is read again every half second per replica and at once on the
+replica that changed it, so a promote, a rollback, a change of access or a move
+of the main address takes effect immediately. File bytes are cached by content
 digest in memory and on disk, which never go stale. A site and an application
 cannot be created with one name; a pair from before that rule answers as the
 application.
 
 ## Who may do what
 
-| | Everyone with the Sites area | Can view | Can manage | Owner | Administrator |
+| | Everyone with the Sites area | Shared with | Can manage | Owner | Administrator |
 |---|---|---|---|---|---|
-| Read the site in the portal | Yes | No | Yes | Yes | Yes |
-| Open the site's own address | No | Yes | Yes | Yes | Yes |
-| Publish, promote, roll back, add domains | No | No | Yes | Yes | Yes |
-| Share view access, open to everyone internal | No | No | Yes | Yes | Yes |
+| See the site in the portal | Yes, and only the environments they can open | Yes | Yes | Yes | Yes |
+| Open a private environment | Only if shared with them | The environments shared | Every one | Every one | Every one |
+| Publish and edit dev, promote, roll back, add domains | No | No | Yes | Yes | Yes |
+| Share an environment, make one private, set approval | No | No | Yes | Yes | Yes |
+| Make an environment public, move the main address | No | No | No | Yes | Yes |
 | Add or remove people who manage, edit, change owner | No | No | No | Yes | Yes |
-| Delete the site, map a domain to an application | No | No | No | No | Yes |
+| Delete the site, map a domain to an application, take approval off | No | No | No | No | Yes |
 
-**Can manage** is for internal people only. **Can view** needs no Sites area and
-no `manage_site`, so a client on an external persona limited to assets can have
-it. Access is keyed to the email the identity provider reports; when the provider
-says outright that it has not verified the address, the address matches no owner
-or grant, and the person is told why. A provider that sends no `email_verified`
-claim is trusted.
+A share names **who** and **which environments**:
+
+- **A person**, by the email the identity provider reports. A person can also
+  be given **Can manage**, which is site-wide and for internal people only.
+  External people can be shared with, never made managers. When the provider
+  says outright that it has not verified an address, the address matches no
+  owner or grant, and the person is told why. A provider that sends no
+  `email_verified` claim is trusted.
+- **A persona**. A persona share is matched on every request against the
+  persona the viewer's roles resolve to in the live registry, so a change to
+  the persona applies on their next request. A role changed at the identity
+  provider applies at their next sign-in, as everywhere on the platform.
+- **Everyone internal** is a per-environment setting (`internal_view`): it opens
+  that private environment to everyone signed in whose persona is not external.
+
+A share naming no environments opens every private environment. A public
+environment opens for anyone, so it is not shared.
+
+Someone who does not manage a site sees, in the portal and in the site's API
+answers, only the environments they can open and the domains on them.
 
 The Sites area is a persona's `portal.sites` switch. Unset, it is on for a persona
 holding `manage_site`.
 
-## A site's own address
+## Making an environment public
 
-Every request to `<site>.<pages_domain>`, on every path and for `HEAD`, is checked
-first, and a refusal holds nothing of the release.
+Only the owner or an administrator makes an environment public; anyone who
+manages the site makes one private. On an environment that requires approval, an
+owner's request files a request in Approvals (purpose `site_public`) and the
+environment stays private; once it is approved, the same request makes it public.
+An approval holds for the access it was asked against: an environment made
+private and then public again asks again. An administrator's own request goes
+through at once.
+
+## Signing in to a private environment
+
+Every request to a private environment, on every path and for `HEAD`, on its
+pages address or a domain, is checked first, and a refusal holds nothing of the
+release.
 
 - A `GET` or `HEAD` with no valid sign-in goes straight to the portal's sign-in and
-  comes back to the path it asked for, so someone already signed in to the portal
-  arrives with no click. Any other method gets a sign-in page, since it cannot be
-  carried across a redirect. Signing in hands the portal's session across by a
-  code good for a minute, once, bound to the browser that started it. The address
-  then keeps its own HttpOnly cookie, bound to that one site, for an hour.
-- Who may open it is read on every request, so removing someone takes effect on
-  their next one. Files there are `Cache-Control: private, no-cache`, so a browser
-  has to come back and be checked.
-- Administrator and external are read from the live persona, never from the cookie.
+  comes back to the hostname and path it started on, so someone already signed in
+  to the portal arrives with no click. Any other method gets a sign-in page, since
+  it cannot be carried across a redirect.
+- Signing in hands the portal's session across by a code good for a minute, once,
+  bound to the site, the hostname and the browser that started it. The portal's
+  handoff (`/sites/handoff`) reads the hostname from the request only to choose:
+  it sends the person back only to a hostname the store says serves a private
+  environment of that site, and refuses any other.
+- The hostname then keeps its own HttpOnly, host-only cookie, bound to that site
+  and that hostname, for an hour. It never receives the portal's session.
+- Who may open the environment is read on every request, so removing someone, or
+  changing a persona, takes effect on their next one. Files are
+  `Cache-Control: private, no-cache`, so a browser has to come back and be checked.
+- Administrator, external and persona are read from the live registry, never from
+  the cookie.
 - API keys are not honored, and every answer carries `X-Robots-Tag: noindex`.
-- `/_auth`, `/_signin` and `/_signout` are answered before any file, so a release
+- `/_auth`, `/_signin`, `/_signout`, `/_viewer` and, on an environment that is a
+  part of an application, `/endpoints/` are answered before any file, so a release
   holding those paths cannot stand in for them.
+
+A domain beside the portal (portal `portal.example.com`, site `docs.example.com`)
+can be added and made private when the session cookie names no `Domain`, as it
+does by default (`__Host-` on https): the site signs people in on its own
+hostname and never receives the portal's session. A deployment whose session
+cookie names a `Domain` refuses hostnames under it.
+
+## Inside a private environment
+
+A site builds its own access control (roles, per-page rules, what a person can see
+or do) and uses the platform's sign-in for who someone is.
+
+- `/_viewer` answers the signed-in person as JSON: `email`, `user_id`, `persona`
+  and `name` (the directory's display name, empty when it has none). It never
+  carries the cookie or anything signed. On a public environment it answers 401,
+  "nobody is signed in on this site".
+- When the environment is a part of an application (`add_part kind=site`), its
+  hosts also serve that application's endpoints at `/endpoints/<name>/...`, run as
+  the signed-in person (`req["caller"]`), as on the application's page origin. Every
+  site and environment under the pages domain is one site to a browser, so the
+  viewer is attached only to a request the browser marks as coming from this
+  origin (`Sec-Fetch-Site: same-origin`, or `none` for an address the person typed);
+  a sibling site's page cannot call an environment's endpoints as its viewer. On a
+  public environment the endpoints run as nobody.
+- The platform makes no decision inside the site beyond who may open the
+  environment.
 
 ## Pages
 
@@ -6484,18 +6593,19 @@ An agent changes a site with the tools it already has. `manage_asset`'s content
 actions (`outline`, `locate`, `get_content`, `stats`, `diff`, `patch`) take
 `mcp:site:<site>/<environment>/<path>` for one file, a path ending in `/` for a
 folder, and `mcp:site:<site>/<environment>` for the whole tree. `version` is the
-release number, and `base_version` is refused when `default` has moved past it, with
+release number, and `base_version` is refused when `dev` has moved past it, with
 nothing written. `patch` writes a new release derived from the current one.
 `manage_site publish` with `base` overlays that release: files sent are added or
 replaced, an entry with `delete: true` removes a path, and the rest carries over.
 
-Only `default` takes edits or an overlay: it is behind sign-in, and `promote` moves
-a finished change to any other environment, so a change made in several patches
-reaches the public in one step. A full `publish` to another environment that
-requires no approval still works, for a build pipeline. Patching needs manage access
-and a persona that holds `manage_site`, because `manage_asset` would otherwise reach
-further than `manage_site` does. Reading current files needs the access that opens
-the site's own address, including Can view; `diff` and earlier releases need manage.
+Only `dev` takes a publish, an edit or an overlay, and `promote` moves a finished
+change to any other environment, so a change made in several patches reaches people
+in one step. A publish, overlay or patch aimed at any other environment is refused:
+"environment "prod" is read-only: publish, patch and edits change dev, and a release
+reaches prod by promote". A build pipeline publishes to `dev` and promotes. Patching
+needs manage access and a persona that holds `manage_site`, because `manage_asset`
+would otherwise reach further than `manage_site` does. `diff` and earlier releases
+need manage.
 
 A derived release stores only what differs from its parent, plus a removal row for
 each deleted path, and `Files` reads the whole set by walking the chain. Every
@@ -6516,7 +6626,7 @@ served exactly as published.
 
 A rendered release holds two trees: the output, which is all the gateway reads, and
 the source, which is what `mcp:site:` references address and what someone who manages
-the site reads. Someone with Can view reads the output. Source is unservable because
+the site reads. Someone the site is shared with reads the output. Source is unservable because
 it is not in the tree that is served. The record of what each output read is stored
 with the release, and a patch re-renders only the outputs that read a changed file;
 a change to a layout renders every page using it, in one release.
@@ -6550,8 +6660,12 @@ A release is never rendered on the portal's origin.
 
 Whoever manages a site adds a domain with `add_domain`, or Add domain on the site
 page, naming the environment it serves; an environment that does not exist yet is
-created. `default` cannot have a domain, since a domain is public and the default
-environment is not. Only an administrator maps a hostname to an application.
+created, **private** unless the request asks for public, which only the owner or an
+administrator can, and not at once on an environment that requires approval (add
+the domain private, then make the environment public through Approvals). `dev`
+cannot have a domain: it is the working copy, not an address people rely on. A
+domain answers with its environment's access. Only an administrator maps a hostname
+to an application.
 
 The gateway answers an added hostname before the platform's routes, so the
 portal's hostname, the OAuth and sign-in issuers' hostnames, anything under the
@@ -6563,5 +6677,101 @@ A domain on an environment that requires approval can be removed only by an
 administrator, since moving it to another environment would publish to it
 unapproved.
 
-`GET /api/v1/admin/sites/domains` lists every site address and domain, for the
-system administrator's ingress rules.
+`GET /api/v1/admin/sites/domains` lists every site address (each main address and
+each `<site>--<env>`) and every domain, for the system administrator's ingress rules.
+
+## manage_site
+
+| Command | What it does |
+|---|---|
+| `create` | A site with `dev`, holding the main address |
+| `set_environment` | Creates an environment or changes it: `public`, `internal_view`, `requires_approval`, and `main: true` to give it the main address. A new environment is private |
+| `update` | `description`, `owner_email`, and `main_environment` to move the main address (`""` gives it to none) |
+| `publish` | A new release into `dev` (files, an archive or a folder; `base` overlays dev's release) |
+| `promote`, `rollback` | Move an environment's pointer |
+| `grant` | `email` or `persona`, `level` (`view`; `manage` is for a person, site-wide), and `environments` the view grant opens (none is every private environment) |
+| `revoke` | `email` or `persona` |
+| `add_domain`, `remove_domain`, `domains` | Domains; `public` applies when `add_domain` creates the environment |
+| `crawl` | Copies an existing site into `dev` |
+| `get`, `list`, `releases`, `deployments` | Read; `get` answers each environment's `addresses` and `pages_addresses` |
+
+`default`, the old name of `dev`, is read as `dev` wherever an environment is named
+for one minor release, and the answer carries a `note` saying so. A reference
+`mcp:site:<site>/default/...` reads as `mcp:site:<site>/dev/...`, and an application
+part `<site>/default` is added as `<site>/dev`.
+
+## Portal routes
+
+| Route | What it does |
+|---|---|
+| `PUT /api/v1/portal/sites/{site}/environments/{name}` | Creates or changes an environment. Body `{requires_approval?, public?, internal_view?, reason?}`, a field left out left alone. Answers `{site, status, approval?, note?}`, `status` being `done` or `awaiting_approval` |
+| `PUT /api/v1/portal/sites/{site}/main-environment` | `{environment}`; `""` gives the main address to none. Owner and administrators |
+| `GET /api/v1/portal/sites/{site}/access` | `{owner_email, grants, personas}`: each grant's `email` or `persona`, `level` and `environments`, and every persona a share can name |
+| `PUT /api/v1/portal/sites/{site}/access` | `{email? or persona?, level, environments?, notify?}` |
+| `DELETE /api/v1/portal/sites/{site}/access?email=` or `?persona=` | Removes the grant; applies on the next request |
+| `POST /api/v1/portal/sites/{site}/publish` | `environment` is `dev`, and may be left out |
+
+A site's JSON carries `main_environment`, `address` (the main address, `""` when it
+is given to none), `addresses` (each environment's pages address), and per
+environment `public` and `internal_view`.
+
+## In the portal
+
+The Sites section's Environments tab opens with **How this site works**: changes
+land in dev, promote what is ready, and each environment has its own access, with
+the addresses and what a private site can do with the signed-in person. It can be
+hidden. Each environment is a card in promote order showing its **Private** or
+**Public** badge, Requires approval, its release, its addresses (with **Main
+address** and **Domain** tags) and **Who can open it**, with Publish (dev only),
+Promote, Roll back, Share (private only) and Settings. **Main address**, **Add
+domain** and **New environment** sit above the cards. **Share** picks people and
+personas and the environments, defaulting to the one it was opened from. Choosing
+Public asks for confirmation naming every address that becomes public, waits in
+Approvals where the environment requires it, and is refused for someone who manages
+without owning. The Access tab lists **Who manages** and **Shared with**. Someone a
+site is shared with sees only the environments open to them.
+
+## Worked examples
+
+**An intranet** for people who already have platform accounts. `dev` is for the
+people who develop it; `prod`, on the main address, is for a persona.
+
+```
+manage_site command=create name=intranet
+manage_site command=set_environment site=intranet environment=prod requires_approval=true main=true
+manage_site command=grant site=intranet persona=management-team environments=["prod"]
+manage_site command=publish site=intranet files=[...]          # lands in dev
+manage_site command=promote site=intranet from=dev to=prod     # through Approvals
+```
+
+`intranet--dev.<pages_domain>` opens for the owner, the people who manage the site
+and administrators; `intranet.<pages_domain>` serves `prod` to `management-team`.
+
+**A client site** with a client review stage. `dev` keeps the main address for the
+web team, `stage` is the client's, `prod` is public on the client's domain.
+
+```
+manage_site command=create name=cool-site
+manage_site command=grant site=cool-site persona=web-team environments=["dev"]
+manage_site command=set_environment site=cool-site environment=stage
+manage_site command=grant site=cool-site email=client@example.com level=view environments=["stage"]
+manage_site command=add_domain site=cool-site hostname=cool-site.example.com environment=prod requires_approval=true
+manage_site command=set_environment site=cool-site environment=prod public=true   # owner, through Approvals
+manage_site command=promote site=cool-site from=dev to=stage
+manage_site command=promote site=cool-site from=stage to=prod                    # through Approvals
+```
+
+## Upgrading to #2604 (migration 000239)
+
+- Every environment named `default` becomes `dev`, with its release, deployment
+  history, domains, jobs and approval requests. A site that already held an
+  environment named `dev` beside `default` has that one renamed first, to
+  `development`, or `dev-previous` when that is taken too.
+- Every site keeps its main address on `dev`, so `<site>.<pages_domain>` serves what
+  it served.
+- Every environment that already had a domain becomes public, so nothing that
+  answered stops answering. Every other environment is private.
+- A site's "Everyone internal can view" moves onto `dev`, which is what it opened.
+- Existing grants name no environment, so they open every private environment.
+- An application part `<site>/default` becomes `<site>/dev`, in the parts and in
+  every release's pins, so releasing and rolling back the application still move it.

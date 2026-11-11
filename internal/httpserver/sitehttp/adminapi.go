@@ -93,10 +93,7 @@ func (a *adminAPI) domains(w http.ResponseWriter, r *http.Request) {
 	}
 	if pages := a.rt.Live.Get().PagesDomain; pages != "" {
 		for i := range sites {
-			out = append(out, DeploymentAddress{
-				Hostname: sites[i].Name + "." + pages, Kind: addressSite, Site: sites[i].Name, Environment: site.EnvDefault,
-				CreatedBy: sites[i].CreatedBy, CreatedAt: sites[i].CreatedAt.UTC().Format(timeLayout),
-			})
+			out = append(out, pagesAddresses(&sites[i], pages)...)
 		}
 	}
 	slices.SortFunc(out, func(x, y DeploymentAddress) int { return namesort.Compare(x.Hostname, y.Hostname) })
@@ -236,4 +233,22 @@ func (a *adminAPI) saveSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.settings(w, r)
+}
+
+// pagesAddresses is a site's addresses on the pages domain: the main address
+// and every environment's <site>--<env>.
+func pagesAddresses(st *site.Site, pages string) []DeploymentAddress {
+	at := st.CreatedAt.UTC().Format(timeLayout)
+	out := make([]DeploymentAddress, 0, len(st.Environments))
+	if st.MainEnvironment != "" {
+		out = append(out, DeploymentAddress{
+			Hostname: st.Name + "." + pages, Kind: addressSite, Site: st.Name, Environment: st.MainEnvironment, CreatedBy: st.CreatedBy, CreatedAt: at,
+		})
+	}
+	for _, e := range st.Environments {
+		out = append(out, DeploymentAddress{
+			Hostname: site.EnvLabel(st.Name, e.Name) + "." + pages, Kind: addressSite, Site: st.Name, Environment: e.Name, CreatedBy: st.CreatedBy, CreatedAt: at,
+		})
+	}
+	return out
 }

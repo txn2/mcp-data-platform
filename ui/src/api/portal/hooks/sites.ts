@@ -3,19 +3,31 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiFetchRaw, ApiError } from "../client";
 import { useApprovals, type ApprovalRequest } from "./approvals";
 
-// Sites (#2559): a site has one address of its own, serving its default
-// environment to people who sign in and have access, and any number of domains
-// serving its other environments to anyone. The server decides who may do what;
-// each site reports the caller's permissions so the page hides what they would
-// be refused.
+// Sites (#2559, #2604): agents and the people who manage a site work in dev;
+// people use the environments a release was promoted to. Each environment is
+// private (a sign-in, and only the people and personas it is shared with) or
+// public, answers at <site>--<env> on the pages domain and at any domain added
+// to it, and one environment may hold the site's main address. The server
+// decides who may do what; each site reports the caller's permissions so the
+// page hides what they would be refused.
 
-export const SITE_NAME_RE = /^[a-z][a-z0-9-]{0,62}$/;
-export const DEFAULT_ENVIRONMENT = "default";
+/**
+ * A site's name: one DNS label short enough that <site>--dev still fits in 63
+ * characters, never "xn" (whose environments would read as an encoded
+ * international name), with no doubled or trailing hyphen.
+ */
+export const SITE_NAME_RE = /^(?!xn$)(?!.*--)(?!.*-$)[a-z][a-z0-9-]{0,57}$/;
+/** The working copy: every publish, copy and edit lands here. */
+export const DEV_ENVIRONMENT = "dev";
 
 export interface SiteEnvironment {
   name: string;
   release: number;
   requires_approval: boolean;
+  /** Opens for anyone; false asks for a sign-in and a share. dev is never public. */
+  public: boolean;
+  /** Everyone signed in whose persona is not external can open it. */
+  internal_view: boolean;
   updated_by?: string;
   updated_at: string;
 }
@@ -41,12 +53,16 @@ export interface Site {
   name: string;
   description: string;
   owner_email: string;
-  internal_view: boolean;
+  /** The environment the main address serves, "" for none. */
+  main_environment: string;
   environments: SiteEnvironment[];
   created_by: string;
   created_at: string;
   updated_at: string;
+  /** The main address, "" when no environment holds it or there is no pages domain. */
   address: string;
+  /** Each environment's address on the pages domain; the main address for the one holding it. */
+  addresses: Record<string, string>;
   domains: SiteDomain[];
   permissions: SitePermissions;
 }
@@ -143,17 +159,22 @@ export interface SiteJob {
   created_at: string;
 }
 
+/** One grant: a person (email) or a persona, never both. A persona grant is always view. */
 export interface SiteGrant {
   email: string;
+  persona: string;
   level: "manage" | "view";
+  /** The environments a view grant opens; empty is every private environment. */
+  environments: string[];
   granted_by: string;
   created_at: string;
 }
 
 export interface SiteAccessList {
   owner_email: string;
-  internal_view: boolean;
   grants: SiteGrant[];
+  /** Every persona on the deployment, for sharing; sent to whoever manages the site. */
+  personas: string[];
 }
 
 export interface SitePromoted {
@@ -257,7 +278,6 @@ export function useCreateSite() {
 export interface SiteUpdate {
   description?: string;
   owner_email?: string;
-  internal_view?: boolean;
 }
 
 export function useUpdateSite(site: string) {
@@ -281,8 +301,8 @@ export function useDeleteSite(site: string) {
   return useMutation({ mutationFn: () => noContent(one(site), "DELETE"), onSuccess: invalidate });
 }
 
+/** A publish always lands in dev, so it names no environment. */
 export interface PublishBody {
-  environment: string;
   note: string;
   archive?: string;
   folder?: string;
@@ -302,7 +322,6 @@ export function usePublishSite(site: string) {
 
 export interface CopyBody {
   url: string;
-  environment: string;
   note: string;
   max_pages?: number;
   max_bytes?: number;
@@ -356,7 +375,7 @@ export function useRollbackSite(site: string) {
 export function useAddSiteDomain(site: string) {
   const invalidate = useInvalidate();
   return useMutation({
-    mutationFn: (b: { hostname: string; environment: string; requires_approval: boolean }) =>
+    mutationFn: (b: { hostname: string; environment: string; requires_approval?: boolean; public?: boolean }) =>
       apiFetch<SiteDomain>(`${one(site)}/domains`, json("POST", b)),
     onSuccess: invalidate,
   });
@@ -370,39 +389,92 @@ export function useRemoveSiteDomain(site: string) {
   });
 }
 
+export interface GrantBody {
+  email?: string;
+  persona?: string;
+  level: SiteGrant["level"];
+  environments?: string[];
+  notify?: boolean;
+}
+
 export function useGrantSite(site: string) {
   const invalidate = useInvalidate(site);
   return useMutation({
-    mutationFn: (b: { email: string; level: SiteGrant["level"]; notify: boolean }) =>
-      apiFetch<SiteGrant>(`${one(site)}/access`, json("PUT", { email: b.email, level: b.level, notify: b.notify })),
+    mutationFn: (b: GrantBody) => apiFetch<SiteGrant>(`${one(site)}/access`, json("PUT", b)),
     onSuccess: invalidate,
   });
 }
 
+/** Who a grant names, as the DELETE query carries it. */
+export type GrantWho = { email: string } | { persona: string };
+
 export function useRevokeSite(site: string) {
   const invalidate = useInvalidate(site);
   return useMutation({
-    mutationFn: (email: string) => noContent(`${one(site)}/access?email=${encodeURIComponent(email)}`, "DELETE"),
+    mutationFn: (who: GrantWho) => {
+      const q = "email" in who ? `email=${encodeURIComponent(who.email)}` : `persona=${encodeURIComponent(who.persona)}`;
+      return noContent(`${one(site)}/access?${q}`, "DELETE");
+    },
+    onSuccess: invalidate,
+  });
+}
+
+export interface EnvironmentBody {
+  requires_approval?: boolean;
+  public?: boolean;
+  internal_view?: boolean;
+  reason?: string;
+}
+
+export interface EnvironmentChanged {
+  site: Site;
+  status: "done" | "awaiting_approval";
+  approval?: ApprovalRequest;
+}
+
+/** Creates an environment, or changes its access or approval rule. */
+export function useSetSiteEnvironment(site: string) {
+  const invalidate = useInvalidate();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name, ...b }: EnvironmentBody & { name: string }) =>
+      apiFetch<EnvironmentChanged>(`${one(site)}/environments/${encodeURIComponent(name)}`, json("PUT", b)),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["approvals"] });
+      return invalidate();
+    },
+  });
+}
+
+/** Gives the main address to an environment, or to none with "". */
+export function useSetMainEnvironment(site: string) {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: (environment: string) => apiFetch<Site>(`${one(site)}/main-environment`, json("PUT", { environment })),
     onSuccess: invalidate,
   });
 }
 
 /**
  * Where each environment's latest approval stands, read from the Approvals
- * queue: what the banners on the Environments tab say. A request already carried
- * out says nothing more.
+ * queue: what the banners on the Environments tab say, one per environment and
+ * purpose (a promote, or making the environment public). A request already
+ * carried out says nothing more.
  */
 export function useApprovalForSite(site: Site): (ApprovalRequest & { target: string })[] {
   const { data } = useApprovals();
   const newest = new Map<string, ApprovalRequest & { target: string }>();
   for (const r of data ?? []) {
     if (r.subject_kind !== "site_release" || r.site_name !== site.name || !r.target) continue;
-    const held = newest.get(r.target);
-    if (!held || r.created_at > held.created_at) newest.set(r.target, r as ApprovalRequest & { target: string });
+    const key = `${r.purpose}:${r.target}`;
+    const held = newest.get(key);
+    if (!held || r.created_at > held.created_at) newest.set(key, r as ApprovalRequest & { target: string });
   }
   return [...newest.values()].filter((r) => {
-    const served = site.environments.find((e) => e.name === r.target)?.release;
-    return r.status === "pending" || r.status === "denied" || (r.status === "approved" && served !== r.version);
+    const env = site.environments.find((e) => e.name === r.target);
+    if (r.status === "pending" || r.status === "denied") return true;
+    if (r.status !== "approved") return false;
+    return r.purpose === "site_public" ? !!env && !env.public : env?.release !== r.version;
   });
 }
 

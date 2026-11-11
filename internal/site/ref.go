@@ -38,7 +38,8 @@ func ParseRef(s string) (Ref, error) {
 	if err := ValidateEnvironment(parts[1]); err != nil {
 		return Ref{}, fmt.Errorf("site reference %q: %w", s, err)
 	}
-	ref := Ref{Site: parts[0], Environment: parts[1]}
+	env, _ := CanonicalEnvironment(parts[1])
+	ref := Ref{Site: parts[0], Environment: env}
 	if len(parts) == refParts {
 		ref.Path = parts[2]
 	}

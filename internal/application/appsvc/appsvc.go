@@ -127,6 +127,11 @@ func (s *Service) Create(ctx context.Context, actor application.Actor, a applica
 	if err := a.Validate(); err != nil {
 		return nil, &RefusedError{Msg: err.Error()}
 	}
+	if strings.Contains(a.Name, "--") {
+		// <site>--<env> is a site environment's address on the pages domain
+		// (#2604): an application holding such a name would take it over.
+		return nil, refused("name %q: \"--\" is kept for site environment addresses; use single hyphens", a.Name)
+	}
 	if a.Connection != "" && s.HasConnection != nil && !s.HasConnection(a.Connection) {
 		// Stored, a mistyped name surfaced only later, as a problem on the
 		// application's page (#2491).
@@ -219,6 +224,9 @@ func (s *Service) AddPart(ctx context.Context, actor application.Actor, ref, kin
 	}
 	if kind == application.KindSchema {
 		return s.addSchema(ctx, actor, a, id)
+	}
+	if name, env, ok := application.ParseSitePartID(id); ok && kind == application.KindSite && env == "default" {
+		id = name + "/dev" // the old name of dev (#2604), read as dev for one release
 	}
 	if err := s.mayAdd(ctx, actor, kind, id); err != nil {
 		return nil, err

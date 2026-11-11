@@ -17,9 +17,12 @@ type SiteLimits struct {
 // SiteView is a site as the portal shows it.
 type SiteView struct {
 	site.Site
-	// Address is the site's own address, "" with no pages domain.
-	Address string        `json:"address"`
-	Domains []site.Domain `json:"domains"`
+	// Address is the site's main address, "" with no pages domain or when the
+	// main address is given to no environment.
+	Address string `json:"address"`
+	// Addresses is each environment's address on the pages domain, by name.
+	Addresses map[string]string `json:"addresses"`
+	Domains   []site.Domain     `json:"domains"`
 	// Permissions is what the caller may do to this site.
 	Permissions sitesvc.Permissions `json:"permissions"`
 }
@@ -46,7 +49,21 @@ type SiteRequest struct {
 
 // SiteUpdate changes a site's record; a field left out is left alone.
 type SiteUpdate struct {
-	Description  *string `json:"description,omitempty"`
-	Owner        *string `json:"owner_email,omitempty"`
-	InternalView *bool   `json:"internal_view,omitempty"`
+	Description *string `json:"description,omitempty"`
+	Owner       *string `json:"owner_email,omitempty"`
+}
+
+// MainEnvironmentBody gives the main address to an environment, "" to none.
+type MainEnvironmentBody struct {
+	Environment string `json:"environment" example:"prod"`
+}
+
+// EnvironmentResponse is what creating or changing an environment did.
+type EnvironmentResponse struct {
+	Site SiteView `json:"site"`
+	// Status is done, or awaiting_approval when making the environment public
+	// waits in Approvals.
+	Status   string                   `json:"status" example:"done"`
+	Approval *sitesvc.ApprovalRequest `json:"approval,omitempty"`
+	Note     string                   `json:"note,omitempty"`
 }

@@ -25,8 +25,14 @@ import (
 const (
 	SubjectScriptVersion = "script_version"
 	SubjectSiteRelease   = "site_release"
-	PurposeFormPublic    = "form_public"
-	PurposeSitePromote   = "site_promote"
+	// SubjectSiteEnvironment is one environment of a site, by SiteID and
+	// Target (#2604).
+	SubjectSiteEnvironment = "site_environment"
+	PurposeFormPublic      = "form_public"
+	PurposeSitePromote     = "site_promote"
+	// PurposeSitePublic makes a site environment that requires approval
+	// public; SourceSHA256 is the access it was asked against.
+	PurposeSitePublic = "site_public"
 )
 
 // The statuses a request moves through. A request is decided once.
@@ -99,7 +105,9 @@ type Request struct {
 	// release's manifest digest and Version its number.
 	SiteReleaseID string `json:"site_release_id,omitempty"`
 	Target        string `json:"target,omitempty" example:"prod"`
-	// SiteName is the site the release belongs to.
+	// SiteID is the site an environment request is about (#2604).
+	SiteID string `json:"site_id,omitempty"`
+	// SiteName is the site the release or environment belongs to.
 	SiteName        string     `json:"site_name,omitempty" example:"marketing"`
 	Status          string     `json:"status" example:"pending"`
 	DecidedBy       string     `json:"decided_by,omitempty"`
@@ -123,6 +131,9 @@ type Store interface {
 	// ReleaseApproved reports whether a site release is approved for a
 	// target at the digest.
 	ReleaseApproved(ctx context.Context, releaseID, target, digest string) (bool, error)
+	// EnvironmentApproved reports whether making a site environment public
+	// is approved for the access stamp.
+	EnvironmentApproved(ctx context.Context, siteID, target, stamp string) (bool, error)
 }
 
 // NewID is a request id.

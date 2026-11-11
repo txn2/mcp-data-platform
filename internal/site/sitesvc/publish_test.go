@@ -289,7 +289,7 @@ func TestPublish_AStorageFailureRecordsNothing(t *testing.T) {
 			_, err := svc.Publish(context.Background(), owner, publishReq(InputFile{Path: "big.css", Body: body}))
 			require.ErrorContains(t, err, "storing big.css")
 			assert.Empty(t, store.releases[siteID])
-			assert.Zero(t, store.sites[siteID].Environment(site.EnvDefault).Release, "the environment did not move")
+			assert.Zero(t, store.sites[siteID].Environment(site.EnvDev).Release, "the environment did not move")
 		})
 	}
 }
@@ -339,5 +339,5 @@ func TestPublish_ReportsProgressAndThePhase(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []int{1, 2, 3}, totals, "told once per file, counting up")
-	assert.Equal(t, []string{"Switching default to the new release"}, phases)
+	assert.Equal(t, []string{"Switching dev to the new release"}, phases)
 }

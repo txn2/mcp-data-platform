@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Globe } from "lucide-react";
-import { DEFAULT_ENVIRONMENT, useSite, useSiteRelease, type SiteFile } from "@/api/portal/hooks/sites";
+import { useSite, useSiteRelease, type SiteFile } from "@/api/portal/hooks/sites";
 import { PageHeader } from "@/components/patterns/PageHeader";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { formatBytes, hostUrl, hostsOf, when } from "./siteFormat";
+import { envOpenUrl, formatBytes, when } from "./siteFormat";
 
 const PAGE = 50;
 
@@ -40,10 +40,9 @@ export function SiteReleasePage({ site, number, onNavigate }: { site: string; nu
   }
   const openAt = (() => {
     if (!owner) return "";
-    if (data.served_in.includes(DEFAULT_ENVIRONMENT) && owner.address) return owner.address;
     for (const env of data.served_in) {
-      const host = hostsOf(owner, env)[0];
-      if (host) return hostUrl(owner, host.hostname);
+      const at = envOpenUrl(owner, env);
+      if (at) return at;
     }
     return "";
   })();

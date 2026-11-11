@@ -277,8 +277,8 @@ func statusOf(decision string) (string, error) {
 // one requested. Versions are kept as written, so this holds unless the
 // history was rewritten under the request.
 func (s *Service) stillTheSource(ctx context.Context, r *Request) error {
-	if r.SubjectKind == SubjectSiteRelease {
-		return nil // a release is immutable, and promoting compares the digest
+	if r.SubjectKind == SubjectSiteRelease || r.SubjectKind == SubjectSiteEnvironment {
+		return nil // a release is immutable, and promoting compares the digest; making public compares the access stamp
 	}
 	v, err := s.Scripts.GetVersion(ctx, r.ScriptID, r.Version)
 	if err != nil || v == nil {
@@ -410,6 +410,70 @@ func (s *Service) pendingRelease(ctx context.Context, in SubmitRelease) (*Reques
 		}
 	}
 	return nil, ErrPending
+}
+
+// SubmitEnvironment asks to make a site environment that requires approval
+// public (#2604).
+type SubmitEnvironment struct {
+	SiteID string
+	Site   string
+	Target string
+	// Stamp is the environment's access when asked: an approval holds for it
+	// alone.
+	Stamp  string
+	Reason string
+}
+
+// SubmitEnvironment files a request to make a site environment public, or
+// returns the one already waiting.
+func (s *Service) SubmitEnvironment(ctx context.Context, actor Actor, in SubmitEnvironment) (*Request, error) {
+	if actor.Email == "" {
+		return nil, refused("a request belongs to a person: sign in with an account that has an email")
+	}
+	reason, err := limitReason(in.Reason)
+	if err != nil {
+		return nil, refused("reason: at most %d bytes", MaxReason)
+	}
+	r := &Request{
+		ID: NewID(), SubjectKind: SubjectSiteEnvironment, Purpose: PurposeSitePublic, SourceSHA256: in.Stamp,
+		RequesterEmail: actor.Email, RequesterPersona: actor.Persona, Reason: reason,
+		SiteID: in.SiteID, Target: in.Target, SiteName: in.Site,
+	}
+	if err := s.Store.Insert(ctx, r); err != nil {
+		if errors.Is(err, ErrPending) {
+			return s.pendingEnvironment(ctx, in)
+		}
+		return nil, fmt.Errorf("filing the request: %w", err)
+	}
+	if s.Notifier != nil && s.Approvers != nil {
+		s.Notifier.Requested(ctx, r, s.Approvers(ctx))
+	}
+	return r, nil
+}
+
+func (s *Service) pendingEnvironment(ctx context.Context, in SubmitEnvironment) (*Request, error) {
+	pending, err := s.Store.List(ctx, Filter{Status: StatusPending, SiteID: in.SiteID})
+	if err != nil {
+		return nil, fmt.Errorf("reading the waiting requests: %w", err)
+	}
+	for i := range pending {
+		if pending[i].SubjectKind == SubjectSiteEnvironment && pending[i].Target == in.Target {
+			return &pending[i], nil
+		}
+	}
+	return nil, ErrPending
+}
+
+// EnvironmentApproved reports whether making a site environment public is
+// approved for the stamp. A failure to read is logged and reads as not
+// approved, which makes nothing public.
+func (s *Service) EnvironmentApproved(ctx context.Context, siteID, target, stamp string) bool {
+	ok, err := s.Store.EnvironmentApproved(ctx, siteID, target, stamp)
+	if err != nil {
+		slog.WarnContext(ctx, "approvals: reading an environment's approval failed", "error", logsan.SanitizeForLog(err.Error()))
+		return false
+	}
+	return ok
 }
 
 // ReleaseApproved reports whether a release is approved for a target at the

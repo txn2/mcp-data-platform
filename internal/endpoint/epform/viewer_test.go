@@ -71,3 +71,27 @@ func TestSpec_Sensitive(t *testing.T) {
 func encodeMAC(k []byte, body string) string {
 	return base64.RawURLEncoding.EncodeToString(mac(k, body))
 }
+
+// A site sign-in carries the roles the persona is worked out from on every
+// request and the display name /_viewer answers with (#2604); a token from
+// before carries neither and still opens.
+func TestViewerToken_CarriesRolesAndName(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	now := time.Date(2026, 11, 10, 9, 0, 0, 0, time.UTC)
+	v := Viewer{UserID: "u1", Email: "pat@example.com", Persona: "finance-team", Roles: []string{"fin", "staff"}, Name: "Pat Rivera"}
+	token, err := SignViewerFor(key, "site:site_1:intranet.pages.example.net", v, now, time.Hour)
+	require.NoError(t, err)
+	got, err := OpenViewer(key, "site:site_1:intranet.pages.example.net", token, now)
+	require.NoError(t, err)
+	assert.Equal(t, v, got)
+
+	_, err = OpenViewer(key, "site:site_1:intranet--dev.pages.example.net", token, now)
+	require.Error(t, err, "a token for one host opens no other")
+
+	bare, err := SignViewerFor(key, "e", Viewer{UserID: "u1", Email: "pat@example.com"}, now, time.Hour)
+	require.NoError(t, err)
+	old, err := OpenViewer(key, "e", bare, now)
+	require.NoError(t, err)
+	assert.Nil(t, old.Roles)
+	assert.Empty(t, old.Name)
+}

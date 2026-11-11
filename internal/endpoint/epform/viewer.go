@@ -40,6 +40,11 @@ type Viewer struct {
 	// EmailUnverified is true when the identity provider said it has not
 	// verified Email (a site's own address, #2559).
 	EmailUnverified bool `json:"v,omitempty"`
+	// Roles are the roles the person signed in with, from which a site works
+	// out their persona again on every request (#2604).
+	Roles []string `json:"r,omitempty"`
+	// Name is the person's display name, where the directory has one.
+	Name string `json:"n,omitempty"`
 }
 
 // viewerBody is what a viewer token carries, signed.

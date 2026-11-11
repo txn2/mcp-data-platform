@@ -39,6 +39,8 @@ const (
 // approval; anyone else's files a request and is carried out when they promote
 // again after it is approved. An approval names the release's manifest digest.
 func (s *Service) Promote(ctx context.Context, actor Actor, req PromoteRequest) (*Promoted, error) {
+	req.From, _ = site.CanonicalEnvironment(req.From)
+	req.To, _ = site.CanonicalEnvironment(req.To)
 	st, err := s.Find(ctx, req.Site)
 	if err != nil {
 		return nil, err
@@ -117,6 +119,7 @@ func (s *Service) approvedOrRequest(ctx context.Context, actor Actor, in approva
 // through whatever the environment requires, so it needs no new approval; a
 // release it never served is reached by promote.
 func (s *Service) Rollback(ctx context.Context, actor Actor, ref, environment string, to int) (*Promoted, error) {
+	environment, _ = site.CanonicalEnvironment(environment)
 	st, err := s.Find(ctx, ref)
 	if err != nil {
 		return nil, err

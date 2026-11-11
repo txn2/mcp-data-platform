@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { DEFAULT_ENVIRONMENT, useCopySite, useSiteForms, useSiteJob, useSites, useStopSiteJob, type Site, type SiteJob, type SiteLimits } from "@/api/portal/hooks/sites";
+import { DEV_ENVIRONMENT, useCopySite, useSiteForms, useSiteJob, useSites, useStopSiteJob, type Site, type SiteJob, type SiteLimits } from "@/api/portal/hooks/sites";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -7,8 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { EnvironmentSelect, bar, number } from "./SitePublish";
-import { bareAddress, errorText, formatBytes } from "./siteFormat";
+import { DevOnlyNote, bar, number } from "./SitePublish";
+import { bareAddress, envOpenUrl, errorText, formatBytes } from "./siteFormat";
 
 // CopySiteDialog copies a public website into a new release, in the background,
 // and reports what it could not bring across and why.
@@ -16,7 +16,6 @@ export function CopySiteDialog({ site, onClose }: { site: Site; onClose: () => v
   const limits = useSites().data?.limits;
   const copy = useCopySite(site.name);
   const [url, setUrl] = useState("");
-  const [env, setEnv] = useState(DEFAULT_ENVIRONMENT);
   const [note, setNote] = useState("");
   const [forms, setForms] = useState<FormRow[]>([]);
   const [jobId, setJobId] = useState<string | null>(null);
@@ -26,7 +25,7 @@ export function CopySiteDialog({ site, onClose }: { site: Site; onClose: () => v
   const start = () => {
     setFailure(null);
     copy.mutate(
-      { url: url.trim(), environment: env, note: note.trim(), form_map: formMap(forms) },
+      { url: url.trim(), note: note.trim(), form_map: formMap(forms) },
       { onSuccess: (j) => setJobId(j.id), onError: (e) => setFailure(errorText(e, "The copy could not be started")) },
     );
   };
@@ -36,22 +35,18 @@ export function CopySiteDialog({ site, onClose }: { site: Site; onClose: () => v
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Copy a site</DialogTitle>
-          <DialogDescription>Copies a public website into a new release. Its pages keep their addresses, and its redirects become this site's redirect map.</DialogDescription>
+          <DialogDescription>Copies a public website into a new release in dev. Its pages keep their addresses, and its redirects become this site's redirect map.</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1">
             <Label htmlFor="copy-url">Website address</Label>
             <Input id="copy-url" placeholder="https://www.example.com" value={url} onChange={(e) => setUrl(e.target.value)} />
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1">
-              <EnvironmentSelect site={site} value={env} onChange={setEnv} />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="copy-note">Note</Label>
-              <Input id="copy-note" value={note} onChange={(e) => setNote(e.target.value)} />
-            </div>
+          <div className="space-y-1">
+            <Label htmlFor="copy-note">Note</Label>
+            <Input id="copy-note" value={note} onChange={(e) => setNote(e.target.value)} />
           </div>
+          <DevOnlyNote site={site} devAt={envOpenUrl(site, DEV_ENVIRONMENT)} release={(site.environments.find((e) => e.name === DEV_ENVIRONMENT)?.release ?? 0) + 1} />
           <FormRows site={site.name} rows={forms} onChange={setForms} />
           <CopyBounds limits={limits} />
           <CopyFailure text={failure} />
@@ -199,7 +194,7 @@ function hostOf(url: string): string {
 function CopyResult({ site, job, onClose }: { site: Site; job: SiteJob; onClose: () => void }) {
   const title =
     job.status === "done" ? `Copied into release ${job.release}` : job.status === "stopped" ? "The copy was stopped" : "The copy could not be finished";
-  const address = job.environment === DEFAULT_ENVIRONMENT && site.address ? site.address : "";
+  const address = envOpenUrl(site, job.environment || DEV_ENVIRONMENT);
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-2xl">

@@ -161,3 +161,7 @@ func TestRegister(t *testing.T) {
 	(&Tool{}).Register(server)
 	assert.NotNil(t, schema()["properties"])
 }
+
+func (*store) EnvironmentApproved(context.Context, string, string, string) (bool, error) {
+	return false, nil
+}

@@ -92,3 +92,7 @@ func TestLayer_StartReturnsWhatStopsTheLoops(t *testing.T) {
 		assert.Fail(t, "the loops were still running after stop returned")
 	}
 }
+
+func (gatewayStore) RouteEnv(context.Context, string, string) (*site.Route, error) {
+	return nil, site.ErrNoDomain
+}

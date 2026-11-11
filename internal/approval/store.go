@@ -32,7 +32,9 @@ type Filter struct {
 	ScriptID string
 	// SiteReleaseID is one site release's requests, empty for every one's.
 	SiteReleaseID string
-	Limit         int
+	// SiteID is one site's environment requests, empty for every site's.
+	SiteID string
+	Limit  int
 }
 
 // Decision is what an administrator decided about a request.
@@ -52,10 +54,10 @@ func NewPostgresStore(db *sql.DB) *PostgresStore { return &PostgresStore{db: db}
 
 const requestColumns = `r.id, r.subject_kind, r.purpose, COALESCE(r.script_id::text, ''), COALESCE(s.name, ''), r.version, r.source_sha256,
 	r.requester_email, r.requester_persona, r.reason, r.changes, r.status, r.decided_by, r.decided_at,
-	r.decision_comment, r.self_approved, r.created_at, COALESCE(r.site_release_id, ''), r.target, COALESCE(st.name, '')`
+	r.decision_comment, r.self_approved, r.created_at, COALESCE(r.site_release_id, ''), r.target, COALESCE(st.name, ''), COALESCE(r.site_id, '')`
 
 const requestFrom = ` FROM approval_requests r LEFT JOIN scripts s ON s.id = r.script_id
-	LEFT JOIN site_releases sr ON sr.id = r.site_release_id LEFT JOIN sites st ON st.id = sr.site_id`
+	LEFT JOIN site_releases sr ON sr.id = r.site_release_id LEFT JOIN sites st ON st.id = COALESCE(sr.site_id, r.site_id)`
 
 // Insert stores a new pending request.
 func (p *PostgresStore) Insert(ctx context.Context, r *Request) error {
@@ -65,11 +67,11 @@ func (p *PostgresStore) Insert(ctx context.Context, r *Request) error {
 	}
 	err = p.db.QueryRowContext(ctx, `
 		INSERT INTO approval_requests (id, subject_kind, purpose, script_id, version, source_sha256,
-			requester_email, requester_persona, reason, changes, site_release_id, target)
-		VALUES ($1, $2, $3, NULLIF($4, '')::uuid, $5, $6, $7, $8, $9, $10, NULLIF($11, ''), $12)
+			requester_email, requester_persona, reason, changes, site_release_id, target, site_id)
+		VALUES ($1, $2, $3, NULLIF($4, '')::uuid, $5, $6, $7, $8, $9, $10, NULLIF($11, ''), $12, NULLIF($13, ''))
 		RETURNING status, created_at`,
 		r.ID, r.SubjectKind, r.Purpose, r.ScriptID, r.Version, r.SourceSHA256,
-		r.RequesterEmail, r.RequesterPersona, r.Reason, changes, r.SiteReleaseID, r.Target,
+		r.RequesterEmail, r.RequesterPersona, r.Reason, changes, r.SiteReleaseID, r.Target, r.SiteID,
 	).Scan(&r.Status, &r.CreatedAt)
 	if isUnique(err) {
 		return ErrPending
@@ -130,6 +132,9 @@ func listQuery(f Filter) (q string, args []any) {
 	if f.SiteReleaseID != "" {
 		add("r.site_release_id = ?", f.SiteReleaseID)
 	}
+	if f.SiteID != "" {
+		add("r.site_id = ?", f.SiteID)
+	}
 	q = `SELECT ` + requestColumns + requestFrom
 	if len(where) > 0 {
 		q += ` WHERE ` + strings.Join(where, " AND ")
@@ -184,6 +189,21 @@ func (p *PostgresStore) ReleaseApproved(ctx context.Context, releaseID, target, 
 	return found, nil
 }
 
+// EnvironmentApproved reports whether making a site environment public is
+// approved for the access stamp the approver was shown.
+func (p *PostgresStore) EnvironmentApproved(ctx context.Context, siteID, target, stamp string) (bool, error) {
+	var found bool
+	err := p.db.QueryRowContext(ctx, `
+		SELECT EXISTS (SELECT 1 FROM approval_requests
+		                WHERE subject_kind = 'site_environment' AND site_id = $1 AND target = $2
+		                  AND source_sha256 = $3 AND status = 'approved')`,
+		siteID, target, stamp).Scan(&found)
+	if err != nil {
+		return false, fmt.Errorf("reading the environment's approval: %w", err)
+	}
+	return found, nil
+}
+
 type rowScanner interface{ Scan(dest ...any) error }
 
 func scanRequest(row rowScanner) (*Request, error) {
@@ -194,7 +214,7 @@ func scanRequest(row rowScanner) (*Request, error) {
 	)
 	err := row.Scan(&r.ID, &r.SubjectKind, &r.Purpose, &r.ScriptID, &r.ScriptName, &r.Version, &r.SourceSHA256,
 		&r.RequesterEmail, &r.RequesterPersona, &r.Reason, &changes, &r.Status, &r.DecidedBy, &decided,
-		&r.DecisionComment, &r.SelfApproved, &r.CreatedAt, &r.SiteReleaseID, &r.Target, &r.SiteName)
+		&r.DecisionComment, &r.SelfApproved, &r.CreatedAt, &r.SiteReleaseID, &r.Target, &r.SiteName, &r.SiteID)
 	if err != nil {
 		return nil, fmt.Errorf("reading a request: %w", err)
 	}
