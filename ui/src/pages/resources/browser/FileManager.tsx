@@ -1,4 +1,6 @@
 import { Loader2 } from "lucide-react";
+import { DownloadStatus } from "@/components/download/DownloadStatus";
+import { type Download, useDownload } from "@/components/download/useDownload";
 import { InfiniteFooter } from "@/components/InfiniteFooter";
 import { cn } from "@/lib/utils";
 import { displayPath } from "../scopes";
@@ -24,6 +26,7 @@ type FM = ReturnType<typeof useFileManager>;
  */
 export function FileManager(props: FileManagerProps) {
   const fm = useFileManager(props);
+  const download = useDownload();
   return (
     <div
       data-testid="file-manager"
@@ -49,7 +52,7 @@ export function FileManager(props: FileManagerProps) {
         />
       </aside>
       <Main fm={fm} />
-      <Pane fm={fm} />
+      <Pane fm={fm} download={download} />
       <StatusLine
         folders={fm.data.entries.filter((e) => e.kind === "folder").length}
         files={fm.data.fileTotal}
@@ -57,6 +60,7 @@ export function FileManager(props: FileManagerProps) {
       />
       {fm.menu && <ContextMenu x={fm.menu.x} y={fm.menu.y} items={contextItems(fm)} onClose={() => fm.setMenu(null)} />}
       <Toast toast={fm.toast} onDismiss={fm.dismiss} />
+      <DownloadStatus download={download} />
       <FmDialogs
         dialog={fm.dialog}
         root={fm.root}
@@ -191,7 +195,7 @@ function Body({ fm, flat }: { fm: FM; flat: { query: string; within: boolean; ta
   );
 }
 
-function Pane({ fm }: { fm: FM }) {
+function Pane({ fm, download }: { fm: FM; download: Download }) {
   const first = fm.picked[0];
   // The files shared with the caller open at their own page; there is no
   // folder to summarize beside them.
@@ -214,9 +218,10 @@ function Pane({ fm }: { fm: FM }) {
         path={fm.path}
         here={fm.data.here}
         canWrite={fm.canAct}
+        download={download}
         actions={{
           onOpen: fm.openEntry,
-          onDownload: (r) => void downloadResource(r),
+          onDownload: (r) => void download.run(r.filename, downloadResource(r), r.id),
           onCopyURI: fm.copyURI,
           onRename: () => first && fm.startRename(first.key),
           onMove: () => fm.act("move"),

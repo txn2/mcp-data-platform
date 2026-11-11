@@ -1,6 +1,7 @@
 package appsvc
 
 import (
+	"cmp"
 	"context"
 	"slices"
 	"strings"
@@ -154,7 +155,8 @@ func scriptName(sc *script.Script) string {
 // MaxCandidates bounds the candidates listed of each kind.
 const MaxCandidates = 50
 
-// Candidate is one script, asset or webhook source the actor may add.
+// Candidate is one script, asset, webhook source or site environment the
+// actor may add.
 type Candidate struct {
 	Kind        string     `json:"kind" example:"script"`
 	ID          string     `json:"id" example:"5b0c..."`
@@ -189,9 +191,9 @@ type CandidateLister interface {
 }
 
 // FindCandidates lists the parts the actor may add to an application whose
-// name matches query, by the rules AddPart applies: their own scripts and
-// assets (every one for an administrator) and, for an administrator, webhook
-// sources. A part already in this application is left out; one in another
+// name matches query, by the rules AddPart applies: their own scripts, assets
+// and site environments (every one for an administrator) and, for an
+// administrator, webhook sources. A part already in this application is left out; one in another
 // application is listed with that application, which refuses it. kind
 // narrows the list but not the counts.
 func (s *Service) FindCandidates(ctx context.Context, actor application.Actor, ref, query, kind string) (*Candidates, error) {
@@ -209,7 +211,7 @@ func (s *Service) FindCandidates(ctx context.Context, actor application.Actor, r
 	query = strings.TrimSpace(query)
 	all := []Candidate{}
 	for _, read := range []func(context.Context, application.Actor, string) ([]Candidate, error){
-		s.scriptCandidates, s.assetCandidates, s.sourceCandidates,
+		s.scriptCandidates, s.assetCandidates, s.sourceCandidates, s.siteCandidates,
 	} {
 		found, err := read(ctx, actor, query)
 		if err != nil {
@@ -309,6 +311,40 @@ func (s *Service) sourceCandidates(ctx context.Context, actor application.Actor,
 	out := make([]Candidate, 0, len(names))
 	for _, n := range names {
 		out = append(out, Candidate{Kind: application.KindSource, ID: n, Name: n})
+	}
+	return out, nil
+}
+
+// siteCandidates lists, by site and then environment, the site environments
+// whose "<site>/<environment>" holds query that the actor may add, by the rule
+// mayAddSite applies: the environments of their own sites, every site's for an
+// administrator, none where the deployment has no sites (#2613).
+func (s *Service) siteCandidates(ctx context.Context, actor application.Actor, query string) ([]Candidate, error) {
+	if s.Sites == nil {
+		return nil, nil
+	}
+	envs, err := s.Sites.SiteEnvironments(ctx)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // a store failure is the request's failure
+	}
+	slices.SortFunc(envs, func(a, b application.SiteEnvironment) int {
+		return cmp.Or(strings.Compare(a.Site, b.Site), strings.Compare(a.Environment, b.Environment))
+	})
+	query = strings.ToLower(query)
+	out := []Candidate{}
+	for _, e := range envs {
+		id := application.SitePartID(e.Site, e.Environment)
+		if (!actor.Admin && !strings.EqualFold(e.Owner, actor.Email)) || !strings.Contains(strings.ToLower(id), query) {
+			continue
+		}
+		c := Candidate{Kind: application.KindSite, ID: id, Name: id, OwnerEmail: e.Owner}
+		if !e.UpdatedAt.IsZero() {
+			at := e.UpdatedAt
+			c.UpdatedAt = &at
+		}
+		if out = append(out, c); len(out) == MaxCandidates {
+			break
+		}
 	}
 	return out, nil
 }

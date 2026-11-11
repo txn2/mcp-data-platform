@@ -46,6 +46,7 @@ type memStore struct {
 	failSetEnv  error
 	failAdd     error
 	failStop    error
+	failList    error
 }
 
 func newMem() *memStore {
@@ -102,6 +103,9 @@ func (m *memStore) GetByName(_ context.Context, name string) (*site.Site, error)
 func (m *memStore) List(context.Context) ([]site.Site, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.failList != nil {
+		return nil, m.failList
+	}
 	out := make([]site.Site, 0, len(m.sites))
 	for _, st := range m.sites {
 		out = append(out, *cloneSite(st))

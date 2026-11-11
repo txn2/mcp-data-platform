@@ -89,7 +89,9 @@ raises for a large media archive.
 ## 6. Prove every URL before cutover
 
 Before a domain moves, request every URL in the original sitemap from the new site
-at `<site>--dev.<pages domain>` (signed in, since `dev` is private) and confirm each
+at dev's address, the one `manage_site get` answers in `addresses` (the main address
+while dev holds it, else `<site>--dev.<pages domain>`), signed in since `dev` is
+private, and confirm each
 answers 200 or redirects to the page that replaces it. Fix what does not, publish
 again with `base`, and repeat until none is left. Then promote the release to the
 environment people use and move the domain.

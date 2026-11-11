@@ -10,7 +10,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { DownloadControl } from "@/components/download/DownloadControl";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import type { DownloadProgress } from "@/lib/download";
 import type { MutationLike } from "./types";
 
 interface AssetViewerActionsProps {
@@ -26,6 +28,8 @@ interface AssetViewerActionsProps {
   // not offered. The persona's PDF export setting governs only the PDF
   // (#2257): downloading reads the same bytes viewing does.
   onDownload?: () => void;
+  /** How far the download Download started has got, null when none runs (#2614). */
+  downloadProgress?: DownloadProgress | null;
   onCopyToMyAssets: () => void;
   onShare: () => void;
   // onAddToCollection is absent when the reader has no collection to add to
@@ -79,6 +83,7 @@ function MoreMenuItems({
   copyMutation,
   onDelete,
   onDownload,
+  downloadProgress,
   onCopyToMyAssets,
   onAddToCollection,
 }: AssetViewerActionsProps) {
@@ -91,7 +96,9 @@ function MoreMenuItems({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         {onDownload && (
-          <DropdownMenuItem onSelect={onDownload}>
+          // While a download runs its status line says how far it has got;
+          // the item starts no second one (#2614).
+          <DropdownMenuItem onSelect={onDownload} disabled={!!downloadProgress}>
             <Download />
             Download
           </DropdownMenuItem>
@@ -134,6 +141,7 @@ function FullActions({
   copyMutation,
   onDelete,
   onDownload,
+  downloadProgress = null,
   onCopyToMyAssets,
   onShare,
   onAddToCollection,
@@ -155,12 +163,7 @@ function FullActions({
           Delete
         </Button>
       )}
-      {onDownload && (
-        <Button variant="outline" size="sm" onClick={onDownload} title="Download">
-          <Download />
-          Download
-        </Button>
-      )}
+      {onDownload && <DownloadControl progress={downloadProgress} onClick={onDownload} />}
       <AddToCollectionButton onClick={onAddToCollection} />
       {copyMutation && (
         <Button

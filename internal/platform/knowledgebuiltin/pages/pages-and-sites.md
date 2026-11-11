@@ -102,8 +102,17 @@ an environment's pointer: no file is copied and the change shows at once.
 `set_environment ... main=true` gives an environment the main address, and
 `update main_environment=""` gives it to none; both are the owner's or an
 administrator's. Every environment keeps its `<site>--<env>` address. A site or
-environment whose address would be longer than 63 characters, or a site named
-`xn`, is refused with the reason.
+environment whose address would be longer than 63 characters is refused with the
+reason, and so is a site name of two characters: `ab--prod` has `--` as its 3rd
+and 4th characters, a form DNS reserves and certificate authorities refuse.
+
+`get` answers `addresses`, where people reach each environment (the first of its
+domains, otherwise its address on the pages domain), and `pages_addresses`, each
+environment's `<site>--<env>` or main address, which answers only where the
+deployment's ingress routes it. Give people the address in `addresses`. A site
+named with two characters before that rule has no pages address for its
+environments other than the main one, and `get` says so in `address_note`: give
+those environments a domain.
 
 ### Private and public
 

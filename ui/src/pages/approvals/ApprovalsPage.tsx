@@ -165,7 +165,7 @@ function SitePublicRequest({ request: r }: { request: ApprovalRequest }) {
 /** Every address of a site environment: its pages address and its domains. */
 function publicHosts(site: Site | undefined, env: string): string[] {
   if (!site) return [];
-  const own = site.addresses?.[env] ?? "";
+  const own = site.pages_addresses?.[env] ?? "";
   return [own, ...site.domains.filter((d) => d.environment === env).map((d) => d.hostname)].filter(Boolean);
 }
 

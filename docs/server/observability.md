@@ -704,6 +704,9 @@ raises one; the log line carries the same `code`. The codes:
 | `memory_no_embedding` | memory runs without an embedding provider |
 | `exclude_persona_unknown` | `calls.exclude_personas` names no persona |
 | `deployment_id_unset` | an OTLP exporter is on with no `MCP_PLATFORM_DEPLOYMENT_ID` |
+| `script_destination_outside_prefix` | a script destination's bucket is outside its S3 connection's `bucket_prefix` |
+| `site_reserved_label` | a site's name is two characters, so its `<site>--<env>` addresses are labels certificate authorities refuse (#2611) |
+| `site_environment_renamed` | before migration 000239 runs: it is about to rename a site's environment named `dev`, which has a domain (#2608) |
 
 **Startup.** Initialization runs as named phases (`observability`, `data`,
 `providers`, `registries`, `prompts`, `oauth_signing_key`, `auth`,

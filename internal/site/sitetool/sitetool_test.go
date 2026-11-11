@@ -45,6 +45,7 @@ type memStore struct {
 	grants      map[string]map[string]site.Grant
 	err         error
 	failGrants  error
+	failDomains error
 }
 
 func newMemStore() *memStore {
@@ -338,6 +339,9 @@ func (*memStore) RouteOwn(context.Context, string) (*site.Route, error) {
 func (m *memStore) SiteDomains(_ context.Context, siteID string) ([]site.Domain, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.failDomains != nil {
+		return nil, m.failDomains
+	}
 	out := []site.Domain{}
 	for _, d := range m.domains {
 		if d.SiteID == siteID {
@@ -1016,6 +1020,30 @@ func TestGet_AnAddedDomainIsAnEnvironmentsAddress(t *testing.T) {
 	addresses, ok := call(t, f, admin(), Input{Command: CmdGet, Site: siteName})["addresses"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "https://"+testHost, addresses["prod"])
+}
+
+// TestGet_AnswersAsThePortalDoes pins #2607 and #2611: get reads the site's
+// domains once and answers each environment's address by them, the composed
+// addresses apart, says why a two-character site's environments have no pages
+// address, and fails on a domain read it cannot make rather than answering
+// addresses it did not check.
+func TestGet_AnswersAsThePortalDoes(t *testing.T) {
+	f := newFixture()
+	createSite(t, f)
+	call(t, f, admin(), Input{Command: CmdAddDomain, Hostname: testHost, Site: siteName, Environment: "prod"})
+	got := call(t, f, admin(), Input{Command: CmdGet, Site: siteName})
+	pages, ok := got["pages_addresses"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "https://"+siteName+"--prod.pages.example.com", pages["prod"], "the composed address is reported apart")
+	assert.NotContains(t, got, "address_note", "a site whose addresses answer is told nothing")
+
+	two := stored(f)
+	two.Name = "ab"
+	got = call(t, f, admin(), Input{Command: CmdGet, Site: "ab"})
+	assert.Contains(t, got["address_note"], "an address like ab--prod.pages.example.com")
+
+	f.store.failDomains = errors.New("db down")
+	assert.Contains(t, refusal(t, f, admin(), Input{Command: CmdGet, Site: "ab"}), "listing domains")
 }
 
 func TestSetEnvironment_InternalViewCanBeTurnedOff(t *testing.T) {

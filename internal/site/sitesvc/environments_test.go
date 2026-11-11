@@ -180,7 +180,9 @@ func TestCreate_TheDevAddressMustBeALabel(t *testing.T) {
 	assert.False(t, got.Environments[0].Public)
 
 	_, err = svc.Create(ctx, owner, "xn", "")
-	require.ErrorContains(t, err, "cannot be named xn")
+	require.ErrorContains(t, err, "international domain name")
+	_, err = svc.Create(ctx, owner, "ab", "")
+	require.ErrorContains(t, err, "a site name cannot be two characters", "ab--dev is a label certificate authorities refuse (#2611)")
 	_, err = svc.Create(ctx, owner, "a234567890123456789012345678901234567890123456789012345678x", "")
 	require.ErrorContains(t, err, "at most 63", "a 59-character name leaves no room for --dev")
 

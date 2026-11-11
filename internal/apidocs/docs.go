@@ -53717,8 +53717,12 @@ const docTemplate = `{
                     "description": "Address is the site's main address, \"\" with no pages domain or when the\nmain address is given to no environment.",
                     "type": "string"
                 },
+                "address_note": {
+                    "description": "AddressNote says why the site's environments have no address on the\npages domain: a two-character site name (#2611). Absent otherwise.",
+                    "type": "string"
+                },
                 "addresses": {
-                    "description": "Addresses is each environment's address on the pages domain, by name.",
+                    "description": "Addresses is where people reach each environment, by name: the first\nof its domains, otherwise its address on the pages domain, \"\" for\nnone. manage_site get answers the same (#2607).",
                     "type": "object",
                     "additionalProperties": {
                         "type": "string"
@@ -53768,6 +53772,13 @@ const docTemplate = `{
                 "owner_email": {
                     "type": "string",
                     "example": "jane@example.com"
+                },
+                "pages_addresses": {
+                    "description": "PagesAddresses is each environment's address on the pages domain, by\nname: the main address for the environment holding it, otherwise\n\u003csite\u003e--\u003cenv\u003e; \"\" with no pages domain or for an address no certificate\ncan be issued for. It answers only where the deployment's ingress\nroutes it.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 },
                 "permissions": {
                     "description": "Permissions is what the caller may do to this site.",

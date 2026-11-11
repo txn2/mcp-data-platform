@@ -87,6 +87,8 @@ type Sites interface {
 	LatestRelease(ctx context.Context, site string) (int, error)
 	ReleaseExists(ctx context.Context, site string, number int) bool
 	ApplyPin(ctx context.Context, actorEmail, site, environment string, number int) error
+	// SiteEnvironments is every environment of every site (#2613).
+	SiteEnvironments(ctx context.Context) ([]application.SiteEnvironment, error)
 }
 
 // RefusedError is an operation refused for a reason the caller can act on.

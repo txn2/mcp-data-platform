@@ -13,10 +13,20 @@ import { useApprovals, type ApprovalRequest } from "./approvals";
 
 /**
  * A site's name: one DNS label short enough that <site>--dev still fits in 63
- * characters, never "xn" (whose environments would read as an encoded
- * international name), with no doubled or trailing hyphen.
+ * characters, with no doubled or trailing hyphen. A name this admits may still
+ * be two characters, which siteNameRefusal refuses.
  */
-export const SITE_NAME_RE = /^(?!xn$)(?!.*--)(?!.*-$)[a-z][a-z0-9-]{0,57}$/;
+export const SITE_NAME_RE = /^(?!.*--)(?!.*-$)[a-z][a-z0-9-]{0,57}$/;
+
+/**
+ * Why the server refuses a name the pattern admits, "" for none (#2611): a
+ * two-character name puts "--" at the 3rd and 4th characters of every
+ * <site>--<env> address, the form DNS reserves.
+ */
+export function siteNameRefusal(name: string): string {
+  if (name.length !== 2) return "";
+  return `A two-character name gets addresses like ${name}--prod, which certificate authorities refuse. Choose a name of one letter, or three or more characters.`;
+}
 /** The working copy: every publish, copy and edit lands here. */
 export const DEV_ENVIRONMENT = "dev";
 
@@ -78,8 +88,12 @@ export interface Site {
   updated_at: string;
   /** The main address, "" when no environment holds it or there is no pages domain. */
   address: string;
-  /** Each environment's address on the pages domain; the main address for the one holding it. */
+  /** Where people reach each environment (#2607): its first domain, else its pages address; what manage_site get answers. */
   addresses: Record<string, string>;
+  /** Each environment's address on the pages domain; the main address for the one holding it, "" for none. */
+  pages_addresses: Record<string, string>;
+  /** Why the environments have no pages address (#2611): a two-character name; absent otherwise. */
+  address_note?: string;
   domains: SiteDomain[];
   permissions: SitePermissions;
   /** The media folders it serves, outside its releases (#2591); never null. */

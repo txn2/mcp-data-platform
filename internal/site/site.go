@@ -250,8 +250,30 @@ func ValidateEnvironment(name string) error {
 // maxLabel is the longest a DNS label may be.
 const maxLabel = 63
 
-// idnPrefix starts a label a resolver reads as an encoded international name.
-const idnPrefix = "xn--"
+// ReservedLabel reports whether a DNS label has "--" as its 3rd and 4th
+// characters: RFC 5891 §4.2.3.1 reserves that form (the one "xn--" takes),
+// and certificate authorities refuse to issue for it. The composed label of a
+// site whose name is two characters always has it (#2611).
+func ReservedLabel(label string) bool {
+	return len(label) > reservedAt && strings.HasPrefix(label[reservedAt:], reservedHyphens)
+}
+
+// reservedAt is where RFC 5891 reserves "--" in a label: its 3rd and 4th
+// characters.
+const reservedAt = 2
+
+// ReservedLabelNote is what a site whose composed addresses are reserved
+// labels is told, "" for any other site: why its environments other than the
+// main one have no address on the pages domain, and what to do instead
+// (#2611).
+func ReservedLabelNote(siteName, pagesDomain string) string {
+	if !ReservedLabel(EnvLabel(siteName, "x")) {
+		return ""
+	}
+	return fmt.Sprintf(`A two-character site name puts "--" in the 3rd and 4th characters of an address like %s.%s. `+
+		`DNS reserves that form, so certificate authorities refuse it. The main address still works; give each other environment people use a domain.`,
+		EnvLabel(siteName, "prod"), pagesDomain)
+}
 
 // EnvLabel is the one DNS label <site>--<env> under the pages domain: every
 // environment's own address.
@@ -265,15 +287,16 @@ func ParseEnvLabel(label string) (siteName, env string, ok bool) {
 }
 
 // ValidateLabel refuses an environment of a site whose address could not be
-// one DNS label: longer than 63, or read as an international name.
+// one DNS label: longer than 63, or a form DNS reserves (ReservedLabel).
 func ValidateLabel(siteName, env string) error {
 	label := EnvLabel(siteName, env)
 	if len(label) > maxLabel {
 		return fmt.Errorf("address %s is %d characters, and one part of an address can be at most %d: choose a name of %d characters or fewer",
 			label, len(label), maxLabel, max(1, maxLabel-len(siteName)-len(reservedHyphens)))
 	}
-	if strings.HasPrefix(label, idnPrefix) {
-		return fmt.Errorf("address %s would be read as an encoded international domain name: a site cannot be named xn", label)
+	if ReservedLabel(label) {
+		return fmt.Errorf(`address %s has "--" in its 3rd and 4th characters, the form DNS reserves for an encoded international domain name (RFC 5891), `+
+			`so certificate authorities refuse it: a site name cannot be two characters`, label)
 	}
 	return nil
 }

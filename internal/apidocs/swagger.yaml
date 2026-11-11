@@ -16119,11 +16119,18 @@ definitions:
           Address is the site's main address, "" with no pages domain or when the
           main address is given to no environment.
         type: string
+      address_note:
+        description: |-
+          AddressNote says why the site's environments have no address on the
+          pages domain: a two-character site name (#2611). Absent otherwise.
+        type: string
       addresses:
         additionalProperties:
           type: string
-        description: Addresses is each environment's address on the pages domain,
-          by name.
+        description: |-
+          Addresses is where people reach each environment, by name: the first
+          of its domains, otherwise its address on the pages domain, "" for
+          none. manage_site get answers the same (#2607).
         type: object
       created_at:
         type: string
@@ -16162,6 +16169,16 @@ definitions:
       owner_email:
         example: jane@example.com
         type: string
+      pages_addresses:
+        additionalProperties:
+          type: string
+        description: |-
+          PagesAddresses is each environment's address on the pages domain, by
+          name: the main address for the environment holding it, otherwise
+          <site>--<env>; "" with no pages domain or for an address no certificate
+          can be issued for. It answers only where the deployment's ingress
+          routes it.
+        type: object
       permissions:
         allOf:
         - $ref: '#/definitions/sitesvc.Permissions'

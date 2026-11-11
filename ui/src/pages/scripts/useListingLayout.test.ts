@@ -19,4 +19,13 @@ describe("layoutFor", () => {
     expect(layoutFor(LAYOUT_WIDTHS.medium - 1, false)).toBe("narrow");
     expect(layoutFor(LAYOUT_WIDTHS.narrow - 1, false)).toBe("list");
   });
+
+  // #2612: the Sites list chooses its layout by the same rule at its own widths.
+  it("reads the widths a listing passes in place of the Automations ones", () => {
+    const widths = { wide: 1000, medium: 680, narrow: 480 };
+    expect(layoutFor(1000, false, widths)).toBe("wide");
+    expect(layoutFor(999, false, widths)).toBe("medium");
+    expect(layoutFor(679, false, widths)).toBe("narrow");
+    expect(layoutFor(479, false, widths)).toBe("list");
+  });
 });

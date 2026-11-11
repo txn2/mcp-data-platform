@@ -533,11 +533,11 @@ func (p *Platform) initDatabase() error {
 	// max_concurrent_calls holds across replicas through the database (#2209).
 	connlimit.Install(connlimit.New(db, outbound.Metrics))
 
-	// Run database migrations
+	// Run database migrations, warning first of what 000239 renames (#2608).
+	configwarn.CheckPendingMigrations(context.Background(), db)
 	if err := migrate.Run(db); err != nil {
 		return fmt.Errorf("running migrations: %w", err)
 	}
-
 	return nil
 }
 

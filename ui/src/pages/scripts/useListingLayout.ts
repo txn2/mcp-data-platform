@@ -17,15 +17,18 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 export type ListingLayout = "wide" | "medium" | "narrow" | "list";
 
 /** The least width each table layout fits in; below the last, a list. */
-export const LAYOUT_WIDTHS = { wide: 1100, medium: 760, narrow: 600 } as const;
+export type LayoutWidths = { readonly wide: number; readonly medium: number; readonly narrow: number };
+
+/** The Automations listing's widths; the Sites list has its own (#2612). */
+export const LAYOUT_WIDTHS: LayoutWidths = { wide: 1100, medium: 760, narrow: 600 };
 
 /** layoutFor is the layout a width fits; an unmeasured width is the widest. */
-export function layoutFor(width: number | undefined, phone: boolean): ListingLayout {
+export function layoutFor(width: number | undefined, phone: boolean, widths: LayoutWidths = LAYOUT_WIDTHS): ListingLayout {
   if (phone) return "list";
   if (width === undefined || width === 0) return "wide";
-  if (width >= LAYOUT_WIDTHS.wide) return "wide";
-  if (width >= LAYOUT_WIDTHS.medium) return "medium";
-  if (width >= LAYOUT_WIDTHS.narrow) return "narrow";
+  if (width >= widths.wide) return "wide";
+  if (width >= widths.medium) return "medium";
+  if (width >= widths.narrow) return "narrow";
   return "list";
 }
 
@@ -34,7 +37,7 @@ export function layoutFor(width: number | undefined, phone: boolean): ListingLay
  * layout fits it, following the width as the window or the sidebar changes.
  * Where nothing can be measured (no ResizeObserver) it is the widest table.
  */
-export function useListingLayout(): { ref: (el: HTMLElement | null) => void; layout: ListingLayout } {
+export function useListingLayout(widths: LayoutWidths = LAYOUT_WIDTHS): { ref: (el: HTMLElement | null) => void; layout: ListingLayout } {
   const phone = useIsMobile();
   const [el, setEl] = useState<HTMLElement | null>(null);
   const [width, setWidth] = useState<number | undefined>(undefined);
@@ -49,5 +52,5 @@ export function useListingLayout(): { ref: (el: HTMLElement | null) => void; lay
     observer.observe(el);
     return () => observer.disconnect();
   }, [el]);
-  return { ref, layout: layoutFor(width, phone) };
+  return { ref, layout: layoutFor(width, phone, widths) };
 }

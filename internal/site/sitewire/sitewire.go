@@ -169,7 +169,9 @@ func Register(server *mcp.Server, d Deps) (*Runtime, error) {
 	if d.Sources != nil {
 		rt.Media = mediaSource{store: store, reader: d.Sources}
 	}
-	err = rt.Refresh(context.Background())
+	ctx := context.Background()
+	err = rt.Refresh(ctx)
+	warnReservedLabels(ctx, store, live.Get().PagesDomain)
 	return rt, err
 }
 

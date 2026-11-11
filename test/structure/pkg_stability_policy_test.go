@@ -87,10 +87,6 @@ type stabilityExemption struct {
 // condition that justified it.
 func stabilityAllowlist() map[string]stabilityExemption {
 	return map[string]stabilityExemption{
-		"pkg/database/migrate": {
-			why:  "the schema itself: it carries the embedded SQL migrations and the runner a consumer invokes to bring their own database up to the platform's schema before starting it.",
-			exit: "retire if migrations move behind a platform lifecycle call that a consumer never invokes directly.",
-		},
 		"pkg/audit/postgres": {
 			why:  "the reference Postgres implementation of the audit store passed to platform.WithAuditLogger. Its one first-party importer is now internal/platform/auditwiring, which composes the store with the delivery writer and the readers derived from it (#1321).",
 			exit: "as for pkg/configstore/postgres.",

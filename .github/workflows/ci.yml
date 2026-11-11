@@ -374,7 +374,7 @@ jobs:
         run: cd ui && npm ci
 
       - name: Install Playwright browsers
-        run: cd ui && npx playwright install --with-deps chromium
+        run: scripts/install-test-browser.sh
 
       # Interactive Playwright suite against the MSW-mocked vite dev server
       # (the playwright config starts it via webServer), so no backend or

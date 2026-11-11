@@ -203,7 +203,7 @@ describe("Site environments for someone who views (#2604)", () => {
     serve();
     const empty = {
       id: "site_x", name: "x-site", description: "", owner_email: "o@example.com", main_environment: "", environments: [], created_by: "o@example.com",
-      created_at: "2026-11-01T00:00:00Z", updated_at: "2026-11-01T00:00:00Z", address: "", addresses: {}, domains: [], permissions: { manage: false, own: false, delete: false },
+      created_at: "2026-11-01T00:00:00Z", updated_at: "2026-11-01T00:00:00Z", address: "", addresses: {}, pages_addresses: {}, domains: [], permissions: { manage: false, own: false, delete: false },
     };
     const served = vi.mocked(fetch);
     const real = served.getMockImplementation()!;
@@ -211,6 +211,45 @@ describe("Site environments for someone who views (#2604)", () => {
     signIn("viewer@example.com", false);
     renderWithQuery(<SiteDetailPage site="x-site" tab="environments" onNavigate={vi.fn()} />);
     expect(await screen.findByText("No environment to show")).toBeInTheDocument();
+  });
+});
+
+// #2607: a card lists the address people use first, a domain before the pages
+// address, and the rest muted after it. #2611: a two-character site's
+// environments other than the main one have no pages address, and the page
+// says why in the server's words.
+describe("Environment addresses (#2607, #2611)", () => {
+  const links = (card: HTMLElement) => within(card).getAllByRole("link").map((a) => [a.textContent, a.className.includes("text-muted-foreground") ? "muted" : "primary"]);
+
+  it("lists an environment's domains first and its pages address after them, muted", async () => {
+    serve();
+    signIn("admin@example.com", true);
+    open();
+    const prod = await screen.findByTestId("env-prod");
+    expect(links(prod)).toEqual([
+      ["example.com", "primary"],
+      ["www.example.com", "muted"],
+      ["marketing--prod.pages.example.net", "muted"],
+    ]);
+    expect(prod).toHaveTextContent(/example\.comDomain.*marketing--prod\.pages\.example\.netPages address/);
+    expect(links(screen.getByTestId("env-dev"))).toEqual([["marketing.pages.example.net", "primary"]]);
+    expect(screen.queryByTestId("address-note")).toBeNull();
+  });
+
+  it("says why a two-character site's environments have no pages address", async () => {
+    serve();
+    signIn("admin@example.com", true);
+    renderWithQuery(<SiteDetailPage site="ab" tab="environments" onNavigate={vi.fn()} />);
+    const note = await screen.findByTestId("address-note");
+    expect(note).toHaveTextContent("The environments of ab have no pages address");
+    expect(note).toHaveTextContent(
+      'A two-character site name puts "--" in the 3rd and 4th characters of an address like ab--prod.pages.example.net. DNS reserves that form, so certificate authorities refuse it.',
+    );
+    expect(links(screen.getByTestId("env-dev"))).toEqual([["ab.pages.example.net", "primary"]]);
+    expect(screen.getByTestId("env-staging")).toHaveTextContent("No address");
+    expect(links(screen.getByTestId("env-prod"))).toEqual([["ab.example.com", "primary"]]);
+    expect(screen.queryByText(/ab--/, { selector: "a" })).toBeNull();
+    expect(screen.queryByText("Every environment also answers at", { exact: false })).toBeNull();
   });
 });
 

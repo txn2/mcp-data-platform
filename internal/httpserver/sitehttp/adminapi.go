@@ -245,7 +245,9 @@ func (a *adminAPI) saveSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 // pagesAddresses is a site's addresses on the pages domain: the main address
-// and every environment's <site>--<env>.
+// and every environment's <site>--<env>, leaving out a <site>--<env> no
+// certificate can be issued for, which an ingress rule would only fail on
+// (#2611).
 func pagesAddresses(st *site.Site, pages string) []DeploymentAddress {
 	at := st.CreatedAt.UTC().Format(timeLayout)
 	out := make([]DeploymentAddress, 0, len(st.Environments))
@@ -255,8 +257,12 @@ func pagesAddresses(st *site.Site, pages string) []DeploymentAddress {
 		})
 	}
 	for _, e := range st.Environments {
+		label := site.EnvLabel(st.Name, e.Name)
+		if site.ReservedLabel(label) {
+			continue
+		}
 		out = append(out, DeploymentAddress{
-			Hostname: site.EnvLabel(st.Name, e.Name) + "." + pages, Kind: addressSite, Site: st.Name, Environment: e.Name, CreatedBy: st.CreatedBy, CreatedAt: at,
+			Hostname: label + "." + pages, Kind: addressSite, Site: st.Name, Environment: e.Name, CreatedBy: st.CreatedBy, CreatedAt: at,
 		})
 	}
 	return out

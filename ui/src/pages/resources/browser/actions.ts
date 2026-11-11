@@ -1,4 +1,5 @@
 import { resourceFetch, resourceFetchRaw } from "@/api/resources/client";
+import { saveDownload, type DownloadJob } from "@/components/download/useDownload";
 import type { FolderMoveResult, Resource, ResourceListResponse } from "@/api/resources/types";
 import type { ResourceRoot } from "../scopes";
 import { isUnder, joinPath, parentPath } from "../parts/tree";
@@ -250,16 +251,13 @@ export async function tagMany(files: Resource[], tags: string[]): Promise<Outcom
   return outcomes;
 }
 
-/** downloadResource hands the file's current content to the browser. */
-export async function downloadResource(r: Resource): Promise<void> {
-  const res = await resourceFetchRaw(`/${r.id}/content`);
-  if (!res.ok) return;
-  const url = URL.createObjectURL(await res.blob());
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = r.filename;
-  a.click();
-  URL.revokeObjectURL(url);
+/**
+ * downloadResource is the download of the file's current content under its own
+ * filename, with its progress reported and a refusal told (#2614); the file
+ * page and the file browser run it.
+ */
+export function downloadResource(r: Resource): DownloadJob {
+  return saveDownload(() => resourceFetchRaw(`/${r.id}/content`), r.filename);
 }
 
 /** A report's one-line summary: "3 moved", "2 of 3 deleted, 1 refused". */

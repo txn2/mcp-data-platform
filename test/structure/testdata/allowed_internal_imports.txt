@@ -1111,6 +1111,7 @@ internal/platform/configenv -> internal/platform/configwarn
 internal/platform/configwarn -> internal/logsan
 internal/platform/configwarn -> internal/opsobs
 internal/platform/configwarn -> internal/toolnames
+internal/platform/configwarn -> pkg/database/migrate
 internal/platform/configwarn -> pkg/persona
 internal/platform/configwarn -> pkg/registry
 internal/platform/configwarn -> pkg/script
@@ -2060,6 +2061,8 @@ internal/site/sitewire -> internal/application/appstore
 internal/site/sitewire -> internal/approval
 internal/site/sitewire -> internal/bucketsource
 internal/site/sitewire -> internal/endpoint/epbinding
+internal/site/sitewire -> internal/logsan
+internal/site/sitewire -> internal/platform/configwarn
 internal/site/sitewire -> internal/platform/resourcewrite
 internal/site/sitewire -> internal/platform/scriptsrc
 internal/site/sitewire -> internal/platform/settingsjson

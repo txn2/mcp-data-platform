@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowRight, CircleHelp } from "lucide-react";
+import { ArrowRight, CircleHelp, TriangleAlert } from "lucide-react";
 import {
   DEV_ENVIRONMENT,
   useApprovalForSite,
@@ -20,7 +20,7 @@ import { EnvironmentDialogs, type EnvDialog } from "./SiteEnvironmentDialogs";
 import { AccessBadge, AddressLink, EVERYONE_INTERNAL, Failure, ShareChip, grantName, grantOpens } from "./SiteParts";
 import { PublishBanner } from "./SitePublishJob";
 import { KeptLine } from "./SiteRetention";
-import { bareAddress, envAddress, errorText, hostUrl, hostsOf, orderedEnvironments, when } from "./siteFormat";
+import { bareAddress, cardAddresses, errorText, orderedEnvironments, when } from "./siteFormat";
 
 const EXPLAINER_KEY = "sites.explainer.hidden";
 
@@ -59,6 +59,7 @@ export function SiteEnvironmentsTab({ site, onNavigate }: { site: Site; onNaviga
     <>
       <ApprovalBanners site={site} onNavigate={onNavigate} />
       <PublishBanner site={site} onShow={(id) => setDialog({ kind: "job", id })} />
+      <AddressNote site={site} />
       <Guide site={site} canEdit={canEdit} hidden={hidden} onHide={hide} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold">Environments</h3>
@@ -131,7 +132,7 @@ const STEPS: [string, string][] = [
 
 /** The pages domain an environment's address is under, read from one of them. */
 function pagesDomainOf(site: Site): string {
-  const any = bareAddress(Object.values(site.addresses ?? {}).find((a) => a.includes(`${site.name}--`)) ?? "");
+  const any = bareAddress(Object.values(site.pages_addresses ?? {}).find((a) => a.includes(`${site.name}--`)) ?? "");
   const dot = any.indexOf(".");
   return dot > 0 ? any.slice(dot + 1) : "";
 }
@@ -244,27 +245,34 @@ function Release({ env }: { env: SiteEnvironment }) {
   );
 }
 
+// Addresses lists where an environment answers (#2607): the address people use
+// first, a domain before the pages address, and the rest muted after it.
 function Addresses({ site, env }: { site: Site; env: SiteEnvironment }) {
-  const own = envAddress(site, env.name);
-  const main = site.main_environment === env.name;
-  const domains = hostsOf(site, env.name);
+  const list = cardAddresses(site, env.name);
   return (
     <div className="space-y-1">
       <p className="text-xs font-medium text-muted-foreground">Addresses</p>
-      {own && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <AddressLink href={own} text={bareAddress(own)} />
-          {main && <Badge variant="muted">Main address</Badge>}
-        </div>
-      )}
-      {domains.map((d) => (
-        <div key={d.hostname} className="flex flex-wrap items-center gap-1.5">
-          <AddressLink href={hostUrl(site, d.hostname)} text={d.hostname} />
-          <Badge variant="muted">Domain</Badge>
+      {list.map((a, i) => (
+        <div key={a.text} className="flex flex-wrap items-center gap-1.5">
+          <AddressLink href={a.href} text={a.text} muted={i > 0} />
+          <Badge variant="muted">{a.tag}</Badge>
         </div>
       ))}
-      {!own && domains.length === 0 && <p className="text-sm text-muted-foreground">No address</p>}
+      {list.length === 0 && <p className="text-sm text-muted-foreground">No address</p>}
     </div>
+  );
+}
+
+// AddressNote says why the environments have no pages address (#2611): the
+// server's reason under a title naming the site.
+function AddressNote({ site }: { site: Site }) {
+  if (!site.address_note) return null;
+  return (
+    <Alert variant="warning" data-testid="address-note">
+      <TriangleAlert aria-hidden />
+      <AlertTitle>The environments of {site.name} have no pages address</AlertTitle>
+      <AlertDescription>{site.address_note}</AlertDescription>
+    </Alert>
   );
 }
 

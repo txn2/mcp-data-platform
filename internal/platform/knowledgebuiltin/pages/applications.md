@@ -431,8 +431,10 @@ reads the same list from `/endpoints/shop/products`.
    application; adding one held by another is refused naming it. The owner
    adds the parts they own; an administrator adds a webhook source. On the
    application's portal page the parts are listed by name, and Add parts
-   searches the owner's scripts and assets (and, for an administrator,
-   webhook sources) by name and adds several at once.
+   searches the owner's scripts, assets and site environments
+   (`<site>/<environment>`, for the sites they own) and, for an
+   administrator, webhook sources and every site, by name, and adds several
+   at once.
 3. `get` shows what a release would change (`pending`), the schema part
    (`schema`: its migration version, the one the current release recorded,
    the pending migrations and the role its scripts log in as), and anything

@@ -226,7 +226,10 @@ func (a *portalAPI) view(ctx context.Context, c *caller, st *site.Site, domains 
 		st = &trimmed
 		domains = slices.DeleteFunc(slices.Clone(domains), func(d site.Domain) bool { return trimmed.Environment(d.Environment) == nil })
 	}
-	return SiteView{Site: *st, Address: a.svc().OwnAddress(st), Addresses: a.svc().PagesAddresses(st), Domains: domains, Permissions: perms}, nil
+	return SiteView{
+		Site: *st, Address: a.svc().OwnAddress(st), Addresses: a.svc().Addresses(st, domains), PagesAddresses: a.svc().PagesAddresses(st),
+		AddressNote: a.svc().AddressNote(st), Domains: domains, Permissions: perms,
+	}, nil
 }
 
 // envScope is what a caller may know of a site's environments: every one for

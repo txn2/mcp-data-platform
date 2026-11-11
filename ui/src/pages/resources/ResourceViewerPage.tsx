@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { Download, FileQuestion, Pencil, Share2, Trash2 } from "lucide-react";
+import { FileQuestion, Pencil, Share2, Trash2 } from "lucide-react";
 import { useResource } from "@/api/resources/hooks";
 import { useSharedResources } from "@/api/resources/shares";
 import { NoAccess } from "@/components/access/RequestAccessPanel";
 import { ShareDialog } from "@/components/ShareDialog";
 import { usePortalAccess } from "@/hooks/usePortalAccess";
-import { resourceFetchRaw } from "@/api/resources/client";
+import { DownloadControl } from "@/components/download/DownloadControl";
+import { DownloadStatus } from "@/components/download/DownloadStatus";
+import { type Download, useDownload } from "@/components/download/useDownload";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { EmptyState } from "@/components/patterns/EmptyState";
 import { Button } from "@/components/ui/button";
@@ -20,24 +22,8 @@ import { ResourceContent } from "./parts/ResourceContent";
 import { ResourceSidebar } from "./parts/ResourceSidebar";
 import { canWriteScope } from "./scopes";
 import { scopeIcon, scopeLabel } from "./shared";
+import { downloadResource } from "./browser/actions";
 
-// downloadResource pulls the current content and hands it to the browser under
-// the resource's own filename.
-async function downloadResource(r: Resource) {
-  try {
-    const res = await resourceFetchRaw(`/${r.id}/content`);
-    if (!res.ok) return;
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = r.filename;
-    a.click();
-    URL.revokeObjectURL(url);
-  } catch {
-    /* ignore */
-  }
-}
 
 interface Props {
   resourceId: string;
@@ -86,6 +72,7 @@ export function ResourceViewerPage({
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const download = useDownload();
   const { canModify, canEdit, showShare } = useFileRights(resource, !isLoading);
 
   if (isLoading) {
@@ -133,6 +120,7 @@ export function ResourceViewerPage({
         actions={
           <ResourceActions
             resource={resource}
+            download={download}
             showShare={showShare}
             canEdit={canEdit}
             canModify={canModify}
@@ -159,6 +147,7 @@ export function ResourceViewerPage({
       </ViewerLayout>
 
       <ShareDialog target={{ type: "resource", id: resource.id }} open={sharing} onOpenChange={setSharing} />
+      <DownloadStatus download={download} />
 
       {editing && (
         <EditModal resource={resource} onClose={() => setEditing(false)} />
@@ -232,6 +221,7 @@ function Unopened({ resourceId, onBack }: { resourceId: string; onBack: () => vo
 /** ResourceActions is the file page's action row. */
 function ResourceActions({
   resource,
+  download,
   showShare,
   canEdit,
   canModify,
@@ -240,6 +230,7 @@ function ResourceActions({
   onDelete,
 }: {
   resource: Resource;
+  download: Download;
   showShare: boolean;
   canEdit: boolean;
   canModify: boolean;
@@ -249,10 +240,7 @@ function ResourceActions({
 }) {
   return (
     <div data-testid="resource-detail-actions" className="flex flex-wrap items-center gap-2">
-      <Button variant="outline" size="sm" onClick={() => void downloadResource(resource)}>
-        <Download />
-        Download
-      </Button>
+      <DownloadControl progress={download.progress} onClick={() => void download.run(resource.filename, downloadResource(resource))} />
       {showShare && (
         <Button variant="outline" size="sm" onClick={onShare}>
           <Share2 />

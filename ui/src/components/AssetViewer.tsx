@@ -258,6 +258,7 @@ export function AssetViewer({
             copyMutation={portal.assets === "own" ? copyMutation : undefined}
             onDelete={() => setDeleteModalOpen(true)}
             onDownload={handleDownload}
+            downloadProgress={standalone.progress}
             onCopyToMyAssets={handleCopyToMyAssets}
             onShare={() => setShareOpen(true)}
             onAddToCollection={addToCollection.onOpen}
@@ -332,6 +333,7 @@ export function AssetViewer({
             onShare: () => setShareOpen(true),
             onToggleDetails: () => setDetailsOpen((open) => !open),
             onDownload: handleDownload,
+            downloadBusy: standalone.busy,
             onAddToCollection: addToCollection.onOpen,
             onCopyToMyAssets: handleCopyToMyAssets,
             onDelete: () => setDeleteModalOpen(true),
@@ -456,6 +458,7 @@ function phoneViewer(p: {
   onShare: () => void;
   onToggleDetails: () => void;
   onDownload?: () => void;
+  downloadBusy?: boolean;
   onAddToCollection?: () => void;
   onCopyToMyAssets: () => void;
   onDelete: () => void;
@@ -476,6 +479,7 @@ function phoneViewer(p: {
       detailsOpen: p.detailsOpen,
       onToggleDetails: p.onToggleDetails,
       onDownload: p.onDownload,
+      downloadBusy: p.downloadBusy,
       onAddToCollection: p.onAddToCollection,
       onCopyToMyAssets: copies ? p.onCopyToMyAssets : undefined,
       copyPending: !!p.copyMutation?.isPending,
