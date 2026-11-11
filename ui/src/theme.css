@@ -146,6 +146,17 @@
   }
 }
 
+/* A download whose size is not known (#2614): a piece of bar that moves
+   across its control without filling it. */
+@keyframes download-indeterminate {
+  from {
+    left: -30%;
+  }
+  to {
+    left: 100%;
+  }
+}
+
 @keyframes pulse-brand {
   0%,
   100% {

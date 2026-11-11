@@ -3,7 +3,10 @@ package appsvc
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,6 +27,11 @@ type fakeSites struct {
 	failPin    error
 	pins       []pinCall
 	askedOwner [][2]string
+	// envs is every site environment SiteEnvironments lists; candidateErr
+	// fails it; listedEnvs counts the calls.
+	envs         []application.SiteEnvironment
+	candidateErr error
+	listedEnvs   int
 }
 
 type pinCall struct {
@@ -50,6 +58,14 @@ func (f *fakeSites) ApplyPin(_ context.Context, actorEmail, site, environment st
 	}
 	f.pins = append(f.pins, pinCall{actorEmail, site, environment, number})
 	return nil
+}
+
+func (f *fakeSites) SiteEnvironments(context.Context) ([]application.SiteEnvironment, error) {
+	f.listedEnvs++
+	if f.candidateErr != nil {
+		return nil, f.candidateErr
+	}
+	return slices.Clone(f.envs), nil
 }
 
 func siteFixture(t *testing.T) (*Service, *memStore, *fakeSites) {
@@ -356,4 +372,65 @@ func TestCreate_RefusesADoubleHyphen(t *testing.T) {
 
 	_, err = svc.Create(context.Background(), jane, application.Application{Name: "intranet-dev"})
 	require.NoError(t, err, "a single hyphen is fine")
+}
+
+// TestFindCandidates_Sites pins #2613: the search for parts lists the site
+// environments the caller may add, by the rule AddPart applies: the
+// environments of their own sites (their address matched case aside), every
+// site's for an administrator, none where the deployment has no sites, by
+// site and then environment, matched on "<site>/<environment>". One already
+// in this application is left out and one in another application names it.
+func TestFindCandidates_Sites(t *testing.T) {
+	ctx := context.Background()
+	svc, store, sites := siteFixture(t)
+	svc.Lister = &fakeLister{}
+	moved := time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
+	sites.envs = []application.SiteEnvironment{
+		{Site: "marketing", Environment: "prod", Owner: jane.Email},
+		{Site: "docs", Environment: "prod", Owner: joe.Email},
+		{Site: "marketing", Environment: "dev", Owner: "JANE@example.com", UpdatedAt: moved},
+	}
+	billing, err := svc.Create(ctx, jane, application.Application{Name: "billing"})
+	require.NoError(t, err)
+	require.NoError(t, store.AddPart(ctx, billing.ID, application.Part{Kind: application.KindSite, ID: sitePart}))
+
+	got, err := svc.FindCandidates(ctx, jane, "shop", "", application.KindSite)
+	require.NoError(t, err)
+	require.Len(t, got.Candidates, 2, "a person lists the environments of their own sites")
+	assert.Equal(t, Candidate{Kind: application.KindSite, ID: "marketing/dev", Name: "marketing/dev", OwnerEmail: "JANE@example.com", UpdatedAt: &moved}, got.Candidates[0])
+	assert.Equal(t, sitePart, got.Candidates[1].ID)
+	require.NotNil(t, got.Candidates[1].Application, "an environment in another application names it")
+	assert.Equal(t, "billing", got.Candidates[1].Application.Name)
+	assert.Nil(t, got.Candidates[1].UpdatedAt, "no time is none, never the zero time")
+	assert.Equal(t, 2, got.Counts[application.KindSite])
+
+	byAdmin, err := svc.FindCandidates(ctx, admin, "shop", "Prod", "")
+	require.NoError(t, err)
+	assert.Equal(t, 2, byAdmin.Counts[application.KindSite], "an administrator lists every site, matched case aside")
+
+	_, err = svc.AddPart(ctx, jane, "shop", application.KindSite, "marketing/dev")
+	require.NoError(t, err)
+	after, err := svc.FindCandidates(ctx, jane, "shop", "", application.KindSite)
+	require.NoError(t, err)
+	assert.Len(t, after.Candidates, 1, "a part of this application is not listed")
+
+	many := make([]application.SiteEnvironment, 0, MaxCandidates+5)
+	for i := range MaxCandidates + 5 {
+		many = append(many, application.SiteEnvironment{Site: "big", Environment: fmt.Sprintf("e%03d", i), Owner: jane.Email})
+	}
+	sites.envs = many
+	bounded, err := svc.FindCandidates(ctx, jane, "shop", "", application.KindSite)
+	require.NoError(t, err)
+	assert.Len(t, bounded.Candidates, MaxCandidates, "at most MaxCandidates of a kind")
+
+	sites.candidateErr = errors.New("db down")
+	_, err = svc.FindCandidates(ctx, jane, "shop", "", "")
+	require.Error(t, err)
+
+	svc.Sites = nil
+	calls := sites.listedEnvs
+	none, err := svc.FindCandidates(ctx, jane, "shop", "", application.KindSite)
+	require.NoError(t, err)
+	assert.Empty(t, none.Candidates, "a deployment with no sites lists none")
+	assert.Equal(t, calls, sites.listedEnvs)
 }

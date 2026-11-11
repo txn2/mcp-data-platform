@@ -143,6 +143,17 @@ func TestAdmin_DomainsWithNoPagesDomain(t *testing.T) {
 	assert.Equal(t, `{"addresses":[]}`, strings.TrimSpace(rec.Body.String()), "no pages domain, no own address")
 }
 
+// TestPagesAddresses_LeavesOutAReservedLabel pins #2611: a two-character
+// site's <site>--<env> is not offered for an ingress rule, since no
+// certificate can be issued for it; its main address is.
+func TestPagesAddresses_LeavesOutAReservedLabel(t *testing.T) {
+	st := &site.Site{Name: "ab", MainEnvironment: site.EnvDev, Environments: []site.Environment{{Name: site.EnvDev}, {Name: "prod"}}}
+	got := pagesAddresses(st, "pages.example.net")
+	require.Len(t, got, 1)
+	assert.Equal(t, "ab.pages.example.net", got[0].Hostname)
+	assert.Len(t, pagesAddresses(&site.Site{Name: "abc", Environments: st.Environments}, "pages.example.net"), 2)
+}
+
 func TestAdmin_DomainsThatCannotBeRead(t *testing.T) {
 	t.Run("the domains", func(t *testing.T) {
 		f := newAdmin(t)

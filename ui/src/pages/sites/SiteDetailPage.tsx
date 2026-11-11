@@ -206,7 +206,7 @@ function DeleteSiteDialog({ site, onClose, onDeleted }: { site: Site; onClose: (
   const releases = useSiteReleases(site.name);
   const [typed, setTyped] = useState("");
   const [failure, setFailure] = useState<string | null>(null);
-  const addresses = [...new Set([...Object.values(site.addresses ?? {}).filter(Boolean).map(bareAddress), ...site.domains.map((d) => d.hostname)])];
+  const addresses = [...new Set([...Object.values(site.pages_addresses ?? {}).filter(Boolean).map(bareAddress), ...site.domains.map((d) => d.hostname)])];
   const submit = () => {
     setFailure(null);
     remove.mutate(undefined, { onSuccess: onDeleted, onError: (e) => setFailure(errorText(e, "The site could not be deleted")) });

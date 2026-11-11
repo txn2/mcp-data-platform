@@ -336,7 +336,30 @@ func TestValidateLabel(t *testing.T) {
 
 	err = ValidateLabel("xn", "dev")
 	require.Error(t, err, "xn--dev would be read as an international name")
-	assert.Contains(t, err.Error(), "cannot be named xn")
+	assert.Contains(t, err.Error(), "international domain name")
+
+	// #2611: every two-character site name, not only xn, puts "--" where
+	// RFC 5891 reserves it.
+	err = ValidateLabel("ab", "prod")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `ab--prod has "--" in its 3rd and 4th characters`)
+	assert.Contains(t, err.Error(), "a site name cannot be two characters")
+	require.NoError(t, ValidateLabel("a", "prod"), "a--prod: the hyphens are 2nd and 3rd")
+	require.NoError(t, ValidateLabel("abc", "prod"), "abc--prod: the hyphens are 4th and 5th")
+}
+
+func TestReservedLabel(t *testing.T) {
+	for _, label := range []string{"xn--dev", "ab--prod", "a1--x"} {
+		assert.True(t, ReservedLabel(label), label)
+	}
+	for _, label := range []string{"a--dev", "abc--dev", "ab-c--dev", "ab", "abc", ""} {
+		assert.False(t, ReservedLabel(label), label)
+	}
+	assert.Equal(t, `A two-character site name puts "--" in the 3rd and 4th characters of an address like ab--prod.pages.example.net. `+
+		`DNS reserves that form, so certificate authorities refuse it. The main address still works; give each other environment people use a domain.`,
+		ReservedLabelNote("ab", "pages.example.net"))
+	assert.Empty(t, ReservedLabelNote("abc", "pages.example.net"))
+	assert.Empty(t, ReservedLabelNote("a", "pages.example.net"))
 }
 
 func TestGrantOpens(t *testing.T) {

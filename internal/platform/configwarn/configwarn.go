@@ -59,6 +59,14 @@ const (
 	// outside its S3 connection's bucket_prefix, so every delivery to it is
 	// refused (#2584).
 	CodeDestinationOutsidePrefix = "script_destination_outside_prefix"
+	// CodeSiteReservedLabel: a site's name is two characters, so each of its
+	// <site>--<env> addresses is a label certificate authorities refuse
+	// (#2611).
+	CodeSiteReservedLabel = "site_reserved_label"
+	// CodeSiteEnvironmentRenamed: migration 000239 is about to rename a
+	// site's environment named dev, which has a domain, and give the name to
+	// the site's working copy (#2608).
+	CodeSiteEnvironmentRenamed = "site_environment_renamed"
 )
 
 // logKeyCode is the attribute every warning's log line carries its code under,

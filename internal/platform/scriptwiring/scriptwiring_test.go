@@ -19,6 +19,8 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
+	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
+	"github.com/txn2/mcp-data-platform/internal/site/sitewire"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -102,7 +104,7 @@ func TestApplicationDeps(t *testing.T) {
 	db, _, err := sqlmock.New()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	bare := applicationDeps(Deps{DB: db, Bucket: "portal", Prefix: "p"}, nil, nil)
+	bare := applicationDeps(Deps{DB: db, Bucket: "portal", Prefix: "p"}, nil, nil, nil)
 	assert.Same(t, db, bare.DB)
 	assert.Equal(t, "portal", bare.Bucket)
 	assert.Nil(t, bare.Assets)
@@ -111,9 +113,12 @@ func TestApplicationDeps(t *testing.T) {
 	assert.Nil(t, bare.Endpoints)
 	assert.NotNil(t, bare.Claims)
 	assert.Nil(t, bare.SaveGate, "no gate stays nil, never an interface holding a nil")
+	assert.Nil(t, bare.Sites, "no sites stays nil, never an interface holding a nil")
 
 	gate := &scriptsave.Gate{}
-	with := applicationDeps(Deps{DB: db}, &epwire.Endpoints{Commands: &epcmd.Handler{}}, gate)
+	sites := &sitewire.Runtime{Service: &sitesvc.Service{}}
+	with := applicationDeps(Deps{DB: db}, &epwire.Endpoints{Commands: &epcmd.Handler{}}, gate, sites)
 	assert.NotNil(t, with.Endpoints, "an import binds endpoints through the endpoint commands")
 	assert.Same(t, gate, with.SaveGate, "an import saves each script through the layer's gate (#2476)")
+	assert.Same(t, sites.Service, with.Sites, "the application service reads the site service manage_site serves (#2613)")
 }

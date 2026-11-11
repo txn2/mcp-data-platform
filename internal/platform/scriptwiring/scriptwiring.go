@@ -150,13 +150,10 @@ func Wire(deps Deps) *scriptexec.Handle {
 	layer.RegisterTool(deps.Server)
 	// Applications (#2411): scripts, assets, sources and a schema released
 	// together, over the same stores.
-	if svc := appwire.Register(deps.Server, applicationDeps(deps, endpoints, layer.SaveGate())); svc != nil {
+	if svc := appwire.Register(deps.Server, applicationDeps(deps, endpoints, layer.SaveGate(), sites)); svc != nil {
 		// A save of an application's script reports what it newly gives the
 		// application's diagram to find (#2540).
 		layer.SetPartFindings(svc.FindingsIntroduced)
-		if sites != nil {
-			svc.Sites = sites.Service
-		}
 	}
 	// Approvals (#2437, #2494): a form's version approved before callers
 	// with no session are served it.
@@ -215,7 +212,7 @@ type SitesConfig = siteconfig.Config
 // applicationDeps is what applications are assembled from (#2411, #2412):
 // the portal's stores and bucket, the managed-resource library a bundle is
 // written to and read from, and the endpoint commands an import binds with.
-func applicationDeps(deps Deps, endpoints *epwire.Endpoints, gate *scriptsave.Gate) appwire.Deps {
+func applicationDeps(deps Deps, endpoints *epwire.Endpoints, gate *scriptsave.Gate, sites *sitewire.Runtime) appwire.Deps {
 	d := appwire.Deps{
 		DB: deps.DB, Toolkits: deps.Toolkits, Bucket: deps.Bucket, Prefix: deps.Prefix,
 		Lander: deps.Lander, Reader: deps.Sources, Claims: resourcewrite.CallerClaims,
@@ -238,6 +235,9 @@ func applicationDeps(deps Deps, endpoints *epwire.Endpoints, gate *scriptsave.Ga
 	}
 	if endpoints != nil && endpoints.Commands != nil {
 		d.Endpoints = endpoints.Commands.Run
+	}
+	if sites != nil {
+		d.Sites = sites.Service
 	}
 	return d
 }

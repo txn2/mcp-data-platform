@@ -23,9 +23,16 @@ export function AccessBadge({ env }: { env: Pick<SiteEnvironment, "public"> }) {
   );
 }
 
-export function AddressLink({ href, text }: { href: string; text: string }) {
+/** An address that opens in a new tab; muted for one listed after the address people use. */
+export function AddressLink({ href, text, muted = false }: { href: string; text: string; muted?: boolean }) {
   return (
-    <a className="inline-flex min-w-0 items-center gap-1 break-all font-mono text-sm text-primary hover:underline" href={href} target="_blank" rel="noreferrer" title="Open in a new tab">
+    <a
+      className={`inline-flex min-w-0 items-center gap-1 break-all font-mono text-sm hover:underline ${muted ? "text-muted-foreground" : "text-primary"}`}
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      title="Open in a new tab"
+    >
       {text}
       <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
     </a>

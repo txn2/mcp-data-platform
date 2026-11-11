@@ -229,8 +229,23 @@ func ParseSchemaPartID(id string) (connection, schema string) {
 
 // ParseSitePartID reads a site part's id: "<site>/<environment>".
 func ParseSitePartID(id string) (siteName, environment string, ok bool) {
-	siteName, environment, ok = strings.Cut(strings.TrimSpace(id), "/")
+	siteName, environment, ok = strings.Cut(strings.TrimSpace(id), sitePartSep)
 	return siteName, environment, ok && siteName != "" && environment != ""
+}
+
+// sitePartSep separates a site part id's site from its environment.
+const sitePartSep = "/"
+
+// SitePartID is a site part's id, the form ParseSitePartID reads.
+func SitePartID(siteName, environment string) string { return siteName + sitePartSep + environment }
+
+// SiteEnvironment is one environment of a site, as the search for parts to
+// add lists it (#2613).
+type SiteEnvironment struct {
+	Site        string
+	Environment string
+	Owner       string
+	UpdatedAt   time.Time
 }
 
 // HeldSchema is a schema an application takes on: where it is, the

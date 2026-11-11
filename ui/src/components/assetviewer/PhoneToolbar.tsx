@@ -30,6 +30,8 @@ export interface PhoneMoreActions {
   detailsOpen?: boolean;
   onToggleDetails?: () => void;
   onDownload?: () => void;
+  /** A download is running; its status line says how far it has got (#2614). */
+  downloadBusy?: boolean;
   onAddToCollection?: () => void;
   onCopyToMyAssets?: () => void;
   copyPending?: boolean;
@@ -220,7 +222,7 @@ function AssetItems({ more }: { more: PhoneMoreActions }) {
   return (
     <>
       {more.onDownload && (
-        <DropdownMenuItem onSelect={more.onDownload}>
+        <DropdownMenuItem onSelect={more.onDownload} disabled={more.downloadBusy}>
           <Download />
           Download
         </DropdownMenuItem>

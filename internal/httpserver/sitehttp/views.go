@@ -20,9 +20,20 @@ type SiteView struct {
 	// Address is the site's main address, "" with no pages domain or when the
 	// main address is given to no environment.
 	Address string `json:"address"`
-	// Addresses is each environment's address on the pages domain, by name.
+	// Addresses is where people reach each environment, by name: the first
+	// of its domains, otherwise its address on the pages domain, "" for
+	// none. manage_site get answers the same (#2607).
 	Addresses map[string]string `json:"addresses"`
-	Domains   []site.Domain     `json:"domains"`
+	// PagesAddresses is each environment's address on the pages domain, by
+	// name: the main address for the environment holding it, otherwise
+	// <site>--<env>; "" with no pages domain or for an address no certificate
+	// can be issued for. It answers only where the deployment's ingress
+	// routes it.
+	PagesAddresses map[string]string `json:"pages_addresses"`
+	// AddressNote says why the site's environments have no address on the
+	// pages domain: a two-character site name (#2611). Absent otherwise.
+	AddressNote string        `json:"address_note,omitempty"`
+	Domains     []site.Domain `json:"domains"`
 	// Permissions is what the caller may do to this site.
 	Permissions sitesvc.Permissions `json:"permissions"`
 }

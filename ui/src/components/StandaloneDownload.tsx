@@ -10,6 +10,10 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { resolveRenderer } from "@/components/renderers/registry";
+import { DownloadControl } from "@/components/download/DownloadControl";
+import { DownloadStatus } from "@/components/download/DownloadStatus";
+import { saveDownload, useDownload } from "@/components/download/useDownload";
+import { failureMessage, fetchWithProgress, saveBlob, type DownloadProgress } from "@/lib/download";
 
 /**
  * Download of an HTML or JSX asset as one self-contained file (#2530).
@@ -67,11 +71,17 @@ export function storedSourceUrlFor(contentUrl: string): string {
   return bare + (bare.includes("?") ? "&" : "?") + "source=stored";
 }
 
-/** What a standalone download came to. */
+/**
+ * What a standalone download came to. A refusal the reader can act on
+ * (platform data, a build that failed) is shown in a dialog; any other status,
+ * or no answer, is "error" and is told the way every failed download is
+ * (#2614).
+ */
 export type StandaloneOutcome =
   | { kind: "saved"; notices: StandaloneNotice[] }
   | { kind: "platform-data"; reasons: string[] }
-  | { kind: "failed"; message: string; reasons: string[] };
+  | { kind: "failed"; message: string; reasons: string[] }
+  | { kind: "error"; status: number | null };
 
 export function readNotices(header: string | null): StandaloneNotice[] {
   if (!header) return [];
@@ -85,18 +95,6 @@ export function readNotices(header: string | null): StandaloneNotice[] {
   } catch {
     return [];
   }
-}
-
-/** Saves a blob under a file name through a temporary link. */
-export function saveBlob(blob: Blob, name: string): void {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
 }
 
 /** The file name a standalone download is saved under. */
@@ -114,48 +112,31 @@ async function readReasons(res: Response): Promise<string[]> {
   }
 }
 
-/** Fetches the standalone file and saves it, or says why it did not. */
+/**
+ * Builds the standalone file and saves it, or says why it did not: preparing
+ * until the platform answers, then the bytes read (#2614).
+ */
 export async function downloadStandalone(
   standaloneUrl: string,
   name: string,
   headers: AuthHeaders = noHeaders,
+  report: (p: DownloadProgress) => void = () => {},
 ): Promise<StandaloneOutcome> {
-  let res: Response;
-  try {
-    res = await fetch(standaloneUrl, { credentials: "include", headers: headers() });
-  } catch {
-    return { kind: "failed", message: "The download could not reach the platform.", reasons: [] };
+  const got = await fetchWithProgress(() => fetch(standaloneUrl, { credentials: "include", headers: headers() }), report, true);
+  if (got.ok) {
+    saveBlob(got.blob, standaloneFileName(name));
+    return { kind: "saved", notices: readNotices(got.res.headers.get(NOTICES_HEADER)) };
   }
-  if (res.status === 409) {
-    return { kind: "platform-data", reasons: await readReasons(res) };
+  if (got.res?.status === 409) return { kind: "platform-data", reasons: await readReasons(got.res) };
+  if (got.res?.status === 422) {
+    return { kind: "failed", message: "This asset could not be built into a standalone file.", reasons: await readReasons(got.res) };
   }
-  if (!res.ok) {
-    const reasons = res.status === 422 ? await readReasons(res) : [];
-    const message =
-      res.status === 422
-        ? "This asset could not be built into a standalone file."
-        : `The standalone file could not be made (${res.status}).`;
-    return { kind: "failed", message, reasons };
-  }
-  saveBlob(await res.blob(), standaloneFileName(name));
-  return { kind: "saved", notices: readNotices(res.headers.get(NOTICES_HEADER)) };
+  return { kind: "error", status: got.status };
 }
 
-/** Saves what a URL answers, under a file name. */
-export async function downloadUrl(url: string, name: string, headers: AuthHeaders = noHeaders): Promise<boolean> {
-  try {
-    const res = await fetch(url, { credentials: "include", headers: headers() });
-    if (!res.ok) return false;
-    saveBlob(await res.blob(), name);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Saves the asset as stored. */
-export function downloadStoredSource(contentUrl: string, name: string, headers: AuthHeaders = noHeaders): Promise<boolean> {
-  return downloadUrl(storedSourceUrlFor(contentUrl), name, headers);
+/** A read of a URL with the page's own headers. */
+function opener(url: string, headers: AuthHeaders): () => Promise<Response> {
+  return () => fetch(url, { credentials: "include", headers: headers() });
 }
 
 interface Pending {
@@ -165,47 +146,54 @@ interface Pending {
 }
 
 /**
- * The standalone download for one page: `start` downloads an asset, and
- * `dialog` is what the page renders to show what came of it.
+ * The download for one page: `start` downloads an asset, `progress` is how far
+ * it has got for the control that started it, and `dialog` is what the page
+ * renders to show what came of it, the download's status line on a phone and
+ * its failure included (#2614).
  */
 export function useStandaloneDownload(headers: AuthHeaders = noHeaders): {
   start: (contentUrl: string, name: string, contentType: string) => Promise<void>;
   busy: boolean;
+  progress: DownloadProgress | null;
   dialog: ReactNode;
 } {
   const [pending, setPending] = useState<Pending | null>(null);
-  const [busy, setBusy] = useState(false);
+  const download = useDownload();
+  const run = download.run;
 
-  const start = useCallback(async (contentUrl: string, name: string, contentType: string) => {
-    const standaloneUrl = isStandaloneType(contentType, name) ? standaloneUrlFor(contentUrl) : null;
-    setBusy(true);
-    try {
+  const start = useCallback(
+    (contentUrl: string, name: string, contentType: string) => {
+      const standaloneUrl = isStandaloneType(contentType, name) ? standaloneUrlFor(contentUrl) : null;
       // Any other type, or a content URL with no standalone route beside
       // it, downloads what the content route serves, as it always has.
-      if (!standaloneUrl) {
-        await downloadUrl(contentUrl, name, headers);
-        return;
-      }
-      const outcome = await downloadStandalone(standaloneUrl, name, headers);
-      if (outcome.kind === "saved" && outcome.notices.length === 0) return;
-      setPending({ outcome, contentUrl, name });
-    } finally {
-      setBusy(false);
-    }
-  }, [headers]);
+      if (!standaloneUrl) return run(name, saveDownload(opener(contentUrl, headers), name));
+      return run(standaloneFileName(name), async (report) => {
+        const outcome = await downloadStandalone(standaloneUrl, name, headers, report);
+        if (outcome.kind === "error") return failureMessage(outcome.status);
+        if (outcome.kind !== "saved" || outcome.notices.length > 0) setPending({ outcome, contentUrl, name });
+        return null;
+      });
+    },
+    [headers, run],
+  );
 
   const close = () => setPending(null);
-  const dialog = pending ? (
-    <StandaloneDialog
-      outcome={pending.outcome}
-      onClose={close}
-      onDownloadSource={() => {
-        void downloadStoredSource(pending.contentUrl, pending.name, headers);
-        close();
-      }}
-    />
-  ) : null;
-  return { start, busy, dialog };
+  const dialog = (
+    <>
+      {pending && (
+        <StandaloneDialog
+          outcome={pending.outcome}
+          onClose={close}
+          onDownloadSource={() => {
+            void run(pending.name, saveDownload(opener(storedSourceUrlFor(pending.contentUrl), headers), pending.name));
+            close();
+          }}
+        />
+      )}
+      <DownloadStatus download={download} />
+    </>
+  );
+  return { start, busy: download.busy, progress: download.progress, dialog };
 }
 
 /** What the reader is shown when the download is not a plain save. */
@@ -232,6 +220,11 @@ export function StandaloneDialog({
       title = "Could not make a standalone file";
       description = outcome.message;
       items = outcome.reasons;
+      break;
+    case "error":
+      title = "Could not make a standalone file";
+      description = failureMessage(outcome.status);
+      items = [];
       break;
     case "saved":
       title = "Downloaded";
@@ -289,7 +282,7 @@ export function DownloadButton({
   /** The page's own read headers; the portal passes its API-key sign-in. */
   authHeaders?: AuthHeaders;
 }) {
-  const { start, busy, dialog } = useStandaloneDownload(authHeaders);
+  const { start, progress, dialog } = useStandaloneDownload(authHeaders);
   if (!isStandaloneType(contentType, name) || !standaloneUrlFor(contentUrl)) {
     return (
       <Button asChild size={size}>
@@ -302,10 +295,7 @@ export function DownloadButton({
   }
   return (
     <>
-      <Button size={size} disabled={busy} onClick={() => void start(contentUrl, name, contentType)}>
-        <Download />
-        {busy ? "Preparing…" : "Download"}
-      </Button>
+      <DownloadControl progress={progress} variant="default" size={size} onClick={() => void start(contentUrl, name, contentType)} />
       {dialog}
     </>
   );

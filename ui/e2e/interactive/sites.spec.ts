@@ -18,11 +18,16 @@ test.describe("Sites", () => {
     }
   });
 
-  test("lists a site's address, environments and domains", async ({ page }) => {
+  test("lists a site's address and environments, and leaves its domains to the site's page", async ({ page }) => {
     await page.goto("/portal/sites");
     await expect(page.getByRole("link", { name: "marketing.pages.example.net" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "go.example.com" })).toBeVisible();
     await expect(page.getByText("dev 12")).toBeVisible();
+    // #2612: a domain is listed on the environments page, not in the list.
+    await expect(page.getByRole("link", { name: "go.example.com" })).toHaveCount(0);
+    // The row's name, not its middle: the middle is the address, which opens
+    // the live site in a new tab (#2587).
+    await page.getByTestId("site-row-marketing").getByText("Company website").click();
+    await expect(page.getByRole("link", { name: "go.example.com" })).toBeVisible();
   });
 
   test("says how to start when there are no sites", async ({ page }) => {

@@ -467,11 +467,14 @@ func (t *Tool) get(ctx context.Context, actor sitesvc.Actor, in Input) (any, err
 	if err != nil {
 		return nil, err //nolint:wrapcheck // the caller's message
 	}
-	addresses := make(map[string]string, len(st.Environments))
-	for _, e := range st.Environments {
-		addresses[e.Name] = t.Service.Address(ctx, st, e.Name)
+	domains, err := t.Service.Store.SiteDomains(ctx, st.ID)
+	if err != nil {
+		return nil, fmt.Errorf("listing domains: %w", err)
 	}
-	out := map[string]any{keySite: st, "addresses": addresses, "pages_addresses": t.Service.PagesAddresses(st)}
+	out := map[string]any{keySite: st, "addresses": t.Service.Addresses(st, domains), "pages_addresses": t.Service.PagesAddresses(st)}
+	if note := t.Service.AddressNote(st); note != "" {
+		out["address_note"] = note
+	}
 	perms, err := t.Service.PermissionsOf(ctx, actor, st)
 	if err != nil {
 		return nil, err //nolint:wrapcheck // the caller's message

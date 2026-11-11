@@ -16,13 +16,32 @@ const env = (name: string, release: number, requires_approval = false, isPublic 
 const PAGES = "pages.example.net";
 const PERSONAS = ["admin", "analyst", "finance-team", "management-team", "web-team"];
 
-/** Every environment's pages address, the main one at the bare name. */
-function addressesOf(s: Pick<Site, "name" | "main_environment" | "environments">): Record<string, string> {
-  return Object.fromEntries(s.environments.map((e) => [e.name, e.name === s.main_environment ? `https://${s.name}.${PAGES}` : `https://${s.name}--${e.name}.${PAGES}`]));
+/** Every environment's pages address, the main one at the bare name; none for a two-character name, whose <site>--<env> DNS reserves (#2611). */
+function pagesAddressesOf(s: Pick<Site, "name" | "main_environment" | "environments">, pages: string): Record<string, string> {
+  const at = (env: string) => (!pages ? "" : env === s.main_environment ? `https://${s.name}.${pages}` : s.name.length === 2 ? "" : `https://${s.name}--${env}.${pages}`);
+  return Object.fromEntries(s.environments.map((e) => [e.name, at(e.name)]));
 }
 
-function withAddresses(s: Site): Site {
-  return { ...s, address: s.main_environment ? `https://${s.name}.${PAGES}` : "", addresses: addressesOf(s) };
+/** The addresses the server answers with (#2607): each environment's first domain, else its pages address. */
+function withAddresses(s: Site, pages = PAGES): Site {
+  const own = pagesAddressesOf(s, pages);
+  const domains = [...s.domains].sort((a, b) => a.hostname.localeCompare(b.hostname));
+  const addresses = Object.fromEntries(
+    s.environments.map((e) => {
+      const d = domains.find((x) => x.environment === e.name);
+      return [e.name, d ? `https://${d.hostname}` : own[e.name]!];
+    }),
+  );
+  const note = pages && s.name.length === 2 ? addressNote(s.name, pages) : undefined;
+  return { ...s, address: pages && s.main_environment ? `https://${s.name}.${pages}` : "", addresses, pages_addresses: own, ...(note ? { address_note: note } : {}) };
+}
+
+/** What the server tells a two-character site (#2611), word for word. */
+function addressNote(name: string, pages: string): string {
+  return (
+    `A two-character site name puts "--" in the 3rd and 4th characters of an address like ${name}--prod.${pages}. ` +
+    "DNS reserves that form, so certificate authorities refuse it. The main address still works; give each other environment people use a domain."
+  );
 }
 const domain = (hostname: string, site: string, environment: string) => ({
   hostname, site, environment, created_by: "jane.doe@example.com", created_at: at,
@@ -32,7 +51,7 @@ function makeSites(): Site[] {
   const site = (name: string, description: string, owner: string, environments: Site["environments"], domains: Site["domains"], permissions: Site["permissions"], main = "dev"): Site =>
     withAddresses({
       id: `site_${name}`, name, description, owner_email: owner, main_environment: main, environments, domains, permissions,
-      created_by: owner, created_at: "2026-09-14T18:20:00Z", updated_at: at, address: "", addresses: {},
+      created_by: owner, created_at: "2026-09-14T18:20:00Z", updated_at: at, address: "", addresses: {}, pages_addresses: {},
     });
   const admin = { manage: true, own: true, delete: true };
   return [
@@ -47,6 +66,37 @@ function makeSites(): Site[] {
       admin,
     ),
   ].map((st) => ({ ...st, media: st.name === "marketing" ? [media("/media/", "sites/marketing/media"), media("/downloads/", "sites/marketing/downloads")] : [] }));
+}
+
+// crowdedSite is the row that ran the Sites list off its card (#2612): a long
+// name and description, a long owner address, an address of about 60
+// characters, four environments and two domains on each. `?state=crowded`
+// adds it to the list.
+function crowdedSite(): Site {
+  const name = "marketing-launch-fall-2026-regional-pages";
+  const envs = [env("dev", 7), env("stage", 6), env("preview", 0), env("prod", 5, true, true)];
+  return withAddresses({
+    id: `site_${name}`, name, owner_email: "priya.ramanathan-oconnell@example.com", main_environment: "dev",
+    description:
+      "Landing pages for the fall launch: the pricing table, the signup form, the regional variants the field team asked for in September, the partner pages, the press kit and the event schedule, kept apart from the company website until the launch date so the regional teams can review every page before it goes out.",
+    environments: envs,
+    domains: envs.flatMap((e) => [domain(`${e.name}.fall-launch.example.com`, name, e.name), domain(`${e.name}.launch.example.org`, name, e.name)]),
+    permissions: { manage: true, own: true, delete: true },
+    created_by: "priya.ramanathan-oconnell@example.com", created_at: at, updated_at: at, address: "", addresses: {}, pages_addresses: {}, media: [],
+  });
+}
+
+// twoCharSite is a site named before two-character names were refused (#2611):
+// dev holds the main address, staging has no address and prod answers at its
+// domain. It is not in the list; /portal/sites/ab opens it.
+function twoCharSite(): Site {
+  const owner = "mina.kowalski@example.com";
+  return withAddresses({
+    id: "site_ab", name: "ab", description: "Annual benefits guide", owner_email: owner, main_environment: "dev",
+    environments: [env("dev", 15), env("staging", 14), env("prod", 13, false, true)],
+    domains: [domain("ab.example.com", "ab", "prod")], permissions: { manage: true, own: true, delete: true },
+    created_by: owner, created_at: at, updated_at: at, address: "", addresses: {}, pages_addresses: {}, media: [],
+  });
 }
 
 function media(prefix: string, folder: string) {
@@ -147,24 +197,32 @@ export const siteHandlers = [
   http.get("/api/v1/portal/application-addresses/:name", () => HttpResponse.json({ page_origin: "https://shop.pages.example.net", domains: ["shop.example.com"] })),
   http.get(base, () => {
     const state = page();
-    const list = state === "empty" ? [] : sites;
+    const list = state === "empty" ? [] : state === "crowded" ? [...sites, crowdedSite()] : sites;
     const off = state === "previews-off";
     return HttpResponse.json({
-      sites: off ? list.map((s) => ({ ...s, address: "", addresses: {} })) : list, total: list.length, pages_domain: off ? "" : PAGES, limits: LIMITS, can_create: true, admin: true,
+      sites: list.map((s) => withAddresses(s, off ? "" : PAGES)), total: list.length, pages_domain: off ? "" : PAGES, limits: LIMITS, can_create: true, admin: true,
     });
   }),
   http.post(base, async ({ request }) => {
     const b = (await request.json()) as { name: string; description: string };
+    if (b.name.length === 2) {
+      return HttpResponse.json(
+        {
+          detail: `address ${b.name}--dev has "--" in its 3rd and 4th characters, the form DNS reserves for an encoded international domain name (RFC 5891), so certificate authorities refuse it: a site name cannot be two characters`,
+        },
+        { status: 422 },
+      );
+    }
     const s: Site = withAddresses({
       id: `site_${b.name}`, name: b.name, description: b.description, owner_email: "admin@example.com", main_environment: "dev", environments: [env("dev", 0)], domains: [],
-      permissions: { manage: true, own: true, delete: true }, created_by: "admin@example.com", created_at: at, updated_at: at, address: "", addresses: {},
+      permissions: { manage: true, own: true, delete: true }, created_by: "admin@example.com", created_at: at, updated_at: at, address: "", addresses: {}, pages_addresses: {},
     });
     sites = [...sites, s];
     return HttpResponse.json(s, { status: 201 });
   }),
   http.get(`${base}/:site`, ({ params }) => {
-    const s = find(params.site as string);
-    return s ? HttpResponse.json(s) : missing();
+    const s = find(params.site as string) ?? (params.site === "ab" ? twoCharSite() : undefined);
+    return s ? HttpResponse.json(withAddresses(s)) : missing();
   }),
   http.patch(`${base}/:site`, async ({ params, request }) => {
     const s = find(params.site as string);

@@ -71,8 +71,16 @@ cannot either, so `<site>--<env>` is never another site's or application's
 address. An application whose name held `--` before then keeps its address. A
 site or environment whose address could not be one DNS label is refused with
 the reason: a composed label longer than 63 characters (a new site's `dev`
-address counts, so a site name is at most 58), and a label beginning `xn--`,
-which is read as an encoded international name (a site named `xn`).
+address counts, so a site name is at most 58), and a label with `--` as its 3rd
+and 4th characters, the form RFC 5891 reserves for an encoded international name
+(`xn--`), which certificate authorities refuse to issue for. Every
+`<site>--<env>` of a two-character site has that form, so a site name cannot be
+two characters (#2611). A site created with such a name before this rule keeps
+its main address and its domains; its environments' `<site>--<env>` addresses
+are not reported (its `pages_addresses` are `""` for them), its JSON carries an
+`address_note` saying why, `GET /api/v1/admin/sites/domains` does not list
+them, and the platform logs the `site_reserved_label` configuration warning
+naming the site at startup. Give each environment people use a domain.
 
 ## Configuration
 
@@ -453,6 +461,8 @@ unapproved.
 
 `GET /api/v1/admin/sites/domains` lists every site address (each main address and
 each `<site>--<env>`) and every domain, for the system administrator's ingress rules.
+A `<site>--<env>` no certificate can be issued for (a two-character site's, #2611)
+is left out.
 
 ## manage_site
 
@@ -486,19 +496,33 @@ part `<site>/default` is added as `<site>/dev`.
 | `POST /api/v1/portal/sites/{site}/publish` | `environment` is `dev`, and may be left out |
 
 A site's JSON carries `main_environment`, `address` (the main address, `""` when it
-is given to none), `addresses` (each environment's pages address), and per
-environment `public` and `internal_view`.
+is given to none), `addresses` (where people reach each environment: the first of
+its domains, otherwise its pages address), `pages_addresses` (each environment's
+address on the pages domain: the main address for the one holding it, otherwise
+`<site>--<env>`, which answers only where the deployment's ingress routes it),
+`address_note` when a two-character name leaves its environments without a pages
+address, and per environment `public` and `internal_view`. `addresses` and
+`pages_addresses` are the ones `manage_site get` answers (#2607).
 
 ## In the portal
 
 The Sites section's Environments tab opens with **How this site works**: changes
 land in dev, promote what is ready, and each environment has its own access, with
 the addresses and what a private site can do with the signed-in person. It can be
-hidden. Each environment is a card in promote order showing its **Private** or
-**Public** badge, Requires approval, its release, its addresses (with **Main
-address** and **Domain** tags) and **Who can open it**, with Publish (dev only),
-Promote, Roll back, Share (private only) and Settings. **Main address**, **Add
-domain** and **New environment** sit above the cards. **Share** picks people and
+hidden. Each environment is a card, in a fixed order: dev first, `prod`,
+`production` or `live` last, and the rest by name between them; the order is not
+stored and cannot be changed, and Promote moves a release between any two
+environments whatever their order. A card shows its **Private** or **Public**
+badge, Requires approval, its release, its addresses and **Who can open it**, with
+Publish (dev only), Promote, Roll back, Share (private only) and Settings. The
+addresses list the one people use first: each domain, tagged **Domain**, then the
+pages address, tagged **Main address** on the environment holding it and **Pages
+address** otherwise; every address after the first is muted (#2607). An
+environment with neither says **No address**. A site with an `address_note`
+(#2611) shows it under **The environments of `<site>` have no pages address**, and
+the **New site** dialog refuses a two-character name, saying why, before it is
+sent. **Main address**, **Add domain** and **New environment** sit above the
+cards. **Share** picks people and
 personas and the environments, defaulting to the one it was opened from. Choosing
 Public asks for confirmation naming every address that becomes public, waits in
 Approvals where the environment requires it, and is refused for someone who manages
@@ -549,3 +573,9 @@ manage_site command=promote site=cool-site from=stage to=prod                   
 - Existing grants name no environment, so they open every private environment.
 - An application part `<site>/default` becomes `<site>/dev`, in the parts and in
   every release's pins, so releasing and rolling back the application still move it.
+- An environment cannot be renamed, so a site whose `dev` was the team's real
+  development environment keeps it as `development` (or `dev-previous`). Before
+  000239 runs, the platform logs the `site_environment_renamed` configuration
+  warning for each site whose `dev` environment has a domain, naming the site, its
+  domains and the name the environment is given (#2608). A deployment already past
+  000239 is not warned: nothing recorded what it renamed.

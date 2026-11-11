@@ -84,6 +84,11 @@ type Deps struct {
 	// Reach lists the application database connections an actor may hold a
 	// schema on; nil adds no schema.
 	Reach func(ctx context.Context, actor application.Actor) ([]string, error)
+	// Sites reads a site part and points its environment at a release; nil
+	// is a deployment with no sites. Every service built from Deps is given
+	// it at construction, so the portal's and manage_application's agree
+	// (#2613).
+	Sites appsvc.Sites
 }
 
 // Service builds the application service over deps, nil without a database.
@@ -109,6 +114,9 @@ func Service(d Deps) *appsvc.Service {
 	}
 	if d.Sealer != nil {
 		svc.Sealer = d.Sealer
+	}
+	if d.Sites != nil {
+		svc.Sites = d.Sites
 	}
 	// A nil store is left nil, never an interface holding a nil.
 	if d.Assets != nil {

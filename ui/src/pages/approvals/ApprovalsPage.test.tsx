@@ -100,7 +100,8 @@ describe("ApprovalsPage", () => {
       id: "site_docs", name: "docs", description: "", owner_email: "priya.nair@example.com", main_environment: "",
       environments: [{ name: "prod", release: 29, requires_approval: true, public: false, internal_view: false, updated_at: "2026-11-05T11:20:00Z" }],
       created_by: "priya.nair@example.com", created_at: "2026-08-21T00:00:00Z", updated_at: "2026-11-05T11:20:00Z", address: "",
-      addresses: { prod: "https://docs--prod.pages.example.net" }, domains: [{ hostname: "docs.example.com", environment: "prod", created_by: "x", created_at: "2026-11-01T00:00:00Z" }],
+      // As the server answers since #2607: addresses puts the domain first, pages_addresses keeps the pages address.
+      addresses: { prod: "https://docs.example.com" }, pages_addresses: { prod: "https://docs--prod.pages.example.net" }, domains: [{ hostname: "docs.example.com", environment: "prod", created_by: "x", created_at: "2026-11-01T00:00:00Z" }],
       permissions: { manage: true, own: true, delete: true },
     };
     vi.stubGlobal(

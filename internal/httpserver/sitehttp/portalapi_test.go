@@ -743,6 +743,27 @@ func TestPortal_MainEnvironment(t *testing.T) {
 	assert.Empty(t, none.Address, "a main address given to none is no address")
 }
 
+// TestPortal_AnEnvironmentIsAddressedByItsDomain pins #2607: the site view
+// addresses an environment by its domain, as manage_site get does, reports
+// the composed <site>--<env> addresses apart, and (#2611) says why a
+// two-character site's environments have no pages address.
+func TestPortal_AnEnvironmentIsAddressedByItsDomain(t *testing.T) {
+	f := newFixture(t)
+	f.store.domains["www.client.example"] = &site.Domain{Hostname: "www.client.example", SiteID: siteID, Environment: envProd}
+
+	got := decodeBody[SiteView](t, f.statusIs(t, 200, route{http.MethodGet, siteBase, nil}, userOwner))
+	assert.Equal(t, "https://www.client.example", got.Addresses[envProd], "the domain is prod's address")
+	assert.Equal(t, "https://marketing--prod.pages.example.net", got.PagesAddresses[envProd], "the composed address is reported apart")
+	assert.Equal(t, "https://marketing.pages.example.net", got.Addresses[site.EnvDev], "dev, with no domain, is at the main address")
+	assert.Empty(t, got.AddressNote)
+
+	f.store.sites[siteID].Name = "ab"
+	two := decodeBody[SiteView](t, f.statusIs(t, 200, route{http.MethodGet, "/api/v1/portal/sites/ab", nil}, userOwner))
+	assert.Empty(t, two.PagesAddresses[envProd], "ab--prod is no address")
+	assert.Equal(t, "https://www.client.example", two.Addresses[envProd], "its domain still is")
+	assert.Contains(t, two.AddressNote, "an address like ab--prod.pages.example.net")
+}
+
 // A persona is shared view of named environments; the access list offers every
 // persona to share with, and a persona grant is removed by name.
 func TestPortal_PersonaGrants(t *testing.T) {

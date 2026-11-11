@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -652,6 +653,44 @@ func TestAddress(t *testing.T) {
 	}, svc.PagesAddresses(st))
 }
 
+// TestAddresses pins #2607: each environment is addressed by the first of its
+// domains, else its address on the pages domain, the answer the portal's site
+// view and manage_site get share.
+func TestAddresses(t *testing.T) {
+	svc, store, _, _ := fixture(t)
+	svc.Config.PagesDomain = "pages.example.net"
+	st := store.sites[siteID]
+	domains := []site.Domain{
+		{Hostname: "a.example.org", SiteID: siteID, Environment: envProd},
+		{Hostname: "b.example.org", SiteID: siteID, Environment: envProd},
+		{Hostname: "dev.example.org", SiteID: siteID, Environment: site.EnvDev},
+	}
+	assert.Equal(t, map[string]string{
+		site.EnvDev: "https://dev.example.org",
+		"stage":     "https://marketing--stage.pages.example.net",
+		envProd:     "https://a.example.org",
+	}, svc.Addresses(st, domains), "a domain wins over the main address and over <site>--<env>")
+	assert.Equal(t, svc.PagesAddresses(st), svc.Addresses(st, nil), "with no domain, every environment's pages address")
+}
+
+// TestPagesAddress_AReservedLabelIsNoAddress pins #2611: a two-character
+// site's <site>--<env> is a label certificate authorities refuse, so it is no
+// address; its main address still is, and the site is told why.
+func TestPagesAddress_AReservedLabelIsNoAddress(t *testing.T) {
+	svc, _, _, _ := fixture(t)
+	st := &site.Site{Name: "ab", MainEnvironment: site.EnvDev, Environments: []site.Environment{{Name: site.EnvDev}, {Name: envProd}}}
+	assert.Empty(t, svc.AddressNote(st), "no pages domain, nothing to explain")
+
+	svc.Config.PagesDomain = "pages.example.net"
+	assert.Equal(t, "https://ab.pages.example.net", svc.PagesAddress(st, site.EnvDev), "the main address is one label of two characters")
+	assert.Empty(t, svc.PagesAddress(st, envProd), "ab--prod is refused by certificate authorities")
+	assert.Equal(t, map[string]string{site.EnvDev: "https://ab.pages.example.net", envProd: ""}, svc.PagesAddresses(st))
+	assert.Equal(t, "https://ab.example.org", svc.Addresses(st, []site.Domain{{Hostname: "ab.example.org", Environment: envProd}})[envProd],
+		"a domain is still the environment's address")
+	assert.Contains(t, svc.AddressNote(st), "an address like ab--prod.pages.example.net")
+	assert.Empty(t, svc.AddressNote(&site.Site{Name: "abc"}))
+}
+
 func domainFixture(t *testing.T) (*Service, *memStore) {
 	t.Helper()
 	svc, store, _, _ := fixture(t)
@@ -1260,6 +1299,34 @@ func TestEnvironmentOwner(t *testing.T) {
 	require.ErrorIs(t, err, site.ErrNoEnvironment)
 	_, err = svc.EnvironmentOwner(ctx, "nope", envProd)
 	require.ErrorIs(t, err, site.ErrNotFound)
+}
+
+// TestSiteEnvironments pins #2613: every environment of every site, with its
+// owner and when it last moved (the site's time for one never moved), for an
+// application's search for parts.
+func TestSiteEnvironments(t *testing.T) {
+	svc, store, _, _ := fixture(t)
+	ctx := context.Background()
+	moved := time.Date(2026, 11, 2, 8, 0, 0, 0, time.UTC)
+	store.sites[siteID].Environment(envProd).UpdatedAt = moved
+	store.sites[siteID].UpdatedAt = moved.Add(-time.Hour)
+
+	got, err := svc.SiteEnvironments(ctx)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []application.SiteEnvironment{
+		{Site: "marketing", Environment: site.EnvDev, Owner: owner.Email, UpdatedAt: moved.Add(-time.Hour)},
+		{Site: "marketing", Environment: "stage", Owner: owner.Email, UpdatedAt: moved.Add(-time.Hour)},
+		{Site: "marketing", Environment: envProd, Owner: owner.Email, UpdatedAt: moved},
+	}, got)
+
+	delete(store.sites, siteID)
+	none, err := svc.SiteEnvironments(ctx)
+	require.NoError(t, err)
+	assert.NotNil(t, none, "an empty list is [], never null")
+
+	store.failList = errors.New("down")
+	_, err = svc.SiteEnvironments(ctx)
+	require.ErrorIs(t, err, store.failList)
 }
 
 func TestReleaseExists(t *testing.T) {

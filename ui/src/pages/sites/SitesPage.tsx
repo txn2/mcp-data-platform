@@ -1,24 +1,21 @@
 import { useState, type ReactNode } from "react";
-import { ExternalLink, Globe } from "lucide-react";
-import { SITE_NAME_RE, useCreateSite, useSites, type Site, type SiteList } from "@/api/portal/hooks/sites";
+import { Globe } from "lucide-react";
+import { SITE_NAME_RE, siteNameRefusal, useCreateSite, useSites, type SiteList } from "@/api/portal/hooks/sites";
 import { EmptyState } from "@/components/patterns/EmptyState";
-import { OpenRowChevron, OpenRowHead } from "@/components/patterns/OpenRowChevron";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import { openRowProps } from "@/lib/openRow";
-import { AccessBadge } from "./SiteParts";
-import { bareAddress, day, errorText, hostUrl, hostsOf, orderedEnvironments } from "./siteFormat";
+import { SiteTable } from "./SiteList";
+import { errorText } from "./siteFormat";
 
-// SitesPage lists every site (#2559, #2604): who owns it, its main address and
-// the environment that serves it, and each environment with the release it
-// serves and whether it is private or public.
+// SitesPage lists every site (#2559, #2604, #2612): who owns it, its main
+// address and the environment that serves it, and each environment with the
+// release it serves and whether it is private or public (SiteList).
 
 export function SitesPage({ onNavigate }: { onNavigate: (path: string) => void }) {
   const { data, isLoading, error } = useSites();
@@ -70,7 +67,7 @@ function SitesBody({
       </Alert>
     );
   }
-  if (loading || !list) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (loading || !list) return <SitesLoading />;
   if (list.sites.length === 0) {
     return (
       <EmptyState icon={Globe} action={newSite}>
@@ -83,6 +80,24 @@ function SitesBody({
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">A new site starts with dev, its working copy, on its main address. Promote releases to other environments when people should use them.</p>
       <SiteTable list={list} onOpen={onOpen} />
+    </div>
+  );
+}
+
+function SitesLoading() {
+  return (
+    <div aria-busy="true" data-testid="sites-loading">
+      <span className="sr-only">Loading sites</span>
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="grid grid-cols-[minmax(0,1fr)_22%_26%] gap-4 border-b px-2 py-3.5">
+          <div className="space-y-1.5">
+            <Skeleton className="h-3 w-2/5" />
+            <Skeleton className="h-2.5 w-4/5" />
+          </div>
+          <Skeleton className="h-3 w-11/12" />
+          <Skeleton className="h-3 w-full" />
+        </div>
+      ))}
     </div>
   );
 }
@@ -107,88 +122,14 @@ function PreviewsOff({ admin, onNavigate }: { admin: boolean; onNavigate: (path:
   );
 }
 
-function SiteTable({ list, onOpen }: { list: SiteList; onOpen: (site: string) => void }) {
-  return (
-    <div className="overflow-x-auto">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>Owner</TableHead>
-            <TableHead>Main address</TableHead>
-            <TableHead>Environments</TableHead>
-            <OpenRowHead />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {/* The whole row opens the site (#2587); the address and each
-              domain stay links to the live site, in a new tab. */}
-          {list.sites.map((s) => (
-            <TableRow key={s.id} {...openRowProps(() => onOpen(s.name))} data-testid={`site-row-${s.name}`}>
-              <TableCell>
-                <span className="font-medium">{s.name}</span>
-                <p className="text-xs text-muted-foreground">{s.description}</p>
-              </TableCell>
-              <TableCell>{s.owner_email}</TableCell>
-              <TableCell>
-                {s.address ? (
-                  <>
-                    <a className="inline-flex items-center gap-1 break-all font-mono text-primary hover:underline" href={s.address} target="_blank" rel="noreferrer">
-                      {bareAddress(s.address)}
-                      <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
-                    </a>
-                    {s.main_environment && <p className="text-xs text-muted-foreground">serves {s.main_environment}</p>}
-                  </>
-                ) : (
-                  <span className="text-muted-foreground">None</span>
-                )}
-              </TableCell>
-              <TableCell>
-                <EnvironmentLines site={s} />
-              </TableCell>
-              <OpenRowChevron />
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
-  );
-}
-
-function EnvironmentLines({ site }: { site: Site }) {
-  return (
-    <div className="space-y-1">
-      {orderedEnvironments(site.environments).map((e) => (
-        <div key={e.name} className="flex flex-wrap items-center gap-2">
-          {e.release > 0 ? (
-            <>
-              <Badge variant="info">
-                {e.name} {e.release}
-              </Badge>
-              <span className="text-xs text-muted-foreground">{day(e.updated_at)}</span>
-            </>
-          ) : (
-            <Badge variant="muted">{e.name}: no release</Badge>
-          )}
-          <AccessBadge env={e} />
-          {hostsOf(site, e.name).map((d) => (
-            <a key={d.hostname} className="break-all text-xs text-primary hover:underline" href={hostUrl(site, d.hostname)} target="_blank" rel="noreferrer">
-              {d.hostname}
-            </a>
-          ))}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function NewSiteDialog({ pagesDomain, onClose, onCreated }: { pagesDomain: string; onClose: () => void; onCreated: (name: string) => void }) {
   const create = useCreateSite();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [failure, setFailure] = useState<string | null>(null);
   const trimmed = name.trim();
-  const valid = SITE_NAME_RE.test(trimmed);
+  const refusal = SITE_NAME_RE.test(trimmed) ? siteNameRefusal(trimmed) : "";
+  const valid = SITE_NAME_RE.test(trimmed) && !refusal;
   const submit = () => {
     setFailure(null);
     create.mutate(
@@ -205,7 +146,19 @@ function NewSiteDialog({ pagesDomain, onClose, onCreated }: { pagesDomain: strin
         <div className="space-y-3">
           <div className="space-y-1">
             <Label htmlFor="site-name">Name</Label>
-            <Input id="site-name" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+            <Input
+              id="site-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoFocus
+              aria-invalid={refusal ? true : undefined}
+              aria-describedby={refusal ? "site-name-error" : undefined}
+            />
+            {refusal && (
+              <p id="site-name-error" className="text-xs text-destructive">
+                {refusal}
+              </p>
+            )}
             <p className="text-xs text-muted-foreground">Lowercase letters, digits and single hyphens, up to 58. It is part of every address the site has and does not change.</p>
           </div>
           <div className="space-y-1">

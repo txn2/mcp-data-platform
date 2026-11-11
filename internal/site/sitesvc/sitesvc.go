@@ -5,6 +5,7 @@
 package sitesvc
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -583,7 +584,8 @@ func (s *Service) OwnAddress(st *site.Site) string {
 
 // PagesAddress is an environment's address on the pages domain: the main
 // address for the environment holding it, otherwise <site>--<env>; "" with no
-// pages domain.
+// pages domain, and "" for a <site>--<env> no certificate can be issued for
+// (site.ReservedLabel, #2611).
 func (s *Service) PagesAddress(st *site.Site, environment string) string {
 	domain := s.cfg().PagesDomain
 	if domain == "" {
@@ -592,7 +594,21 @@ func (s *Service) PagesAddress(st *site.Site, environment string) string {
 	if environment == st.MainEnvironment {
 		return s.Origin(st.Name + "." + domain)
 	}
-	return s.Origin(site.EnvLabel(st.Name, environment) + "." + domain)
+	label := site.EnvLabel(st.Name, environment)
+	if site.ReservedLabel(label) {
+		return ""
+	}
+	return s.Origin(label + "." + domain)
+}
+
+// AddressNote is why a site's environments have no address on the pages
+// domain, "" for a site whose addresses answer or a deployment with no pages
+// domain (#2611).
+func (s *Service) AddressNote(st *site.Site) string {
+	if domain := s.cfg().PagesDomain; domain != "" {
+		return site.ReservedLabelNote(st.Name, domain)
+	}
+	return ""
 }
 
 // PagesAddresses is every environment's address on the pages domain, by name.
@@ -604,14 +620,32 @@ func (s *Service) PagesAddresses(st *site.Site) map[string]string {
 	return out
 }
 
-// Address is where people reach an environment: the first domain added to it,
+// Address is where people reach an environment: the first of its domains,
 // otherwise its address on the pages domain, "" for none.
 func (s *Service) Address(ctx context.Context, st *site.Site, environment string) string {
-	if domains, err := s.Store.SiteDomains(ctx, st.ID); err == nil {
-		for _, d := range domains {
-			if d.Environment == environment {
-				return s.Origin(d.Hostname)
-			}
+	domains, err := s.Store.SiteDomains(ctx, st.ID)
+	if err != nil {
+		domains = nil
+	}
+	return s.addressFrom(st, environment, domains)
+}
+
+// Addresses is where people reach each environment of st, by name, as Address
+// answers for one, from the site's domains as the caller read them. The
+// portal's site view and manage_site get both answer with it, so an
+// environment with a domain is addressed by its domain on both (#2607).
+func (s *Service) Addresses(st *site.Site, domains []site.Domain) map[string]string {
+	out := make(map[string]string, len(st.Environments))
+	for _, e := range st.Environments {
+		out[e.Name] = s.addressFrom(st, e.Name, domains)
+	}
+	return out
+}
+
+func (s *Service) addressFrom(st *site.Site, environment string, domains []site.Domain) string {
+	for _, d := range domains {
+		if d.Environment == environment {
+			return s.Origin(d.Hostname)
 		}
 	}
 	return s.PagesAddress(st, environment)
@@ -659,6 +693,22 @@ func (s *Service) EnvironmentOwner(ctx context.Context, ref, environment string)
 		return "", noEnvironment(environment)
 	}
 	return st.OwnerEmail, nil
+}
+
+// SiteEnvironments is every environment of every site, for an application's
+// search for parts to add, which chooses among them by its own rule (#2613).
+func (s *Service) SiteEnvironments(ctx context.Context) ([]application.SiteEnvironment, error) {
+	sites, err := s.Store.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing sites: %w", err)
+	}
+	out := []application.SiteEnvironment{}
+	for _, st := range sites {
+		for _, e := range st.Environments {
+			out = append(out, application.SiteEnvironment{Site: st.Name, Environment: e.Name, Owner: st.OwnerEmail, UpdatedAt: cmp.Or(e.UpdatedAt, st.UpdatedAt)})
+		}
+	}
+	return out, nil
 }
 
 // ReleaseExists reports whether a site has the numbered release.

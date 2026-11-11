@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/application/appsvc"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	postgreskit "github.com/txn2/mcp-data-platform/pkg/toolkits/postgres"
@@ -43,6 +44,22 @@ func TestRegister_AddsTheTool(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, tools.Tools, 1)
 	assert.Equal(t, "manage_application", tools.Tools[0].Name)
+}
+
+// siteService is a site service as an application reads it.
+type siteService struct{ appsvc.Sites }
+
+// TestService_GivesEveryServiceTheSites pins #2613: the site service is part
+// of what a service is built from, so the portal's service and
+// manage_application's both have it, and a deployment with none leaves it nil
+// rather than an interface holding a nil.
+func TestService_GivesEveryServiceTheSites(t *testing.T) {
+	db, _, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	sites := &siteService{}
+	assert.Same(t, sites, Service(Deps{DB: db, Sites: sites}).Sites)
+	assert.Nil(t, Service(Deps{DB: db}).Sites)
 }
 
 func TestKitAndConnections(t *testing.T) {

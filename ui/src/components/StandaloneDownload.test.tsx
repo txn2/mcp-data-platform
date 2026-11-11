@@ -138,10 +138,40 @@ describe("DownloadButton", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/v1/portal/assets/a1/standalone", { credentials: "include", headers: { "X-API-Key": "k" } });
   });
 
-  it("says when the platform could not be reached", async () => {
-    fetchMock.mockRejectedValue(new Error("offline"));
+  // #2614: a failure is a toast with Try again, not silence.
+  it("says when the platform could not be reached, and Try again starts it over", async () => {
+    fetchMock.mockRejectedValueOnce(new Error("offline"));
     render(<DownloadButton contentUrl="/api/v1/portal/assets/a1/content" name="a.html" contentType="text/html" />);
     await act(async () => fireEvent.click(screen.getByRole("button", { name: /download/i })));
-    expect(await screen.findByText(/could not reach the platform/)).toBeTruthy();
+    const toast = await screen.findByTestId("download-failure");
+    expect(toast).toHaveTextContent("Download failed: the platform could not be reached.");
+    fetchMock.mockResolvedValueOnce(new Response("<html></html>", { status: 200 }));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Try again" })));
+    await waitFor(() => expect(clicked).toEqual(["a.html"]));
+    expect(screen.queryByTestId("download-failure")).toBeNull();
+  });
+
+  it("names the status a standalone file was refused with", async () => {
+    fetchMock.mockResolvedValue(new Response("boom", { status: 500 }));
+    render(<DownloadButton contentUrl="/api/v1/portal/assets/a1/content" name="a.html" contentType="text/html" />);
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: /download/i })));
+    expect(await screen.findByTestId("download-failure")).toHaveTextContent("Download failed: the platform answered 500.");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("button", { name: /download/i })).not.toHaveAttribute("aria-disabled");
+  });
+
+  it("says Preparing… until the platform answers, and a second click starts nothing", async () => {
+    let answer!: (r: Response) => void;
+    fetchMock.mockReturnValue(new Promise<Response>((resolve) => (answer = resolve)));
+    render(<DownloadButton contentUrl="/api/v1/portal/assets/a1/content" name="deck.html" contentType="text/html" />);
+    fireEvent.click(screen.getByRole("button", { name: /download/i }));
+    const busy = await screen.findByRole("button", { name: /Preparing…/ });
+    expect(busy).toHaveAttribute("aria-disabled", "true");
+    expect(busy).toHaveAttribute("title", "Making one file that opens offline");
+    fireEvent.click(busy);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await act(async () => answer(new Response("<html></html>", { status: 200 })));
+    await waitFor(() => expect(clicked).toEqual(["deck.html"]));
+    expect(screen.getByRole("button", { name: /download/i })).not.toHaveAttribute("aria-disabled");
   });
 });

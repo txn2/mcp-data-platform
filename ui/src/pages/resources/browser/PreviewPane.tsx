@@ -1,6 +1,8 @@
 import { useState, type ReactNode } from "react";
 import { Folder } from "lucide-react";
 import { TileImg } from "@/components/thumbnail/TileImg";
+import { DownloadControl } from "@/components/download/DownloadControl";
+import type { Download } from "@/components/download/useDownload";
 import { Button } from "@/components/ui/button";
 import { formatBytes } from "@/lib/format";
 import { markdownToPlainText } from "@/lib/markdownText";
@@ -37,6 +39,7 @@ export function PreviewPane({
   here,
   canWrite,
   actions,
+  download,
 }: {
   picked: Entry[];
   root: ResourceRoot;
@@ -45,10 +48,12 @@ export function PreviewPane({
   here: number | undefined;
   canWrite: boolean;
   actions: PaneActions;
+  /** The page's download, which a file's Download shows running (#2614). */
+  download?: Download;
 }) {
   if (picked.length > 1) return <Many picked={picked} canWrite={canWrite} actions={actions} />;
   const one = picked[0];
-  if (one?.kind === "file") return <OneFile r={one.resource} root={root} actions={actions} entry={one} />;
+  if (one?.kind === "file") return <OneFile r={one.resource} root={root} actions={actions} entry={one} download={download} />;
   if (one?.kind === "folder") return <OneFolder entry={one} root={root} canWrite={canWrite} actions={actions} />;
   const name = path ? path.slice(path.lastIndexOf("/") + 1) : root.label;
   return (
@@ -100,11 +105,13 @@ function OneFile({
   entry,
   root,
   actions,
+  download,
 }: {
   r: Resource;
   entry: Entry;
   root: ResourceRoot;
   actions: PaneActions;
+  download?: Download;
 }) {
   const tags = r.tags ?? [];
   return (
@@ -117,9 +124,7 @@ function OneFile({
           <Button size="xs" onClick={() => actions.onOpen(entry)}>
             Open
           </Button>
-          <Button size="xs" variant="outline" onClick={() => actions.onDownload(r)}>
-            Download
-          </Button>
+          <FileDownload r={r} download={download} onDownload={() => actions.onDownload(r)} />
           <Button size="xs" variant="outline" onClick={() => actions.onCopyURI(r)}>
             Copy URI
           </Button>
@@ -227,5 +232,24 @@ function Many({ picked, canWrite, actions }: { picked: Entry[]; canWrite: boolea
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * A file's Download: running while this file downloads; while another file
+ * does, disabled, since one download runs at a time and a click would start
+ * nothing.
+ */
+function FileDownload({ r, download, onDownload }: { r: Resource; download?: Download; onDownload: () => void }) {
+  const mine = download?.key === r.id;
+  const other = !!download?.busy && !mine;
+  return (
+    <DownloadControl
+      size="xs"
+      progress={mine ? (download?.progress ?? null) : null}
+      disabled={other}
+      title={other ? `${download?.name} is downloading` : undefined}
+      onClick={onDownload}
+    />
   );
 }
