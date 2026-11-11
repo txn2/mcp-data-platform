@@ -45,7 +45,8 @@ type Event struct {
 	ErrorMessage string         `json:"error_message,omitempty"`
 	// ErrorCategory is the bounded class of a failed call: one of the
 	// platform's error categories (authentication_failed, authorization_denied,
-	// search_required, rate_limited, user_declined, client_input, ...) or an
+	// search_required, rate_limited, user_declined, prompt_unanswered,
+	// input_required, client_input, ...) or an
 	// upstream outcome (upstream_4xx, ...). Empty on a success. ErrorMessage
 	// is the text; this is what a query groups by (#1892).
 	ErrorCategory         string `json:"error_category,omitempty"`
@@ -82,6 +83,21 @@ type Event struct {
 	// as "line:col". Set only on a script's calls.
 	CallSite []string `json:"call_site,omitempty"`
 }
+
+// Error categories of calls that ran nothing because a person was asked
+// first (#2586).
+const (
+	// CategoryInputRequired is a call answered with input requests: a
+	// confirmation the client must put to the person before the call runs.
+	// The call ran nothing, so it is neither a success nor a source an asset
+	// can cite, and the call catalog keeps no record of it.
+	CategoryInputRequired = "input_required"
+
+	// CategoryPromptUnanswered is a call whose confirmation came back with no
+	// answer from the person (the client canceled or gave up waiting), told
+	// apart from user_declined, where the person said no.
+	CategoryPromptUnanswered = "prompt_unanswered"
+)
 
 // SortOrder defines sort direction.
 type SortOrder string

@@ -15,6 +15,9 @@ vi.mock("@/api/admin/hooks", () => ({
   useSendTestEmail: vi.fn(),
   useSMTPRecipientStatus: vi.fn(),
   useFailingChannelCount: vi.fn(() => 0),
+  // The General feedback card (#2603) is covered in GeneralFeedbackCard.test.tsx.
+  useGeneralFeedback: () => ({ data: undefined, isLoading: true, error: null, refetch: vi.fn() }),
+  useSetGeneralFeedback: () => ({ mutate: vi.fn(), isPending: false }),
   useReviewAlert: vi.fn(),
   useSetReviewAlert: vi.fn(),
   useConnectionAlert: vi.fn(),

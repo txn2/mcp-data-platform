@@ -232,7 +232,12 @@ a domain, since a domain is public.
 
 `crawl` copies a site into a release: each page keeps its address, an address
 that redirected becomes a redirect rule, and the sitemap and robots file come
-along. `form_map` names, for a page path, the platform form that replaces that
+along. So do the files each page loads: stylesheets and scripts (one linked as
+`/site.css?ver=1.2` is copied as `site.css`, and the page keeps its link), every
+`srcset` candidate and lazy-loaded image (`data-src`, `data-srcset`,
+`data-lazy-src`), and the fonts, images and imports a stylesheet, a `<style>`
+element or a `style` attribute names. A link to a page with a query string, such
+as `/search?q=1`, is not followed. `form_map` names, for a page path, the platform form that replaces that
 page's `<form>` elements.
 
 ```

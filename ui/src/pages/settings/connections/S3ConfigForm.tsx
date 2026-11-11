@@ -33,7 +33,7 @@ export function S3ConfigForm({ config, onChange }: ConfigFormProps) {
           onChange={(v) => onChange(update(config, "bucket_prefix", v))}
           placeholder="data-lake-"
           mono
-          help="Only show buckets matching this prefix"
+          help="Limits the connection to buckets whose name starts with this prefix; other buckets are refused"
         />
       </div>
       <div className="grid grid-cols-2 gap-4">

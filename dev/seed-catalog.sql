@@ -112,6 +112,22 @@ INSERT INTO catalog_aspects (entity_id, aspect, value, version, written_by)
 SELECT id, 'tags', '["PII"]'::jsonb, 1, 'seed' FROM catalog_entities WHERE reference = 'mcp:dataset:(trino,acme,memory.default.customers)'
 ON CONFLICT (entity_id, aspect) DO NOTHING;
 
+-- A table with one column tagged PII and no tag on the table itself, so the
+-- PII prompt can be seen counting only the columns a statement reads (#2586):
+-- an aggregate over region is not asked about, a read of email is. Its rows
+-- live in Trino's memory catalog; the criterion creates them.
+INSERT INTO catalog_entities
+    (id, kind, reference, connection_kind, connection_name, path, column_name, parent_id, name, dataset_type, data_type, ordinal, nullable)
+VALUES
+    ('df546af8-4e1e-4934-b3b9-3dad4dc215af', 'dataset', 'mcp:dataset:(trino,acme,memory.default.contacts)', 'trino', 'acme', 'memory.default.contacts', '', NULL, 'contacts', 'table', '', 0, TRUE),
+    ('a06d9370-949a-474a-81db-b36520ce30af', 'column', 'mcp:column:(trino,acme,memory.default.contacts,email)', 'trino', 'acme', 'memory.default.contacts', 'email', 'df546af8-4e1e-4934-b3b9-3dad4dc215af', 'email', '', 'varchar', 0, TRUE),
+    ('8e949e2e-3e24-44e0-bad1-d220719f23d0', 'column', 'mcp:column:(trino,acme,memory.default.contacts,region)', 'trino', 'acme', 'memory.default.contacts', 'region', 'df546af8-4e1e-4934-b3b9-3dad4dc215af', 'region', '', 'varchar', 1, TRUE)
+ON CONFLICT (reference) DO NOTHING;
+
+INSERT INTO catalog_aspects (entity_id, aspect, value, version, written_by)
+SELECT id, 'tags', '["PII"]'::jsonb, 1, 'seed' FROM catalog_entities WHERE reference = 'mcp:column:(trino,acme,memory.default.contacts,email)'
+ON CONFLICT (entity_id, aspect) DO NOTHING;
+
 INSERT INTO catalog_aspect_history (entity_id, aspect, version, value, written_by)
 SELECT a.entity_id, a.aspect, a.version, a.value, a.written_by FROM catalog_aspects a
 WHERE a.written_by = 'seed'

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -54,64 +55,47 @@ func noElicitParams() *mcp.InitializeParams {
 	}
 }
 
-func TestParseRowEstimates(t *testing.T) {
+// TestParseReturnedRows pins #2586: the estimate is the plan's own output,
+// the top-level estimate, never a table's scan; an estimate Trino could not
+// make is unknown.
+func TestParseReturnedRows(t *testing.T) {
 	tests := []struct {
-		name string
-		plan string
-		want int64
+		name  string
+		plan  string
+		want  int64
+		known bool
 	}{
 		{
-			name: "single table estimate",
-			plan: `Fragment 0 [SOURCE]
-    Layout: [col1, col2]
-    Estimates: {rows: 5000000 (47.68MB), cpu: ?, memory: ?, network: ?}`,
-			want: 5_000_000,
+			// The ticket's statement: 1.4M rows read from one table, 60 returned.
+			name: "an aggregate reads more than it returns",
+			plan: `{"inputTableColumnInfos":[{"table":{"catalog":"pg"},"estimate":{"outputRowCount":1430361.5}}],"estimate":{"outputRowCount":60.0}}`,
+			want: 60, known: true,
 		},
 		{
-			name: "multiple tables takes max",
-			plan: `Fragment 0
-    Estimates: {rows: 100 (1KB), cpu: ?, memory: ?, network: ?}
-Fragment 1
-    Estimates: {rows: 2000000 (190MB), cpu: ?, memory: ?, network: ?}`,
-			want: 2_000_000,
+			name: "a large result",
+			plan: `{"inputTableColumnInfos":[],"estimate":{"outputRowCount":2500000.0,"cpuCost":NaN}}`,
+			want: 2_500_000, known: true,
 		},
 		{
-			name: "no row estimates",
-			plan: `Fragment 0 [SOURCE]
-    Estimates: {rows: ? (?B), cpu: ?, memory: ?, network: ?}`,
-			want: 0,
+			name: "an unknown output estimate",
+			plan: `{"inputTableColumnInfos":[{"estimate":{"outputRowCount":1100000.0}}],"estimate":{"outputRowCount":NaN,"cpuCost":NaN}}`,
 		},
 		{
-			// What Trino answers EXPLAIN (TYPE IO) with (#2052): the largest
-			// table's estimate, not the plan's output.
-			name: "IO plan JSON",
-			plan: `{"inputTableColumnInfos":[{"table":{"catalog":"memory"},"estimate":{"outputRowCount":1100000.0}},` +
-				`{"table":{"catalog":"memory"},"estimate":{"outputRowCount":40.0}}],"estimate":{"outputRowCount":12.0}}`,
-			want: 1_100_000,
+			name: "no top-level estimate",
+			plan: `{"inputTableColumnInfos":[{"estimate":{"outputRowCount":1100000.0}}]}`,
 		},
 		{
-			// An unknown estimate is written NaN, which no decoder accepts.
-			name: "IO plan with NaN",
-			plan: `{"inputTableColumnInfos":[{"estimate":{"outputRowCount":2500000.0,"cpuCost":NaN}}]}`,
-			want: 2_500_000,
+			name: "a text plan is not read",
+			plan: "Fragment 0 [SOURCE]\n    Estimates: {rows: 5000000 (47.68MB)}",
 		},
-		{
-			name: "empty plan",
-			plan: "",
-			want: 0,
-		},
-		{
-			name: "zero rows",
-			plan: "Estimates: {rows: 0 (0B)}",
-			want: 0,
-		},
+		{name: "empty plan", plan: ""},
+		{name: "zero rows", plan: `{"estimate":{"outputRowCount":0.0}}`, want: 0, known: true},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := parseRowEstimates(tt.plan)
-			if got != tt.want {
-				t.Errorf("parseRowEstimates() = %d, want %d", got, tt.want)
+			got, known := parseReturnedRows(tt.plan)
+			if got != tt.want || known != tt.known {
+				t.Errorf("parseReturnedRows() = %d, %v; want %d, %v", got, known, tt.want, tt.known)
 			}
 		})
 	}
@@ -621,18 +605,17 @@ func TestEstimateRows_Success(t *testing.T) {
 	explainer := &mockExplainer{
 		result: &trinoclient.ExplainResult{
 			Type: trinoclient.ExplainIO,
-			Plan: `Fragment 0 [SOURCE]
-    Estimates: {rows: 5000000 (47.68MB), cpu: ?, memory: ?, network: ?}`,
+			Plan: `{"inputTableColumnInfos":[{"estimate":{"outputRowCount":9000000.0}}],"estimate":{"outputRowCount":5000000.0}}`,
 		},
 	}
 	em := &connElicitation{client: explainer}
 
-	rows, err := em.estimateRows(context.Background(), "SELECT * FROM big_table")
+	rows, known, err := em.estimateRows(context.Background(), "SELECT * FROM big_table")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if rows != 5_000_000 {
-		t.Errorf("estimateRows() = %d, want 5000000", rows)
+	if rows != 5_000_000 || !known {
+		t.Errorf("estimateRows() = %d, %v; want the returned 5000000, not the scanned 9000000", rows, known)
 	}
 }
 
@@ -642,7 +625,7 @@ func TestEstimateRows_ExplainError(t *testing.T) {
 	}
 	em := &connElicitation{client: explainer}
 
-	_, err := em.estimateRows(context.Background(), "SELECT 1")
+	_, _, err := em.estimateRows(context.Background(), "SELECT 1")
 	if err == nil {
 		t.Fatal("expected error when explain fails")
 	}
@@ -651,7 +634,7 @@ func TestEstimateRows_ExplainError(t *testing.T) {
 func TestCheckCostEstimation_BelowThreshold(t *testing.T) {
 	explainer := &mockExplainer{
 		result: &trinoclient.ExplainResult{
-			Plan: "Estimates: {rows: 100 (1KB)}",
+			Plan: `{"estimate":{"outputRowCount":100.0}}`,
 		},
 	}
 	e := &mockElicitor{initParams: elicitCapableParams()}
@@ -674,7 +657,7 @@ func TestCheckCostEstimation_BelowThreshold(t *testing.T) {
 func TestCheckCostEstimation_AboveThreshold_Accepted(t *testing.T) {
 	explainer := &mockExplainer{
 		result: &trinoclient.ExplainResult{
-			Plan: "Estimates: {rows: 5000000 (47MB)}",
+			Plan: `{"estimate":{"outputRowCount":5000000.0}}`,
 		},
 	}
 	e := &mockElicitor{
@@ -700,7 +683,7 @@ func TestCheckCostEstimation_AboveThreshold_Accepted(t *testing.T) {
 func TestCheckCostEstimation_AboveThreshold_Declined(t *testing.T) {
 	explainer := &mockExplainer{
 		result: &trinoclient.ExplainResult{
-			Plan: "Estimates: {rows: 5000000 (47MB)}",
+			Plan: `{"estimate":{"outputRowCount":5000000.0}}`,
 		},
 	}
 	e := &mockElicitor{
@@ -749,7 +732,7 @@ func TestCheckCostEstimation_ExplainFails(t *testing.T) {
 func TestCheckCostEstimation_ElicitFails(t *testing.T) {
 	explainer := &mockExplainer{
 		result: &trinoclient.ExplainResult{
-			Plan: "Estimates: {rows: 5000000 (47MB)}",
+			Plan: `{"estimate":{"outputRowCount":5000000.0}}`,
 		},
 	}
 	e := &mockElicitor{
@@ -792,7 +775,7 @@ func TestBeforeWithSession_ClientNoElicitation(t *testing.T) {
 func TestBeforeWithSession_CostAndPII(t *testing.T) {
 	explainer := &mockExplainer{
 		result: &trinoclient.ExplainResult{
-			Plan: "Estimates: {rows: 5000000 (47MB)}",
+			Plan: `{"estimate":{"outputRowCount":5000000.0}}`,
 		},
 	}
 	e := &mockElicitor{
@@ -826,7 +809,7 @@ func TestBeforeWithSession_CostAndPII(t *testing.T) {
 func TestBeforeWithSession_CostDeclined(t *testing.T) {
 	explainer := &mockExplainer{
 		result: &trinoclient.ExplainResult{
-			Plan: "Estimates: {rows: 5000000 (47MB)}",
+			Plan: `{"estimate":{"outputRowCount":5000000.0}}`,
 		},
 	}
 	e := &mockElicitor{
@@ -847,5 +830,118 @@ func TestBeforeWithSession_CostDeclined(t *testing.T) {
 	var decErr *ElicitationDeclinedError
 	if !errors.As(err, &decErr) {
 		t.Fatalf("expected ElicitationDeclinedError, got: %v", err)
+	}
+}
+
+// costPromptFor is a connection with the cost prompt on, its EXPLAIN answering
+// plan, and the call's row limit.
+func costPromptFor(plan string, threshold, rowLimit int64) *connElicitation {
+	return &connElicitation{
+		client:   &mockExplainer{result: &trinoclient.ExplainResult{Plan: plan}},
+		config:   ElicitationConfig{CostEstimation: CostEstimationConfig{Enabled: true, RowThreshold: threshold}},
+		rowLimit: rowLimit,
+	}
+}
+
+// TestCostPrompt_ReturnedRowsCappedByTheLimit pins #2586's first item: the
+// prompt is about what comes back, the output estimate capped by the call's
+// row limit, never a table's scan.
+func TestCostPrompt_ReturnedRowsCappedByTheLimit(t *testing.T) {
+	const aggregate = `{"inputTableColumnInfos":[{"estimate":{"outputRowCount":1430361.5}}],"estimate":{"outputRowCount":60.0}}`
+	if p := costPromptFor(aggregate, 1000, 10000).costPrompt(context.Background(), "SELECT region, count(*) FROM t GROUP BY region"); p != nil {
+		t.Errorf("an aggregate returning 60 rows prompted: %q", p.Message)
+	}
+
+	const large = `{"estimate":{"outputRowCount":5000000.0}}`
+	p := costPromptFor(large, 500, 1000).costPrompt(context.Background(), "SELECT * FROM t")
+	if p == nil || !strings.Contains(p.Message, "return about 1,000 rows (threshold: 500)") {
+		t.Errorf("a result capped at its 1,000-row limit, over a 500 threshold: %+v", p)
+	}
+	if p := costPromptFor(large, 1000, 1000).costPrompt(context.Background(), "SELECT * FROM t"); p != nil {
+		t.Errorf("a result its row limit holds at the threshold prompted: %q", p.Message)
+	}
+	if p := costPromptFor(large, 1000, 0).costPrompt(context.Background(), "SELECT * FROM t"); p == nil {
+		t.Error("with no row limit known, the estimate itself is compared")
+	}
+}
+
+// TestCostPrompt_UnknownEstimateDoesNotPrompt: an estimate Trino could not
+// make asks nothing; the row limit and the result budget still hold.
+func TestCostPrompt_UnknownEstimateDoesNotPrompt(t *testing.T) {
+	const unknown = `{"inputTableColumnInfos":[{"estimate":{"outputRowCount":NaN}}],"estimate":{"outputRowCount":NaN}}`
+	if p := costPromptFor(unknown, 1, 0).costPrompt(context.Background(), "SELECT * FROM t"); p != nil {
+		t.Errorf("an unknown estimate prompted: %q", p.Message)
+	}
+}
+
+// TestRefusal_AnUnansweredPromptIsNotADecline pins #2586's fourth item, on
+// both paths: decline is the person saying no (user_declined); cancel, or any
+// other action that is not accept, is a person not reached
+// (prompt_unanswered), with text telling the agent a resend only asks again.
+func TestRefusal_AnUnansweredPromptIsNotADecline(t *testing.T) {
+	for _, tc := range []struct {
+		action, category, says string
+	}{
+		{"decline", "user_declined", "did not approve"},
+		{"cancel", "prompt_unanswered", "the person was not reached"},
+		{"timeout", "prompt_unanswered", "sending the same call again will only ask again"},
+	} {
+		res := declinedAnswer(mcp.InputResponseMap{inputCostEstimate: &mcp.ElicitResult{Action: tc.action}})
+		var de *ElicitationDeclinedError
+		if res == nil || !errors.As(res.GetError(), &de) {
+			t.Fatalf("%s: no refusal: %+v", tc.action, res)
+		}
+		if de.ErrorCategory() != tc.category || !strings.Contains(de.Error(), tc.says) {
+			t.Errorf("retry answered %s: %s %q", tc.action, de.ErrorCategory(), de.Error())
+		}
+
+		err := ask(context.Background(), &mockElicitor{elicitResult: &mcp.ElicitResult{Action: tc.action}},
+			confirmation("?"), inputPIIConsent)
+		if !errors.As(err, &de) || de.ErrorCategory() != tc.category {
+			t.Errorf("in band answered %s: %v", tc.action, err)
+		}
+	}
+}
+
+// TestPIIPrompt_CountsOnlyTheColumnsTheStatementReads pins #2586's third
+// item: a PII column the statement never names is not counted; a star reads
+// every column.
+func TestPIIPrompt_CountsOnlyTheColumnsTheStatementReads(t *testing.T) {
+	em := &connElicitation{
+		config: ElicitationConfig{PIIConsent: PIIConsentConfig{Enabled: true}},
+		semanticProvider: &mockSemanticProvider{columns: map[string]map[string]*semantic.ColumnContext{
+			"schema.table1": {"email": {IsPII: true}, "region": {}, "total": {}},
+		}},
+	}
+	ctx := context.Background()
+	if p := em.piiPrompt(ctx, "SELECT region, count(*), sum(total) FROM schema.table1 GROUP BY region"); p != nil {
+		t.Errorf("an aggregate over non-PII columns prompted: %q", p.Message)
+	}
+	for _, sql := range []string{
+		"SELECT email FROM schema.table1",
+		"SELECT region FROM schema.table1 WHERE Email LIKE '%@example.com'",
+		"SELECT * FROM schema.table1",
+		"SELECT t.* FROM schema.table1 t",
+	} {
+		if p := em.piiPrompt(ctx, sql); p == nil || !strings.Contains(p.Message, "1 PII column(s)") {
+			t.Errorf("%s: %+v", sql, p)
+		}
+	}
+}
+
+// TestRowLimits: a call's row limit is clamped as trino_query clamps it, and
+// a connection that sets none takes the toolkit's defaults.
+func TestRowLimits(t *testing.T) {
+	l := rowLimits{defaultRows: 1000, maxRows: 10000}
+	for requested, want := range map[int]int64{0: 1000, -5: 1000, 50: 50, 10000: 10000, 50000: 10000} {
+		if got := l.effective(requested); got != want {
+			t.Errorf("effective(%d) = %d, want %d", requested, got, want)
+		}
+	}
+	if got := limitsOf(Config{}); got != (rowLimits{defaultRows: defaultQueryLimit, maxRows: defaultMaxLimit}) {
+		t.Errorf("limitsOf(empty) = %+v", got)
+	}
+	if got := limitsOf(Config{DefaultLimit: 10, MaxLimit: 20}); got != (rowLimits{defaultRows: 10, maxRows: 20}) {
+		t.Errorf("limitsOf(set) = %+v", got)
 	}
 }

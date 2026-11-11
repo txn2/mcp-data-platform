@@ -29,6 +29,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/feedbackwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/formpublishwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/formwire"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/generalfeedbackwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/mentionhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/personashare"
@@ -181,7 +182,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	reach := feedbackwire.Wire(&deps, feedbackwire.Sources{
 		Directory: p.UserStore(), Audit: p.Audit().Logger(), HasDatabase: p.DB() != nil,
 	})
-	notifywire.WirePortalNotifications(&deps, p, notify, mentionAudience(p), reach)
+	general := notifywire.WirePortalNotifications(&deps, p, notify, mentionAudience(p), reach)
 
 	// Guest access path for email shares (#1001): branded denial pages plus
 	// one-time view links for recipients without an account. The share store
@@ -229,6 +230,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	accessreqwire.Mount(mux, p, accessreqwire.Deps{
 		Wrap: wrap, IsAdmin: isAdmin, Notify: notify, AdminWrap: adminAuthIfEnabled(p), Author: adminEmail,
 	})
+	generalfeedbackwire.Mount(mux, general, wrap, adminAuthIfEnabled(p), adminEmail)
 	// A form's preview and the Approvals queue its public use is approved
 	// through (#2494, #2437).
 	formpublishwire.Mount(mux, p, formpublishwire.Deps{Wrap: wrap, IsAdmin: isAdmin, Notify: notify})

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useId } from "react";
 import {
   useSMTPSettings,
+  useGeneralFeedback,
   useSetSMTPSettings,
   useSendTestEmail,
   useSMTPRecipientStatus,
@@ -18,6 +19,7 @@ import { MapsCard } from "./MapsCard";
 import { SitesSettingsCard } from "./SitesSettingsCard";
 import { NotificationChannelsCard } from "./NotificationChannelsCard";
 import { ReviewAlertCard } from "./ReviewAlertCard";
+import { GeneralFeedbackCard } from "./GeneralFeedbackCard";
 import { ScriptRunAlertCard } from "./ScriptRunAlertCard";
 import { BotChecksSettingsCard } from "./BotChecksSettingsCard";
 import { AccessRequestsSettingsCard } from "./AccessRequestsSettingsCard";
@@ -409,6 +411,7 @@ export function AdminSettingsPage({
 const SECTION_CARDS: Record<SettingsSectionId, (isReadOnly: boolean) => React.ReactNode> = {
   email: (ro) => <SMTPCard isReadOnly={ro} />,
   channels: (ro) => <NotificationChannelsCard isReadOnly={ro} />,
+  "general-feedback": (ro) => <GeneralFeedbackCard isReadOnly={ro} />,
   "knowledge-review": (ro) => (
     <ReviewAlertCard
       queue="review-queue-alert"
@@ -436,7 +439,9 @@ const SECTION_CARDS: Record<SettingsSectionId, (isReadOnly: boolean) => React.Re
 function useSectionStatus(): Partial<Record<SettingsSectionId, string>> {
   const { data: smtp } = useSMTPSettings();
   const failing = useFailingChannelCount();
+  const { data: general } = useGeneralFeedback();
   const out: Partial<Record<SettingsSectionId, string>> = {};
+  if (general?.warnings.includes("reaches_nobody")) out["general-feedback"] = "A new post reaches nobody";
   if (smtp && !smtp.host) out.email = "Not configured";
   if (failing > 0) out.channels = failing === 1 ? "A channel's last delivery failed" : `${failing} channels' last delivery failed`;
   return out;

@@ -36,6 +36,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/toolkitcfg"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/embedhosts"
+	"github.com/txn2/mcp-data-platform/internal/portal/generalfeedback"
 	"github.com/txn2/mcp-data-platform/internal/unarchive"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whconfig"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
@@ -443,8 +444,9 @@ type PortalConfig struct {
 	// (#1904); 0 = 90, negative = forever.
 	OrphanedProducerRetentionDays int `yaml:"orphaned_producer_retention_days"`
 	// LoginRedirect and AllowAPIKeyLogin: see portalcfg.LoginRedirect (#2242).
-	LoginRedirect    bool  `yaml:"login_redirect"`
-	AllowAPIKeyLogin *bool `yaml:"allow_api_key_login"`
+	LoginRedirect    bool                   `yaml:"login_redirect"`
+	AllowAPIKeyLogin *bool                  `yaml:"allow_api_key_login"`
+	Feedback         generalfeedback.Config `yaml:"feedback"` // who hears about a General feedback post (#2603)
 }
 
 // PortalExportConfig configures the trino_export tool.
@@ -1257,19 +1259,16 @@ func (c *ElicitationConfig) IsEnabled() bool {
 // CostEstimationConfig configures query cost estimation.
 type CostEstimationConfig struct {
 	// Enabled controls whether query cost estimation triggers elicitation.
-	// Enabled by default (nil = enabled); set enabled: false to disable.
+	// Off by default (nil = off, #2586): the row limit already bounds a result.
 	Enabled *bool `yaml:"enabled"`
 
-	// RowThreshold is the estimated row count above which confirmation is requested.
-	// Default: 1000000 (1 million rows).
+	// RowThreshold is the estimated rows a query returns (capped by its row
+	// limit) above which confirmation is requested. Default: 1000000.
 	RowThreshold int64 `yaml:"row_threshold"`
 }
 
-// IsEnabled reports whether cost estimation is enabled, defaulting to true
-// when not explicitly set.
-func (c *CostEstimationConfig) IsEnabled() bool {
-	return !isExplicitlyDisabled(c.Enabled)
-}
+// IsEnabled reports whether cost estimation is enabled; unset is off (#2586).
+func (c *CostEstimationConfig) IsEnabled() bool { return c.Enabled != nil && *c.Enabled }
 
 // PIIConsentConfig configures PII access consent.
 type PIIConsentConfig struct {

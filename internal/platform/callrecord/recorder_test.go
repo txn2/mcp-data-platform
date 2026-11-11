@@ -243,6 +243,24 @@ func TestRecorderIgnoresEverythingElse(t *testing.T) {
 	}
 }
 
+// A query answered with input requests ran nothing (#2586): the catalog keeps
+// no record of it, as it keeps none of a call nobody could re-run.
+func TestRecorderIgnoresACallThatRanNothing(t *testing.T) {
+	t.Parallel()
+
+	store := &fakeStore{}
+	rec := NewRecorder(&fakeAudit{}, store, testURN, Exclusion{})
+	if err := rec.Log(context.Background(), audit.Event{
+		ID: "evt-ask", ToolName: "trino_query", Success: false, ErrorCategory: audit.CategoryInputRequired,
+		Parameters: map[string]any{"sql": "SELECT 1"},
+	}); err != nil {
+		t.Fatalf("Log: %v", err)
+	}
+	if len(store.inserted) != 0 {
+		t.Errorf("expected no record, got %+v", store.inserted)
+	}
+}
+
 func TestRecorderKeepsAFailedCall(t *testing.T) {
 	t.Parallel()
 

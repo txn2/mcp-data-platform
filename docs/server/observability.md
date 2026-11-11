@@ -164,6 +164,9 @@ query them; the tab is the at-a-glance read.
 | `mcp_request_duration_seconds` | histogram | `method`, `status` |
 | `endpoint_requests_total` | counter | `endpoint`, `status_class` |
 | `endpoint_request_duration_seconds` | histogram | `endpoint` |
+| `site_requests_total` | counter | `kind`, `site`, `environment`, `status_class` |
+| `site_request_duration_seconds` | histogram | `kind`, `site`, `environment` |
+| `site_cache_reads_total` | counter | `outcome` |
 | `apigateway_outbound_total` | counter | `connection`, `http_status_class`, `status_category`, `persona` |
 | `apigateway_outbound_duration_seconds` | histogram | `connection`, `http_status_class`, `status_category` |
 | `http_client_requests_total` | counter | `kind`, `connection`, `status_class` |
@@ -287,6 +290,25 @@ Every request a script bound to an endpoint answered (#2172) is counted by
 `endpoint_request_duration_seconds{endpoint}`, where `endpoint` is the
 binding's name, which an administrator sets; see
 [Endpoints](../scripts/endpoints.md).
+
+A request the site and page gateway answers (a static site on its own
+hostname, or an application's page origin) never reaches the platform's mux,
+so it is recorded under the gateway's own route (#2597):
+`http_server_request_duration_seconds{route="site"}` for a site, or for a
+hostname under the pages domain that serves nothing, and `route="pages"` for
+a page origin, with a server span named `GET site` or `GET pages` carrying
+`site.kind`, `site.name` and `site.environment`. A site's path that matches a
+platform route (a site's own `/api/v1/resources`) is the site's, never that
+route. The traffic itself is counted by
+`site_requests_total{kind,site,environment,status_class}` and timed by
+`site_request_duration_seconds{kind,site,environment}`: `kind` is `site` or
+`pages`, `site` the site's or the application's name and `environment` the
+site's environment (empty for a page origin). Every label comes from the route
+the gateway resolved, never from the Host header, so a hostname nobody added
+makes no series of its own. `site_cache_reads_total{outcome}` counts where each
+file body came from: `memory`, `disk`, `object_store`, or `range` (a file too
+large to cache, read by ranged GETs), which is what tells whether
+`sites.cache` is sized for the traffic.
 A 429 no limiter named is `limiter="unknown"`. Before #1889 the OAuth, portal
 viewer and proxy refusals left no metric and no log.
 
@@ -1167,7 +1189,8 @@ most routes hold a single series) and `status_class` is 5, so
 series times its bucket count and in practice holds about one series per
 route per status class seen. `http_rate_limited_total{limiter}` is 10
 series. `endpoint_requests_total` is the deployment's endpoint bindings times
-5 status classes. `mcp_requests_total` is the SDK's method table (about 14) times 3.
+5 status classes, and `site_requests_total` the deployment's site
+environments and applications times 5; `site_cache_reads_total` is 4. `mcp_requests_total` is the SDK's method table (about 14) times 3.
 
 Both are well under typical Prometheus limits and well within any
 managed observability backend's per-metric series budget. If you add

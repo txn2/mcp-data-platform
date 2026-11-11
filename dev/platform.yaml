@@ -405,6 +405,27 @@ toolkits:
         schema: "public"
         ssl: ${TRINO_SSL:-false}
         description: "ACME staging Trino — pre-production data validation"
+      # The same Trino with the cost prompt on at 500 returned rows (#2586):
+      # the dev connections above take the platform default, which is off, and
+      # a connection's own elicitation block can only be set here (the admin
+      # API treats the key as the platform's). On the memory catalog, where
+      # the #2586 criteria build their tables.
+      acme-costed:
+        host: "${TRINO_HOST:-localhost}"
+        port: ${TRINO_PORT:-8080}
+        user: "${TRINO_USER:-}"
+        password: "${TRINO_PASSWORD:-}"
+        catalog: "memory"
+        schema: "default"
+        ssl: ${TRINO_SSL:-false}
+        description: "ACME Trino with the cost prompt on (acceptance #2586)"
+        elicitation:
+          enabled: true
+          cost_estimation:
+            enabled: true
+            row_threshold: 500
+          pii_consent:
+            enabled: false
       # The connection a table registration writes through (#1327), separate
       # from the two above because it needs two things they must not have.
       #
@@ -498,6 +519,18 @@ toolkits:
         use_path_style: true
         read_only: true
         description: "Local SeaweedFS, read-only"
+      # The same SeaweedFS, limited to buckets named portal-*: portal-assets is
+      # inside the limit and dev-scratch outside it. It is what the #2584
+      # acceptance test exercises bucket_prefix on.
+      dev-s3-prefixed:
+        enabled: true
+        endpoint: "http://localhost:${DEV_S3_PORT:-9000}"
+        region: "us-east-1"
+        access_key_id: "dev-access-key"
+        secret_access_key: "dev-secret-key"
+        use_path_style: true
+        bucket_prefix: "portal-"
+        description: "Local SeaweedFS, limited to portal-* buckets"
       # SeaweedFS over TLS, where managed resources are stored. It is a
       # separate connection because it is a separate store: the AWS SDK writes
       # with aws-chunked encoding and a trailing checksum over HTTPS, the

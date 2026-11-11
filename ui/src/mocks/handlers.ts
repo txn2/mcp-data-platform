@@ -160,6 +160,21 @@ function promptAttachmentList(promptId: string) {
 }
 
 const ADMIN_BASE = "/api/v1/admin";
+
+// The General feedback list the mock admin API answers (#2603).
+const mockGeneralFeedback = {
+  personas: ["admin"],
+  recipients: ["data-requests@example.com"],
+  channels: [],
+  acknowledge_author: false,
+  people: ["admin@example.com", "data-requests@example.com", "ops@example.com"],
+  persona_options: [
+    { name: "admin", display_name: "Administrator", people: 2 },
+    { name: "analyst", display_name: "Data Analyst", people: 24 },
+    { name: "data-engineer", display_name: "Data Engineer", people: 0 },
+  ],
+  warnings: [],
+};
 const PORTAL_BASE = "/api/v1/portal";
 const OBSERVABILITY_BASE = "/api/v1/observability";
 
@@ -3078,6 +3093,16 @@ export const handlers = [
     const body = (await request.json()) as { hosts: string[] };
     return HttpResponse.json({ hosts: body.hosts.map((h) => (h.startsWith("https://") ? h : `https://${h}`)), configured: mockEmbedHosts });
   }),
+  // Who hears about a General feedback post (#2603): the administrator
+  // persona and a team address, before anyone has saved the list.
+  http.get(`${ADMIN_BASE}/settings/general-feedback`, () =>
+    HttpResponse.json(mockGeneralFeedback),
+  ),
+  http.put(`${ADMIN_BASE}/settings/general-feedback`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    return HttpResponse.json({ ...mockGeneralFeedback, ...body, updated_by: "admin@example.com", updated_at: new Date().toISOString() });
+  }),
+  http.get(`${PORTAL_BASE}/feedback/general`, () => HttpResponse.json({ reaches_someone: true })),
   http.get(`${ADMIN_BASE}/settings/access-requests`, () => HttpResponse.json({ reveal_names: false, expire_days: 14 })),
   http.put(`${ADMIN_BASE}/settings/access-requests`, async ({ request }) => HttpResponse.json(await request.json())),
 

@@ -7,6 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/txn2/mcp-data-platform/internal/sqlident"
 	"github.com/txn2/mcp-data-platform/internal/sqltables"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -294,7 +295,7 @@ var sqlKeywords = map[string]bool{
 // (columns, tables, functions), lexed and lowercased, with SQL keywords removed.
 // Used to score how related a successful query is to a prior failure.
 func meaningfulIdentifiers(sql string) map[string]struct{} {
-	ids := extractIdentifiers(sql)
+	ids := sqlident.Identifiers(sql)
 	out := make(map[string]struct{}, len(ids))
 	for id := range ids {
 		if sqlKeywords[id] {

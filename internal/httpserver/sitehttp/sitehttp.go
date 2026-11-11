@@ -75,7 +75,7 @@ func gatewayDeps(p *platform.Platform, rt *sitewire.Runtime) (sitegw.Deps, error
 	}
 	deps := sitegw.Deps{
 		Store: rt.Store, Objects: objects, Bucket: p.Config().Portal.S3Bucket, Config: rt.Config, Live: rt.Live, PortalHost: rt.Service.PortalHost,
-		Access: accessOver(p, rt, portal),
+		Access: accessOver(p, rt, portal), Metrics: p.Metrics(),
 	}
 	if p.Endpoints().Handler != nil {
 		deps.Pages = pagesOver(p, rt, portal)

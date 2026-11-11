@@ -2233,10 +2233,10 @@ server:
 }
 
 func TestCostEstimationConfig_IsEnabled(t *testing.T) {
-	t.Run("nil defaults to true", func(t *testing.T) {
+	t.Run("nil defaults to false (#2586)", func(t *testing.T) {
 		cfg := &CostEstimationConfig{}
-		if !cfg.IsEnabled() {
-			t.Error("expected nil Enabled to default to true")
+		if cfg.IsEnabled() {
+			t.Error("expected nil Enabled to default to false")
 		}
 	})
 
@@ -2272,8 +2272,21 @@ elicitation:
 server:
   name: test-platform
 `)
+		if cfg.Elicitation.CostEstimation.IsEnabled() {
+			t.Error("expected missing cost_estimation block to default to false (#2586)")
+		}
+	})
+
+	t.Run("YAML loading with cost_estimation.enabled true", func(t *testing.T) {
+		cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+elicitation:
+  cost_estimation:
+    enabled: true
+`)
 		if !cfg.Elicitation.CostEstimation.IsEnabled() {
-			t.Error("expected missing cost_estimation block to default to true")
+			t.Error("expected cost_estimation.enabled: true to turn cost estimation on")
 		}
 	})
 }
@@ -2345,8 +2358,10 @@ server:
 	if !cfg.Elicitation.IsEnabled() {
 		t.Error("elicitation should default to enabled")
 	}
-	if !cfg.Elicitation.CostEstimation.IsEnabled() {
-		t.Error("elicitation.cost_estimation should default to enabled")
+	// The one sub-feature that is off by default (#2586): trino_query's row
+	// limit and the result budget already bound what a query returns.
+	if cfg.Elicitation.CostEstimation.IsEnabled() {
+		t.Error("elicitation.cost_estimation should default to off")
 	}
 	if !cfg.Elicitation.PIIConsent.IsEnabled() {
 		t.Error("elicitation.pii_consent should default to enabled")

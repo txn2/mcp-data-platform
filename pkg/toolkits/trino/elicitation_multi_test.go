@@ -2,6 +2,7 @@ package trino
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -170,7 +171,7 @@ func TestNewMulti_PromptsForAQueryOverTheThreshold(t *testing.T) {
 	host, port := hostPortOf(t, srv)
 	off := false
 	r := newElicitRig(t, map[string]Config{
-		"warehouse": {Host: host, Port: port, User: "u", SSL: &off, Elicitation: costPrompting(1000)},
+		"warehouse": {Host: host, Port: port, User: "u", SSL: &off, Elicitation: costPrompting(500)},
 		"lake":      {Host: host, Port: port, User: "u", SSL: &off},
 	})
 
@@ -178,7 +179,9 @@ func TestNewMulti_PromptsForAQueryOverTheThreshold(t *testing.T) {
 	require.True(t, res.IsError, "a declined prompt must stop the query: %v", res.Content)
 	prompts := r.shown()
 	require.Len(t, prompts, 1)
-	assert.Contains(t, prompts[0], "5,000,000 rows")
+	// The stub estimates 5,000,000 returned rows; the call returns at most
+	// its row limit, the default 1,000 (#2586).
+	assert.Contains(t, prompts[0], "return about 1,000 rows")
 
 	// A connection whose settings leave the prompt off runs without one.
 	res = r.query(t, "lake")
@@ -200,7 +203,7 @@ func TestNewMulti_TheEstimateIsMeasured(t *testing.T) {
 	host, port := hostPortOf(t, srv)
 	off := false
 	r := newElicitRig(t, map[string]Config{
-		"warehouse": {Host: host, Port: port, User: "u", SSL: &off, Elicitation: costPrompting(1000)},
+		"warehouse": {Host: host, Port: port, User: "u", SSL: &off, Elicitation: costPrompting(500)},
 	})
 	r.answer = "accept"
 	require.False(t, r.query(t, "warehouse").IsError)
@@ -227,7 +230,7 @@ func TestNewMulti_AddedConnectionsCarryElicitation(t *testing.T) {
 	host, port := hostPortOf(t, srv)
 	off := false
 	r := newElicitRig(t, map[string]Config{
-		"warehouse": {Host: host, Port: port, User: "u", SSL: &off, Elicitation: costPrompting(1000)},
+		"warehouse": {Host: host, Port: port, User: "u", SSL: &off, Elicitation: costPrompting(500)},
 	})
 	base := map[string]any{"host": host, "port": port, "user": "u", "ssl": false}
 	inherit := map[string]any{}
@@ -262,7 +265,7 @@ func TestNewMulti_AsksConsentForAPIIColumn(t *testing.T) {
 	off := false
 	both := ElicitationConfig{
 		Enabled:        true,
-		CostEstimation: CostEstimationConfig{Enabled: true, RowThreshold: 1000},
+		CostEstimation: CostEstimationConfig{Enabled: true, RowThreshold: 500},
 		PIIConsent:     PIIConsentConfig{Enabled: true},
 	}
 	piiOnly := ElicitationConfig{Enabled: true, PIIConsent: PIIConsentConfig{Enabled: true}}
@@ -293,17 +296,37 @@ func TestNewMulti_AnOlderClientIsAskedInBand(t *testing.T) {
 	host, port := hostPortOf(t, srv)
 	off := false
 	r := newElicitRigAt(t, map[string]Config{
-		"warehouse": {Host: host, Port: port, User: "u", SSL: &off, Elicitation: costPrompting(1000)},
+		"warehouse": {Host: host, Port: port, User: "u", SSL: &off, Elicitation: costPrompting(500)},
 	}, "2025-11-25")
 	require.Equal(t, "2025-11-25", r.session.InitializeResult().ProtocolVersion)
 
 	res := r.query(t, "warehouse")
 	require.True(t, res.IsError, "%v", res.Content)
 	require.Len(t, r.shown(), 1)
-	assert.Contains(t, firstTextBlock(res), "estimated row count was not confirmed")
+	assert.Contains(t, firstTextBlock(res), "did not approve the estimated row count")
 
 	r.answer = "accept"
 	assert.False(t, r.query(t, "warehouse").IsError)
+}
+
+// A prompt the client comes back from with no answer is not a decline
+// (#2586), on either path: the refusal says the person was not reached and
+// that resending only asks again.
+func TestNewMulti_AnUnansweredPromptSaysThePersonWasNotReached(t *testing.T) {
+	srv := explainingStub(t)
+	host, port := hostPortOf(t, srv)
+	off := false
+	for _, version := range []string{"", "2025-11-25"} {
+		r := newElicitRigAt(t, map[string]Config{
+			"warehouse": {Host: host, Port: port, User: "u", SSL: &off, Elicitation: costPrompting(500)},
+		}, version)
+		r.answer = "cancel"
+		res := r.query(t, "warehouse")
+		require.True(t, res.IsError, "%v", res.Content)
+		text := firstTextBlock(res)
+		assert.Contains(t, text, "the person was not reached", "protocol %q", version)
+		assert.NotContains(t, text, "declined", "protocol %q", version)
+	}
 }
 
 // taggedTables is a semantic provider that tags whole tables PII and no
@@ -348,4 +371,25 @@ func TestNewMulti_AsksConsentForATableTaggedPII(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, res.IsError, "%v", res.Content)
 	assert.Len(t, r.shown(), 1)
+}
+
+// A connection added at run time with its own elicitation block, as the admin
+// API stores it (JSON-decoded, numbers as float64), turns the cost prompt on
+// for itself though the default connection has it off (#2586).
+func TestNewMulti_AnAddedConnectionsOwnBlockTurnsTheCostPromptOn(t *testing.T) {
+	srv := explainingStub(t)
+	host, port := hostPortOf(t, srv)
+	off := false
+	r := newElicitRig(t, map[string]Config{"warehouse": {Host: host, Port: port, User: "u", SSL: &off}})
+	var cfg map[string]any
+	require.NoError(t, json.Unmarshal([]byte(fmt.Sprintf(
+		`{"host":%q,"port":%d,"user":"u","ssl":false,"elicitation":{"enabled":true,"cost_estimation":{"enabled":true,"row_threshold":500},"pii_consent":{"enabled":false}}}`,
+		host, port)), &cfg))
+	require.NoError(t, r.tk.AddConnection("costed", cfg))
+
+	assert.False(t, r.query(t, "warehouse").IsError)
+	assert.Empty(t, r.shown(), "the default connection has the prompt off")
+	assert.True(t, r.query(t, "costed").IsError, "declined")
+	require.Len(t, r.shown(), 1)
+	assert.Contains(t, r.shown()[0], "return about 1,000 rows (threshold: 500)")
 }

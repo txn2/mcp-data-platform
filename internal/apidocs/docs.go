@@ -11338,6 +11338,80 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/settings/general-feedback": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns who is told when someone posts to the General feedback channel (#2603): the personas whose people are told, the addresses told as well, the channels a new post is also sent to, and whether the author is sent an acknowledgement. people is everyone a new post reaches now; persona_options lists the personas with how many people each reaches; warnings carries reaches_nobody when the list reaches no person and no channel. Before a list is saved it is portal.feedback.standalone_recipients, or the administrator persona.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Get who hears about General feedback",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/generalfeedback.View"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Saves the list. personas must name existing personas (at most 20), recipients must be email addresses (at most 50), and channels must name configured notification channels. Answers the saved list as GET does.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Set who hears about General feedback",
+                "parameters": [
+                    {
+                        "description": "The list",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/generalfeedback.Settings"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/generalfeedback.View"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/settings/maps": {
             "get": {
                 "security": [
@@ -21019,6 +21093,34 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/feedback/general": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Answers whether a new post to the General feedback channel is told to anyone (#2603), so the composer can say so before the author posts. It never names the recipients.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Feedback"
+                ],
+                "summary": "Whether General feedback reaches anyone",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/generalfeedback.Reach"
                         }
                     }
                 }
@@ -38310,7 +38412,7 @@ const docTemplate = `{
                     "example": 850
                 },
                 "error_category": {
-                    "description": "ErrorCategory is the bounded class of a failed call: one of the\nplatform's error categories (authentication_failed, authorization_denied,\nsearch_required, rate_limited, user_declined, client_input, ...) or an\nupstream outcome (upstream_4xx, ...). Empty on a success. ErrorMessage\nis the text; this is what a query groups by (#1892).",
+                    "description": "ErrorCategory is the bounded class of a failed call: one of the\nplatform's error categories (authentication_failed, authorization_denied,\nsearch_required, rate_limited, user_declined, prompt_unanswered,\ninput_required, client_input, ...) or an\nupstream outcome (upstream_4xx, ...). Empty on a success. ErrorMessage\nis the text; this is what a query groups by (#1892).",
                     "type": "string"
                 },
                 "error_message": {
@@ -42367,6 +42469,119 @@ const docTemplate = `{
                 },
                 "timeout_seconds": {
                     "type": "integer"
+                }
+            }
+        },
+        "generalfeedback.PersonaOption": {
+            "type": "object",
+            "properties": {
+                "display_name": {
+                    "type": "string",
+                    "example": "Administrator"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "admin"
+                },
+                "people": {
+                    "type": "integer",
+                    "example": 3
+                }
+            }
+        },
+        "generalfeedback.Reach": {
+            "type": "object",
+            "properties": {
+                "reaches_someone": {
+                    "type": "boolean",
+                    "example": true
+                }
+            }
+        },
+        "generalfeedback.Settings": {
+            "type": "object",
+            "properties": {
+                "acknowledge_author": {
+                    "description": "AcknowledgeAuthor sends the person who posted an email saying their\npost went to the people who handle feedback, without naming them.",
+                    "type": "boolean"
+                },
+                "channels": {
+                    "description": "Channels a new post is also sent to. Replies are not.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "personas": {
+                    "description": "Personas whose people are told: everyone in the user directory whose\nrecorded roles resolve to one of them.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "recipients": {
+                    "description": "Recipients are addresses told as well, such as a team list.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "generalfeedback.View": {
+            "type": "object",
+            "properties": {
+                "acknowledge_author": {
+                    "description": "AcknowledgeAuthor sends the person who posted an email saying their\npost went to the people who handle feedback, without naming them.",
+                    "type": "boolean"
+                },
+                "channels": {
+                    "description": "Channels a new post is also sent to. Replies are not.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "people": {
+                    "description": "People is everyone a new post reaches now, sorted.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "persona_options": {
+                    "description": "PersonaOptions are the personas the list may name, with their people.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/generalfeedback.PersonaOption"
+                    }
+                },
+                "personas": {
+                    "description": "Personas whose people are told: everyone in the user directory whose\nrecorded roles resolve to one of them.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "recipients": {
+                    "description": "Recipients are addresses told as well, such as a team list.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "string"
+                },
+                "warnings": {
+                    "description": "Warnings name what the saved list gets wrong: reaches_nobody.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { ThreadList } from "./ThreadList";
 import { ThreadDetail } from "./ThreadDetail";
 import { NewThreadForm } from "./NewThreadForm";
+import { GeneralFeedbackNotice } from "./GeneralFeedbackNotice";
 import { useTextQuoteAnchor } from "./useTextQuoteAnchor";
 import { filterForTarget, targetLabel } from "./targetFilter";
 
@@ -22,7 +23,8 @@ interface Props {
   flow?: boolean;
 }
 
-type View = { kind: "list" } | { kind: "new" } | { kind: "detail"; threadId: string };
+type View =
+  { kind: "list" } | { kind: "new" } | { kind: "detail"; threadId: string };
 
 // panelShape is the two layouts this panel has. It is a function rather than
 // two ternaries in the body because the body is already at the complexity
@@ -48,7 +50,10 @@ export function FeedbackPanel({ target, canModerate, onClose, flow }: Props) {
   const threads = data?.data ?? [];
   const openCount = threads.filter((t) => t.status === "open").length;
   const needsResolution = threads.filter(
-    (t) => t.requires_resolution && t.status !== "resolved" && t.status !== "wont_fix",
+    (t) =>
+      t.requires_resolution &&
+      t.status !== "resolved" &&
+      t.status !== "wont_fix",
   ).length;
 
   return (
@@ -56,7 +61,9 @@ export function FeedbackPanel({ target, canModerate, onClose, flow }: Props) {
       {/* Header */}
       <div className="flex items-center gap-2 border-b p-3">
         <div className="min-w-0">
-          <h2 className="truncate text-sm font-semibold">{targetLabel(target)}</h2>
+          <h2 className="truncate text-sm font-semibold">
+            {targetLabel(target)}
+          </h2>
           <p className="text-xs text-muted-foreground">
             {openCount} open
             {needsResolution > 0 ? ` · ${needsResolution} need resolution` : ""}
@@ -105,7 +112,7 @@ export function FeedbackPanel({ target, canModerate, onClose, flow }: Props) {
           </>
         )}
         {view.kind === "new" && (
-          <NewThreadForm
+          <NewThreadView
             target={target}
             availableAnchor={availableAnchor}
             onCancel={() => setView({ kind: "list" })}
@@ -122,5 +129,20 @@ export function FeedbackPanel({ target, canModerate, onClose, flow }: Props) {
         )}
       </div>
     </div>
+  );
+}
+
+// NewThreadView is the composer, with the line saying where a General post
+// goes above it on the standalone channel (#2603).
+function NewThreadView(props: React.ComponentProps<typeof NewThreadForm>) {
+  return (
+    <>
+      {props.target.type === "standalone" && (
+        <div className="border-b px-4 py-2">
+          <GeneralFeedbackNotice />
+        </div>
+      )}
+      <NewThreadForm {...props} />
+    </>
   );
 }

@@ -20,12 +20,14 @@ import (
 	"net/http"
 	"path"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/contentenc"
+	"github.com/txn2/mcp-data-platform/internal/httpobs"
 	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 
 	"golang.org/x/sync/singleflight"
 
@@ -53,7 +55,6 @@ const (
 	headerContentEnc = "Content-Encoding"
 	logKeyError      = "error"
 	pathSep          = "/"
-	floatBits        = 64
 )
 
 // Store reads what a hostname serves.
@@ -84,6 +85,8 @@ type Deps struct {
 	Pages *Pages
 	// Access guards a site's own address; with none, no such address answers.
 	Access *Access
+	// Metrics records what the gateway answers (#2597); nil records nothing.
+	Metrics *observability.Metrics
 }
 
 // Gateway routes by Host.
@@ -191,8 +194,11 @@ func (g *Gateway) refreshHosts(ctx context.Context) map[string]bool {
 	return set
 }
 
-// serve answers a request for a served hostname.
+// serve answers a request for a served hostname. The request never reaches
+// the mux, so it is recorded under the gateway's own route (#2597), and one
+// that resolves to a site or a page origin is counted under its name.
 func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, host string) {
+	httpobs.SetRoute(r, httpobs.RouteSite)
 	if host == g.pagesDomain() {
 		http.NotFound(w, r)
 		return
@@ -207,6 +213,9 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, host string) {
 		http.Error(w, "this site could not be read", http.StatusServiceUnavailable)
 		return
 	}
+	sw := g.observe(w, r, route)
+	defer sw.done()
+	w = sw
 	if route.Application != "" {
 		if g.deps.Pages == nil {
 			http.NotFound(w, r)
@@ -397,7 +406,7 @@ func matchRedirect(rules []site.Redirect, p string) (target string, status int, 
 // encoding is the stored form to send for the request's Accept-Encoding: "br",
 // "gz", or "" for the file itself.
 func encoding(accept string, f site.File) string {
-	br, gz := acceptedEncodings(accept)
+	br, gz := contentenc.Accepted(accept)
 	switch {
 	case br && f.BrotliSize > 0:
 		return "br"
@@ -405,33 +414,6 @@ func encoding(accept string, f site.File) string {
 		return "gz"
 	}
 	return ""
-}
-
-// acceptedEncodings reads which of the stored forms an Accept-Encoding allows.
-func acceptedEncodings(accept string) (br, gz bool) {
-	for part := range strings.SplitSeq(accept, ",") {
-		name, params, _ := strings.Cut(strings.TrimSpace(part), ";")
-		if zeroWeight(params) {
-			continue
-		}
-		switch strings.ToLower(strings.TrimSpace(name)) {
-		case "br":
-			br = true
-		case "gzip":
-			gz = true
-		}
-	}
-	return br, gz
-}
-
-// zeroWeight reports an Accept-Encoding entry whose q parameter refuses it.
-func zeroWeight(params string) bool {
-	q, ok := strings.CutPrefix(strings.ToLower(strings.TrimSpace(params)), "q=")
-	if !ok {
-		return false
-	}
-	v, err := strconv.ParseFloat(q, floatBits)
-	return err == nil && v == 0
 }
 
 // contentEncoding is the header value of a stored form.
@@ -511,6 +493,18 @@ func (*Gateway) unreadable(w http.ResponseWriter, r *http.Request, err error) {
 	http.Error(w, "this file could not be read", http.StatusServiceUnavailable)
 }
 
+// Where a file body came from, the outcome site_cache_reads_total counts.
+const (
+	cacheReadMemory = "memory"
+	cacheReadDisk   = "disk"
+	cacheReadObject = "object_store"
+	cacheReadRange  = "range"
+)
+
+func (g *Gateway) cacheRead(ctx context.Context, outcome string) {
+	g.deps.Metrics.RecordSiteCacheRead(ctx, outcome)
+}
+
 // bytes is an object of the sites bucket's content.
 func (g *Gateway) bytes(ctx context.Context, cacheKey, objectKey string) ([]byte, error) {
 	return g.bytesFrom(ctx, g.deps.Bucket, cacheKey, objectKey)
@@ -520,6 +514,7 @@ func (g *Gateway) bytes(ctx context.Context, cacheKey, objectKey string) ([]byte
 // fetch per object at a time.
 func (g *Gateway) bytesFrom(ctx context.Context, bucket, cacheKey, objectKey string) ([]byte, error) {
 	if body, ok := g.cache.get(cacheKey); ok {
+		g.cacheRead(ctx, cacheReadMemory)
 		return body, nil
 	}
 	shared := context.WithoutCancel(ctx)
@@ -529,6 +524,7 @@ func (g *Gateway) bytesFrom(ctx context.Context, bucket, cacheKey, objectKey str
 			var buf bytes.Buffer
 			if _, err := buf.ReadFrom(f); err == nil {
 				g.cache.put(cacheKey, buf.Bytes())
+				g.cacheRead(ctx, cacheReadDisk)
 				return buf.Bytes(), nil
 			}
 		}
@@ -538,6 +534,7 @@ func (g *Gateway) bytesFrom(ctx context.Context, bucket, cacheKey, objectKey str
 		}
 		g.cache.put(cacheKey, body)
 		g.cache.writeDisk(cacheKey, body)
+		g.cacheRead(ctx, cacheReadObject)
 		return body, nil
 	})
 	if err != nil {

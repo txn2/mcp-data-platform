@@ -167,6 +167,24 @@ func TestCaptureRecordsFailedCalls(t *testing.T) {
 	assert.Equal(t, "SYNTAX_ERROR: line 1:8", capture.Calls[0].Error)
 }
 
+// A call answered with input requests ran nothing (#2586): neither the
+// default window nor a citation records it, while the call that ran after the
+// person answered is recorded.
+func TestCaptureSkipsACallThatRanNothing(t *testing.T) {
+	asked := event("e1", "trino_query", "trino", 0, withParams(map[string]any{"sql": "SELECT email FROM t"}))
+	asked.Success, asked.ErrorCategory = false, audit.CategoryInputRequired
+	ran := event("e2", "trino_query", "trino", 1, withParams(map[string]any{"sql": "SELECT email FROM t"}))
+	reader := &fakeReader{events: []audit.Event{asked, ran}}
+
+	capture := newTestCapturer(reader, nil).Capture(context.Background(), saveRequest())
+	assert.Equal(t, []string{"e2"}, capture.EventIDs, "the window")
+
+	cited := saveRequest()
+	cited.Sources = []string{"mcp:call:e1", "mcp:call:e2"}
+	capture = newTestCapturer(reader, nil).Capture(context.Background(), cited)
+	assert.Equal(t, []string{"e2"}, capture.EventIDs, "a citation")
+}
+
 // The window starts after the previous capture: a second save records only the
 // calls made since the first.
 func TestCaptureWindowStopsAtPreviousCapture(t *testing.T) {

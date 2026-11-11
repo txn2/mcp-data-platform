@@ -9,6 +9,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/toolnames"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
+	"github.com/txn2/mcp-data-platform/pkg/script"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
@@ -30,6 +31,15 @@ type Startup struct {
 	Toolkits *registry.Registry
 	// Personas is the persona registry in force.
 	Personas *persona.Registry
+	// Destinations is the configured script destinations; each bucket one is
+	// checked against its connection's bucket_prefix.
+	Destinations []script.Destination
+}
+
+// bucketLimiter is a toolkit whose connections may limit the buckets they
+// serve: the S3 toolkit's bucket_prefix.
+type bucketLimiter interface {
+	OutsideBucketPrefix(connection, bucket string) (prefix string, outside bool)
 }
 
 // CheckStartup runs every boot check, logging and counting each finding.
@@ -37,6 +47,7 @@ type Startup struct {
 // checked by CheckPersona from the admin API.
 func CheckStartup(ctx context.Context, s Startup) {
 	checkAgentInstructions(ctx, s.AgentInstructions, s.Registered)
+	checkDestinationPrefixes(ctx, s.Toolkits, s.Destinations)
 	if s.Personas == nil {
 		return
 	}
@@ -143,6 +154,37 @@ func warnIncoherent(ctx context.Context, f persona.CoherenceFinding) {
 // Connections are deny-by-default, so such a connection is served and never
 // callable: usually a persona's connections block that was not updated when
 // the connection was added.
+// checkDestinationPrefixes warns for each bucket destination whose bucket lies
+// outside its connection's bucket_prefix: s3_object refuses every delivery to
+// it, so the first run that writes there would fail.
+func checkDestinationPrefixes(ctx context.Context, reg *registry.Registry, dests []script.Destination) {
+	if reg == nil {
+		return
+	}
+	for _, tk := range reg.All() {
+		limiter, ok := tk.(bucketLimiter)
+		if !ok {
+			continue
+		}
+		for _, d := range dests {
+			if d.IsBuiltIn() {
+				continue
+			}
+			prefix, outside := limiter.OutsideBucketPrefix(d.Connection, d.Bucket)
+			if !outside {
+				continue
+			}
+			Warn(ctx, CodeDestinationOutsidePrefix, "a script destination's bucket is outside its connection's bucket_prefix",
+				"destination", logsan.SanitizeForLog(d.Name),
+				"connection", logsan.SanitizeForLog(d.Connection),
+				"bucket", logsan.SanitizeForLog(d.Bucket),
+				"bucket_prefix", logsan.SanitizeForLog(prefix),
+				"hint", "every delivery to it is refused; point it at a bucket inside the prefix, or change the connection's bucket_prefix",
+			)
+		}
+	}
+}
+
 func checkUnusedConnections(ctx context.Context, reg *persona.Registry, personas []*persona.Persona, conns []Connection) {
 	filter := persona.NewToolFilter(reg)
 	for _, c := range conns {

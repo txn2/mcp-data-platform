@@ -252,6 +252,84 @@ func TestCrawl_FollowsEveryKindOfReference(t *testing.T) {
 	}
 }
 
+// TestCrawl_FilesAPageLoadsAreCopied pins #2589: a stylesheet and a script
+// linked with a cache-busting query are filed at their path, the page keeping
+// its link; every srcset candidate and lazy-loading address is copied; the
+// fonts, backgrounds and imports a stylesheet, a <style> element or a style
+// attribute names are copied, resolved against where the CSS was read; a
+// page link with a query is still not walked.
+func TestCrawl_FilesAPageLoadsAreCopied(t *testing.T) {
+	css := answer{status: http.StatusOK, ctype: "text/css"}
+	img := answer{status: http.StatusOK, ctype: "image/png", body: "png"}
+	s := serve(t, map[string]answer{
+		"/": page(`<html><head>
+			<link rel="stylesheet" href="/wp/site.css?ver=1.2">
+			<script src="/wp/app.js?ver=6.4.2"></script>
+			<style>.hero{background:url(/img/hero.jpg)}</style>
+			</head><body>
+			<img src="/img/a-400.png" srcset="/img/a-400.png 400w, /img/a-800.png 800w,/img/a-1200.png 1200w"
+			     sizes="(max-width: 600px) 400px, 800px">
+			<img src="data:image/gif;base64,R0lGOD" data-src="/img/lazy.png" data-srcset="/img/lazy-2x.png 2x">
+			<img data-lazy-src="/img/lazier.png">
+			<picture><source srcset="/img/b.webp 1x, data:image/webp;base64,AAA,BBB 2x"></picture>
+			<div style="background-image: url('/img/inline.png')"></div>
+			<a href="/search?q=1">search</a>
+			</body></html>`),
+		"/wp/site.css": {status: http.StatusOK, ctype: "text/css; charset=utf-8", body: `
+			@import "theme.css";
+			/* url(/img/commented-out.png) */
+			@font-face { font-family: X; src: url("../fonts/x.woff2") format("woff2"), url(../fonts/x.woff?v=3) format("woff"); }
+			body { background: url( 'bg.png' ) }`},
+		"/wp/theme.css":          css,
+		"/wp/app.js":             {status: http.StatusOK, ctype: "text/javascript", body: "js"},
+		"/fonts/x.woff2":         {status: http.StatusOK, ctype: "font/woff2", body: "w2"},
+		"/fonts/x.woff":          {status: http.StatusOK, ctype: "font/woff", body: "w"},
+		"/wp/bg.png":             img,
+		"/img/hero.jpg":          img,
+		"/img/a-400.png":         img,
+		"/img/a-800.png":         img,
+		"/img/a-1200.png":        img,
+		"/img/lazy.png":          img,
+		"/img/lazy-2x.png":       img,
+		"/img/lazier.png":        img,
+		"/img/b.webp":            img,
+		"/img/inline.png":        img,
+		"/img/commented-out.png": img,
+	})
+	got, err := crawler(s).Crawl(context.Background(), Request{Start: s.URL})
+	require.NoError(t, err)
+	byPath := files(got)
+	for _, name := range []string{
+		"wp/site.css", "wp/app.js", "wp/theme.css", "fonts/x.woff2", "fonts/x.woff", "wp/bg.png",
+		"img/hero.jpg", "img/a-400.png", "img/a-800.png", "img/a-1200.png", "img/lazy.png", "img/lazy-2x.png",
+		"img/lazier.png", "img/b.webp", "img/inline.png",
+	} {
+		assert.Contains(t, byPath, name)
+	}
+	assert.Contains(t, byPath["index.html"], `href="/wp/site.css?ver=1.2"`, "the page keeps its link")
+	assert.Zero(t, s.count("/img/commented-out.png"), "a reference inside a CSS comment is not one")
+	assert.Zero(t, s.count("/search"), "a page link with a query is still not walked")
+	assert.NotContains(t, addresses(got.Skipped), "/AAA", "a data: candidate holding a comma stays whole")
+}
+
+func TestSrcsetURLs(t *testing.T) {
+	tests := []struct {
+		in   string
+		want []string
+	}{
+		{"", nil},
+		{"/a.png", []string{"/a.png"}},
+		{"/a.png 1x, /b.png 2x", []string{"/a.png", "/b.png"}},
+		{"/a.png 400w,/b.png 800w", []string{"/a.png", "/b.png"}},
+		{" ,/a.png, /b.png 2x ", []string{"/a.png", "/b.png"}},
+		{"data:image/png;base64,AA,BB 1x, /c.png 2x", []string{"data:image/png;base64,AA,BB", "/c.png"}},
+		{"/a.png (max-width: 1px, 2px) 1x, /b.png", []string{"/a.png", "/b.png"}},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, srcsetURLs(tt.in), tt.in)
+	}
+}
+
 func TestCrawl_MaxBytesRefusesTheCrawl(t *testing.T) {
 	s := serve(t, map[string]answer{"/": page(strings.Repeat("x", 500))})
 	c := crawler(s)
@@ -548,4 +626,10 @@ type brokenBodyTransport struct{}
 
 func (brokenBodyTransport) RoundTrip(*http.Request) (*http.Response, error) {
 	return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {htmlType}}, Body: brokenBody{}}, nil
+}
+
+// An empty url() names nothing and is not walked.
+func TestFirstNonEmpty(t *testing.T) {
+	assert.Equal(t, "", firstNonEmpty([]string{"", "", ""}))
+	assert.Equal(t, "b", firstNonEmpty([]string{"", "b", "c"}))
 }

@@ -171,7 +171,9 @@ func (r *Recorder) catalog(ctx context.Context, rec Record) {
 // not asked of an automated system's traffic.
 func (r *Recorder) recordFrom(ctx context.Context, ev audit.Event) (Record, bool) {
 	kind := KindForTool(ev.ToolName)
-	if kind == "" || ev.ID == "" || r.excluded.Excludes(ev.Persona, ev.Source) {
+	// A call answered with input requests ran nothing (#2586): it is not a
+	// call anyone could re-run or cite.
+	if kind == "" || ev.ID == "" || ev.ErrorCategory == audit.CategoryInputRequired || r.excluded.Excludes(ev.Persona, ev.Source) {
 		return Record{}, false
 	}
 	rec := Record{

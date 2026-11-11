@@ -1,15 +1,21 @@
-package middleware
+// Package sqlident reads a SQL statement lexically for what it names: every
+// identifier outside strings and comments, and whether it selects every column
+// of a table (a * projection). Dialect-agnostic, since it tokenizes rather than
+// parses. Semantic enrichment narrows column context to the identifiers a
+// statement names, and the Trino PII prompt counts only the columns it reads
+// (#2586).
+package sqlident
 
 import "strings"
 
-// extractIdentifiers lexes a SQL string and returns all identifiers found,
+// Identifiers lexes a SQL string and returns all identifiers found,
 // lowercased. This is dialect-agnostic because it operates at the lexical
 // level (tokenization), not at the grammar level (parsing). String literals,
 // block comments, and line comments are skipped entirely. Double-quoted
 // identifiers are extracted and lowercased.
 //
 // The function runs in O(n) time with a single pass over the input.
-func extractIdentifiers(sql string) map[string]bool {
+func Identifiers(sql string) map[string]bool {
 	ids := make(map[string]bool)
 	n := len(sql)
 	pos := 0

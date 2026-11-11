@@ -2861,7 +2861,7 @@ func (p *Platform) Start(ctx context.Context) error {
 	// Boot configuration checks (#1174, #1898): each finding is logged and counted.
 	configwarn.CheckStartup(ctx, configwarn.Startup{
 		AgentInstructions: p.config.ServerAgentInstructions(ctx), Toolkits: p.toolkitRegistry,
-		Registered: RegisteredToolNames(p.toolkitRegistry.AllTools(), p.PlatformTools()), Personas: p.personaRegistry,
+		Registered: RegisteredToolNames(p.toolkitRegistry.AllTools(), p.PlatformTools()), Personas: p.personaRegistry, Destinations: p.config.Scripts.ScriptDestinations(),
 	})
 	// Config info and the dependency/connection gauges; signals only, never readiness (#1898).
 	a := p.config.Auth

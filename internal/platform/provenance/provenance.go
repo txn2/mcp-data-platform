@@ -281,7 +281,7 @@ func (c *Capturer) resolveCited(ctx context.Context, req portal.ProvenanceReques
 		if len(rows) >= len(ids) || read >= citedReads || !c.pause(ctx, citedPoll) {
 			events = events[:0]
 			for _, ev := range rows {
-				if ownedByCaller(ev, req) {
+				if ownedByCaller(ev, req) && ranSomething(ev) {
 					events = append(events, ev)
 				}
 			}
@@ -327,7 +327,7 @@ func (c *Capturer) resolveWindow(ctx context.Context, req portal.ProvenanceReque
 			reachedBoundary = true
 			break
 		}
-		if !ownedByCaller(ev, req) || KindFor(ev.ToolkitKind) == "" {
+		if !ownedByCaller(ev, req) || KindFor(ev.ToolkitKind) == "" || !ranSomething(ev) {
 			continue
 		}
 		if len(events) == MaxCalls {
@@ -467,4 +467,11 @@ func reverse(events []audit.Event) {
 	for i, j := 0, len(events)-1; i < j; i, j = i+1, j-1 {
 		events[i], events[j] = events[j], events[i]
 	}
+}
+
+// ranSomething reports whether an audit row is a call that ran. One answered
+// with input requests asked the client to confirm first and ran nothing
+// (#2586), so it is not a source of anything an asset holds, cited or not.
+func ranSomething(ev audit.Event) bool {
+	return ev.ErrorCategory != audit.CategoryInputRequired
 }

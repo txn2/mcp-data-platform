@@ -9,6 +9,7 @@ export const SECTION_GROUPS = ["Delivery", "Alerts", "Content", "Endpoints", "Ac
 export const SETTINGS_SECTIONS = [
   { id: "email", label: "Email", group: "Delivery" },
   { id: "channels", label: "Channels", group: "Delivery" },
+  { id: "general-feedback", label: "General feedback", group: "Delivery" },
   { id: "knowledge-review", label: "Knowledge review", group: "Alerts" },
   { id: "connection-revocations", label: "Connection revocations", group: "Alerts" },
   { id: "run-failures", label: "Run failures", group: "Alerts" },

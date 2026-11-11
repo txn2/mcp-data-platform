@@ -227,7 +227,11 @@ someone who is not an administrator files a request in Approvals first. Promote
 and Approvals show the files changed, added and removed and the redirects added.
 
 Every `manage_site` call and every portal write is audited. Requests to a site
-are counted in the platform's HTTP metrics and are not audited individually.
+are not audited individually; they are recorded under the HTTP route `site`
+(`pages` for an application's page origin) and counted per site and environment in
+`site_requests_total` and `site_request_duration_seconds`, with
+`site_cache_reads_total` counting where each file came from (see
+[Observability](observability.md)).
 
 A release is never rendered on the portal's origin.
 
