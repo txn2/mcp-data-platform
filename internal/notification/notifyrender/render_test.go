@@ -417,3 +417,23 @@ func TestRender_ApprovalRequestAndDecision(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, email.Subject, Subject(req))
 }
+
+// The author of a General feedback post is told it was received, with a link
+// to the thread and no recipient named (#2603).
+func TestRender_FeedbackReceived(t *testing.T) {
+	n := notification.Notification{Recipient: "jordan@b.io", Payload: notification.Payload{
+		Kind: notification.KindFeedbackReceived, ItemID: "th1", ItemTitle: "Need the Q3 extract",
+		Link: "https://x.io/portal/feedback#thread-th1",
+	}}
+	assert.Equal(t, `Your feedback was received: "Need the Q3 extract"`, Subject(n))
+	item := buildItem(n)
+	assert.Contains(t, item.Body, "sent to the people who handle feedback")
+	assert.Empty(t, item.Message)
+	assert.Equal(t, "Open the thread", item.LinkText)
+	n.Payload.Link = ""
+	assert.Empty(t, buildItem(n).LinkText)
+
+	email, err := testRenderer(t).Render([]notification.Notification{n})
+	require.NoError(t, err)
+	assert.Contains(t, email.Subject, "Your feedback was received")
+}

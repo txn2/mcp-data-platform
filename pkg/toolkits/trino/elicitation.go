@@ -15,7 +15,9 @@ import (
 	trinoclient "github.com/txn2/mcp-trino/pkg/client"
 	trinotools "github.com/txn2/mcp-trino/pkg/tools"
 
+	"github.com/txn2/mcp-data-platform/internal/sqlident"
 	"github.com/txn2/mcp-data-platform/internal/sqltables"
+	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
@@ -43,27 +45,27 @@ const (
 const (
 	schemaPropertiesKey = "properties"
 	elicitActionAccept  = "accept"
+	elicitActionDecline = "decline"
 )
 
-// rowEstimatePattern matches "rows: 12345", the estimate a text plan carries.
-var rowEstimatePattern = regexp.MustCompile(`rows:\s*(\d+)`)
-
-// outputRowCountPattern matches an estimate's "outputRowCount" : 1100000.0 in
-// EXPLAIN (TYPE IO) output, which is JSON (#2052). It reads the value where
-// the document is not JSON a decoder accepts: Trino writes an unknown
-// estimate as the bare token NaN.
-var outputRowCountPattern = regexp.MustCompile(`"outputRowCount"\s*:\s*(\d+(?:\.\d+)?)`)
+// nanEstimatePattern matches an estimate Trino could not make, which EXPLAIN
+// (TYPE IO) writes as the bare token NaN: not JSON a decoder accepts, so it is
+// read as null, an unknown estimate (#2586).
+var nanEstimatePattern = regexp.MustCompile(`:\s*-?NaN\b`)
 
 // elicitationDeclinedCategory mirrors middleware.ErrCategoryDeclined to avoid
 // an import cycle. The audit middleware uses the CategorizedError interface to
 // extract this value.
 const elicitationDeclinedCategory = "user_declined"
 
-// ElicitationDeclinedError indicates the user declined an elicitation request.
-// This error is returned when the user explicitly declines or cancels a
-// confirmation prompt (cost estimation, PII consent, etc.).
+// ElicitationDeclinedError is a confirmation prompt (cost estimation, PII
+// consent) that did not come back accepted. Unanswered tells the two ways
+// apart (#2586): the person declined, or nobody answered (the client canceled
+// or gave up waiting), which is not a person saying no and is recorded under
+// its own category.
 type ElicitationDeclinedError struct {
-	Reason string
+	Reason     string
+	Unanswered bool
 }
 
 func (e *ElicitationDeclinedError) Error() string {
@@ -71,8 +73,21 @@ func (e *ElicitationDeclinedError) Error() string {
 }
 
 // ErrorCategory implements middleware.CategorizedError.
-func (*ElicitationDeclinedError) ErrorCategory() string {
+func (e *ElicitationDeclinedError) ErrorCategory() string {
+	if e.Unanswered {
+		return audit.CategoryPromptUnanswered
+	}
 	return elicitationDeclinedCategory
+}
+
+// refusal is the error a prompt's answer action makes: decline is the person
+// saying no; anything else that is not accept (cancel, or an action the
+// client invented) means the person was not reached.
+func refusal(id, action string) *ElicitationDeclinedError {
+	if action == elicitActionDecline {
+		return &ElicitationDeclinedError{Reason: declineReasons[id]}
+	}
+	return &ElicitationDeclinedError{Reason: unansweredReasons[id], Unanswered: true}
 }
 
 // elicitor abstracts ServerSession methods used by elicitation middleware.
@@ -109,6 +124,9 @@ type ElicitationMiddleware struct {
 	explainer   func(connection string) (queryExplainer, error)
 	telemetry   *queryTelemetry
 	defaultConn string
+	// limits is trino_query's row limits, the default connection's as the
+	// query tool is built with them.
+	limits rowLimits
 
 	mu               sync.RWMutex
 	configs          map[string]ElicitationConfig
@@ -127,7 +145,21 @@ func newElicitationMiddleware(
 	}
 	return &ElicitationMiddleware{
 		explainer: explainer, telemetry: telemetry, defaultConn: defaultConn, configs: configs,
+		limits: limitsOf(instances[defaultConn]),
 	}
+}
+
+// limitsOf is a connection's row limits with the toolkit's defaults where it
+// sets none.
+func limitsOf(cfg Config) rowLimits {
+	l := rowLimits{defaultRows: cfg.DefaultLimit, maxRows: cfg.MaxLimit}
+	if l.defaultRows <= 0 {
+		l.defaultRows = defaultQueryLimit
+	}
+	if l.maxRows <= 0 {
+		l.maxRows = defaultMaxLimit
+	}
+	return l
 }
 
 // SetConnection records the elicitation settings of a connection added or
@@ -183,8 +215,20 @@ const (
 
 // declineReasons are what a declined prompt answers with, by input request.
 var declineReasons = map[string]string{
-	inputCostEstimate: "query declined: the estimated row count was not confirmed",
+	inputCostEstimate: "query declined: the person did not approve the estimated row count",
 	inputPIIConsent:   "query declined: PII access not authorized by user",
+}
+
+// unansweredReasons are what a prompt nobody answered answers with: the
+// person was never reached, so sending the same call again only asks again
+// (#2586).
+var unansweredReasons = map[string]string{
+	inputCostEstimate: "query not run: the confirmation of its estimated row count was not answered; " +
+		"the person was not reached, and sending the same call again will only ask again. " +
+		"Ask the person directly, or narrow the query, before retrying",
+	inputPIIConsent: "query not run: the PII access confirmation was not answered; " +
+		"the person was not reached, and sending the same call again will only ask again. " +
+		"Ask the person directly before retrying",
 }
 
 // Middleware is the receiving middleware that puts the prompts in front of a
@@ -251,7 +295,7 @@ func declinedAnswer(answers mcp.InputResponseMap) *mcp.CallToolResult {
 			continue
 		}
 		res := &mcp.CallToolResult{}
-		res.SetError(&ElicitationDeclinedError{Reason: declineReasons[id]})
+		res.SetError(refusal(id, r.Action))
 		return res
 	}
 	return nil
@@ -263,6 +307,7 @@ func (em *ElicitationMiddleware) callFor(req *mcp.CallToolRequest) (call *connEl
 	var in struct {
 		SQL        string `json:"sql"`
 		Connection string `json:"connection"`
+		Limit      int    `json:"limit"`
 	}
 	if err := json.Unmarshal(req.Params.Arguments, &in); err != nil || in.SQL == "" {
 		return nil, ""
@@ -278,6 +323,7 @@ func (em *ElicitationMiddleware) callFor(req *mcp.CallToolRequest) (call *connEl
 	call = &connElicitation{
 		conn: conn, config: cfg, telemetry: em.telemetry,
 		semanticProvider: em.getSemanticProvider(),
+		rowLimit:         em.limits.effective(in.Limit),
 	}
 	if em.explainer != nil {
 		explainer, err := em.explainer(conn)
@@ -301,6 +347,28 @@ type connElicitation struct {
 	config           ElicitationConfig
 	semanticProvider semantic.Provider
 	telemetry        *queryTelemetry
+	// rowLimit is the most rows the call will return: its limit argument
+	// clamped as trino_query clamps it.
+	rowLimit int64
+}
+
+// rowLimits is trino_query's row limits, which bound what a call returns.
+type rowLimits struct {
+	defaultRows, maxRows int
+}
+
+// effective is the row limit a call asking for requested runs with, by
+// trino_query's own rule: none (or a non-positive one) is the default, and
+// none may exceed the maximum.
+func (l rowLimits) effective(requested int) int64 {
+	limit := requested
+	if limit <= 0 {
+		limit = l.defaultRows
+	}
+	if limit > l.maxRows {
+		limit = l.maxRows
+	}
+	return int64(limit)
 }
 
 // beforeWithSession asks an older client in band, one prompt after another,
@@ -342,7 +410,7 @@ func confirmation(message string) *mcp.ElicitParams {
 
 // ask puts one prompt to an older client in band. A failed elicit degrades
 // to running the query, as an unanswerable prompt always has.
-func ask(ctx context.Context, e elicitor, p *mcp.ElicitParams, declined string) error {
+func ask(ctx context.Context, e elicitor, p *mcp.ElicitParams, id string) error {
 	result, err := e.Elicit(ctx, p)
 	if err != nil {
 		slog.Debug("elicitation: confirmation skipped",
@@ -352,28 +420,35 @@ func ask(ctx context.Context, e elicitor, p *mcp.ElicitParams, declined string) 
 		return nil // graceful degradation
 	}
 	if result.Action != elicitActionAccept {
-		return &ElicitationDeclinedError{Reason: declined}
+		return refusal(id, result.Action)
 	}
 	return nil
 }
 
-// checkCostEstimation runs EXPLAIN IO to estimate query cost and elicits
-// confirmation if the estimated row count exceeds the configured threshold.
+// checkCostEstimation runs EXPLAIN IO to estimate how many rows the query
+// returns and elicits confirmation if that exceeds the configured threshold.
 func (em *connElicitation) checkCostEstimation(ctx context.Context, e elicitor, sql string) error {
 	p := em.costPrompt(ctx, sql)
 	if p == nil {
 		return nil
 	}
-	return ask(ctx, e, p, declineReasons[inputCostEstimate])
+	return ask(ctx, e, p, inputCostEstimate)
 }
 
 // costPrompt is the cost confirmation the statement is owed, or nil: the
-// check is off, the estimate failed, or it is within the threshold.
+// check is off, the estimate failed or is unknown, or what the call returns
+// is within the threshold.
+//
+// The figure is the rows the statement RETURNS (#2586): the estimate of its
+// output, capped by the row limit the call runs with. The rows a table scan
+// reads are not put to a person: the query timeout bounds a scan, and a
+// person shown "1,430,361 rows" for an aggregate that returns 60 has nothing
+// to decide on.
 func (em *connElicitation) costPrompt(ctx context.Context, sql string) *mcp.ElicitParams {
 	if !em.config.CostEstimation.Enabled {
 		return nil
 	}
-	estimated, err := em.estimateRows(ctx, sql)
+	estimated, known, err := em.estimateRows(ctx, sql)
 	if err != nil {
 		slog.Debug("elicitation: cost estimation skipped",
 			logKeyReason, "explain failed",
@@ -381,12 +456,19 @@ func (em *connElicitation) costPrompt(ctx context.Context, sql string) *mcp.Elic
 		)
 		return nil // graceful degradation
 	}
+	if !known {
+		// The row limit and the result budget still bound what comes back.
+		return nil
+	}
+	if em.rowLimit > 0 && estimated > em.rowLimit {
+		estimated = em.rowLimit
+	}
 	threshold := em.config.CostEstimation.RowThreshold
 	if estimated <= threshold {
 		return nil
 	}
 	return confirmation(fmt.Sprintf(
-		"This query is estimated to scan approximately %s rows (threshold: %s). Proceed?",
+		"This query is estimated to return about %s rows (threshold: %s). Proceed?",
 		formatRowCount(estimated),
 		formatRowCount(threshold),
 	))
@@ -399,7 +481,7 @@ func (em *connElicitation) checkPIIConsent(ctx context.Context, e elicitor, sql 
 	if p == nil {
 		return nil
 	}
-	return ask(ctx, e, p, declineReasons[inputPIIConsent])
+	return ask(ctx, e, p, inputPIIConsent)
 }
 
 // piiPrompt is the consent the statement is owed, or nil: the check is off,
@@ -413,11 +495,12 @@ func (em *connElicitation) piiPrompt(ctx context.Context, sql string) *mcp.Elici
 		return nil
 	}
 	var columns, tables int
+	read := readColumns(sql)
 	for _, ref := range extractTablesFromSQL(sql) {
 		if em.tableTaggedPII(ctx, ref) {
 			tables++
 		}
-		columns += em.piiColumns(ctx, ref)
+		columns += em.piiColumns(ctx, ref, read)
 	}
 	switch {
 	case columns > 0 && tables > 0:
@@ -449,8 +532,30 @@ func (em *connElicitation) tableTaggedPII(ctx context.Context, ref semantic.Tabl
 	return false
 }
 
-// piiColumns counts the table's columns the catalog tags PII.
-func (em *connElicitation) piiColumns(ctx context.Context, ref semantic.TableIdentifier) int {
+// columnsRead is which of a table's columns a statement reads: every one
+// under a star projection, else the names the statement mentions.
+type columnsRead struct {
+	all   bool
+	names map[string]bool
+}
+
+// readColumns reads a statement lexically for the columns it touches
+// (#2586). A column is counted when its name appears anywhere in the
+// statement outside strings and comments, which over-counts a name shared
+// with a table or an alias and never misses a column the statement names.
+func readColumns(sql string) columnsRead {
+	return columnsRead{all: sqlident.ReadsEveryColumn(sql), names: sqlident.Identifiers(sql)}
+}
+
+func (r columnsRead) includes(column string) bool {
+	return r.all || r.names[strings.ToLower(column)]
+}
+
+// piiColumns counts the table's columns the catalog tags PII that the
+// statement reads. A column it never names is not counted (#2586): an
+// aggregate over non-PII columns was told it accessed a PII column it never
+// selected.
+func (em *connElicitation) piiColumns(ctx context.Context, ref semantic.TableIdentifier, read columnsRead) int {
 	cols, err := em.semanticProvider.GetColumnsContext(ctx, ref)
 	if err != nil {
 		slog.Debug("elicitation: PII check skipped for table",
@@ -460,23 +565,23 @@ func (em *connElicitation) piiColumns(ctx context.Context, ref semantic.TableIde
 		return 0
 	}
 	n := 0
-	for _, col := range cols {
-		if col.IsPII {
+	for name, col := range cols {
+		if col.IsPII && read.includes(name) {
 			n++
 		}
 	}
 	return n
 }
 
-// estimateRows runs EXPLAIN IO and parses estimated row counts from the output.
-// Returns 0 if parsing fails (graceful degradation).
+// estimateRows runs EXPLAIN IO and reads the estimate of the rows the
+// statement returns; known is false when Trino could not estimate it.
 //
 // The EXPLAIN is a statement the platform sends to Trino, so it is measured as
 // one: trino_queries_total{query_kind="explain"} and a trino.explain span
 // under the tool call's.
-func (em *connElicitation) estimateRows(ctx context.Context, sql string) (int64, error) {
+func (em *connElicitation) estimateRows(ctx context.Context, sql string) (rows int64, known bool, err error) {
 	if em.client == nil {
-		return 0, errors.New("explain io: no client for the connection")
+		return 0, false, errors.New("explain io: no client for the connection")
 	}
 	var c *call
 	if em.telemetry != nil {
@@ -487,60 +592,31 @@ func (em *connElicitation) estimateRows(ctx context.Context, sql string) (int64,
 		em.telemetry.finish(ctx, c, false, err, errorState(err))
 	}
 	if err != nil {
-		return 0, fmt.Errorf("explain io: %w", err)
+		return 0, false, fmt.Errorf("explain io: %w", err)
 	}
-	return parseRowEstimates(result.Plan), nil
+	rows, known = parseReturnedRows(result.Plan)
+	return rows, known, nil
 }
 
-// parseRowEstimates extracts row count estimates from Trino EXPLAIN IO output
-// and returns the maximum single-table estimate.
-//
-// EXPLAIN (TYPE IO) answers with JSON: each table the statement reads is an
-// inputTableColumnInfos entry whose estimate carries outputRowCount. The
-// matcher read only the "rows: N" a text plan prints, so no estimate was ever
-// found and the cost prompt never fired against a real Trino (#2052). A text
-// plan is still read, and a document a decoder refuses (an unknown estimate
-// is written NaN) is read by its outputRowCount fields.
-func parseRowEstimates(plan string) int64 {
+// parseReturnedRows reads the estimate of the rows a statement returns from
+// EXPLAIN (TYPE IO): the document's top-level estimate.outputRowCount
+// (#2586). Each inputTableColumnInfos entry's estimate is the rows read from
+// one table, which an aggregate or a LIMIT can make vastly larger than what
+// comes back. An estimate Trino could not make (NaN), a document with no
+// top-level estimate, or one that is not JSON is unknown.
+func parseReturnedRows(plan string) (rows int64, known bool) {
 	var io struct {
-		InputTableColumnInfos []struct {
-			Estimate struct {
-				OutputRowCount float64 `json:"outputRowCount"`
-			} `json:"estimate"`
-		} `json:"inputTableColumnInfos"`
+		Estimate *struct {
+			OutputRowCount *float64 `json:"outputRowCount"`
+		} `json:"estimate"`
 	}
-	if err := json.Unmarshal([]byte(plan), &io); err == nil && len(io.InputTableColumnInfos) > 0 {
-		var maxRows int64
-		for _, info := range io.InputTableColumnInfos {
-			if n := int64(info.Estimate.OutputRowCount); n > maxRows {
-				maxRows = n
-			}
-		}
-		return maxRows
+	if err := json.Unmarshal([]byte(nanEstimatePattern.ReplaceAllString(plan, ": null")), &io); err != nil {
+		return 0, false
 	}
-	maxRows := maxMatch(rowEstimatePattern, plan)
-	if n := maxMatch(outputRowCountPattern, plan); n > maxRows {
-		maxRows = n
+	if io.Estimate == nil || io.Estimate.OutputRowCount == nil || *io.Estimate.OutputRowCount < 0 {
+		return 0, false
 	}
-	return maxRows
-}
-
-// maxMatch is the largest number pattern's first group matches in text.
-func maxMatch(pattern *regexp.Regexp, text string) int64 {
-	var maxRows int64
-	for _, match := range pattern.FindAllStringSubmatch(text, -1) {
-		if len(match) < tablePartsTwo {
-			continue
-		}
-		f, err := strconv.ParseFloat(match[1], int64BitSize)
-		if err != nil {
-			continue
-		}
-		if n := int64(f); n > maxRows {
-			maxRows = n
-		}
-	}
-	return maxRows
+	return int64(*io.Estimate.OutputRowCount), true
 }
 
 // extractTablesFromSQL names the tables a statement reads, for PII checking.

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/contentenc"
 	"github.com/txn2/mcp-data-platform/internal/site"
 	"github.com/txn2/mcp-data-platform/internal/site/siterender"
 )
@@ -263,7 +264,7 @@ func TestReadIndex_ALostRecordCostsAFullRender(t *testing.T) {
 	assert.Equal(t, 2, envRelease(store))
 
 	assert.Nil(t, decodeIndex([]byte("not gzip")))
-	body, err := gzipped([]byte("not json"))
+	body, err := contentenc.Gzip([]byte("not json"))
 	require.NoError(t, err)
 	assert.Nil(t, decodeIndex(body))
 }

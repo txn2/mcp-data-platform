@@ -768,6 +768,28 @@ func TestBuildMCPAuditEvent_ErrorCategory(t *testing.T) {
 	})
 }
 
+// TestBuildMCPAuditEvent_InputRequiredIsNotASuccess pins #2586's fifth item:
+// a call answered with input requests ran nothing, so its row is not a
+// success; it carries the input_required category and names the requests.
+func TestBuildMCPAuditEvent_InputRequiredIsNotASuccess(t *testing.T) {
+	pc := NewPlatformContext("req-input")
+	pc.ToolName = "trino_query"
+	result := &mcp.CallToolResult{InputRequests: mcp.InputRequestMap{
+		"trino_pii_consent":   &mcp.ElicitParams{Message: "PII?"},
+		"trino_cost_estimate": &mcp.ElicitParams{Message: "rows?"},
+	}}
+	event := buildMCPAuditEvent(pc, auditCallInfo{
+		Request:   createAuditTestRequest(t, "trino_query", map[string]any{"sql": "SELECT 1"}),
+		Result:    result,
+		StartTime: time.Now(),
+		Duration:  time.Millisecond,
+	}, defaultAuditParamPolicy())
+
+	assert.False(t, event.Success)
+	assert.Equal(t, audit.CategoryInputRequired, event.ErrorCategory)
+	assert.Equal(t, "not run: waiting for the person to answer trino_cost_estimate, trino_pii_consent", event.ErrorMessage)
+}
+
 func TestBuildMCPAuditEvent_WithProtocolError(t *testing.T) {
 	pc := NewPlatformContext("req-proto")
 	pc.ToolName = testAuditToolName

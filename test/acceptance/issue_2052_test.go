@@ -7,11 +7,12 @@ package acceptance
 // built only by the single-connection constructor the platform never called.
 //
 // What this holds, against the running platform, the dev stack's Trino and the
-// catalog the stack reads: a trino_query whose EXPLAIN estimates more rows than
-// elicitation.cost_estimation.row_threshold (the default 1,000,000) is asked
-// about, and declining it stops the query; a trino_query reading a table the
-// catalog tags PII is asked for consent; accepting runs the query; the
-// estimate's EXPLAIN is counted as trino_queries_total{query_kind="explain"}.
+// catalog the stack reads: a trino_query reading a table the catalog tags PII
+// is asked for consent, and accepting runs the query. The cost prompt's
+// criteria moved to issue_2586_test.go: #2586 turned it off by default and
+// made it count the rows a query returns, which retired this file's
+// criterion that a 1,100,000-row scan is asked about under the default
+// settings.
 // The client speaks the latest revision (2026-07-28), so the prompts arrive as
 // input requests and the client answers by retrying the call. A client pinned
 // to 2025-11-25 cannot be asked on this stateless deployment and is not
@@ -160,36 +161,6 @@ func issue2052ExplainCount(t *testing.T) float64 {
 		}
 	}
 	return total
-}
-
-// TestIssue2052_AQueryOverTheThresholdIsAskedAbout: the estimate exceeds the
-// threshold, the client is asked with the estimate in the message, declining
-// stops the query, accepting runs it, and the EXPLAIN is counted.
-func TestIssue2052_AQueryOverTheThresholdIsAskedAbout(t *testing.T) {
-	ec := connect2052(t, "")
-	table := issue2052Large(t, ec.client)
-	before := issue2052ExplainCount(t)
-
-	res, text := ec.query(t, "SELECT n FROM "+table)
-	asked := ec.prompts()
-	if len(asked) != 1 || !strings.Contains(asked[0], "rows (threshold: 1,000,000)") {
-		t.Fatalf("the client was asked %q; want one cost prompt naming the threshold", asked)
-	}
-	if !res.IsError || !strings.Contains(text, "estimated row count was not confirmed") {
-		t.Fatalf("a declined prompt did not stop the query: %s", text)
-	}
-
-	ec.setAnswer("accept")
-	res, text = ec.query(t, "SELECT n FROM "+table)
-	if res.IsError {
-		t.Fatalf("an accepted prompt did not run the query: %s", text)
-	}
-	if len(ec.prompts()) != 2 {
-		t.Errorf("prompts = %q; want a second one for the accepted run", ec.prompts())
-	}
-	if after := issue2052ExplainCount(t); after < before+2 {
-		t.Errorf(`trino_queries_total{query_kind="explain",status="ok"} went from %g to %g; want at least two more`, before, after)
-	}
 }
 
 // TestIssue2052_ATableTaggedPIIAsksForConsent: the catalog tags the dataset

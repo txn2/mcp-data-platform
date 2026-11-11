@@ -9,6 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/sqlident"
 	"github.com/txn2/mcp-data-platform/internal/sqltables"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/query"
@@ -681,7 +682,7 @@ func (e *semanticEnricher) enrichTrinoQueryResult(
 // always included for safety. If no column names match (e.g., SELECT *), all
 // columns are returned as a graceful fallback.
 func filterColumnsBySQL(columnsCtx map[string]*semantic.ColumnContext, sql string) map[string]*semantic.ColumnContext {
-	sqlIDs := extractIdentifiers(sql)
+	sqlIDs := sqlident.Identifiers(sql)
 
 	filtered := make(map[string]*semantic.ColumnContext, len(columnsCtx))
 	for name, col := range columnsCtx {

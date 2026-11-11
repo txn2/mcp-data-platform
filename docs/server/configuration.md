@@ -660,6 +660,7 @@ portal:
 | `title` | string | `<brand_name> Portal`, else `MCP Data Platform` | Sidebar/branding title text. Composed from `brand_name` when unset, so a branded deployment needs no second string to keep in sync. A brand already ending in "Portal" is not doubled. Only a `brand_name` set in the `portal` block composes the title: a brand inherited from the `mcpapps` block leaves an existing deployment's title unchanged |
 | `tagline` | string | `Sign in to access the platform.` | Login-screen subtitle text |
 | `oidc_button_label` | string | `Sign in with OIDC` | Login-screen SSO button text |
+| `feedback.standalone_recipients` | list | `[]` | Who hears about a General feedback post until an administrator saves the list (#2603): each entry an email address, `persona:<name>` or `channel:<name>`. Empty seeds the administrator persona. See [Feedback](../portal/feedback.md#who-hears-about-a-reply) |
 | `login_redirect` | bool | `false` | Send a signed-out visitor straight to the identity provider instead of the login screen. In force only when `auth.oidc.enabled` and `auth.browser_session.enabled` are both on; set without them it is logged as a configuration warning (`login_redirect_ignored`) and ignored. See [Sending sign-in straight to the identity provider](#sending-sign-in-straight-to-the-identity-provider) |
 | `allow_api_key_login` | bool | `true` | With `login_redirect` on, whether `/portal/?login=api_key` still shows the login screen with the API key form. Set `false` and that address is sent to the identity provider like any other. It changes only the portal login screen: API keys keep working on the MCP endpoint and the REST API |
 | `logo` | string | - | URL to the logo image, in any format (used for both themes if no theme-specific logo is set). Also the platform brand mark on the public viewer and the share pages, which link it. The built-in MCP Apps cannot link it — a sandboxed iframe blocks external loads — so it is fetched once at startup and written into their config inline, and a fetch that fails logs one warning |
@@ -987,7 +988,7 @@ toolkits:
         max_get_size: 10485760          # 10MB
         max_put_size: 104857600         # 100MB
         connection_name: primary
-        bucket_prefix: ""               # Filter to buckets with this prefix
+        bucket_prefix: ""               # Limit the connection to buckets with this prefix
     default: primary
 ```
 
@@ -1007,7 +1008,7 @@ toolkits:
 | `max_get_size` | int64 | `10485760` | Max bytes to read from objects |
 | `max_put_size` | int64 | `104857600` | Max bytes to write to objects |
 | `connection_name` | string | instance name | The name a call binds this connection by: what an audit row records, what a persona's `connections.allow` / `connections.deny` rules match, and what the semantic layer resolves its platform and catalog mapping through. See [Connection Names](multi-provider.md#connection-names) |
-| `bucket_prefix` | string | - | Only show buckets with this prefix |
+| `bucket_prefix` | string | - | Limits this connection to buckets whose name starts with this prefix: `s3_list` lists only those buckets, and `s3_list` with a `bucket` and every `s3_object` action (a copy's `dest_bucket` included) are refused for any other bucket, naming the connection. Compared exactly, case included. A script destination whose bucket lies outside it is reported at startup as `script_destination_outside_prefix`. The toolkit is the enforcement here, as with `read_only`: give the connection credentials limited to the same buckets for defence in depth. |
 | `descriptions` | map | `{}` | Override tool descriptions for this instance (key: `s3_list` or `s3_object`, value: description text) |
 
 ### MCP Gateway
@@ -1927,13 +1928,13 @@ Zero overhead if the client hasn't subscribed via `logging/setLevel`. When activ
 
 ## Elicitation Configuration
 
-Elicitation requests user confirmation before potentially expensive or sensitive operations. Requires client-side elicitation support (e.g., Claude Desktop). Gracefully degrades to a no-op if the client doesn't support elicitation. Enabled by default (including `cost_estimation` and `pii_consent`); set `enabled: false` at any level to opt out.
+Elicitation requests user confirmation before potentially expensive or sensitive operations. Requires client-side elicitation support (e.g., Claude Desktop). Gracefully degrades to a no-op if the client doesn't support elicitation. Elicitation and `pii_consent` are on by default; `cost_estimation` is off by default (#2586), since `trino_query`'s row limit and `tools.result_budget` already bound what a query returns. Set `enabled: false` at any level to opt out, and `cost_estimation.enabled: true` to turn the cost prompt on.
 
 ```yaml
 elicitation:
   enabled: false        # only needed to opt out; defaults to true
   cost_estimation:
-    enabled: false      # only needed to opt out; defaults to true
+    enabled: true       # only needed to opt in; defaults to false
     row_threshold: 1000000
   pii_consent:
     enabled: false      # only needed to opt out; defaults to true
@@ -1942,17 +1943,17 @@ elicitation:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | `*bool` | `true` (nil = enabled) | Enable elicitation |
-| `cost_estimation.enabled` | `*bool` | `true` (nil = enabled) | Prompt before expensive queries |
-| `cost_estimation.row_threshold` | int | `1000000` | Row count threshold from `EXPLAIN` IO estimates |
-| `pii_consent.enabled` | `*bool` | `true` (nil = enabled) | Prompt when a query reads a column or a table tagged PII |
+| `cost_estimation.enabled` | `*bool` | `false` (nil = off) | Prompt before a query that returns many rows |
+| `cost_estimation.row_threshold` | int | `1000000` | Prompt when the rows a query is estimated to return, capped by the row limit the call runs with, exceed this |
+| `pii_consent.enabled` | `*bool` | `true` (nil = enabled) | Prompt when a query reads a column tagged PII, or a table tagged PII |
 
 !!! note "Client support required"
     Elicitation uses the MCP `elicitation/create` capability. Clients that don't support elicitation will not receive prompts — queries proceed without confirmation.
 
-How a prompt reaches the client depends on the protocol revision it speaks (#2052). A client on 2026-07-28 is answered with the prompts as input requests on the `trino_query` result (`resultType: "input_required"`) and retries the call with its answers; one cost prompt and one PII prompt owed by the same statement come in one round. An older client is asked in band while the call waits, which needs a deployment that keeps sessions in process: with a database session store the platform serves MCP stateless, a stateless server can send no request to the client, and an older client is not prompted (the query runs as it would for a client without elicitation). Either way a declined or cancelled prompt ends the call with a `user_declined` error, and nothing is sent to Trino past the estimate. The prompts are a layer of the platform's `tools/call` chain, inside authorization, the session and search-first gates and the rate limiter, so a call that may not run is never estimated or prompted for. Each Trino connection carries its own settings: the platform's apply to every connection in `toolkits.trino.instances` that sets no `elicitation` block of its own, and a connection added through the admin API with none takes the default connection's. The estimate's `EXPLAIN (TYPE IO)` runs on the connection the query names and is measured as one: `trino_queries_total{query_kind="explain"}` and a `trino.explain` span under the tool call's. The PII prompt fires for a column the catalog tags PII and for a table it tags PII (a tag whose name contains "pii"), since a catalog commonly tags the dataset holding personal data rather than each column. Before #2052 neither prompt ran on any deployment: the middleware was built only by a single-connection constructor the platform never used.
+How a prompt reaches the client depends on the protocol revision it speaks (#2052). A client on 2026-07-28 is answered with the prompts as input requests on the `trino_query` result (`resultType: "input_required"`) and retries the call with its answers; one cost prompt and one PII prompt owed by the same statement come in one round. An older client is asked in band while the call waits, which needs a deployment that keeps sessions in process: with a database session store the platform serves MCP stateless, a stateless server can send no request to the client, and an older client is not prompted (the query runs as it would for a client without elicitation). Either way a prompt that does not come back accepted ends the call, and nothing is sent to Trino past the estimate. A declined prompt is a `user_declined` error. A prompt the client comes back from with no answer (it canceled, or gave up waiting) is a `prompt_unanswered` error saying the person was not reached and that sending the same call again only asks again (#2586). The call that issued the prompt is recorded on its audit row with the `input_required` category, not as a success: it ran nothing, so it is never a source in an asset's provenance and the call catalog keeps no record of it. The prompts are a layer of the platform's `tools/call` chain, inside authorization, the session and search-first gates and the rate limiter, so a call that may not run is never estimated or prompted for. Each Trino connection carries its own settings: the platform's apply to every connection in `toolkits.trino.instances` that sets no `elicitation` block of its own, and a connection added through the admin API with none takes the default connection's. A connection's own `elicitation` block is file configuration: the admin API drops the key from a stored connection, so a connection added there always takes the default connection's settings. The estimate's `EXPLAIN (TYPE IO)` runs on the connection the query names and is measured as one: `trino_queries_total{query_kind="explain"}` and a `trino.explain` span under the tool call's. The cost prompt is about what comes back: the plan's own output estimate (the top-level `estimate.outputRowCount` of `EXPLAIN (TYPE IO)`), capped by the row limit the call runs with, never the rows a table scan reads, which the query timeout bounds (#2586). An estimate Trino could not make asks nothing. The PII prompt fires for a column the catalog tags PII that the statement reads (its name appears in the statement outside strings and comments, or the statement selects `*` or `t.*`), and for a table it tags PII (a tag whose name contains "pii"), since a catalog commonly tags the dataset holding personal data rather than each column. A PII column the statement never names is not counted (#2586). Before #2052 neither prompt ran on any deployment: the middleware was built only by a single-connection constructor the platform never used.
 
 !!! warning "Behavior change for existing deployments"
-    Elicitation is user-facing: with no `elicitation` block at all, cost-estimation and PII-consent prompts now fire out of the box. `cost_estimation` still respects `row_threshold` (default 1,000,000 rows), so it only prompts on large queries. Deployments that relied on the previous silent-off default should add `elicitation.enabled: false` (or disable the sub-features individually) to keep the prior behavior.
+    PII-consent prompts fire out of the box. The cost prompt does not since #2586: a deployment that wants it sets `elicitation.cost_estimation.enabled: true`, and its `row_threshold` is now compared with the rows a query returns (capped by its row limit), so a threshold above the connection's `max_limit` never prompts.
 
 ## Icons Configuration
 
@@ -2082,9 +2083,9 @@ enrichment:
 resources:
   enabled: true
 
-# progress, client_logging, and elicitation (with cost_estimation and
-# pii_consent) are all enabled by default, so no block is needed here unless
-# you want to opt out or customize (e.g. a lower cost_estimation.row_threshold).
+# progress, client_logging, and elicitation (with pii_consent) are enabled by
+# default, so no block is needed here unless you want to opt out; the cost
+# prompt (elicitation.cost_estimation) is off unless enabled: true.
 
 personas:
   analyst:

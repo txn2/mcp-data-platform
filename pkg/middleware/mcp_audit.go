@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
@@ -226,6 +227,16 @@ func buildMCPAuditEvent(pc *PlatformContext, info auditCallInfo, policy auditPar
 		}
 	}
 
+	// A result carrying input requests ran nothing: it asks the client to put
+	// a confirmation to the person first (#2586). Recorded as its own outcome,
+	// never as a success, so asset provenance and the call catalog do not
+	// count a statement that never ran.
+	if callResult != nil && len(callResult.InputRequests) > 0 {
+		success = false
+		errorCategory = audit.CategoryInputRequired
+		errorMsg = "not run: waiting for the person to answer " + inputRequestIDs(callResult.InputRequests)
+	}
+
 	// Audit-outcome _meta override. Toolkits that proxy external
 	// services (apigateway) set this on every result so the audit row
 	// reflects the real upstream outcome rather than just "the MCP
@@ -420,4 +431,15 @@ func extractMCPErrorMessage(result *mcp.CallToolResult) string {
 		return textContent.Text
 	}
 	return ""
+}
+
+// inputRequestIDs names the input requests a result carries, sorted, for the
+// audit row of a call that is waiting on them.
+func inputRequestIDs(requests mcp.InputRequestMap) string {
+	ids := make([]string, 0, len(requests))
+	for id := range requests {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return strings.Join(ids, ", ")
 }

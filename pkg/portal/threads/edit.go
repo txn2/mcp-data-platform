@@ -236,4 +236,8 @@ type MessageNotice struct {
 	// MentionsOnly notifies the mentioned people and nobody else, for an
 	// edit that newly names someone (#2514).
 	MentionsOnly bool
+	// Opened marks the message that opens the thread. A new General thread
+	// is sent to the channels the General feedback list names and
+	// acknowledged to its author, once (#2603).
+	Opened bool
 }

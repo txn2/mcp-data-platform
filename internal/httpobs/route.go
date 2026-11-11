@@ -97,6 +97,27 @@ func Routed(mux *http.ServeMux, wrap func(http.Handler) http.Handler) http.Handl
 	})
 }
 
+// The routes of the requests the site and page gateway answers (#2597). The
+// gateway sits outside the mux and serves a hostname the mux never sees, so
+// what it answers is recorded under a fixed route of its own, never under the
+// mux pattern the request's path happens to match.
+const (
+	// RouteSite is a request for a static site, or for a hostname under the
+	// pages domain that serves nothing.
+	RouteSite = "site"
+	// RoutePages is a request to an application's page origin.
+	RoutePages = "pages"
+)
+
+// SetRoute records route as the template r is answered under, for a handler
+// that serves the request itself rather than through a mux (the site
+// gateway). A no-op outside the middleware.
+func SetRoute(r *http.Request, route string) {
+	if s := scopeOf(r.Context()); s != nil {
+		s.route = route
+	}
+}
+
 // MarkRateLimited records that limiter answered r with a 429, so the
 // middleware counts the refusal under its name. A no-op outside the middleware.
 func MarkRateLimited(r *http.Request, limiter string) {

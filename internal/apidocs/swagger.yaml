@@ -4300,7 +4300,8 @@ definitions:
         description: |-
           ErrorCategory is the bounded class of a failed call: one of the
           platform's error categories (authentication_failed, authorization_denied,
-          search_required, rate_limited, user_declined, client_input, ...) or an
+          search_required, rate_limited, user_declined, prompt_unanswered,
+          input_required, client_input, ...) or an
           upstream outcome (upstream_4xx, ...). Empty on a success. ErrorMessage
           is the text; this is what a query groups by (#1892).
         type: string
@@ -7485,6 +7486,94 @@ definitions:
         type: object
       timeout_seconds:
         type: integer
+    type: object
+  generalfeedback.PersonaOption:
+    properties:
+      display_name:
+        example: Administrator
+        type: string
+      name:
+        example: admin
+        type: string
+      people:
+        example: 3
+        type: integer
+    type: object
+  generalfeedback.Reach:
+    properties:
+      reaches_someone:
+        example: true
+        type: boolean
+    type: object
+  generalfeedback.Settings:
+    properties:
+      acknowledge_author:
+        description: |-
+          AcknowledgeAuthor sends the person who posted an email saying their
+          post went to the people who handle feedback, without naming them.
+        type: boolean
+      channels:
+        description: Channels a new post is also sent to. Replies are not.
+        items:
+          type: string
+        type: array
+      personas:
+        description: |-
+          Personas whose people are told: everyone in the user directory whose
+          recorded roles resolve to one of them.
+        items:
+          type: string
+        type: array
+      recipients:
+        description: Recipients are addresses told as well, such as a team list.
+        items:
+          type: string
+        type: array
+    type: object
+  generalfeedback.View:
+    properties:
+      acknowledge_author:
+        description: |-
+          AcknowledgeAuthor sends the person who posted an email saying their
+          post went to the people who handle feedback, without naming them.
+        type: boolean
+      channels:
+        description: Channels a new post is also sent to. Replies are not.
+        items:
+          type: string
+        type: array
+      people:
+        description: People is everyone a new post reaches now, sorted.
+        items:
+          type: string
+        type: array
+      persona_options:
+        description: PersonaOptions are the personas the list may name, with their
+          people.
+        items:
+          $ref: '#/definitions/generalfeedback.PersonaOption'
+        type: array
+      personas:
+        description: |-
+          Personas whose people are told: everyone in the user directory whose
+          recorded roles resolve to one of them.
+        items:
+          type: string
+        type: array
+      recipients:
+        description: Recipients are addresses told as well, such as a team list.
+        items:
+          type: string
+        type: array
+      updated_at:
+        type: string
+      updated_by:
+        type: string
+      warnings:
+        description: 'Warnings name what the saved list gets wrong: reaches_nobody.'
+        items:
+          type: string
+        type: array
     type: object
   github_com_txn2_mcp-data-platform_internal_admin_callapi.callListResponse:
     properties:
@@ -25621,6 +25710,58 @@ paths:
       summary: Set the embed hosts
       tags:
       - Settings
+  /admin/settings/general-feedback:
+    get:
+      description: 'Returns who is told when someone posts to the General feedback
+        channel (#2603): the personas whose people are told, the addresses told as
+        well, the channels a new post is also sent to, and whether the author is sent
+        an acknowledgement. people is everyone a new post reaches now; persona_options
+        lists the personas with how many people each reaches; warnings carries reaches_nobody
+        when the list reaches no person and no channel. Before a list is saved it
+        is portal.feedback.standalone_recipients, or the administrator persona.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/generalfeedback.View'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get who hears about General feedback
+      tags:
+      - Settings
+    put:
+      consumes:
+      - application/json
+      description: Saves the list. personas must name existing personas (at most 20),
+        recipients must be email addresses (at most 50), and channels must name configured
+        notification channels. Answers the saved list as GET does.
+      parameters:
+      - description: The list
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/generalfeedback.Settings'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/generalfeedback.View'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Set who hears about General feedback
+      tags:
+      - Settings
   /admin/settings/maps:
     get:
       description: Returns whether maps are enabled, the S3 connection and bucket
@@ -32149,6 +32290,24 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Feedback activity feed
+      tags:
+      - Feedback
+  /portal/feedback/general:
+    get:
+      description: Answers whether a new post to the General feedback channel is told
+        to anyone (#2603), so the composer can say so before the author posts. It
+        never names the recipients.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/generalfeedback.Reach'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Whether General feedback reaches anyone
       tags:
       - Feedback
   /portal/knowledge-pages:

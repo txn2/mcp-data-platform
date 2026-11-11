@@ -1,6 +1,7 @@
 package notifydelivery
 
 import (
+	"cmp"
 	"context"
 	"log/slog"
 
@@ -35,6 +36,35 @@ type PortalStores struct {
 	// rule the target's read applies (#2512). Every comment recipient passes
 	// it, so a person who lost access is told nothing. nil checks nobody.
 	Reach TargetReach
+	// General names who hears about a thread on the General (standalone)
+	// channel, which has no owner, and about a thread whose target's owner
+	// cannot be found (#2603). nil tells nobody beyond the thread's own people.
+	General GeneralRecipients
+	// Channels posts a new General thread to the channels the list names;
+	// nil posts to none.
+	Channels ChannelSender
+	// Events reads a thread's messages, to name a reply on a thread that has
+	// no item and no stored title by its first line (#2603). nil names it
+	// generically.
+	Events ThreadEvents
+}
+
+// ThreadEvents lists a thread's messages, oldest first. Satisfied by the
+// PostgreSQL thread store.
+type ThreadEvents interface {
+	ListEvents(ctx context.Context, threadID string) ([]threads.ThreadEvent, error)
+}
+
+// GeneralRecipients is who the General feedback list reaches now. Satisfied
+// by internal/portal/generalfeedback.Service.
+type GeneralRecipients interface {
+	Recipients(ctx context.Context) (people, channels []string, acknowledge bool)
+}
+
+// ChannelSender posts a payload to named channels. Satisfied by
+// notifyalert.Sender.
+type ChannelSender interface {
+	Send(ctx context.Context, names []string, key string, p notification.Payload) int
 }
 
 // ThreadParticipants lists the people a thread involves. Satisfied by the
@@ -227,6 +257,9 @@ func (n *PortalNotifier) NotifyThreadEvent(ctx context.Context, thread *portal.T
 func (n *PortalNotifier) NotifyThreadMessage(ctx context.Context, msg threads.MessageNotice) {
 	thread := msg.Thread
 	target := n.threadTarget(ctx, thread)
+	if target.title == "" {
+		target.title = n.headingOf(ctx, msg)
+	}
 	payload := notification.Payload{
 		ItemID:    thread.ID,
 		ItemTitle: target.title,
@@ -263,7 +296,73 @@ func (n *PortalNotifier) NotifyThreadMessage(ctx context.Context, msg threads.Me
 	}
 	candidates := notification.RecipientsExcluding(msg.ActorEmail, n.involved(ctx, thread, target.owner)...)
 	general := excluding(n.reachable(ctx, thread, candidates), notifiedByName)
-	n.enq.NotifyFanout(ctx, n.audienceOf(ctx, thread, general), notification.CategoryComment, payload)
+	route := n.routeFor(ctx, thread, target)
+	routed := excluding(notification.RecipientsExcluding(msg.ActorEmail, route.people...), notifiedByName)
+	general = n.withRouted(ctx, thread, general, routed, route.standalone)
+	queued := n.enq.NotifyFanout(ctx, n.audienceOf(ctx, thread, general), notification.CategoryComment, payload)
+	if route.standalone && msg.Opened {
+		n.openedGeneral(ctx, msg, payload, route, len(queued)+len(notifiedByName))
+	}
+}
+
+// generalRoute is who the General feedback list adds to a thread's fan-out.
+type generalRoute struct {
+	people, channels []string
+	acknowledge      bool
+	standalone       bool
+}
+
+// routeFor reads the General feedback list for a thread that has no owner to
+// tell: one on the General channel, or one whose target's owner cannot be
+// found (a deleted item, a page with no recorded author). Any other thread
+// takes nothing from it.
+func (n *PortalNotifier) routeFor(ctx context.Context, thread *portal.Thread, target threadTargetInfo) generalRoute {
+	route := generalRoute{standalone: thread.TargetType == targetStandalone}
+	if n.stores.General == nil || (!route.standalone && target.owner != "") {
+		return route
+	}
+	route.people, route.channels, route.acknowledge = n.stores.General.Recipients(ctx)
+	return route
+}
+
+// withRouted adds the list's people (the actor and anyone told by name
+// already taken out) to the fan-out. On the General channel
+// they are told whether or not the directory holds them: a General thread is
+// readable by everyone signed in, and an address an administrator typed (a
+// team list) is no portal account. On an item that lost its owner, each must
+// still be able to open the item.
+func (n *PortalNotifier) withRouted(ctx context.Context, thread *portal.Thread, general, routed []string, standalone bool) []string {
+	if len(routed) == 0 {
+		return general
+	}
+	if !standalone {
+		routed = n.reachable(ctx, thread, routed)
+	}
+	return notification.RecipientsExcluding("", append(general, routed...)...)
+}
+
+// openedGeneral finishes a new General thread (#2603): it is sent to the
+// list's channels, its author is told it was received when the list says so
+// and someone was, and a post that reached nobody is logged rather than lost
+// in silence.
+func (n *PortalNotifier) openedGeneral(ctx context.Context, msg threads.MessageNotice, payload notification.Payload, route generalRoute, told int) {
+	if n.stores.Channels != nil && len(route.channels) > 0 {
+		told += n.stores.Channels.Send(ctx, route.channels, "general_feedback:"+msg.Thread.ID, payload)
+	}
+	if told == 0 {
+		slog.WarnContext(ctx, "notification: a new General feedback thread reached nobody; set Admin > Settings > General feedback", // #nosec G706 -- structured slog call; thread ID sanitized
+			"thread", logsan.SanitizeForLog(msg.Thread.ID))
+		return
+	}
+	if !route.acknowledge {
+		return
+	}
+	if _, err := n.enq.Notify(ctx, msg.ActorEmail, notification.CategoryComment, notification.Payload{
+		Kind: notification.KindFeedbackReceived, ItemID: msg.Thread.ID, ItemTitle: payload.ItemTitle, Link: payload.Link,
+	}); err != nil {
+		slog.WarnContext(ctx, "notification: acknowledging a General feedback post failed", // #nosec G706 -- structured slog call; error sanitized
+			logKeyError, logsan.SanitizeForLog(err.Error()))
+	}
 }
 
 // involved lists everyone attached to a thread: the target's owner, the
@@ -291,14 +390,22 @@ func (n *PortalNotifier) participants(ctx context.Context, thread *portal.Thread
 	return people
 }
 
-// reachable keeps the recipients who can open the thread's target now.
+// reachable keeps the recipients who can open the thread's target now. The
+// author of a General thread opened it, and a General thread is readable by
+// everyone signed in, so the author is kept whether or not the directory holds
+// them (an API key's caller is not in it) (#2603).
 func (n *PortalNotifier) reachable(ctx context.Context, thread *portal.Thread, recipients []string) []string {
 	if n.stores.Reach == nil {
 		return recipients
 	}
+	author := ""
+	if thread.TargetType == targetStandalone {
+		author = notification.NormalizeAddress(thread.AuthorEmail)
+	}
 	out := make([]string, 0, len(recipients))
 	for _, r := range recipients {
-		if n.stores.Reach.CanOpen(ctx, r, thread.TargetType, thread.TargetID()) {
+		if (author != "" && notification.NormalizeAddress(r) == author) ||
+			n.stores.Reach.CanOpen(ctx, r, thread.TargetType, thread.TargetID()) {
 			out = append(out, r)
 		}
 	}
@@ -383,15 +490,23 @@ type threadTargetInfo struct {
 }
 
 // threadTarget resolves the thread's target title, portal deep link, and
-// owner email. Unresolvable targets (standalone threads, missing rows)
-// yield the thread title with no link or owner; the notification still
-// renders without them.
+// owner email. A standalone thread links to itself on the Feedback page; a
+// missing row yields the thread title with no link or owner.
 func (n *PortalNotifier) threadTarget(ctx context.Context, thread *portal.Thread) threadTargetInfo {
 	if info := n.resolveThreadTarget(ctx, thread); info != nil {
 		return *info
 	}
-	return threadTargetInfo{title: thread.Title}
+	info := threadTargetInfo{title: thread.Title}
+	if thread.TargetType == targetStandalone {
+		// A General thread opens on the Feedback page, which reads the
+		// thread from the address (#2603).
+		info.link = notification.PortalLink(n.baseURL, "/feedback#thread-"+thread.ID)
+	}
+	return info
 }
+
+// targetStandalone is a General (standalone) thread's target type.
+const targetStandalone = "standalone"
 
 // resolveThreadTarget dispatches on the thread's target reference,
 // returning nil when the target cannot be resolved.
@@ -463,3 +578,31 @@ func (n *PortalNotifier) knowledgePageTarget(ctx context.Context, id string) *th
 		owner: page.CreatedEmail,
 	}
 }
+
+// headingOf is how a thread with no item, and no stored title, is named in a
+// notification: the first line of its first message, as every list shows it
+// (#2513). On the message that opens the thread that line is the message's
+// own; on a reply it is the first message with text the store holds (#2603).
+func (n *PortalNotifier) headingOf(ctx context.Context, msg threads.MessageNotice) string {
+	if msg.Opened {
+		return cmp.Or(threads.FirstLineSnippet(msg.Body), generalHeading)
+	}
+	if n.stores.Events == nil {
+		return generalHeading
+	}
+	events, err := n.stores.Events.ListEvents(ctx, msg.Thread.ID)
+	if err != nil {
+		slog.WarnContext(ctx, "notification: reading a thread's first message failed", // #nosec G706 -- structured slog call; error sanitized
+			logKeyError, logsan.SanitizeForLog(err.Error()))
+		return generalHeading
+	}
+	for _, e := range events {
+		if line := threads.FirstLineSnippet(e.Body); line != "" {
+			return line
+		}
+	}
+	return generalHeading
+}
+
+// generalHeading names a General thread whose first line is not at hand.
+const generalHeading = "a General feedback thread"

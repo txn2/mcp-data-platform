@@ -16,6 +16,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/txn2/mcp-data-platform/internal/contentenc"
 	"github.com/txn2/mcp-data-platform/internal/site"
 	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
 	"github.com/txn2/mcp-data-platform/internal/site/sitefs"
@@ -216,7 +217,7 @@ func (s *Service) storeIndex(ctx context.Context, siteID string, index *siterend
 	if err != nil {
 		return nil, fmt.Errorf("encoding the render index: %w", err)
 	}
-	body, err := gzipped(raw)
+	body, err := contentenc.Gzip(raw)
 	if err != nil {
 		return nil, err
 	}

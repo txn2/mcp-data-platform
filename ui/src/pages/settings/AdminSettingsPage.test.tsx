@@ -12,6 +12,7 @@ vi.mock("@/api/admin/hooks", () => ({
   useSendTestEmail: vi.fn(),
   useSMTPRecipientStatus: vi.fn(),
   useFailingChannelCount: vi.fn(() => 0),
+  useGeneralFeedback: vi.fn(() => ({ data: undefined })),
 }));
 
 // The page composes independent sections. This file covers the SMTP one, so
@@ -40,6 +41,10 @@ vi.mock("./MapsCard", () => ({
   MapsCard: () => null,
 }));
 
+vi.mock("./GeneralFeedbackCard", () => ({
+  GeneralFeedbackCard: () => null,
+}));
+
 import {
   useSystemInfo,
   useSMTPSettings,
@@ -47,6 +52,7 @@ import {
   useSendTestEmail,
   useSMTPRecipientStatus,
   useFailingChannelCount,
+  useGeneralFeedback,
 } from "@/api/admin/hooks";
 
 const mockUseSystemInfo = vi.mocked(useSystemInfo);
@@ -422,9 +428,13 @@ describe("AdminSettingsPage: sections (#2093)", () => {
       data: makeSettings({ host: "" }), isLoading: false, error: null, refetch: vi.fn(),
     } as unknown as ReturnType<typeof useSMTPSettings>);
     vi.mocked(useFailingChannelCount).mockReturnValue(2);
+    vi.mocked(useGeneralFeedback).mockReturnValue({
+      data: { warnings: ["reaches_nobody"] },
+    } as unknown as ReturnType<typeof useGeneralFeedback>);
     render(<AdminSettingsPage route="/admin/settings/channels" onNavigate={() => {}} />);
     expect(screen.getByLabelText("Not configured")).toBeInTheDocument();
     expect(screen.getByLabelText("2 channels' last delivery failed")).toBeInTheDocument();
+    expect(screen.getAllByLabelText("A new post reaches nobody").length).toBeGreaterThan(0);
   });
 
   it("says the settings are read-only in file mode", () => {

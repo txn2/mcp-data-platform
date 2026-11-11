@@ -31,7 +31,7 @@ const (
 
 	listDescription = "List the buckets of an S3 connection, or the objects in one bucket. " +
 		"With no bucket: every bucket the connection can see (filtered by the connection's bucket_prefix when it sets one). " +
-		"With a bucket: the objects under an optional prefix, grouped by an optional delimiter ('/' lists a folder level), " +
+		"With a bucket: the objects under an optional prefix (refused for a bucket outside the connection's bucket_prefix), grouped by an optional delimiter ('/' lists a folder level), " +
 		"up to max_keys per page (default and maximum 1000), continued with the continuation_token the previous page returned. " +
 		"Use this to browse a data lake, find the files in a bucket, or discover a key before reading it with s3_object."
 
@@ -43,7 +43,8 @@ const (
 		"delete (remove the object), " +
 		"presign (get a download link or an upload link: a presigned URL for method GET or PUT that expires after expires_in seconds, default 3600, maximum 604800). " +
 		"put, copy, delete and presign with method PUT are refused on a read-only connection, and the refusal names the connection; " +
-		"presign with method GET is allowed on one."
+		"presign with method GET is allowed on one. " +
+		"On a connection that sets bucket_prefix, every action is refused for a bucket (or a copy's dest_bucket) whose name does not start with it."
 
 	// The s3_object actions.
 	actionGet      = "get"
@@ -137,10 +138,52 @@ func (t *Toolkit) list(ctx context.Context, in listInput) (res *mcp.CallToolResu
 	if err != nil {
 		return s3tools.ErrorResult(err.Error()), nil
 	}
+	prefix := t.settings(in.Connection).bucketPrefix
 	if in.Bucket == "" {
-		return listBuckets(ctx, client, t.settings(in.Connection).bucketPrefix)
+		return listBuckets(ctx, client, prefix)
+	}
+	if refused := t.refuseOutsidePrefix(in.Connection, prefix, in.Bucket); refused != nil {
+		return refused, nil
 	}
 	return listObjects(ctx, client, in)
+}
+
+// refuseOutsidePrefix is the bucket_prefix limit (#2584): a connection that
+// sets a prefix serves only the buckets whose name starts with it, whichever
+// tool or action names the bucket, so a caller cannot reach a bucket the
+// connection lists none of by naming it. The bucket is compared exactly as
+// sent: S3 bucket names are lowercase and carry no spaces, so nothing is
+// folded or trimmed that could make an outside name pass as inside. It returns
+// nil when every bucket is inside, or when the connection sets no prefix.
+func (t *Toolkit) refuseOutsidePrefix(connection, prefix string, buckets ...string) *mcp.CallToolResult {
+	if prefix == "" {
+		return nil
+	}
+	for _, bucket := range buckets {
+		if !strings.HasPrefix(bucket, prefix) {
+			return s3tools.ErrorResultf("connection %q is limited to buckets whose name starts with %q: bucket %q is outside it",
+				t.boundName(connection), prefix, bucket)
+		}
+	}
+	return nil
+}
+
+// OutsideBucketPrefix reports whether a bucket lies outside the bucket_prefix
+// of the connection named (the default connection for ""), and the prefix it
+// was compared with: the limit refuseOutsidePrefix enforces on every call,
+// asked ahead of one by the boot check over script destinations (#2584).
+func (t *Toolkit) OutsideBucketPrefix(connection, bucket string) (prefix string, outside bool) {
+	prefix = t.settings(connection).bucketPrefix
+	return prefix, prefix != "" && !strings.HasPrefix(bucket, prefix)
+}
+
+// boundName is the connection a call is served by: the one it names, or the
+// default connection when it names none.
+func (t *Toolkit) boundName(connection string) string {
+	if connection == "" {
+		return t.name
+	}
+	return connection
 }
 
 func listBuckets(ctx context.Context, client s3tools.S3Client, prefix string) (res *mcp.CallToolResult, out any) {
@@ -215,8 +258,9 @@ func (t *Toolkit) object(ctx context.Context, in objectInput) (res *mcp.CallTool
 }
 
 // admitObject resolves the connection a call names and refuses what cannot
-// proceed: a missing bucket or key, an unknown connection, or a writing action
-// on a read-only connection.
+// proceed: a missing bucket or key, an unknown connection, a bucket outside
+// the connection's bucket_prefix (a copy's destination included), or a
+// writing action on a read-only connection.
 func (t *Toolkit) admitObject(in objectInput) (s3tools.S3Client, connSettings, *mcp.CallToolResult) {
 	if in.Bucket == "" {
 		return nil, connSettings{}, s3tools.ErrorResult("bucket parameter is required")
@@ -229,6 +273,13 @@ func (t *Toolkit) admitObject(in objectInput) (s3tools.S3Client, connSettings, *
 		return nil, connSettings{}, s3tools.ErrorResult(err.Error())
 	}
 	settings := t.settings(in.Connection)
+	buckets := []string{in.Bucket}
+	if in.Action == actionCopy && in.DestBucket != "" {
+		buckets = append(buckets, in.DestBucket)
+	}
+	if refused := t.refuseOutsidePrefix(in.Connection, settings.bucketPrefix, buckets...); refused != nil {
+		return nil, connSettings{}, refused
+	}
 	if settings.readOnly && writes(in) {
 		return nil, connSettings{}, t.refuseWrite(in)
 	}
@@ -291,10 +342,7 @@ func writes(in objectInput) bool {
 // refuseWrite is the read-only refusal: it names the connection the write was
 // addressed to, so a caller holding several knows which one declined.
 func (t *Toolkit) refuseWrite(in objectInput) *mcp.CallToolResult {
-	name := in.Connection
-	if name == "" {
-		name = t.name
-	}
+	name := t.boundName(in.Connection)
 	if in.Action == actionPresign {
 		return s3tools.ErrorResultf("connection %q is read-only: s3_object action %q with method PUT is not permitted on it; "+
 			"presign with method GET is", name, in.Action)

@@ -12,7 +12,7 @@ const ConfigSchemaJSON = `{
     "secret_access_key": {"type": "string", "description": "Secret key. Encrypted at rest; read back as \"[REDACTED]\", and sending that placeholder keeps the stored value."},
     "session_token": {"type": "string", "description": "Session token for temporary credentials. Encrypted at rest."},
     "profile": {"type": "string", "description": "Named profile in the ambient AWS credentials file."},
-    "bucket_prefix": {"type": "string", "description": "Restricts this connection to buckets whose name starts with this prefix."},
+    "bucket_prefix": {"type": "string", "description": "Limits this connection to buckets whose name starts with this prefix: other buckets are neither listed nor served by s3_list or any s3_object action."},
     "read_only": {"type": "boolean", "description": "Refuse writes on this connection."},
     "use_path_style": {"type": "boolean", "description": "Address buckets as a path rather than a subdomain, which most S3-compatible stores require."},
     "disable_ssl": {"type": "boolean", "description": "Speak plain HTTP to the endpoint."},

@@ -330,6 +330,12 @@ func buildItem(n notification.Notification) emailItem {
 		if item.Link != "" {
 			item.LinkText = "Open it"
 		}
+	case notification.KindFeedbackReceived:
+		item.Body = feedbackReceivedBody
+		item.Message = ""
+		if item.Link != "" {
+			item.LinkText = "Open the thread"
+		}
 	case notification.KindChannel:
 		item.Body = channelBody(n.Payload)
 		item.BodyHTML = markdownHTML(item.Body)
@@ -340,6 +346,11 @@ func buildItem(n notification.Notification) emailItem {
 	}
 	return item
 }
+
+// feedbackReceivedBody is what the author of a General post is told (#2603).
+// It never names who was told.
+const feedbackReceivedBody = "Your post to the General channel was sent to the people who handle feedback. " +
+	"You'll get an email when someone replies."
 
 // Subject returns the one-line summary of a single notification: the subject
 // its email carries, and the same line the admin monitoring tab and a user's
@@ -377,6 +388,8 @@ func subjectFor(n notification.Notification) string {
 		return fmt.Sprintf("%s asked for approval of %s", n.Payload.Actor, n.Payload.ItemTitle)
 	case notification.KindApprovalDecision:
 		return fmt.Sprintf("%s decided your request for approval of %s", n.Payload.Actor, n.Payload.ItemTitle)
+	case notification.KindFeedbackReceived:
+		return fmt.Sprintf("Your feedback was received: %q", n.Payload.ItemTitle)
 	default:
 		return fmt.Sprintf("%s commented on %q", n.Payload.Actor, n.Payload.ItemTitle)
 	}

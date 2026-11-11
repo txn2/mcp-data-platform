@@ -519,6 +519,88 @@ func TestS3Object_ReadOnlyRefusesAnUploadLink(t *testing.T) {
 	}
 }
 
+// TestS3_BucketPrefixLimitsEveryNamedBucket pins #2584: a connection's
+// bucket_prefix refuses s3_list with a bucket and every s3_object action,
+// copy's dest_bucket included, when the bucket lies outside it, naming the
+// connection and the prefix, before the client is asked anything; a bucket
+// inside it is served.
+func TestS3_BucketPrefixLimitsEveryNamedBucket(t *testing.T) {
+	tk, fake := newFakeToolkit(Config{BucketPrefix: "acme-"})
+	rt := newRoundTrip(t, tk)
+	const want = `connection "lake" is limited to buckets whose name starts with "acme-": bucket "other" is outside it`
+
+	_, errText := rt.call("s3_list", map[string]any{"bucket": "other"})
+	assert.Contains(t, errText, want, "s3_list with a bucket")
+	assert.Empty(t, fake.lastLs.bucket, "the outside bucket was never listed")
+
+	for _, call := range []map[string]any{
+		{"action": "get"},
+		{"action": "metadata"},
+		{"action": "put", "content": "x"},
+		{"action": "delete"},
+		{"action": "copy", "dest_key": "y"},
+		{"action": "presign"},
+		{"action": "presign", "method": "PUT"},
+	} {
+		call["bucket"], call["key"] = "other", "k"
+		_, errText := rt.call("s3_object", call)
+		assert.Contains(t, errText, want, call)
+	}
+	assert.Nil(t, fake.lastPut, "nothing was written")
+	assert.Nil(t, fake.lastCp, "nothing was copied")
+	assert.Zero(t, fake.presignPuts, "no upload link was signed")
+
+	_, errText = rt.call("s3_object", map[string]any{"action": "copy", "bucket": "acme-lake", "key": "sales/2026/q1.csv", "dest_bucket": "other", "dest_key": "q1.csv"})
+	assert.Contains(t, errText, want, "a copy out of the prefix is refused by its destination")
+	assert.Nil(t, fake.lastCp)
+
+	out, errText := rt.call("s3_list", map[string]any{"bucket": "acme-lake"})
+	require.Empty(t, errText)
+	assert.Equal(t, "acme-lake", out["bucket"])
+	_, errText = rt.call("s3_object", map[string]any{"action": "get", "bucket": "acme-lake", "key": "sales/2026/q1.csv"})
+	assert.Empty(t, errText, "a bucket inside the prefix is served")
+	_, errText = rt.call("s3_object", map[string]any{"action": "copy", "bucket": "acme-lake", "key": "sales/2026/q1.csv", "dest_bucket": "acme-reports", "dest_key": "q1.csv"})
+	assert.Empty(t, errText, "a copy within the prefix is served")
+}
+
+// TestS3_BucketPrefixComparesExactly: the comparison is the bucket name as
+// sent, so a case change or a leading space does not pass as inside.
+func TestS3_BucketPrefixComparesExactly(t *testing.T) {
+	tk, _ := newFakeToolkit(Config{BucketPrefix: "acme-"})
+	rt := newRoundTrip(t, tk)
+	for _, bucket := range []string{"ACME-lake", " acme-lake", "acme"} {
+		_, errText := rt.call("s3_object", map[string]any{"action": "get", "bucket": bucket, "key": "k"})
+		assert.Contains(t, errText, "is outside it", bucket)
+	}
+}
+
+// TestOutsideBucketPrefix: the boot check's question answers as a call is
+// refused, for the named connection and for the default one.
+func TestOutsideBucketPrefix(t *testing.T) {
+	tk, _ := newFakeToolkit(Config{BucketPrefix: "acme-"})
+	prefix, outside := tk.OutsideBucketPrefix("", "other")
+	assert.Equal(t, "acme-", prefix)
+	assert.True(t, outside)
+	_, outside = tk.OutsideBucketPrefix("lake", "acme-lake")
+	assert.False(t, outside)
+
+	open, _ := newFakeToolkit(Config{})
+	prefix, outside = open.OutsideBucketPrefix("lake", "other")
+	assert.Empty(t, prefix)
+	assert.False(t, outside, "no prefix limits nothing")
+}
+
+// TestS3_NoBucketPrefixLimitsNothing: a connection with no prefix serves any
+// bucket, as before #2584.
+func TestS3_NoBucketPrefixLimitsNothing(t *testing.T) {
+	tk, _ := newFakeToolkit(Config{})
+	rt := newRoundTrip(t, tk)
+	_, errText := rt.call("s3_list", map[string]any{"bucket": "other"})
+	assert.Empty(t, errText)
+	_, errText = rt.call("s3_object", map[string]any{"action": "copy", "bucket": "acme-lake", "key": "sales/2026/q1.csv", "dest_bucket": "other", "dest_key": "q1.csv"})
+	assert.Empty(t, errText)
+}
+
 // TestS3Object_WritableConnectionIssuesAnUploadLink: the refusal is the
 // read-only connection's, not the action's.
 func TestS3Object_WritableConnectionIssuesAnUploadLink(t *testing.T) {

@@ -24,6 +24,16 @@ import (
 //   - endpoint_requests_total{endpoint, status_class} and
 //     endpoint_request_duration_seconds{endpoint}  every request a script
 //     bound to /endpoints/{name} answered (#2172), by the endpoint's name
+//   - site_requests_total{kind, site, environment, status_class} and
+//     site_request_duration_seconds{kind, site, environment}  every request
+//     the site and page gateway answered for a site or an application's page
+//     origin (#2597): kind is site or pages, site the site's or the
+//     application's name, environment the site's environment (empty for a
+//     page origin), all read from the route the gateway resolved, never from
+//     the Host header, so a hostname nobody added mints no series
+//   - site_cache_reads_total{outcome}  every file body the gateway read, by
+//     where it came from: memory, disk, object_store, or range (a file too
+//     large to cache, read by ranged GETs)
 //
 // Cardinality: route is the set of patterns registered on the mux, a closed
 // set in the code, plus "unmatched" for a request no pattern answers; a
@@ -36,10 +46,15 @@ const (
 	instMCPRequestDuration = "mcp_request_duration"
 	instEndpointRequests   = "endpoint_requests"
 	instEndpointDuration   = "endpoint_request_duration"
+	instSiteRequests       = "site_requests"
+	instSiteDuration       = "site_request_duration"
+	instSiteCacheReads     = "site_cache_reads"
 
 	attrRoute    = "route"
 	attrLimiter  = "limiter"
 	attrEndpoint = "endpoint"
+	attrSite     = "site"
+	attrEnv      = "environment"
 )
 
 // httpInstruments are the inbound request series.
@@ -50,6 +65,9 @@ type httpInstruments struct {
 	mcpRequestDuration metric.Float64Histogram
 	endpointRequests   metric.Int64Counter
 	endpointDuration   metric.Float64Histogram
+	siteRequests       metric.Int64Counter
+	siteDuration       metric.Float64Histogram
+	siteCacheReads     metric.Int64Counter
 }
 
 // registerHTTPInstruments registers the inbound request series.
@@ -83,7 +101,52 @@ func (m *Metrics) registerHTTPInstruments(meter metric.Meter) error {
 		metric.WithUnit(unitSeconds)); err != nil {
 		return wrapReg(instEndpointDuration, err)
 	}
+	return m.registerSiteInstruments(meter)
+}
+
+// registerSiteInstruments registers the site and page gateway's series (#2597).
+func (m *Metrics) registerSiteInstruments(meter metric.Meter) error {
+	h := &m.http
+	var err error
+	if h.siteRequests, err = meter.Int64Counter(instSiteRequests,
+		metric.WithDescription("Total requests the site and page gateway answered for a site or an application's page origin, labeled by kind (site, pages), site, environment and status_class.")); err != nil {
+		return wrapReg(instSiteRequests, err)
+	}
+	if h.siteDuration, err = meter.Float64Histogram(instSiteDuration,
+		metric.WithDescription("Seconds the site and page gateway took to answer a request, labeled by kind, site and environment."),
+		metric.WithUnit(unitSeconds)); err != nil {
+		return wrapReg(instSiteDuration, err)
+	}
+	if h.siteCacheReads, err = meter.Int64Counter(instSiteCacheReads,
+		metric.WithDescription("Total file bodies the site gateway read, labeled by outcome: memory, disk, object_store, or range (a file too large to cache).")); err != nil {
+		return wrapReg(instSiteCacheReads, err)
+	}
 	return nil
+}
+
+// RecordSiteRequest records one request the site and page gateway answered.
+// Nil-safe. kind, site and environment come from the route the gateway
+// resolved (names an administrator gave), never from the request. One
+// argument per label, as RecordEndpointRequest: a struct for them would be
+// one more identifier on this package's budgeted exported surface.
+func (m *Metrics) RecordSiteRequest(ctx context.Context, kind, site, environment, statusClass string, d time.Duration) { //nolint:revive // argument-limit: one argument per label
+	if m == nil || m.http.siteRequests == nil {
+		return
+	}
+	m.http.siteRequests.Add(ctx, 1, metric.WithAttributes(
+		attribute.String(attrKind, kind), attribute.String(attrSite, site),
+		attribute.String(attrEnv, environment), attribute.String(attrStatusClass, statusClass)))
+	m.http.siteDuration.Record(ctx, d.Seconds(), metric.WithAttributes(
+		attribute.String(attrKind, kind), attribute.String(attrSite, site), attribute.String(attrEnv, environment)))
+}
+
+// RecordSiteCacheRead counts one file body the site gateway read, by where it
+// came from. Nil-safe. outcome is one of the gateway's constants.
+func (m *Metrics) RecordSiteCacheRead(ctx context.Context, outcome string) {
+	if m == nil || m.http.siteCacheReads == nil {
+		return
+	}
+	m.http.siteCacheReads.Add(ctx, 1, metric.WithAttributes(attribute.String(attrOutcome, outcome)))
 }
 
 // RecordEndpointRequest records one request an endpoint answered. Nil-safe.

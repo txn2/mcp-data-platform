@@ -16,3 +16,4 @@ export * from "./channels";
 export * from "./accessRequests";
 export * from "./shareAccess";
 export * from "./changesets";
+export * from "./generalFeedback";

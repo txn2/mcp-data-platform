@@ -27,3 +27,4 @@ export * from "./accessRequests";
 export * from "./embedHosts";
 export * from "./appdb";
 export * from "./sites";
+export * from "./generalFeedback";

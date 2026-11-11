@@ -285,6 +285,40 @@ func TestMiddleware_ServerSpan(t *testing.T) {
 	}
 }
 
+// TestSetRoute_AHandlerOutsideTheMuxNamesItsOwnRoute pins #2597: a handler in
+// front of the mux (the site gateway) that answers the request itself records
+// its own route, and the request is never resolved against the mux, even when
+// its path matches a registered pattern.
+func TestSetRoute_AHandlerOutsideTheMuxNamesItsOwnRoute(t *testing.T) {
+	m := newMetrics(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/resources", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	gateway := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Host != "docs.pages.example.net" {
+			mux.ServeHTTP(w, r)
+			return
+		}
+		SetRoute(r, RouteSite)
+		w.WriteHeader(http.StatusOK)
+	})
+	h := Middleware(Config{Mux: mux, Metrics: m})(gateway)
+
+	for _, target := range []string{"/api/v1/resources", "/index.html"} {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, target, http.NoBody)
+		req.Host = "docs.pages.example.net"
+		h.ServeHTTP(httptest.NewRecorder(), req)
+	}
+	body := scrape(t, m)
+	require.Contains(t, body, `http_server_request_duration_seconds_count{method="GET",route="site",status_class="2xx"} 2`)
+	require.NotContains(t, body, `route="/api/v1/resources"`, "a site path that matches a platform route is not that route")
+	require.NotContains(t, body, `route="/"`)
+
+	rec := httptest.NewRecorder()
+	SetRoute(httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody), RoutePages) // no scope: a no-op
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
 func TestRoutedAndMarkOutsideTheMiddleware(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /x", func(w http.ResponseWriter, r *http.Request) {

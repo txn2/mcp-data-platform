@@ -55,6 +55,10 @@ const (
 	// CodeLoginRedirectIgnored: portal.login_redirect is set without OIDC
 	// browser sign-in to redirect to.
 	CodeLoginRedirectIgnored = "login_redirect_ignored"
+	// CodeDestinationOutsidePrefix: a script destination names a bucket
+	// outside its S3 connection's bucket_prefix, so every delivery to it is
+	// refused (#2584).
+	CodeDestinationOutsidePrefix = "script_destination_outside_prefix"
 )
 
 // logKeyCode is the attribute every warning's log line carries its code under,

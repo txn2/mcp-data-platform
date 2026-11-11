@@ -541,15 +541,15 @@ tuning:
 # Requests user confirmation before expensive queries or PII access.
 # Requires client-side elicitation support (e.g., Claude Desktop).
 # Gracefully degrades to no-op if the client doesn't support elicitation.
-# Enabled by default (including cost_estimation and pii_consent); set
-# enabled: false at any level to opt out.
+# Enabled by default with pii_consent; cost_estimation is off unless
+# enabled: true. Set enabled: false at any level to opt out.
 # elicitation:
 #   enabled: false
 #   cost_estimation:
-#     enabled: false
-#     row_threshold: 1000000    # prompt when EXPLAIN IO estimates > 1M rows
+#     enabled: true
+#     row_threshold: 500        # prompt when a query returns over 500 rows (capped by its row limit)
 #   pii_consent:
-#     enabled: false            # prompt when query accesses PII-tagged columns
+#     enabled: false            # prompt when a query reads a PII-tagged column or table
 
 # Icons (tool/resource/prompt visual metadata)
 # Override or add icons to MCP list responses.

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Bell, Clock, ListChecks, Megaphone, Plus, type LucideIcon } from "lucide-react";
 import {
   usePractitionerWorklist,
@@ -12,6 +12,7 @@ import { NotificationsPanel } from "@/components/feedback/NotificationsPanel";
 import { ThreadSlideOver } from "@/components/feedback/ThreadSlideOver";
 import { SlideOver } from "@/components/feedback/SlideOver";
 import { NewThreadForm } from "@/components/feedback/NewThreadForm";
+import { GeneralFeedbackNotice } from "@/components/feedback/GeneralFeedbackNotice";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -45,10 +46,43 @@ const TAB_ITEMS: { key: Tab; label: string; icon: LucideIcon }[] = [
 // inside a card while `main` (AppShell) stayed still -- so three threads filled
 // the viewport and the tab strip never scrolled away. `main` is the only scroll
 // container now, as it is on every other page.
+// threadInHash is the thread the address names (#2603): a General feedback
+// email links to /portal/feedback#thread-<id>.
+function threadInHash(): string | null {
+  const m = /^#thread-([A-Za-z0-9_-]+)$/.exec(window.location.hash);
+  return m?.[1] ?? null;
+}
+
+// clearThreadHash takes a #thread- fragment out of the address once the thread
+// it named is closed, so a reload does not reopen it.
+function clearThreadHash() {
+  if (window.location.hash.startsWith("#thread-")) {
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  }
+}
+
 export function FeedbackPage({ onNavigate }: Props) {
-  const [tab, setTab] = useState<Tab>("recent");
-  const [openThreadId, setOpenThreadId] = useState<string | null>(null);
+  const [tab, setTab] = useState<Tab>(() => (threadInHash() ? "general" : "recent"));
+  const [openThreadId, setOpenThreadIdState] = useState<string | null>(threadInHash);
   const [composing, setComposing] = useState(false);
+
+  const setOpenThreadId = useCallback((id: string | null) => {
+    if (id === null) clearThreadHash();
+    setOpenThreadIdState(id);
+  }, []);
+
+  // A link to another thread followed while the page is open opens it.
+  useEffect(() => {
+    const onHash = () => {
+      const id = threadInHash();
+      if (id) {
+        setTab("general");
+        setOpenThreadIdState(id);
+      }
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
 
   // Switching tabs closes any open slide-over so it never lingers over a
   // different tab's content.
@@ -139,8 +173,8 @@ export function FeedbackPage({ onNavigate }: Props) {
 
       {composing && (
         <SlideOver onClose={() => setComposing(false)}>
-          <div className="border-b px-4 py-2 text-xs text-muted-foreground">
-            Posting to the General channel, visible to everyone on the platform.
+          <div className="border-b px-4 py-2">
+            <GeneralFeedbackNotice />
           </div>
           <div className="min-h-0 flex-1 overflow-auto">
             <NewThreadForm

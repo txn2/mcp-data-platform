@@ -1,9 +1,7 @@
 package sitesvc
 
 import (
-	"bytes"
 	"cmp"
-	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -15,9 +13,9 @@ import (
 	"sync/atomic"
 	"unicode/utf8"
 
-	"github.com/andybalholm/brotli"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/txn2/mcp-data-platform/internal/contentenc"
 	"github.com/txn2/mcp-data-platform/internal/site"
 	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
 	"github.com/txn2/mcp-data-platform/internal/site/siterender"
@@ -31,15 +29,11 @@ const redirectsFile = "_redirects"
 
 // Publishing's bounds.
 const (
-	parallelUploads   = 8
-	minCompressBytes  = 1024
-	brotliQuality     = 9
-	worthwhilePercent = 95
-	wholePercent      = 100
-	firstPrintable    = 0x20
-	deleteRune        = 0x7f
-	maxPathLen        = 1024
-	octetStream       = "application/octet-stream"
+	parallelUploads = 8
+	firstPrintable  = 0x20
+	deleteRune      = 0x7f
+	maxPathLen      = 1024
+	octetStream     = "application/octet-stream"
 	// maxManifestDepth is how many derived releases may stand between a
 	// release and one holding its whole file set: reading a file set walks
 	// them, and a site can take thousands of patches.
@@ -119,43 +113,6 @@ func contentTypeOf(name string) string {
 		return ct
 	}
 	return octetStream
-}
-
-// compressible reports whether a file of the type is worth compressing.
-func compressible(ct string) bool {
-	ct, _, _ = strings.Cut(ct, ";")
-	return strings.HasPrefix(ct, "text/") || strings.HasSuffix(ct, "+xml") || strings.HasSuffix(ct, "+json") ||
-		slices.Contains([]string{
-			"application/json", "application/javascript", "application/xml", "application/wasm",
-			"application/x-javascript", "image/svg+xml", "font/ttf", "font/otf",
-		}, ct)
-}
-
-func gzipped(body []byte) ([]byte, error) {
-	var buf bytes.Buffer
-	w, err := gzip.NewWriterLevel(&buf, gzip.BestCompression)
-	if err != nil {
-		return nil, fmt.Errorf("gzip: %w", err)
-	}
-	if _, err := w.Write(body); err != nil {
-		return nil, fmt.Errorf("gzip: %w", err)
-	}
-	if err := w.Close(); err != nil {
-		return nil, fmt.Errorf("gzip: %w", err)
-	}
-	return buf.Bytes(), nil
-}
-
-func brotlied(body []byte) ([]byte, error) {
-	var buf bytes.Buffer
-	w := brotli.NewWriterLevel(&buf, brotliQuality)
-	if _, err := w.Write(body); err != nil {
-		return nil, fmt.Errorf("brotli: %w", err)
-	}
-	if err := w.Close(); err != nil {
-		return nil, fmt.Errorf("brotli: %w", err)
-	}
-	return buf.Bytes(), nil
 }
 
 // ObjectKey is where one form of a file is stored: "" for the file itself,
@@ -421,15 +378,15 @@ func (s *Service) storeFile(ctx context.Context, siteID string, in InputFile, ba
 	if err := s.Objects.PutObject(ctx, s.Bucket, ObjectKey(siteID, *f, ""), in.Body, contentType); err != nil {
 		return nil, fmt.Errorf("putting the file: %w", err)
 	}
-	if !compressible(contentType) || len(in.Body) < minCompressBytes {
+	if !contentenc.Compressible(contentType) || len(in.Body) < contentenc.MinBytes {
 		return f, nil
 	}
 	stored := variantFile{siteID: siteID, file: *f, source: in.Body}
 	var err error
-	if f.GzipSize, err = s.putVariant(ctx, stored, "gz", gzipped); err != nil {
+	if f.GzipSize, err = s.putVariant(ctx, stored, "gz", contentenc.Gzip); err != nil {
 		return nil, err
 	}
-	if f.BrotliSize, err = s.putVariant(ctx, stored, "br", brotlied); err != nil {
+	if f.BrotliSize, err = s.putVariant(ctx, stored, "br", contentenc.Brotli); err != nil {
 		return nil, err
 	}
 	return f, nil
@@ -449,7 +406,7 @@ func (s *Service) putVariant(ctx context.Context, v variantFile, enc string, com
 	if err != nil {
 		return 0, err
 	}
-	if len(body)*wholePercent >= len(v.source)*worthwhilePercent {
+	if !contentenc.Worthwhile(len(v.source), len(body)) {
 		return 0, nil
 	}
 	if err := s.Objects.PutObject(ctx, s.Bucket, ObjectKey(v.siteID, v.file, enc), body, v.file.ContentType); err != nil {

@@ -16,6 +16,7 @@ import (
 	"net/mail"
 
 	"github.com/txn2/mcp-data-platform/internal/httpserver/channelhttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/generalfeedbackwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifyhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/postshttp"
 	"github.com/txn2/mcp-data-platform/internal/notification/notifyattach"
@@ -24,6 +25,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/branding"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifywiring"
+	"github.com/txn2/mcp-data-platform/internal/portal/generalfeedback"
 	"github.com/txn2/mcp-data-platform/internal/portal/threadreach"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -154,10 +156,15 @@ const PortalToolkitKind = "portal"
 //
 // The mention audience is supplied rather than built here: the composition root
 // builds one and hands the same one to every surface that resolves a mention.
-func WirePortalNotifications(deps *portal.Deps, p *platform.Platform, notify *notifydelivery.Handle, audience *mention.Audience, reach *threadreach.Reach) {
+//
+// It returns the General feedback list (#2603) the notifier reads, built over
+// the persona members already on deps, for the caller to mount its routes;
+// nil when there is no notification handle.
+func WirePortalNotifications(deps *portal.Deps, p *platform.Platform, notify *notifydelivery.Handle, audience *mention.Audience, reach *threadreach.Reach) *generalfeedback.Service {
 	if notify == nil {
-		return
+		return nil
 	}
+	general := generalfeedbackwire.Service(p, notify, deps.PersonaMembers)
 	stores := notifydelivery.PortalStores{
 		Assets:         p.PortalAssetStore(),
 		Collections:    p.PortalCollectionStore(),
@@ -178,6 +185,13 @@ func WirePortalNotifications(deps *portal.Deps, p *platform.Platform, notify *no
 	}
 	if participants, ok := p.PortalThreadStore().(notifydelivery.ThreadParticipants); ok {
 		stores.Participants = participants
+	}
+	if events, ok := p.PortalThreadStore().(notifydelivery.ThreadEvents); ok {
+		stores.Events = events
+	}
+	stores.General = general
+	if channels := notify.AlertChannels(); channels != nil {
+		stores.Channels = channels
 	}
 	if bridge := notify.PortalNotifier(stores, p.Config().Portal.PublicBaseURL); bridge != nil {
 		deps.Notifier = bridge
@@ -213,6 +227,7 @@ func WirePortalNotifications(deps *portal.Deps, p *platform.Platform, notify *no
 		historyAPI.Register(mux)
 		channelAPI.Register(mux)
 	}
+	return general
 }
 
 // attachmentLoader reads a channel document's attachments from the stores the

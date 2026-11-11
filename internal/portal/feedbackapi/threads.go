@@ -221,7 +221,7 @@ func (h *Handler) createThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.notifyThreadEvent(r.Context(), threads.MessageNotice{
-		Thread: created, EventID: first.ID, ActorEmail: user.Email, Body: req.Body, Mentioned: mentions,
+		Thread: created, EventID: first.ID, ActorEmail: user.Email, Body: req.Body, Mentioned: mentions, Opened: true,
 	})
 	httpjson.WriteJSON(w, http.StatusCreated, created)
 }

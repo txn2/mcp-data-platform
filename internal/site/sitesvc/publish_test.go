@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/contentenc"
 	"github.com/txn2/mcp-data-platform/internal/site"
 	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
 )
@@ -84,10 +85,10 @@ func TestContentTypeOfAndCompressible(t *testing.T) {
 	assert.Equal(t, "text/javascript; charset=utf-8", contentTypeOf("a.js"))
 
 	for _, ct := range []string{"text/html", "text/css", "application/json", "application/javascript", "image/svg+xml", "application/ld+json", "font/ttf"} {
-		assert.True(t, compressible(ct), ct)
+		assert.True(t, contentenc.Compressible(ct), ct)
 	}
 	for _, ct := range []string{"image/png", "image/jpeg", "application/zip", "font/woff2", octetStream} {
-		assert.False(t, compressible(ct), ct)
+		assert.False(t, contentenc.Compressible(ct), ct)
 	}
 }
 
@@ -219,7 +220,7 @@ func TestPublish_CompressedVariantsOnlyWhenWorthwhile(t *testing.T) {
 
 	files := []InputFile{
 		{Path: "big.css", Body: compressibleBody},
-		{Path: "small.css", Body: compressibleBody[:minCompressBytes-1]},
+		{Path: "small.css", Body: compressibleBody[:contentenc.MinBytes-1]},
 		{Path: "photo.png", Body: bytes.Repeat([]byte("<p>other words again</p>\n"), 200)},
 		{Path: "noise.css", Body: random},
 	}

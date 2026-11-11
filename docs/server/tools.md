@@ -268,7 +268,7 @@ aliased. What each kind of read and write is now:
 
 ## S3 Tools
 
-Two tools cover object storage (#1591): `s3_list` is a listing, of buckets or of one bucket's objects, and `s3_object` is one action over a `(bucket, key)`. Both are registered on every S3 connection. Whether a connection accepts writes is its `read_only` setting: `put`, `copy`, `delete` and an upload link (`presign` with `method: PUT`) on a read-only connection are refused with an error that names the connection, while `get`, `metadata` and a download link (`presign` with `method: GET`) still work. `read_only` is enforced by the toolkit only; for defence in depth, give a read-only connection upstream credentials that can only read and list, so no path writes even if a handler missed the check.
+Two tools cover object storage (#1591): `s3_list` is a listing, of buckets or of one bucket's objects, and `s3_object` is one action over a `(bucket, key)`. Both are registered on every S3 connection. Whether a connection accepts writes is its `read_only` setting: `put`, `copy`, `delete` and an upload link (`presign` with `method: PUT`) on a read-only connection are refused with an error that names the connection, while `get`, `metadata` and a download link (`presign` with `method: GET`) still work. `read_only` is enforced by the toolkit only; for defence in depth, give a read-only connection upstream credentials that can only read and list, so no path writes even if a handler missed the check. A connection that sets `bucket_prefix` serves only the buckets whose name starts with it: `s3_list` with any other `bucket`, and every `s3_object` action on one (or a copy whose `dest_bucket` is one), is refused naming the connection and the prefix.
 
 ### s3_list
 
@@ -278,7 +278,7 @@ List the buckets of a connection, or the objects in one bucket.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `bucket` | string | No | - | Bucket to list objects in. Omit it to list the connection's buckets (filtered by the connection's `bucket_prefix` when it sets one). |
+| `bucket` | string | No | - | Bucket to list objects in. Omit it to list the connection's buckets (filtered by the connection's `bucket_prefix` when it sets one). A bucket outside that prefix is refused. |
 | `prefix` | string | No | - | Only objects whose key starts with this prefix |
 | `delimiter` | string | No | - | Groups keys at this character; `/` lists one folder level, and the groups come back as `common_prefixes` |
 | `max_keys` | integer | No | 1000 | Objects per page (1-1000) |

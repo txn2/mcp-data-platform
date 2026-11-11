@@ -41,6 +41,9 @@ const (
 	indexFile    = "index.html"
 	redirectsMax = 5000
 	attrSrc      = "src"
+	attrDataSrc  = "data-src"
+	attrSrcset   = "srcset"
+	attrDataSet  = "data-srcset"
 	pathSep      = "/"
 )
 
@@ -263,6 +266,8 @@ func (r *run) store(p string, res *http.Response) error {
 	}
 	if isHTML {
 		body = r.page(p, body)
+	} else if isStylesheet(res.Header.Get("Content-Type"), name) {
+		r.cssRefs(p, string(body))
 	}
 	r.files = append(r.files, sitesvc.InputFile{Path: name, Body: body})
 	return nil
@@ -284,11 +289,19 @@ func filePath(p string, isHTML bool) string {
 	return name
 }
 
-// linkAttrs are the attributes that name another resource.
+// linkAttrs are the attributes that name another resource. An <a> names a
+// page; every other one names a file the page loads (#2589), including the
+// candidates of a srcset and the attributes lazy loading holds the real
+// address in while src holds a placeholder.
 var linkAttrs = map[atom.Atom][]string{
-	atom.A: {"href"}, atom.Link: {"href"}, atom.Script: {attrSrc}, atom.Img: {attrSrc}, atom.Source: {attrSrc},
-	atom.Video: {attrSrc, "poster"}, atom.Audio: {attrSrc}, atom.Iframe: {attrSrc},
+	atom.A: {"href"}, atom.Link: {"href", "imagesrcset"}, atom.Script: {attrSrc},
+	atom.Img:    {attrSrc, attrSrcset, attrDataSrc, attrDataSet, "data-lazy-src"},
+	atom.Source: {attrSrc, attrSrcset, attrDataSrc, attrDataSet},
+	atom.Video:  {attrSrc, "poster", attrDataSrc}, atom.Audio: {attrSrc}, atom.Iframe: {attrSrc, attrDataSrc},
 }
+
+// srcsetAttrs hold a list of candidates rather than one address.
+var srcsetAttrs = map[string]bool{attrSrcset: true, attrDataSet: true, "imagesrcset": true}
 
 // page reads a page's links and, for a page in the form map, replaces its
 // forms. A page that cannot be parsed is stored as it came.
@@ -338,23 +351,128 @@ func formFrame(portalURL, endpoint string) *html.Node {
 }
 
 func (r *run) links(page string, n *html.Node) {
-	attrs, ok := linkAttrs[n.DataAtom]
-	if !ok {
-		return
+	if n.DataAtom == atom.Style {
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			if c.Type == html.TextNode {
+				r.cssRefs(page, c.Data)
+			}
+		}
 	}
+	attrs := linkAttrs[n.DataAtom]
+	resource := n.DataAtom != atom.A
 	for _, a := range n.Attr {
-		if slices.Contains(attrs, a.Key) {
-			r.follow(page, a.Val)
+		switch {
+		case a.Key == "style":
+			r.cssRefs(page, a.Val)
+		case !slices.Contains(attrs, a.Key):
+		case srcsetAttrs[a.Key]:
+			for _, ref := range srcsetURLs(a.Val) {
+				r.follow(page, ref, true)
+			}
+		default:
+			r.follow(page, a.Val, resource)
 		}
 	}
 }
 
 // follow queues a link on the same host, by its path alone, resolved against
-// the page it appears on.
-func (r *run) follow(page, ref string) {
-	u, err := r.root.ResolveReference(&url.URL{Path: page}).Parse(strings.TrimSpace(ref))
-	if err != nil || u.Host != r.root.Host || (u.Scheme != "http" && u.Scheme != "https") || u.RawQuery != "" {
+// base, the page or stylesheet it appears in. A page link with a query is not
+// walked: /search?q=1 and filter links are endless. A file a page loads is
+// walked by its path with the query dropped (#2589): /site.css?ver=1.2 is the
+// file /site.css, and the page keeps its link, which answers with that file.
+func (r *run) follow(base, ref string, resource bool) {
+	u, err := r.root.ResolveReference(&url.URL{Path: base}).Parse(strings.TrimSpace(ref))
+	if err != nil || u.Host != r.root.Host || (u.Scheme != "http" && u.Scheme != "https") || (u.RawQuery != "" && !resource) {
 		return
 	}
 	r.enqueue(u.Path)
+}
+
+// isStylesheet reports whether a fetched file is CSS, by its type or, when a
+// server labels it loosely, its name.
+func isStylesheet(contentType, name string) bool {
+	ct, _, _ := strings.Cut(strings.ToLower(contentType), ";")
+	return strings.TrimSpace(ct) == "text/css" || strings.EqualFold(path.Ext(name), ".css")
+}
+
+// cssComment, cssURL and cssImport read the references a stylesheet makes:
+// url(...) in any of its three quotings, and @import of a quoted address.
+var (
+	cssComment = regexp.MustCompile(`(?s)/\*.*?\*/`)
+	cssURL     = regexp.MustCompile(`(?i)url\(\s*(?:"([^"]*)"|'([^']*)'|([^)"'\s]*))\s*\)`)
+	cssImport  = regexp.MustCompile(`(?i)@import\s+(?:"([^"]*)"|'([^']*)')`)
+)
+
+// cssRefs walks the files a stylesheet, a <style> element or a style
+// attribute names (fonts, background images, imported stylesheets), resolved
+// against base, the address the CSS was read from (#2589).
+func (r *run) cssRefs(base, css string) {
+	css = cssComment.ReplaceAllString(css, "")
+	for _, re := range []*regexp.Regexp{cssURL, cssImport} {
+		for _, m := range re.FindAllStringSubmatch(css, -1) {
+			if ref := firstNonEmpty(m[1:]); ref != "" {
+				r.follow(base, ref, true)
+			}
+		}
+	}
+}
+
+func firstNonEmpty(values []string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// srcsetURLs are the addresses of a srcset's candidates, read as the HTML
+// standard reads them: an address runs to the next whitespace (so a data: URL
+// holding a comma stays whole), and its descriptors run to the next comma
+// outside parentheses.
+func srcsetURLs(srcset string) []string {
+	var out []string
+	for pos := 0; pos < len(srcset); {
+		for pos < len(srcset) && (isHTMLSpace(srcset[pos]) || srcset[pos] == ',') {
+			pos++
+		}
+		start := pos
+		for pos < len(srcset) && !isHTMLSpace(srcset[pos]) {
+			pos++
+		}
+		ref := strings.TrimRight(srcset[start:pos], ",")
+		if ref != "" {
+			out = append(out, ref)
+		}
+		if strings.HasSuffix(srcset[start:pos], ",") {
+			continue
+		}
+		pos = skipDescriptors(srcset, pos)
+	}
+	return out
+}
+
+// skipDescriptors moves past a candidate's descriptors to the comma that ends
+// it, a comma inside parentheses not counting.
+func skipDescriptors(s string, pos int) int {
+	depth := 0
+	for ; pos < len(s); pos++ {
+		switch s[pos] {
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		case ',':
+			if depth == 0 {
+				return pos + 1
+			}
+		}
+	}
+	return pos
+}
+
+func isHTMLSpace(b byte) bool {
+	return b == ' ' || b == '\t' || b == '\n' || b == '\r' || b == '\f'
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
+	"github.com/txn2/mcp-data-platform/pkg/script"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
@@ -139,6 +140,49 @@ func TestCheckStartup_UnusedConnection(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), "connection=orphan") {
 		t.Errorf("log does not name the connection:\n%s", logs.String())
+	}
+}
+
+// prefixedToolkit is an S3-like toolkit whose connections limit buckets by
+// prefix, keyed by connection name.
+type prefixedToolkit struct {
+	fakeToolkit
+	prefixes map[string]string
+}
+
+func (p *prefixedToolkit) OutsideBucketPrefix(connection, bucket string) (string, bool) {
+	prefix := p.prefixes[connection]
+	return prefix, prefix != "" && !strings.HasPrefix(bucket, prefix)
+}
+
+// TestCheckStartup_DestinationOutsidePrefix pins #2584's boot check: a bucket
+// destination outside its connection's bucket_prefix is warned about, naming
+// the destination, bucket and prefix; one inside it, one on a connection with
+// no prefix and the built-in portal destination are not.
+func TestCheckStartup_DestinationOutsidePrefix(t *testing.T) {
+	scrape := withMetrics(t)
+	logs := captureLog(t)
+	reg := registry.NewRegistry()
+	if err := reg.Register(&prefixedToolkit{
+		kind: "s3", name: "lake", tools: []string{"s3_object"},
+		prefixes: map[string]string{"lake": "acme-"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	CheckStartup(context.Background(), Startup{Toolkits: reg, Destinations: []script.Destination{
+		{Name: "drop", Kind: "s3", Connection: "lake", Bucket: "other-exports"},
+		{Name: "inside", Kind: "s3", Connection: "lake", Bucket: "acme-exports"},
+		{Name: "open", Kind: "s3", Connection: "unlimited", Bucket: "anything"},
+		script.PortalDestination(),
+	}})
+	if !strings.Contains(scrape(), `config_validation_warnings_total{code="script_destination_outside_prefix"} 1`) {
+		t.Errorf("want exactly one warning:\n%s", scrape())
+	}
+	out := logs.String()
+	for _, want := range []string{"destination=drop", "bucket=other-exports", "bucket_prefix=acme-", "connection=lake"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log missing %q:\n%s", want, out)
+		}
 	}
 }
 

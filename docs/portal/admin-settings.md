@@ -32,6 +32,7 @@ address, so a link can open it directly:
 |-------|---------|---------|
 | Delivery | Email | `/portal/admin/settings/email` |
 | Delivery | Channels | `/portal/admin/settings/channels` |
+| Delivery | General feedback | `/portal/admin/settings/general-feedback` |
 | Alerts | Knowledge review | `/portal/admin/settings/knowledge-review` |
 | Alerts | Connection revocations | `/portal/admin/settings/connection-revocations` |
 | Alerts | Run failures | `/portal/admin/settings/run-failures` |
@@ -40,8 +41,8 @@ address, so a link can open it directly:
 | Access | Access requests | `/portal/admin/settings/access-requests` |
 
 `/portal/admin/settings` opens on **Email**. The nav marks **Email** when no
-mail server is configured and **Channels** when a channel's last delivery
-failed. In file config mode it says the settings are read-only. On a narrow
+mail server is configured, **Channels** when a channel's last delivery
+failed, and **General feedback** when a new post there reaches nobody. In file config mode it says the settings are read-only. On a narrow
 screen the nav is a picker above the section.
 
 Each section saves on its own. A section with unsaved changes asks before it
@@ -115,6 +116,8 @@ channels](../server/notifications.md#notification-channels).
 **Maps** sets the basemap a map asset draws on. See [Maps](../server/maps.md).
 
 **Embed hosts** lists the https hosts an HTML asset or slide deck may frame and play media from, one per line, in the portal and on share links alike (#2069). It starts from the configuration file's `portal.embeds.hosts` (by default the Wistia, YouTube and Vimeo players), and **Restore the configured list** puts that back in the draft. An entry the platform cannot write into a security policy (another scheme, a path, a bare `*`) is refused naming it, and an empty list turns embeds off. A YouTube or Vimeo video shows as its poster with a link that opens it in a new tab. It is the `portal_embeds` section, at `/api/v1/admin/settings/embed-hosts`. See [Content Types and Viewers](../server/content-viewers.md#the-public-viewers-policy).
+
+**General feedback** is who is told when someone posts to the General channel on the Feedback page (#2603); see [Who hears about a reply](feedback.md#who-hears-about-a-reply). It shows how many people a new post reaches now (**Show them** lists the addresses), the **Personas** whose people are told with how many people each reaches (everyone who has signed in with roles that map to it, so someone who only uses an API key is not counted), **Recipients** told as well such as a team list, the **Channels** a new post is also sent to (replies are not), and **Tell the author it was received**, off by default, which emails the poster without naming who was told. A list that reaches no person and no channel is marked with a warning naming a chosen persona that has no people. Until it is saved the section shows **Default**: `portal.feedback.standalone_recipients`, or the administrator persona. It is the `general_feedback` section, at `/api/v1/admin/settings/general-feedback`. The composer on the Feedback page says a post "is sent to the people who handle feedback", or, when the list reaches nobody, that nobody is told yet.
 
 **Access requests** sets what a person who cannot open an item is shown when they ask for access ([Requesting access](assets.md#requesting-access)): **Show the item's name on the request page**, off by default, and **Requests expire after**, 14 days by default. It is the `access_requests` section, at `/api/v1/admin/settings/access-requests`.
 

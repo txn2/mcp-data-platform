@@ -150,6 +150,10 @@ const (
 	// KindApprovalDecision marks the decision on a person's request for
 	// approval. Message says how it was decided.
 	KindApprovalDecision = "approval_decision"
+	// KindFeedbackReceived tells the person who posted to the General feedback
+	// channel that it was sent to the people who handle feedback (#2603),
+	// without naming them. ItemTitle is the thread's title.
+	KindFeedbackReceived = "feedback_received"
 )
 
 // ReviewQueue is the pending-review rollup a KindReviewQueue notification

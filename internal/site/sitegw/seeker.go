@@ -23,6 +23,7 @@ func (g *Gateway) open(ctx context.Context, cacheKey, objectKey string, size int
 	// for every Range.
 	if size <= maxDiskItem && (size <= maxMemoryItem || g.cache.dir != "") {
 		if f := g.cache.readDisk(cacheKey); f != nil && size > maxMemoryItem {
+			g.cacheRead(ctx, cacheReadDisk)
 			return f, func() { _ = f.Close() }, nil
 		} else if f != nil {
 			_ = f.Close()
@@ -33,6 +34,7 @@ func (g *Gateway) open(ctx context.Context, cacheKey, objectKey string, size int
 		}
 		return bytes.NewReader(body), noop, nil
 	}
+	g.cacheRead(ctx, cacheReadRange)
 	return &objectSeeker{ctx: ctx, objects: g.deps.Objects, bucket: g.deps.Bucket, key: objectKey, size: size}, noop, nil
 }
 
