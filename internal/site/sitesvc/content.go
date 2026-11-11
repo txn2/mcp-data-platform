@@ -32,36 +32,44 @@ type sourceTree struct {
 	byPath map[string]site.File
 }
 
-// readableTree is the tree someone may read: the source for people who manage
-// the site, what is served for anyone else who can open it, and nothing for
-// those who cannot. An email the provider has not verified matches no one.
-func (s *Service) readableTree(ctx context.Context, actor Actor, st *site.Site) (string, error) {
+// readableTree is the tree of one environment someone may read: the source
+// for people who manage the site, what is served for anyone else who can open
+// that environment (#2604: a view grant opens the environments it names, so a
+// share of prod reads nothing of dev), and nothing for those who cannot. An
+// email the provider has not verified matches no one.
+func (s *Service) readableTree(ctx context.Context, actor Actor, st *site.Site, env string) (string, error) {
 	if actor.Admin || isOwner(actor, st) {
 		return site.TreeSource, nil
 	}
-	tree, err := s.grantedTree(ctx, actor, st)
+	tree, err := s.grantedTree(ctx, actor, st, env)
 	if err != nil || tree != "" {
 		return tree, err
 	}
 	return "", fmt.Errorf("site %q is read by the people who can open it: %w", st.Name, site.ErrNotAllowed)
 }
 
-// grantedTree is what someone other than the owner reads, "" for nothing.
-func (s *Service) grantedTree(ctx context.Context, actor Actor, st *site.Site) (string, error) {
-	if actor.Email == "" || actor.EmailUnverified {
-		return "", nil
+// grantedTree is what someone other than the owner reads of one environment,
+// "" for nothing: the source for someone who manages the site, what is served
+// when the environment opens for them as the gateway decides it, or it is
+// public.
+func (s *Service) grantedTree(ctx context.Context, actor Actor, st *site.Site, env string) (string, error) {
+	if actor.Email != "" && !actor.EmailUnverified {
+		level, err := s.Store.GrantLevel(ctx, st.ID, site.NormalizeEmail(actor.Email))
+		if err != nil {
+			return "", err //nolint:wrapcheck // read by identity
+		}
+		if level == site.LevelManage {
+			return site.TreeSource, nil
+		}
 	}
-	level, err := s.Store.GrantLevel(ctx, st.ID, site.NormalizeEmail(actor.Email))
-	if err != nil {
-		return "", err //nolint:wrapcheck // read by identity
-	}
-	switch {
-	case level == site.LevelManage:
-		return site.TreeSource, nil
-	case level != "" || (st.InternalView && s.External != nil && !s.External(ctx, actor.Email)):
+	if e := st.Environment(env); e != nil && e.Public {
 		return site.TreeOutput, nil
 	}
-	return "", nil
+	ok, err := s.opens(ctx, actor, st, env)
+	if err != nil || !ok {
+		return "", err
+	}
+	return site.TreeOutput, nil
 }
 
 // treeFiles is one tree of a release. A release with no source tree of its own
@@ -108,7 +116,7 @@ func (s *Service) openTree(ctx context.Context, actor Actor, ref site.Ref) (*sou
 	if err != nil {
 		return nil, err
 	}
-	tree, err := s.readableTree(ctx, actor, st)
+	tree, err := s.readableTree(ctx, actor, st, ref.Environment)
 	if err != nil {
 		return nil, err
 	}

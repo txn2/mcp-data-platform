@@ -28184,7 +28184,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Changes the description and the owner (owner and administrators), or whether everyone internal may open the site's own address (anyone who manages it).",
+                "description": "Changes the description and the owner (owner and administrators).",
                 "consumes": [
                     "application/json"
                 ],
@@ -28298,7 +28298,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Adds a person or changes their level. Anyone who manages the site shares view access; only its owner and administrators add or change someone who manages it, and that person must be internal.",
+                "description": "Adds a person (email) or a persona, or changes their grant. A view grant names the private environments it opens (none is every one); a persona is always view and is matched against the viewer's persona on every request. Anyone who manages the site shares view access; only its owner and administrators add or change someone who manages it, and that person must be internal.",
                 "consumes": [
                     "application/json"
                 ],
@@ -28380,8 +28380,13 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Their email",
                         "name": "email",
-                        "in": "query",
-                        "required": true
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "A persona, in place of email",
+                        "name": "persona",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -28714,7 +28719,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creates the environment, or changes whether promoting to it needs approval. Only an administrator can take the rule off.",
+                "description": "Creates the environment (private unless public is true), or changes whether it is public, whether everyone internal may open it, and whether promoting to it needs approval. Only the owner or an administrator makes an environment public, and where it requires approval a non-administrator's request waits in Approvals (status awaiting_approval) until approved, after which the same request succeeds. dev is always private. Only an administrator takes the approval rule off.",
                 "consumes": [
                     "application/json"
                 ],
@@ -28724,7 +28729,7 @@ const docTemplate = `{
                 "tags": [
                     "Sites"
                 ],
-                "summary": "Set an environment's approval rule",
+                "summary": "Create or change an environment",
                 "parameters": [
                     {
                         "type": "string",
@@ -28741,7 +28746,7 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "The rule",
+                        "description": "The change",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -28754,7 +28759,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/site.Site"
+                            "$ref": "#/definitions/sitehttp.EnvironmentResponse"
                         }
                     },
                     "403": {
@@ -28954,6 +28959,67 @@ const docTemplate = `{
                 "responses": {
                     "204": {
                         "description": "No Content"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/sites/{site}/main-environment": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Gives the site's main address, \u003csite\u003e.\u003cpages domain\u003e, to one of its environments, or to none with environment \"\" (it then answers not found). Every environment keeps its \u003csite\u003e--\u003cenv\u003e address. The owner and administrators only.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Move the main address",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The environment",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.MainEnvironmentBody"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.SiteView"
+                        }
                     },
                     "403": {
                         "description": "Forbidden",
@@ -37767,8 +37833,12 @@ const docTemplate = `{
                 "self_approved": {
                     "type": "boolean"
                 },
+                "site_id": {
+                    "description": "SiteID is the site an environment request is about (#2604).",
+                    "type": "string"
+                },
                 "site_name": {
-                    "description": "SiteName is the site the release belongs to.",
+                    "description": "SiteName is the site the release or environment belongs to.",
                     "type": "string",
                     "example": "marketing"
                 },
@@ -51953,9 +52023,17 @@ const docTemplate = `{
         "site.Environment": {
             "type": "object",
             "properties": {
+                "internal_view": {
+                    "description": "InternalView opens a private environment to everyone signed in whose\npersona is not external: a company intranet.",
+                    "type": "boolean"
+                },
                 "name": {
                     "type": "string",
                     "example": "prod"
+                },
+                "public": {
+                    "description": "Public answers to anyone. A private environment answers only to\nadministrators, the owner, the people who manage the site and whoever it\nis shared with, after they sign in. EnvDev is never public.",
+                    "type": "boolean"
                 },
                 "release": {
                     "description": "Release is the number of the release served, 0 before the first.",
@@ -51963,7 +52041,7 @@ const docTemplate = `{
                     "example": 3
                 },
                 "requires_approval": {
-                    "description": "RequiresApproval makes a promotion here a request in the Approvals queue.",
+                    "description": "RequiresApproval makes a promotion here, and making it public, a request\nin the Approvals queue.",
                     "type": "boolean"
                 },
                 "updated_at": {
@@ -52010,6 +52088,13 @@ const docTemplate = `{
                     "type": "string",
                     "example": "pat@client.example"
                 },
+                "environments": {
+                    "description": "Environments are the private environments a view grant opens; none is\nevery private environment. A manage grant is site-wide.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "granted_by": {
                     "type": "string",
                     "example": "jane@example.com"
@@ -52017,6 +52102,10 @@ const docTemplate = `{
                 "level": {
                     "type": "string",
                     "example": "view"
+                },
+                "persona": {
+                    "type": "string",
+                    "example": "finance-team"
                 }
             }
         },
@@ -52131,9 +52220,10 @@ const docTemplate = `{
                     "type": "string",
                     "example": "site_01J9"
                 },
-                "internal_view": {
-                    "description": "InternalView lets everyone whose persona is not external open the\nsite's own address: a company intranet.",
-                    "type": "boolean"
+                "main_environment": {
+                    "description": "MainEnvironment is the environment the main address,\n\u003csite\u003e.\u003cpages domain\u003e, serves; \"\" is none, and the address answers not\nfound.",
+                    "type": "string",
+                    "example": "prod"
                 },
                 "name": {
                     "type": "string",
@@ -52199,11 +52289,15 @@ const docTemplate = `{
                         "$ref": "#/definitions/site.Grant"
                     }
                 },
-                "internal_view": {
-                    "type": "boolean"
-                },
                 "owner_email": {
                     "type": "string"
+                },
+                "personas": {
+                    "description": "Personas are every persona an environment can be shared with, for the\nShare dialog.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -52258,7 +52352,7 @@ const docTemplate = `{
             "properties": {
                 "environment": {
                     "type": "string",
-                    "example": "default"
+                    "example": "dev"
                 },
                 "form_map": {
                     "description": "FormMap names, for a page path, the platform form that replaces its forms.",
@@ -52328,11 +52422,15 @@ const docTemplate = `{
             "properties": {
                 "environment": {
                     "type": "string",
-                    "example": "dev"
+                    "example": "prod"
                 },
                 "hostname": {
                     "type": "string",
                     "example": "dev.example.com"
+                },
+                "public": {
+                    "description": "Public applies when the request creates the environment, which is\notherwise private.",
+                    "type": "boolean"
                 },
                 "requires_approval": {
                     "type": "boolean"
@@ -52342,8 +52440,36 @@ const docTemplate = `{
         "sitehttp.EnvironmentBody": {
             "type": "object",
             "properties": {
+                "internal_view": {
+                    "type": "boolean"
+                },
+                "public": {
+                    "type": "boolean"
+                },
+                "reason": {
+                    "type": "string"
+                },
                 "requires_approval": {
                     "type": "boolean"
+                }
+            }
+        },
+        "sitehttp.EnvironmentResponse": {
+            "type": "object",
+            "properties": {
+                "approval": {
+                    "$ref": "#/definitions/sitesvc.ApprovalRequest"
+                },
+                "note": {
+                    "type": "string"
+                },
+                "site": {
+                    "$ref": "#/definitions/sitehttp.SiteView"
+                },
+                "status": {
+                    "description": "Status is done, or awaiting_approval when making the environment public\nwaits in Approvals.",
+                    "type": "string",
+                    "example": "done"
                 }
             }
         },
@@ -52365,6 +52491,13 @@ const docTemplate = `{
                     "type": "string",
                     "example": "pat@example.com"
                 },
+                "environments": {
+                    "description": "Environments are the private environments a view grant opens; none is\nevery private environment.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "level": {
                     "type": "string",
                     "example": "view"
@@ -52372,6 +52505,10 @@ const docTemplate = `{
                 "notify": {
                     "description": "Notify emails them the site's address.",
                     "type": "boolean"
+                },
+                "persona": {
+                    "type": "string",
+                    "example": "finance-team"
                 }
             }
         },
@@ -52383,6 +52520,15 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/site.Job"
                     }
+                }
+            }
+        },
+        "sitehttp.MainEnvironmentBody": {
+            "type": "object",
+            "properties": {
+                "environment": {
+                    "type": "string",
+                    "example": "prod"
                 }
             }
         },
@@ -52412,8 +52558,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "environment": {
+                    "description": "Environment is always dev, and may be left out.",
                     "type": "string",
-                    "example": "default"
+                    "example": "dev"
                 },
                 "folder": {
                     "type": "string"
@@ -52693,9 +52840,6 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
-                "internal_view": {
-                    "type": "boolean"
-                },
                 "owner_email": {
                     "type": "string"
                 }
@@ -52705,8 +52849,15 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "address": {
-                    "description": "Address is the site's own address, \"\" with no pages domain.",
+                    "description": "Address is the site's main address, \"\" with no pages domain or when the\nmain address is given to no environment.",
                     "type": "string"
+                },
+                "addresses": {
+                    "description": "Addresses is each environment's address on the pages domain, by name.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 },
                 "created_at": {
                     "type": "string"
@@ -52733,9 +52884,10 @@ const docTemplate = `{
                     "type": "string",
                     "example": "site_01J9"
                 },
-                "internal_view": {
-                    "description": "InternalView lets everyone whose persona is not external open the\nsite's own address: a company intranet.",
-                    "type": "boolean"
+                "main_environment": {
+                    "description": "MainEnvironment is the environment the main address,\n\u003csite\u003e.\u003cpages domain\u003e, serves; \"\" is none, and the address answers not\nfound.",
+                    "type": "string",
+                    "example": "prod"
                 },
                 "name": {
                     "type": "string",
@@ -52755,6 +52907,86 @@ const docTemplate = `{
                 },
                 "updated_at": {
                     "type": "string"
+                }
+            }
+        },
+        "sitesvc.ApprovalRequest": {
+            "type": "object",
+            "properties": {
+                "changes": {
+                    "$ref": "#/definitions/approval.Changes"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "decided_at": {
+                    "type": "string"
+                },
+                "decided_by": {
+                    "type": "string"
+                },
+                "decision_comment": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "apr_0f3c9d2e"
+                },
+                "purpose": {
+                    "type": "string",
+                    "example": "form_public"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "requester_email": {
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "requester_persona": {
+                    "type": "string"
+                },
+                "script_id": {
+                    "type": "string"
+                },
+                "script_name": {
+                    "type": "string",
+                    "example": "order-intake"
+                },
+                "self_approved": {
+                    "type": "boolean"
+                },
+                "site_id": {
+                    "description": "SiteID is the site an environment request is about (#2604).",
+                    "type": "string"
+                },
+                "site_name": {
+                    "description": "SiteName is the site the release or environment belongs to.",
+                    "type": "string",
+                    "example": "marketing"
+                },
+                "site_release_id": {
+                    "description": "SiteReleaseID and Target name a site release a promotion waits on and\nthe environment it would serve (#2518); SourceSHA256 is then the\nrelease's manifest digest and Version its number.",
+                    "type": "string"
+                },
+                "source_sha256": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "pending"
+                },
+                "subject_kind": {
+                    "type": "string",
+                    "example": "script_version"
+                },
+                "target": {
+                    "type": "string",
+                    "example": "prod"
+                },
+                "version": {
+                    "type": "integer",
+                    "example": 2
                 }
             }
         },

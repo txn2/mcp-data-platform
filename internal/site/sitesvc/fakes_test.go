@@ -119,7 +119,7 @@ func (m *memStore) Update(_ context.Context, st *site.Site) error {
 	if !ok {
 		return site.ErrNotFound
 	}
-	x.Description, x.OwnerEmail, x.InternalView = st.Description, st.OwnerEmail, st.InternalView
+	x.Description, x.OwnerEmail = st.Description, st.OwnerEmail
 	return nil
 }
 
@@ -136,19 +136,47 @@ func (m *memStore) Delete(_ context.Context, id string) error {
 	return nil
 }
 
-func (m *memStore) SetEnvironment(_ context.Context, siteID, name string, requiresApproval bool, actor string) error {
+func (m *memStore) SetEnvironment(_ context.Context, siteID, name string, set site.EnvironmentSettings, actor string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.failSetEnv != nil {
 		return m.failSetEnv
 	}
 	st := m.sites[siteID]
-	if e := st.Environment(name); e != nil {
-		e.RequiresApproval, e.UpdatedBy = requiresApproval, actor
-		return nil
+	e := st.Environment(name)
+	if e == nil {
+		st.Environments = append(st.Environments, site.Environment{Name: name})
+		e = &st.Environments[len(st.Environments)-1]
 	}
-	st.Environments = append(st.Environments, site.Environment{Name: name, RequiresApproval: requiresApproval, UpdatedBy: actor})
+	if set.RequiresApproval != nil {
+		e.RequiresApproval = *set.RequiresApproval
+	}
+	if set.Public != nil {
+		if e.Public != *set.Public {
+			e.AccessChangedAt = e.AccessChangedAt.Add(time.Second)
+		}
+		e.Public = *set.Public
+	}
+	if set.InternalView != nil {
+		e.InternalView = *set.InternalView
+	}
+	e.UpdatedBy = actor
 	return nil
+}
+
+func (m *memStore) SetMainEnvironment(_ context.Context, siteID, env string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	st := m.sites[siteID]
+	if env != "" && st.Environment(env) == nil {
+		return site.ErrNoEnvironment
+	}
+	st.MainEnvironment = env
+	return nil
+}
+
+func (*memStore) RouteEnv(context.Context, string, string) (*site.Route, error) {
+	return nil, site.ErrNoDomain
 }
 
 func (m *memStore) RecordRelease(_ context.Context, r *site.Release, move *site.Pointer) error {
@@ -423,17 +451,17 @@ func (m *memStore) SetGrant(_ context.Context, siteID string, g *site.Grant) err
 		m.grants[siteID] = map[string]site.Grant{}
 	}
 	g.CreatedAt = time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
-	m.grants[siteID][g.Email] = *g
+	m.grants[siteID][grantKey(g.Email, g.Persona)] = *g
 	return nil
 }
 
-func (m *memStore) RemoveGrant(_ context.Context, siteID, email string) error {
+func (m *memStore) RemoveGrant(_ context.Context, siteID, email, persona string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.failRemove != nil {
 		return m.failRemove
 	}
-	delete(m.grants[siteID], email)
+	delete(m.grants[siteID], grantKey(email, persona))
 	return nil
 }
 
@@ -581,6 +609,10 @@ type fakeApprovals struct {
 	actors      []approval.Actor
 	failSubmit  error
 	failSelf    error
+	// envApproved, envAsked and envSubmitted are making an environment public.
+	envApproved  bool
+	envAsked     [][3]string
+	envSubmitted []approval.SubmitEnvironment
 }
 
 func (f *fakeApprovals) SubmitRelease(_ context.Context, actor approval.Actor, in approval.SubmitRelease) (*approval.Request, error) {
@@ -604,6 +636,19 @@ func (f *fakeApprovals) RecordReleaseSelfApproval(_ context.Context, actor appro
 	return nil
 }
 
+func (f *fakeApprovals) SubmitEnvironment(_ context.Context, actor approval.Actor, in approval.SubmitEnvironment) (*approval.Request, error) {
+	if f.failSubmit != nil {
+		return nil, f.failSubmit
+	}
+	f.envSubmitted, f.actors = append(f.envSubmitted, in), append(f.actors, actor)
+	return &approval.Request{ID: "apr_env", Status: approval.StatusPending, Purpose: approval.PurposeSitePublic, Target: in.Target}, nil
+}
+
+func (f *fakeApprovals) EnvironmentApproved(_ context.Context, siteID, target, stamp string) bool {
+	f.envAsked = append(f.envAsked, [3]string{siteID, target, stamp})
+	return f.envApproved
+}
+
 type fakeApps map[string]*application.Application
 
 func (f fakeApps) GetByName(_ context.Context, name string) (*application.Application, error) {
@@ -611,4 +656,41 @@ func (f fakeApps) GetByName(_ context.Context, name string) (*application.Applic
 		return a, nil
 	}
 	return nil, application.ErrNotFound
+}
+
+// grantKey is where a grant is kept: by email, or by persona for a persona grant.
+func grantKey(email, persona string) string {
+	if email != "" {
+		return email
+	}
+	return "persona:" + persona
+}
+
+// SiteAccess reads the grants map the way the store's statement reads
+// site_grants: a manage grant or a view grant naming the environment (or
+// none) opens it by email, a view grant to the persona opens it by persona.
+func (m *memStore) SiteAccess(_ context.Context, siteID, env, email, persona string) (*site.Access, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.failGrant != nil {
+		return nil, m.failGrant
+	}
+	st, ok := m.sites[siteID]
+	if !ok {
+		return nil, site.ErrNotFound
+	}
+	a := &site.Access{OwnerEmail: st.OwnerEmail}
+	if e := st.Environment(env); e != nil {
+		a.InternalView = e.InternalView
+	}
+	email = site.NormalizeEmail(email)
+	for _, g := range m.grants[siteID] {
+		switch {
+		case g.Email != "" && g.Email == email && (g.Level == site.LevelManage || g.Opens(env)):
+			a.ByEmail = true
+		case g.Persona != "" && g.Persona == persona && g.Opens(env):
+			a.ByPersona = true
+		}
+	}
+	return a, nil
 }

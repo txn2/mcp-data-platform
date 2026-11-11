@@ -3748,8 +3748,11 @@ definitions:
         type: string
       self_approved:
         type: boolean
+      site_id:
+        description: SiteID is the site an environment request is about (#2604).
+        type: string
       site_name:
-        description: SiteName is the site the release belongs to.
+        description: SiteName is the site the release or environment belongs to.
         example: marketing
         type: string
       site_release_id:
@@ -15235,16 +15238,28 @@ definitions:
     type: object
   site.Environment:
     properties:
+      internal_view:
+        description: |-
+          InternalView opens a private environment to everyone signed in whose
+          persona is not external: a company intranet.
+        type: boolean
       name:
         example: prod
         type: string
+      public:
+        description: |-
+          Public answers to anyone. A private environment answers only to
+          administrators, the owner, the people who manage the site and whoever it
+          is shared with, after they sign in. EnvDev is never public.
+        type: boolean
       release:
         description: Release is the number of the release served, 0 before the first.
         example: 3
         type: integer
       requires_approval:
-        description: RequiresApproval makes a promotion here a request in the Approvals
-          queue.
+        description: |-
+          RequiresApproval makes a promotion here, and making it public, a request
+          in the Approvals queue.
         type: boolean
       updated_at:
         type: string
@@ -15278,11 +15293,21 @@ definitions:
       email:
         example: pat@client.example
         type: string
+      environments:
+        description: |-
+          Environments are the private environments a view grant opens; none is
+          every private environment. A manage grant is site-wide.
+        items:
+          type: string
+        type: array
       granted_by:
         example: jane@example.com
         type: string
       level:
         example: view
+        type: string
+      persona:
+        example: finance-team
         type: string
     type: object
   site.Job:
@@ -15364,11 +15389,13 @@ definitions:
       id:
         example: site_01J9
         type: string
-      internal_view:
+      main_environment:
         description: |-
-          InternalView lets everyone whose persona is not external open the
-          site's own address: a company intranet.
-        type: boolean
+          MainEnvironment is the environment the main address,
+          <site>.<pages domain>, serves; "" is none, and the address answers not
+          found.
+        example: prod
+        type: string
       name:
         example: marketing
         type: string
@@ -15414,10 +15441,15 @@ definitions:
         items:
           $ref: '#/definitions/site.Grant'
         type: array
-      internal_view:
-        type: boolean
       owner_email:
         type: string
+      personas:
+        description: |-
+          Personas are every persona an environment can be shared with, for the
+          Share dialog.
+        items:
+          type: string
+        type: array
     type: object
   sitehttp.AddressList:
     properties:
@@ -15452,7 +15484,7 @@ definitions:
   sitehttp.CopyBody:
     properties:
       environment:
-        example: default
+        example: dev
         type: string
       form_map:
         additionalProperties:
@@ -15501,18 +15533,44 @@ definitions:
   sitehttp.DomainBody:
     properties:
       environment:
-        example: dev
+        example: prod
         type: string
       hostname:
         example: dev.example.com
         type: string
+      public:
+        description: |-
+          Public applies when the request creates the environment, which is
+          otherwise private.
+        type: boolean
       requires_approval:
         type: boolean
     type: object
   sitehttp.EnvironmentBody:
     properties:
+      internal_view:
+        type: boolean
+      public:
+        type: boolean
+      reason:
+        type: string
       requires_approval:
         type: boolean
+    type: object
+  sitehttp.EnvironmentResponse:
+    properties:
+      approval:
+        $ref: '#/definitions/sitesvc.ApprovalRequest'
+      note:
+        type: string
+      site:
+        $ref: '#/definitions/sitehttp.SiteView'
+      status:
+        description: |-
+          Status is done, or awaiting_approval when making the environment public
+          waits in Approvals.
+        example: done
+        type: string
     type: object
   sitehttp.FormList:
     properties:
@@ -15526,12 +15584,22 @@ definitions:
       email:
         example: pat@example.com
         type: string
+      environments:
+        description: |-
+          Environments are the private environments a view grant opens; none is
+          every private environment.
+        items:
+          type: string
+        type: array
       level:
         example: view
         type: string
       notify:
         description: Notify emails them the site's address.
         type: boolean
+      persona:
+        example: finance-team
+        type: string
     type: object
   sitehttp.JobList:
     properties:
@@ -15539,6 +15607,12 @@ definitions:
         items:
           $ref: '#/definitions/site.Job'
         type: array
+    type: object
+  sitehttp.MainEnvironmentBody:
+    properties:
+      environment:
+        example: prod
+        type: string
     type: object
   sitehttp.PromoteBody:
     properties:
@@ -15558,7 +15632,8 @@ definitions:
       archive:
         type: string
       environment:
-        example: default
+        description: Environment is always dev, and may be left out.
+        example: dev
         type: string
       folder:
         type: string
@@ -15770,16 +15845,22 @@ definitions:
     properties:
       description:
         type: string
-      internal_view:
-        type: boolean
       owner_email:
         type: string
     type: object
   sitehttp.SiteView:
     properties:
       address:
-        description: Address is the site's own address, "" with no pages domain.
+        description: |-
+          Address is the site's main address, "" with no pages domain or when the
+          main address is given to no environment.
         type: string
+      addresses:
+        additionalProperties:
+          type: string
+        description: Addresses is each environment's address on the pages domain,
+          by name.
+        type: object
       created_at:
         type: string
       created_by:
@@ -15797,11 +15878,13 @@ definitions:
       id:
         example: site_01J9
         type: string
-      internal_view:
+      main_environment:
         description: |-
-          InternalView lets everyone whose persona is not external open the
-          site's own address: a company intranet.
-        type: boolean
+          MainEnvironment is the environment the main address,
+          <site>.<pages domain>, serves; "" is none, and the address answers not
+          found.
+        example: prod
+        type: string
       name:
         example: marketing
         type: string
@@ -15814,6 +15897,66 @@ definitions:
         description: Permissions is what the caller may do to this site.
       updated_at:
         type: string
+    type: object
+  sitesvc.ApprovalRequest:
+    properties:
+      changes:
+        $ref: '#/definitions/approval.Changes'
+      created_at:
+        type: string
+      decided_at:
+        type: string
+      decided_by:
+        type: string
+      decision_comment:
+        type: string
+      id:
+        example: apr_0f3c9d2e
+        type: string
+      purpose:
+        example: form_public
+        type: string
+      reason:
+        type: string
+      requester_email:
+        example: jane@example.com
+        type: string
+      requester_persona:
+        type: string
+      script_id:
+        type: string
+      script_name:
+        example: order-intake
+        type: string
+      self_approved:
+        type: boolean
+      site_id:
+        description: SiteID is the site an environment request is about (#2604).
+        type: string
+      site_name:
+        description: SiteName is the site the release or environment belongs to.
+        example: marketing
+        type: string
+      site_release_id:
+        description: |-
+          SiteReleaseID and Target name a site release a promotion waits on and
+          the environment it would serve (#2518); SourceSHA256 is then the
+          release's manifest digest and Version its number.
+        type: string
+      source_sha256:
+        type: string
+      status:
+        example: pending
+        type: string
+      subject_kind:
+        example: script_version
+        type: string
+      target:
+        example: prod
+        type: string
+      version:
+        example: 2
+        type: integer
     type: object
   sitesvc.Comparison:
     properties:
@@ -37079,9 +37222,7 @@ paths:
     patch:
       consumes:
       - application/json
-      description: Changes the description and the owner (owner and administrators),
-        or whether everyone internal may open the site's own address (anyone who manages
-        it).
+      description: Changes the description and the owner (owner and administrators).
       parameters:
       - description: Site name or id
         in: path
@@ -37133,7 +37274,10 @@ paths:
       - description: Their email
         in: query
         name: email
-        required: true
+        type: string
+      - description: A persona, in place of email
+        in: query
+        name: persona
         type: string
       responses:
         "204":
@@ -37189,9 +37333,11 @@ paths:
     put:
       consumes:
       - application/json
-      description: Adds a person or changes their level. Anyone who manages the site
-        shares view access; only its owner and administrators add or change someone
-        who manages it, and that person must be internal.
+      description: Adds a person (email) or a persona, or changes their grant. A view
+        grant names the private environments it opens (none is every one); a persona
+        is always view and is matched against the viewer's persona on every request.
+        Anyone who manages the site shares view access; only its owner and administrators
+        add or change someone who manages it, and that person must be internal.
       parameters:
       - description: Site name or id
         in: path
@@ -37425,8 +37571,13 @@ paths:
     put:
       consumes:
       - application/json
-      description: Creates the environment, or changes whether promoting to it needs
-        approval. Only an administrator can take the rule off.
+      description: Creates the environment (private unless public is true), or changes
+        whether it is public, whether everyone internal may open it, and whether promoting
+        to it needs approval. Only the owner or an administrator makes an environment
+        public, and where it requires approval a non-administrator's request waits
+        in Approvals (status awaiting_approval) until approved, after which the same
+        request succeeds. dev is always private. Only an administrator takes the approval
+        rule off.
       parameters:
       - description: Site name or id
         in: path
@@ -37438,7 +37589,7 @@ paths:
         name: name
         required: true
         type: string
-      - description: The rule
+      - description: The change
         in: body
         name: body
         required: true
@@ -37450,7 +37601,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/site.Site'
+            $ref: '#/definitions/sitehttp.EnvironmentResponse'
         "403":
           description: Forbidden
           schema:
@@ -37466,7 +37617,7 @@ paths:
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
-      summary: Set an environment's approval rule
+      summary: Create or change an environment
       tags:
       - Sites
   /portal/sites/{site}/forms:
@@ -37587,6 +37738,47 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Stop a copy
+      tags:
+      - Sites
+  /portal/sites/{site}/main-environment:
+    put:
+      consumes:
+      - application/json
+      description: Gives the site's main address, <site>.<pages domain>, to one of
+        its environments, or to none with environment "" (it then answers not found).
+        Every environment keeps its <site>--<env> address. The owner and administrators
+        only.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: The environment
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/sitehttp.MainEnvironmentBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sitehttp.SiteView'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Move the main address
       tags:
       - Sites
   /portal/sites/{site}/promote:

@@ -55,7 +55,7 @@ func treeOfNewest(t *testing.T, store *memStore, tree string) []site.File {
 }
 
 func refAt(path string) site.Ref {
-	return site.Ref{Site: "marketing", Environment: site.EnvDefault, Path: path}
+	return site.Ref{Site: "marketing", Environment: site.EnvDev, Path: path}
 }
 
 func TestPublish_ASiteWithLayoutsHoldsTwoTrees(t *testing.T) {
@@ -173,7 +173,7 @@ func TestContent_ManagersReadSourceAndViewersWhatIsServed(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "<b>Anvil</b>", served.Body)
 
-	list, err := svc.Tree(ctx, viewer, site.Ref{Site: "marketing", Environment: site.EnvDefault}, 0, 0)
+	list, err := svc.Tree(ctx, viewer, site.Ref{Site: "marketing", Environment: site.EnvDev}, 0, 0)
 	require.NoError(t, err)
 	assert.NotContains(t, paths(list.Files), layoutPath)
 }
@@ -183,7 +183,7 @@ func TestDiff_ComparesSource(t *testing.T) {
 	svc, _, _ := seededRender(t)
 	_, err := svc.PatchFile(ctx, owner, PatchRequest{Ref: refAt(recordPath), Edits: edit("Anvil", "Hammer")})
 	require.NoError(t, err)
-	got, err := svc.Diff(ctx, owner, site.Ref{Site: "marketing", Environment: site.EnvDefault}, 0, 0)
+	got, err := svc.Diff(ctx, owner, site.Ref{Site: "marketing", Environment: site.EnvDev}, 0, 0)
 	require.NoError(t, err)
 	assert.Equal(t, []string{recordPath}, got.Comparison.Changed)
 	file, err := svc.Diff(ctx, owner, refAt(recordPath), 0, 0)

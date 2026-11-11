@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -91,11 +92,13 @@ func newSite2518(t *testing.T, c *client) *siteClient {
 		_, _, _ = connect(t).callRaw("manage_site", map[string]any{"command": "delete", "site": name})
 	})
 	s := &siteClient{c: c, name: name}
-	// Since #2559 a new site has only its default environment; the others are
-	// created by adding a domain to them, and answer there to anyone.
-	for _, env := range []string{"dev", "stage", "prod"} {
-		c.call("manage_site", map[string]any{
-			"command": "add_domain", "hostname": s.preview(env), "site": name, "environment": env, "requires_approval": env == "prod",
+	// A new site has only dev, its working copy (#2604); stage and prod are
+	// created by adding a domain to them, which an administrator makes public
+	// so they answer there to anyone. dev cannot have a domain.
+	admin := connect(t)
+	for _, env := range []string{"stage", "prod"} {
+		admin.call("manage_site", map[string]any{
+			"command": "add_domain", "hostname": s.preview(env), "site": name, "environment": env, "requires_approval": env == "prod", "public": true,
 		})
 	}
 	return s
@@ -120,6 +123,14 @@ func (s *siteClient) publish(t *testing.T, env, version string) map[string]any {
 	return s.c.call("manage_site", map[string]any{"command": "publish", "site": s.name, "environment": env, "files": files2518(version), "note": version})
 }
 
+// toStage promotes dev's release to stage, the environment a test reads
+// through a public domain.
+func (s *siteClient) toStage(t *testing.T) string {
+	t.Helper()
+	connect(t).call("manage_site", map[string]any{"command": "promote", "site": s.name, "from": "dev", "to": "stage"})
+	return s.preview("stage")
+}
+
 func served2518(t *testing.T, host, want string) {
 	t.Helper()
 	pollUntil2518(t, func() (pageResponse, bool) {
@@ -130,7 +141,7 @@ func served2518(t *testing.T, host, want string) {
 
 func mapDomain2518(t *testing.T, s *siteClient, host, env string) {
 	t.Helper()
-	added := connect(t).call("manage_site", map[string]any{"command": "add_domain", "hostname": host, "site": s.name, "environment": env})
+	added := connect(t).call("manage_site", map[string]any{"command": "add_domain", "hostname": host, "site": s.name, "environment": env, "public": true})
 	if _, has := added["token"]; has {
 		t.Errorf("add_domain carried a verification token: %v", added)
 	}
@@ -158,17 +169,14 @@ func TestIssue2518_APublishPromotesAndRollsBackOnThreeHostnamesAudited(t *testin
 	admin := connect(t)
 	s := newSite2518(t, admin)
 	id := s.name
-	dev, stage, prod := "dev."+id+".test", "stage."+id+".test", "www."+id+".test"
-	mapDomain2518(t, s, dev, "dev")
+	stage, prod := "stage."+id+".test", "www."+id+".test"
 	mapDomain2518(t, s, stage, "stage")
 	mapDomain2518(t, s, prod, "prod")
 
 	one := s.publish(t, "dev", "one")
-	if url, _ := one["address"].(string); !strings.Contains(url, "dev.") && !strings.Contains(url, s.preview("dev")) {
-		t.Errorf("publish's address: %v", one["address"])
+	if url, _ := one["address"].(string); !strings.Contains(url, s.name+"."+pagesDomain2517) {
+		t.Errorf("publish's address is not dev's, the main address: %v", one["address"])
 	}
-	served2518(t, s.preview("dev"), "one")
-	served2518(t, dev, "one")
 
 	admin.call("manage_site", map[string]any{"command": "promote", "site": s.name, "from": "dev", "to": "stage"})
 	served2518(t, stage, "one")
@@ -179,7 +187,6 @@ func TestIssue2518_APublishPromotesAndRollsBackOnThreeHostnamesAudited(t *testin
 	served2518(t, prod, "one")
 
 	s.publish(t, "dev", "two")
-	served2518(t, dev, "two")
 	admin.call("manage_site", map[string]any{"command": "promote", "site": s.name, "from": "dev", "to": "prod"})
 	served2518(t, prod, "two")
 	if r := onHost(t, stage, http.MethodGet, "/", nil, ""); !strings.Contains(r.body, "<h1>one</h1>") {
@@ -239,7 +246,7 @@ func TestIssue2518_ServedCompressedConditionalAndImmutableWithNoCDN(t *testing.T
 	admin := connect(t)
 	s := newSite2518(t, admin)
 	s.publish(t, "dev", "one")
-	host := s.preview("dev")
+	host := s.toStage(t)
 	served2518(t, host, "one")
 
 	page := onHost(t, host, http.MethodGet, "/", map[string]string{"Accept-Encoding": "br"}, "")
@@ -310,11 +317,13 @@ func TestIssue2518_APlatformHostnameIsRefusedAndSitesAreIsolated(t *testing.T) {
 			}
 		}
 	}
-	served := onHost(t, s.preview("dev"), http.MethodGet, "/", map[string]string{"Cookie": "mcp_session=secret"}, "")
+	stage := s.toStage(t)
+	served2518(t, stage, "one")
+	served := onHost(t, stage, http.MethodGet, "/", map[string]string{"Cookie": "mcp_session=secret"}, "")
 	if served.header.Get("Set-Cookie") != "" {
 		t.Errorf("a site set a cookie: %v", served.header)
 	}
-	if r := onHost(t, s.preview("dev"), http.MethodGet, "/api/v1/portal/me", map[string]string{"X-API-Key": devAPIKey()}, ""); r.status == http.StatusOK {
+	if r := onHost(t, stage, http.MethodGet, "/api/v1/portal/me", map[string]string{"X-API-Key": devAPIKey()}, ""); r.status == http.StatusOK {
 		t.Errorf("a site origin answered the portal API")
 	}
 }
@@ -361,7 +370,7 @@ func TestIssue2518_AMigratedSiteKeepsItsURLsAndItsFormsPostToPlatformForms(t *te
 	form, _ := bindForm(t, admin, "acc-2518-form", formFields, map[string]any{"auth_mode": "public", "path": "/"})
 	t.Cleanup(func() { _, _, _ = admin.callRaw("manage_script", map[string]any{"command": "delete", "name": form}) })
 	addScriptPart2517(t, admin, app, form)
-	admin.call("manage_application", map[string]any{"command": "add_part", "application": app, "kind": "site", "part_id": s.name + "/dev"})
+	admin.call("manage_application", map[string]any{"command": "add_part", "application": app, "kind": "site", "part_id": s.name + "/stage"})
 
 	got := admin.call("manage_site", map[string]any{
 		"command": "crawl", "site": s.name, "environment": "dev", "url": srv.URL + "/", "form_map": map[string]any{"/contact": form},
@@ -369,7 +378,7 @@ func TestIssue2518_AMigratedSiteKeepsItsURLsAndItsFormsPostToPlatformForms(t *te
 	if got["pages"].(float64) < 5 || got["redirects"].(float64) < 1 {
 		t.Fatalf("the crawl: %v", got)
 	}
-	host := s.preview("dev")
+	host := s.toStage(t)
 	for path, want := range map[string]string{"/about": "about us", "/services/": "services", "/": "href", "/blog/next": "the next post"} {
 		r := pollUntil2518(t, func() (pageResponse, bool) {
 			res := onHost(t, host, http.MethodGet, path, nil, "")
@@ -393,8 +402,15 @@ func TestIssue2518_AMigratedSiteKeepsItsURLsAndItsFormsPostToPlatformForms(t *te
 	if policy := framed.header.Get("Content-Security-Policy"); !strings.Contains(policy, host) {
 		t.Errorf("the site cannot frame its form: %q", policy)
 	}
+	// The application holds stage, so stage's domain is the site origin its
+	// endpoints answer.
+	published, err := url.Parse(fmt.Sprint(got["published"].(map[string]any)["address"]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	published.Host = strings.Replace(published.Host, published.Hostname(), host, 1)
 	preflight := onHost(t, hostOf(t), http.MethodOptions, "/endpoints/"+form+"/", map[string]string{
-		"Origin": strings.TrimSuffix(fmt.Sprint(got["published"].(map[string]any)["address"]), "/"), "Access-Control-Request-Method": "POST",
+		"Origin": strings.TrimSuffix(published.String(), "/"), "Access-Control-Request-Method": "POST",
 	}, "")
 	if preflight.status == http.StatusForbidden {
 		t.Errorf("the endpoint refused its own site's origin: %d %v", preflight.status, preflight.header)

@@ -15,8 +15,10 @@ type DomainRequest struct {
 	Hostname    string
 	Site        string
 	Environment string
-	// RequiresApproval is applied when the request creates the environment.
+	// RequiresApproval and Public are applied when the request creates the
+	// environment, which is private unless Public asks otherwise.
 	RequiresApproval bool
+	Public           bool
 	Application      string
 }
 
@@ -80,8 +82,9 @@ func (s *Service) target(ctx context.Context, actor Actor, d *site.Domain, req D
 	if err := s.mayEdit(ctx, actor, st); err != nil {
 		return err
 	}
-	if req.Environment == site.EnvDefault {
-		return refused("the default environment is served only at the site's own address; choose another environment")
+	req.Environment, _ = site.CanonicalEnvironment(req.Environment)
+	if req.Environment == site.EnvDev {
+		return refused("dev is the working copy and cannot have a domain: add the domain to the environment people use, and promote dev's release to it")
 	}
 	if err := s.unclaimed(ctx, d.Hostname); err != nil {
 		return err
@@ -106,14 +109,25 @@ func (s *Service) unclaimed(ctx context.Context, hostname string) error {
 	return fmt.Errorf("reading the domain: %w", err)
 }
 
+// ensureEnvironment creates the environment a domain names, private unless
+// the request asks for public, which is the owner's or an administrator's.
 func (s *Service) ensureEnvironment(ctx context.Context, actor Actor, st *site.Site, req DomainRequest) error {
 	if st.Environment(req.Environment) != nil {
 		return nil
 	}
-	if err := site.ValidateEnvironment(req.Environment); err != nil {
-		return refused("%s", err.Error())
+	c := EnvironmentChange{RequiresApproval: &req.RequiresApproval}
+	if req.Public {
+		c.Public = &req.Public
 	}
-	return s.Store.SetEnvironment(ctx, st.ID, req.Environment, req.RequiresApproval, actor.Email) //nolint:wrapcheck // read by identity
+	if err := s.checkEnvironmentChange(ctx, actor, envTarget{st: st, name: req.Environment}, c); err != nil {
+		return err
+	}
+	if req.Public && req.RequiresApproval && !actor.Admin {
+		return refused("an environment that requires approval is made public through Approvals: add the domain private, then make %s public", req.Environment)
+	}
+	return s.Store.SetEnvironment(ctx, st.ID, req.Environment, site.EnvironmentSettings{ //nolint:wrapcheck // read by identity
+		RequiresApproval: &req.RequiresApproval, Public: &req.Public,
+	}, actor.Email)
 }
 
 func (s *Service) applicationTarget(ctx context.Context, actor Actor, d *site.Domain, req DomainRequest) error {

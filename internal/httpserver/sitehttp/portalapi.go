@@ -50,6 +50,9 @@ type PortalDeps struct {
 	Sharer Sharer
 	// Forms lists the endpoints that are forms; nil offers none.
 	Forms func(ctx context.Context) ([]string, error)
+	// Personas lists every persona an environment can be shared with; nil
+	// offers none.
+	Personas func() []string
 }
 
 type portalAPI struct{ d PortalDeps }
@@ -83,6 +86,7 @@ func (a *portalAPI) register(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+pathSite+"/promote", a.promote)
 	mux.HandleFunc("POST "+pathSite+"/rollback", a.rollback)
 	mux.HandleFunc("PUT "+pathSite+"/environments/{name}", a.setEnvironment)
+	mux.HandleFunc("PUT "+pathSite+"/main-environment", a.setMainEnvironment)
 	mux.HandleFunc("POST "+pathSite+"/domains", a.addDomain)
 	mux.HandleFunc("DELETE "+pathSite+"/domains/{hostname}", a.removeDomain)
 	mux.HandleFunc("GET "+pathSite+"/access", a.access)
@@ -210,7 +214,18 @@ func (a *portalAPI) view(ctx context.Context, c *caller, st *site.Site, domains 
 	if err != nil {
 		return SiteView{}, err //nolint:wrapcheck // answered by fail
 	}
-	return SiteView{Site: *st, Address: a.svc().OwnAddress(st.Name), Domains: domains, Permissions: perms}, nil
+	if !perms.Manage {
+		// Someone who does not manage the site sees the environments they
+		// can open and no other: which private environments exist, and who
+		// they are shared with, is the managers' to know.
+		trimmed := *st
+		if trimmed.Environments, err = a.svc().OpenableEnvironments(ctx, c.actor, st); err != nil {
+			return SiteView{}, err //nolint:wrapcheck // answered by fail
+		}
+		st = &trimmed
+		domains = slices.DeleteFunc(slices.Clone(domains), func(d site.Domain) bool { return trimmed.Environment(d.Environment) == nil })
+	}
+	return SiteView{Site: *st, Address: a.svc().OwnAddress(st), Addresses: a.svc().PagesAddresses(st), Domains: domains, Permissions: perms}, nil
 }
 
 // canCreate reports whether the caller's persona may create a site: it holds
@@ -353,7 +368,7 @@ func (a *portalAPI) get(w http.ResponseWriter, r *http.Request) {
 // update handles PATCH /api/v1/portal/sites/{site}.
 //
 // @Summary      Change a site
-// @Description  Changes the description and the owner (owner and administrators), or whether everyone internal may open the site's own address (anyone who manages it).
+// @Description  Changes the description and the owner (owner and administrators).
 // @Tags         Sites
 // @Accept       json
 // @Produce      json
@@ -376,7 +391,7 @@ func (a *portalAPI) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	st, err := a.svc().Update(r.Context(), c.actor, r.PathValue(paramSite), sitesvc.UpdateRequest{
-		Description: in.Description, Owner: in.Owner, InternalView: in.InternalView,
+		Description: in.Description, Owner: in.Owner,
 	})
 	a.record(r.Context(), c, sitetool.CmdUpdate, map[string]any{paramSite: r.PathValue(paramSite)}, err)
 	if err != nil {
@@ -567,7 +582,8 @@ func (a *portalAPI) deployments(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	list, err := a.svc().Store.Deployments(r.Context(), st.ID, r.URL.Query().Get("environment"), 0)
+	env, _ := site.CanonicalEnvironment(r.URL.Query().Get("environment"))
+	list, err := a.svc().Store.Deployments(r.Context(), st.ID, env, 0)
 	if err != nil {
 		fail(w, r, err)
 		return

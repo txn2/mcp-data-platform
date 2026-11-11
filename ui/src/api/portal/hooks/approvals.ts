@@ -22,12 +22,12 @@ export interface ApprovalChanges {
 export interface ApprovalRequest {
   id: string;
   subject_kind: "script_version" | "site_release";
-  purpose: "form_public" | "site_promote";
+  purpose: "form_public" | "site_promote" | "site_public";
   script_id: string;
   script_name?: string;
   site_release_id?: string;
   site_name?: string;
-  /** The environment a site release would serve. */
+  /** The environment a site release would serve, or that would become public. */
   target?: string;
   version: number;
   source_sha256: string;

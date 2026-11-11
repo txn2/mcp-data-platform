@@ -45,7 +45,7 @@ type memAccess struct {
 	expires time.Time
 }
 
-func (m *memAccess) SiteAccess(_ context.Context, siteID, email string) (*site.Access, error) {
+func (m *memAccess) SiteAccess(_ context.Context, siteID, env, email, persona string) (*site.Access, error) {
 	m.reads++
 	m.asked = append(m.asked, siteID+"/"+email)
 	if m.err != nil {
@@ -56,12 +56,17 @@ func (m *memAccess) SiteAccess(_ context.Context, siteID, email string) (*site.A
 		return nil, site.ErrNotFound
 	}
 	out := *base
-	out.Level = m.grants[siteID+"/"+email]
+	out.ByEmail = opens(m.grants[siteID+"/"+email], env)
+	out.ByPersona = persona != "" && opens(m.grants[siteID+"/persona:"+persona], env)
 	return &out, nil
 }
 
-func (m *memAccess) RouteOwn(ctx context.Context, siteName string) (*site.Route, error) {
-	return m.store.RouteOwn(ctx, siteName)
+// opens reads a fake grant: a level, or "view:<env>" for one environment.
+func opens(grant, env string) bool {
+	if after, ok := strings.CutPrefix(grant, "view:"); ok {
+		return after == env
+	}
+	return grant != ""
 }
 
 func (m *memAccess) UseHandoff(_ context.Context, codeHash string, expires time.Time) (bool, error) {
@@ -136,15 +141,19 @@ func newAccessHarness(opts ...accessOption) *accessHarness {
 		testFile{path: "_signout", body: secretBody + " in a file named _signout", contentType: ctHTML},
 		testFile{path: notFound, body: secretBody + " missing", contentType: ctHTML},
 	)
-	ah.store.own["marketing"] = &site.Route{SiteID: testSiteID, Site: "marketing", Environment: site.EnvDefault, Release: rel, Private: true}
-	ah.store.own["blog"] = &site.Route{SiteID: otherSiteID, Site: "blog", Environment: site.EnvDefault, Release: rel, Private: true}
+	ah.store.own["marketing"] = &site.Route{SiteID: testSiteID, Site: "marketing", Environment: site.EnvDev, Release: rel, Private: true}
+	ah.store.own["blog"] = &site.Route{SiteID: otherSiteID, Site: "blog", Environment: site.EnvDev, Release: rel, Private: true}
 	return ah
 }
 
 func secureAccess(a *Access) { a.Secure = true }
 
 func (ah *accessHarness) signed(siteID string, v epform.Viewer, ttl time.Duration) string {
-	token, err := epform.SignViewerFor(ah.access.viewerKey(), siteViewerScope+siteID, v, ah.clock, ttl)
+	host := testOwnHost
+	if siteID == otherSiteID {
+		host = otherHost
+	}
+	token, err := epform.SignViewerFor(ah.access.viewerKey(), siteViewerScopeFor(siteID, host), v, ah.clock, ttl)
 	if err != nil {
 		panic(err)
 	}
@@ -274,7 +283,7 @@ func TestAccess_TheSignInPageCarriesTheAddressEscaped(t *testing.T) {
 	rec := ah.send(http.MethodPost, testOwnHost, `/a?x="><script>alert(1)</script>`)
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
 	body := rec.Body.String()
-	assert.Contains(t, body, "Sign in to view this preview")
+	assert.Contains(t, body, "Sign in to open this site")
 	assert.Contains(t, body, testOwnHost)
 	assert.Contains(t, body, `href="/_signin?path=`, "a link, which form-action does not govern")
 	assert.NotContains(t, body, "<form", "the only form on this page was blocked in Chromium")
@@ -319,12 +328,12 @@ func TestAccess_ACookieThatIsNotGoodGoesToTheSignIn(t *testing.T) {
 		}},
 		{"signed with another key", func(ah *accessHarness) *http.Cookie {
 			key := shareguest.DeriveKey([]byte("a-different-signing-key-entirely"), siteViewerKeyLabel)
-			token, err := epform.SignViewerFor(key, siteViewerScope+testSiteID, viewerOf(ownerMail), ah.clock, siteViewerTTL)
+			token, err := epform.SignViewerFor(key, siteViewerScopeFor(testSiteID, testOwnHost), viewerOf(ownerMail), ah.clock, siteViewerTTL)
 			require.NoError(t, err)
 			return ah.rawCookie(token)
 		}},
 		{"a handoff code presented as the cookie", func(ah *accessHarness) *http.Cookie {
-			token, err := epform.SignViewerFor(ah.access.handoffKey(), siteViewerScope+testSiteID, viewerOf(ownerMail), ah.clock, siteViewerTTL)
+			token, err := epform.SignViewerFor(ah.access.handoffKey(), siteViewerScopeFor(testSiteID, testOwnHost), viewerOf(ownerMail), ah.clock, siteViewerTTL)
 			require.NoError(t, err)
 			return ah.rawCookie(token)
 		}},
@@ -375,11 +384,11 @@ func TestAccess_WhoMayOpen(t *testing.T) {
 		{name: "someone internal on a site open to everyone internal", viewer: viewerOf(strangerAddr), internal: true, wantStatus: http.StatusOK},
 
 		{name: "someone else", viewer: viewerOf(strangerAddr), wantStatus: http.StatusForbidden, wantText: strangerAddr},
-		{name: "someone external with no grant on an internal site", viewer: epform.Viewer{UserID: "e", Email: strangerAddr, Persona: personaExt}, internal: true, wantStatus: http.StatusForbidden, wantText: "Ask the person who sent you this link"},
+		{name: "someone external with no grant on an internal site", viewer: epform.Viewer{UserID: "e", Email: strangerAddr, Persona: personaExt}, internal: true, wantStatus: http.StatusForbidden, wantText: "Ask the person who sent you the link"},
 		{name: "an empty email claiming nothing", viewer: epform.Viewer{UserID: "x", Persona: personaUser}, wantStatus: http.StatusForbidden},
 		{name: "the owner's address, not verified", viewer: epform.Viewer{UserID: "o", Email: ownerMail, Persona: personaUser, EmailUnverified: true}, wantStatus: http.StatusForbidden, wantText: "has not verified"},
 		{name: "a grant's address, not verified", viewer: epform.Viewer{UserID: "v", Email: viewerAddr, Persona: personaUser, EmailUnverified: true}, wantStatus: http.StatusForbidden, wantText: "has not verified"},
-		{name: "someone else, not verified, reads as no access", viewer: epform.Viewer{UserID: "s", Email: strangerAddr, Persona: personaUser, EmailUnverified: true}, wantStatus: http.StatusForbidden, wantText: "Ask the person who sent you this link"},
+		{name: "someone else, not verified, reads as no access", viewer: epform.Viewer{UserID: "s", Email: strangerAddr, Persona: personaUser, EmailUnverified: true}, wantStatus: http.StatusForbidden, wantText: "Ask the person who sent you the link"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -644,12 +653,10 @@ func TestSecure_CookiesCarryTheHostPrefix(t *testing.T) {
 	assert.Equal(t, schemeHTTPS, back.Scheme, "the code goes back over https")
 }
 
-func TestSiteHandoff_TheAddressIsBuiltFromTheStoredSite(t *testing.T) {
+func TestSiteHandoff_ReturnsToTheHostItStartedOn(t *testing.T) {
 	ah := newAccessHarness(func(a *Access) { a.PublicPort = "8443" })
 	_, loc := ah.startSignIn(t, "/")
-	q := loc.Query()
-	q.Set("host", "evil.example") // nothing in the request names where it goes
-	loc.RawQuery = q.Encode()
+	assert.Equal(t, testOwnHost, loc.Query().Get(queryHost), "the sign-in names the host it started on")
 	back := ah.runHandoff(t, loc)
 	assert.Equal(t, testOwnHost+":8443", back.Host)
 }
@@ -669,7 +676,14 @@ func TestSiteHandoff_Refusals(t *testing.T) {
 		{"a state of another shape", func(_ *accessHarness, q url.Values) { q.Set("state", "short") }},
 		{"no state", func(_ *accessHarness, q url.Values) { q.Del("state") }},
 		{"a site that does not exist", func(_ *accessHarness, q url.Values) { q.Set("site", "nope") }},
-		{"no pages domain", func(ah *accessHarness, _ url.Values) { ah.pages = "" }},
+		{"a host the store does not serve", func(_ *accessHarness, q url.Values) { q.Set(queryHost, "evil.example") }},
+		{"another site's host", func(_ *accessHarness, q url.Values) { q.Set(queryHost, otherHost) }},
+		{"no host", func(_ *accessHarness, q url.Values) { q.Del(queryHost) }},
+		{"a host that is not a hostname", func(_ *accessHarness, q url.Values) { q.Set(queryHost, "evil.example/x?y") }},
+		{"a public environment's host", func(ah *accessHarness, q url.Values) {
+			ah.store.own["marketing--prod"] = &site.Route{SiteID: testSiteID, Site: "marketing", Environment: "prod"}
+			q.Set(queryHost, "marketing--prod.pages.example.com")
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -728,7 +742,7 @@ func TestSiteHandoff_TheCodeCarriesTheSession(t *testing.T) {
 	back := ah.runHandoff(t, loc)
 	code := back.Query().Get(queryCode)
 
-	v, err := epform.OpenViewer(ah.access.handoffKey(), siteHandoffScope+testSiteID+":"+digest(stateCookie.Value), code, ah.clock)
+	v, err := epform.OpenViewer(ah.access.handoffKey(), siteHandoffScopeFor(testSiteID, testOwnHost, digest(stateCookie.Value)), code, ah.clock)
 	require.NoError(t, err)
 	assert.Equal(t, epform.Viewer{UserID: "u9", Email: viewerAddr, Persona: personaExt, EmailUnverified: true}, v)
 }

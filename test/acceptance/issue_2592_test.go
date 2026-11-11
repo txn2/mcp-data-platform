@@ -50,13 +50,13 @@ func rendered2592(t *testing.T, c *client) *siteClient {
 
 func (s *siteClient) promote2592(t *testing.T) {
 	t.Helper()
-	s.c.call("manage_site", map[string]any{"command": "promote", "site": s.name, "from": "default", "to": "dev"})
+	s.c.call("manage_site", map[string]any{"command": "promote", "site": s.name, "from": "dev", "to": "stage"})
 }
 
 func (s *siteClient) serves2592(t *testing.T, path, want string) pageResponse {
 	t.Helper()
 	return pollUntil2518(t, func() (pageResponse, bool) {
-		r := onHost(t, s.preview("dev"), http.MethodGet, path, nil, "")
+		r := onHost(t, s.preview("stage"), http.MethodGet, path, nil, "")
 		return r, r.status == http.StatusOK && strings.Contains(r.body, want)
 	})
 }
@@ -85,7 +85,7 @@ func TestIssue2592_SourceIsNeverServed(t *testing.T) {
 	s := rendered2592(t, c)
 	s.serves2592(t, "/", "Anvil")
 	for _, path := range []string{"/_layouts/base.html", "/_includes/nav.html", "/_data/products/anvil.json", "/product.html", "/tag.html"} {
-		if r := onHost(t, s.preview("dev"), http.MethodGet, path, nil, ""); r.status == http.StatusOK {
+		if r := onHost(t, s.preview("stage"), http.MethodGet, path, nil, ""); r.status == http.StatusOK {
 			t.Errorf("%s was served: %s", path, r.body)
 		}
 	}

@@ -27,13 +27,13 @@ func mockStore(t *testing.T) (*PostgresStore, sqlmock.Sqlmock) {
 var columns = []string{
 	"id", "subject_kind", "purpose", "script_id", "name", "version", "source_sha256",
 	"requester_email", "requester_persona", "reason", "changes", "status", "decided_by", "decided_at",
-	"decision_comment", "self_approved", "created_at", "site_release_id", "target", "site_name",
+	"decision_comment", "self_approved", "created_at", "site_release_id", "target", "site_name", "site_id",
 }
 
 func row(id, status string, decided any) *sqlmock.Rows {
 	return sqlmock.NewRows(columns).AddRow(id, SubjectScriptVersion, PurposeFormPublic, "s1", "intake", 2, "abc",
 		"jane@example.com", "analyst", "launch", []byte(`{"approved_version":1,"added":3,"removed":1}`), status, "", decided,
-		"", false, at, "", "", "")
+		"", false, at, "", "", "", "")
 }
 
 func TestStoreInsert(t *testing.T) {
@@ -85,7 +85,7 @@ func TestStoreGetAndList(t *testing.T) {
 	_, err = s.List(ctx, Filter{})
 	require.Error(t, err, "a row that does not scan")
 	mock.ExpectQuery("SELECT").WillReturnRows(sqlmock.NewRows(columns).AddRow("apr_3", SubjectScriptVersion,
-		PurposeFormPublic, "s1", "intake", 2, "abc", "j", "", "", []byte(`{`), StatusPending, "", nil, "", false, at, "", "", ""))
+		PurposeFormPublic, "s1", "intake", 2, "abc", "j", "", "", []byte(`{`), StatusPending, "", nil, "", false, at, "", "", "", ""))
 	_, err = s.List(ctx, Filter{})
 	require.ErrorContains(t, err, "decoding")
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -119,10 +119,10 @@ func TestStoreDecide(t *testing.T) {
 
 func TestStoreReadsASiteRelease(t *testing.T) {
 	s, mock := mockStore(t)
-	mock.ExpectQuery(regexp.QuoteMeta("LEFT JOIN sites st ON st.id = sr.site_id")).WithArgs("apr_9").
+	mock.ExpectQuery(regexp.QuoteMeta("LEFT JOIN sites st ON st.id = COALESCE(sr.site_id, r.site_id)")).WithArgs("apr_9").
 		WillReturnRows(sqlmock.NewRows(columns).AddRow("apr_9", SubjectSiteRelease, PurposeSitePromote, "", "", 3, "digest",
 			"jane@example.com", "", "launch", []byte(`{"approved_version":0}`), StatusPending, "", nil, "", false, at,
-			"srel_1", "prod", "marketing"))
+			"srel_1", "prod", "marketing", ""))
 	r, err := s.Get(context.Background(), "apr_9")
 	require.NoError(t, err)
 	assert.Equal(t, SubjectSiteRelease, r.SubjectKind)
@@ -140,7 +140,7 @@ func TestStoreInsertCarriesTheRelease(t *testing.T) {
 		RequesterEmail: "jane@example.com", SiteReleaseID: "srel_1", Target: "prod",
 	}
 	mock.ExpectQuery(regexp.QuoteMeta("NULLIF($11, '')")).
-		WithArgs("apr_1", SubjectSiteRelease, PurposeSitePromote, "", 3, "digest", "jane@example.com", "", "", sqlmock.AnyArg(), "srel_1", "prod").
+		WithArgs("apr_1", SubjectSiteRelease, PurposeSitePromote, "", 3, "digest", "jane@example.com", "", "", sqlmock.AnyArg(), "srel_1", "prod", "").
 		WillReturnRows(sqlmock.NewRows([]string{"status", "created_at"}).AddRow(StatusPending, at))
 	require.NoError(t, s.Insert(context.Background(), r))
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -185,5 +185,60 @@ func TestStoreLatestApproved(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("r.status = 'approved'")).WillReturnError(errors.New("down"))
 	_, err = s.LatestApproved(ctx, "s1", PurposeFormPublic)
 	require.Error(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// A request to make a site environment public names the site by id and the
+// environment, carries no release, and is read back with the site's name
+// (#2604).
+func TestStoreSiteEnvironmentRequest(t *testing.T) {
+	s, mock := mockStore(t)
+	r := &Request{
+		ID: "apr_2", SubjectKind: SubjectSiteEnvironment, Purpose: PurposeSitePublic, SourceSHA256: "public:t0",
+		RequesterEmail: "jane@example.com", SiteID: "site_1", Target: "prod",
+	}
+	mock.ExpectQuery(regexp.QuoteMeta("NULLIF($13, '')")).
+		WithArgs("apr_2", SubjectSiteEnvironment, PurposeSitePublic, "", 0, "public:t0", "jane@example.com", "", "", sqlmock.AnyArg(), "", "prod", "site_1").
+		WillReturnRows(sqlmock.NewRows([]string{"status", "created_at"}).AddRow(StatusPending, at))
+	require.NoError(t, s.Insert(context.Background(), r))
+
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE r.id = $1")).WithArgs("apr_2").
+		WillReturnRows(sqlmock.NewRows(columns).AddRow("apr_2", SubjectSiteEnvironment, PurposeSitePublic, "", "", 0, "public:t0",
+			"jane@example.com", "", "", []byte(`{"approved_version":0}`), StatusPending, "", nil, "", false, at,
+			"", "prod", "docs", "site_1"))
+	got, err := s.Get(context.Background(), "apr_2")
+	require.NoError(t, err)
+	assert.Equal(t, "site_1", got.SiteID)
+	assert.Equal(t, "docs", got.SiteName)
+	assert.Empty(t, got.SiteReleaseID)
+
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE r.status = $1 AND r.site_id = $2")).WithArgs(StatusPending, "site_1").
+		WillReturnRows(sqlmock.NewRows(columns))
+	_, err = s.List(context.Background(), Filter{Status: StatusPending, SiteID: "site_1"})
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestStoreEnvironmentApproved(t *testing.T) {
+	s, mock := mockStore(t)
+	ctx := context.Background()
+	expect := func() *sqlmock.ExpectedQuery {
+		return mock.ExpectQuery(regexp.QuoteMeta("subject_kind = 'site_environment' AND site_id = $1 AND target = $2")).
+			WithArgs("site_1", "prod", "public:t0")
+	}
+	expect().WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	ok, err := s.EnvironmentApproved(ctx, "site_1", "prod", "public:t0")
+	require.NoError(t, err)
+	assert.True(t, ok)
+
+	expect().WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	ok, err = s.EnvironmentApproved(ctx, "site_1", "prod", "public:t0")
+	require.NoError(t, err)
+	assert.False(t, ok, "an approval for another access stamp is not this one")
+
+	expect().WillReturnError(errors.New("down"))
+	ok, err = s.EnvironmentApproved(ctx, "site_1", "prod", "public:t0")
+	require.ErrorContains(t, err, "reading the environment's approval")
+	assert.False(t, ok)
 	require.NoError(t, mock.ExpectationsWereMet())
 }

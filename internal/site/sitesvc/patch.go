@@ -84,9 +84,6 @@ func (s *Service) patchTarget(ctx context.Context, st *site.Site, req PatchReque
 	if err != nil {
 		return nil, err
 	}
-	if env.Name != site.EnvDefault {
-		return nil, refused("environment %q is read-only here: change %s, then move the release with promote", env.Name, site.EnvDefault)
-	}
 	if req.Base != 0 && req.Base != env.Release {
 		return nil, textpatch.StaleBaseError(req.Base, env.Release)
 	}

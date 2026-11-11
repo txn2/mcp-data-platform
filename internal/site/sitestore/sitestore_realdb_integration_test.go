@@ -26,8 +26,8 @@ const (
 func realSite(ctx context.Context, t *testing.T, s *Store, name string) *site.Site {
 	t.Helper()
 	st := &site.Site{
-		ID: NewSiteID(), Name: name, Description: "d", OwnerEmail: realOwner, CreatedBy: realOwner,
-		Environments: []site.Environment{{Name: site.EnvDefault}, {Name: realProd, RequiresApproval: true}},
+		ID: NewSiteID(), Name: name, Description: "d", OwnerEmail: realOwner, CreatedBy: realOwner, MainEnvironment: site.EnvDev,
+		Environments: []site.Environment{{Name: site.EnvDev}, {Name: realProd, RequiresApproval: true}},
 	}
 	require.NoError(t, s.Create(ctx, st))
 	return st
@@ -71,28 +71,28 @@ func TestRealDB_SiteRecord(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, st.ID, got.ID)
 	require.Len(t, got.Environments, 2)
-	assert.Zero(t, got.Environment(site.EnvDefault).Release, "no release yet reads as 0")
+	assert.Zero(t, got.Environment(site.EnvDev).Release, "no release yet reads as 0")
 	assert.True(t, got.Environment(realProd).RequiresApproval)
 
 	_, err = s.Get(ctx, "site_none")
 	require.ErrorIs(t, err, site.ErrNotFound)
 
-	require.NoError(t, s.SetEnvironment(ctx, st.ID, "qa", true, realOwner))
-	require.NoError(t, s.SetEnvironment(ctx, st.ID, "qa", false, "other@example.com"))
+	yes, no := true, false
+	require.NoError(t, s.SetEnvironment(ctx, st.ID, "qa", site.EnvironmentSettings{RequiresApproval: &yes}, realOwner))
+	require.NoError(t, s.SetEnvironment(ctx, st.ID, "qa", site.EnvironmentSettings{RequiresApproval: &no}, "other@example.com"))
 	got, err = s.Get(ctx, st.ID)
 	require.NoError(t, err)
 	require.NotNil(t, got.Environment("qa"))
 	assert.False(t, got.Environment("qa").RequiresApproval, "a second write changes the rule")
 	assert.Equal(t, "other@example.com", got.Environment("qa").UpdatedBy)
 
-	assert.False(t, got.InternalView, "a site is private until someone opens it")
-	got.Description, got.OwnerEmail, got.InternalView = "new", "new@example.com", true
+	assert.False(t, got.Environment("qa").Public, "an environment is private until someone opens it")
+	got.Description, got.OwnerEmail = "new", "new@example.com"
 	require.NoError(t, s.Update(ctx, got))
 	list, err := s.List(ctx)
 	require.NoError(t, err)
 	require.Len(t, list, 1)
 	assert.Equal(t, "new@example.com", list[0].OwnerEmail)
-	assert.True(t, list[0].InternalView)
 	assert.Len(t, list[0].Environments, 3)
 
 	require.ErrorIs(t, s.Update(ctx, &site.Site{ID: "site_none"}), site.ErrNotFound)
@@ -141,18 +141,18 @@ func TestRealDB_ReleaseAndPoint(t *testing.T) {
 	assert.Equal(t, "a.png", files[0].Path, "in path order")
 	assert.Equal(t, int64(8), files[1].GzipSize)
 
-	require.NoError(t, s.Point(ctx, site.Pointer{SiteID: st.ID, Environment: site.EnvDefault, After: 0, To: 1, Action: site.ActionPublish, Actor: realOwner}))
-	require.ErrorIs(t, s.Point(ctx, site.Pointer{SiteID: st.ID, Environment: site.EnvDefault, After: 0, To: 2, Action: site.ActionPublish, Actor: realOwner}),
+	require.NoError(t, s.Point(ctx, site.Pointer{SiteID: st.ID, Environment: site.EnvDev, After: 0, To: 1, Action: site.ActionPublish, Actor: realOwner}))
+	require.ErrorIs(t, s.Point(ctx, site.Pointer{SiteID: st.ID, Environment: site.EnvDev, After: 0, To: 2, Action: site.ActionPublish, Actor: realOwner}),
 		site.ErrStale, "the move decided against 0 lost to the move already recorded")
-	require.NoError(t, s.Point(ctx, site.Pointer{SiteID: st.ID, Environment: site.EnvDefault, After: 1, To: 2, Action: site.ActionPublish, Actor: realOwner}))
+	require.NoError(t, s.Point(ctx, site.Pointer{SiteID: st.ID, Environment: site.EnvDev, After: 1, To: 2, Action: site.ActionPublish, Actor: realOwner}))
 	require.NoError(t, s.Point(ctx, site.Pointer{SiteID: st.ID, Environment: realProd, After: 0, To: 2, Action: site.ActionPromote, Actor: realOwner}))
 	require.ErrorIs(t, s.Point(ctx, site.Pointer{SiteID: st.ID, Environment: "qa", To: 1, Action: site.ActionPromote, Actor: realOwner}), site.ErrNoEnvironment)
 
 	after, err := s.Get(ctx, st.ID)
 	require.NoError(t, err)
-	assert.Equal(t, 2, after.Environment(site.EnvDefault).Release)
+	assert.Equal(t, 2, after.Environment(site.EnvDev).Release)
 
-	dev, err := s.Deployments(ctx, st.ID, site.EnvDefault, 0)
+	dev, err := s.Deployments(ctx, st.ID, site.EnvDev, 0)
 	require.NoError(t, err)
 	require.Len(t, dev, 2, "the refused move is not recorded")
 	assert.Equal(t, 2, dev[0].To, "newest first")
@@ -165,7 +165,7 @@ func TestRealDB_ReleaseAndPoint(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, route.Release)
 	assert.Equal(t, 2, route.Release.Number)
-	assert.Equal(t, site.EnvDefault, route.Environment)
+	assert.Equal(t, site.EnvDev, route.Environment)
 	assert.True(t, route.Private)
 	_, err = s.RouteOwn(ctx, "none")
 	require.ErrorIs(t, err, site.ErrNoDomain)
@@ -185,7 +185,7 @@ func TestRealDB_Domains(t *testing.T) {
 	d := &site.Domain{Hostname: "www.example.com", SiteID: st.ID, Environment: realProd, CreatedBy: realOwner}
 	require.NoError(t, s.AddDomain(ctx, d))
 	require.ErrorIs(t, s.AddDomain(ctx, &site.Domain{
-		Hostname: "www.example.com", SiteID: st.ID, Environment: site.EnvDefault, CreatedBy: realOwner,
+		Hostname: "www.example.com", SiteID: st.ID, Environment: site.EnvDev, CreatedBy: realOwner,
 	}), site.ErrDomainTaken)
 	require.NoError(t, s.AddDomain(ctx, &site.Domain{Hostname: "shop.example.com", ApplicationID: app.ID, CreatedBy: realOwner}))
 	require.Error(t, s.AddDomain(ctx, &site.Domain{Hostname: "none.example.com", CreatedBy: realOwner}),
@@ -204,7 +204,7 @@ func TestRealDB_Domains(t *testing.T) {
 	route, err := s.RouteHost(ctx, "www.example.com")
 	require.NoError(t, err, "a hostname routes as soon as it is added")
 	assert.Equal(t, realProd, route.Environment)
-	assert.False(t, route.Private)
+	assert.True(t, route.Private, "a domain serves its environment's access, private until made public")
 	require.NotNil(t, route.Release)
 	assert.Equal(t, 1, route.Release.Number)
 
@@ -247,7 +247,7 @@ func TestRealDB_ApplicationHosts(t *testing.T) {
 
 	for _, d := range []*site.Domain{
 		{Hostname: "www.example.com", SiteID: st.ID, Environment: realProd, CreatedBy: realOwner},
-		{Hostname: "default.example.com", SiteID: st.ID, Environment: site.EnvDefault, CreatedBy: realOwner},
+		{Hostname: "dev.example.com", SiteID: st.ID, Environment: site.EnvDev, CreatedBy: realOwner},
 		{Hostname: "blog.example.com", SiteID: other.ID, Environment: realProd, CreatedBy: realOwner},
 	} {
 		require.NoError(t, s.AddDomain(ctx, d))
@@ -255,12 +255,13 @@ func TestRealDB_ApplicationHosts(t *testing.T) {
 
 	got, err := s.ApplicationHosts(ctx, app.ID, "pages.example.net")
 	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{"www.example.com"}, got, "a part that is not the default environment has no own address")
+	assert.ElementsMatch(t, []string{"www.example.com", "marketing--prod.pages.example.net"}, got,
+		"a part names its domains and its <site>--<env> address, and the main address only when it holds it")
 
-	require.NoError(t, apps.AddPart(ctx, app.ID, application.Part{Kind: application.KindSite, ID: "blog/default", AddedBy: realOwner}))
+	require.NoError(t, apps.AddPart(ctx, app.ID, application.Part{Kind: application.KindSite, ID: "blog/dev", AddedBy: realOwner}))
 	got, err = s.ApplicationHosts(ctx, app.ID, "pages.example.net")
 	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{"www.example.com", "blog.pages.example.net"}, got)
+	assert.ElementsMatch(t, []string{"www.example.com", "marketing--prod.pages.example.net", "blog--dev.pages.example.net", "blog.pages.example.net"}, got)
 
 	noPages, err := s.ApplicationHosts(ctx, app.ID, "")
 	require.NoError(t, err)
@@ -299,70 +300,139 @@ func TestRealDB_UseHandoffIsSingleUse(t *testing.T) {
 	assert.False(t, stillUsed, "a live code stays used across a sweep")
 }
 
-// A grant is one row per person and site, stored in the form it is matched in,
-// and SiteAccess reads it fresh with the site's owner and internal view.
+// A grant is one row per person or persona and site, stored in the form it is
+// matched in, and SiteAccess reads, fresh and for one environment, the owner,
+// that environment's internal view, and whether a grant to the email or the
+// persona opens it (#2604).
 func TestRealDB_GrantsAndSiteAccess(t *testing.T) {
 	db := testdb.New(t)
 	ctx := context.Background()
 	s := New(db)
 	st := realSite(ctx, t, s, "marketing")
 
-	access, err := s.SiteAccess(ctx, st.ID, "pat@client.example")
+	access, err := s.SiteAccess(ctx, st.ID, realProd, "pat@client.example", "")
 	require.NoError(t, err)
-	assert.Equal(t, &site.Access{OwnerEmail: realOwner}, access, "no grant reads as no level")
+	assert.Equal(t, &site.Access{OwnerEmail: realOwner}, access, "no grant opens nothing")
 
-	require.NoError(t, s.SetGrant(ctx, st.ID, &site.Grant{Email: "pat@client.example", Level: site.LevelView, GrantedBy: realOwner}))
+	require.NoError(t, s.SetGrant(ctx, st.ID, &site.Grant{Email: "pat@client.example", Level: site.LevelView, Environments: []string{realProd}, GrantedBy: realOwner}))
 	require.NoError(t, s.SetGrant(ctx, st.ID, &site.Grant{Email: "mo@example.com", Level: site.LevelManage, GrantedBy: realOwner}))
+	require.NoError(t, s.SetGrant(ctx, st.ID, &site.Grant{Persona: "finance-team", Level: site.LevelView, Environments: []string{realProd}, GrantedBy: realOwner}))
+	require.NoError(t, s.SetGrant(ctx, st.ID, &site.Grant{Email: "old@example.com", Level: site.LevelView, GrantedBy: realOwner}))
 
-	access, err = s.SiteAccess(ctx, st.ID, "  PAT@Client.Example ")
-	require.NoError(t, err)
-	assert.Equal(t, site.LevelView, access.Level, "matched however the address is written")
+	opens := func(env, email, persona string) (byEmail, byPersona bool) {
+		t.Helper()
+		a, err := s.SiteAccess(ctx, st.ID, env, email, persona)
+		require.NoError(t, err)
+		return a.ByEmail, a.ByPersona
+	}
+	byEmail, _ := opens(realProd, "  PAT@Client.Example ", "")
+	assert.True(t, byEmail, "a view grant opens the environment it names, however the address is written")
+	byEmail, _ = opens(site.EnvDev, "pat@client.example", "")
+	assert.False(t, byEmail, "and no other")
+	byEmail, _ = opens(site.EnvDev, "mo@example.com", "")
+	assert.True(t, byEmail, "a manage grant is site-wide")
+	byEmail, _ = opens(site.EnvDev, "old@example.com", "")
+	assert.True(t, byEmail, "a grant naming no environment opens every one")
+	_, byPersona := opens(realProd, "anyone@example.com", "finance-team")
+	assert.True(t, byPersona, "a persona grant opens for whoever holds it")
+	_, byPersona = opens(site.EnvDev, "anyone@example.com", "finance-team")
+	assert.False(t, byPersona, "only where it names")
+	_, byPersona = opens(realProd, "anyone@example.com", "")
+	assert.False(t, byPersona, "no persona matches no persona grant")
 
 	level, err := s.GrantLevel(ctx, st.ID, "mo@example.com")
 	require.NoError(t, err)
 	assert.Equal(t, site.LevelManage, level)
-	level, err = s.GrantLevel(ctx, st.ID, "none@example.com")
+	level, err = s.GrantLevel(ctx, st.ID, "")
 	require.NoError(t, err)
-	assert.Empty(t, level)
+	assert.Empty(t, level, "a persona grant has no email level")
 
 	grants, err := s.Grants(ctx, st.ID)
 	require.NoError(t, err)
-	require.Len(t, grants, 2)
+	require.Len(t, grants, 4)
 	assert.Equal(t, "mo@example.com", grants[0].Email, "managers list first")
-	assert.False(t, grants[0].CreatedAt.IsZero())
-
-	require.NoError(t, s.SetGrant(ctx, st.ID, &site.Grant{Email: "mo@example.com", Level: site.LevelView, GrantedBy: "admin@example.com"}))
-	level, err = s.GrantLevel(ctx, st.ID, "mo@example.com")
-	require.NoError(t, err)
-	assert.Equal(t, site.LevelView, level, "a second write changes the level")
-	grants, err = s.Grants(ctx, st.ID)
-	require.NoError(t, err)
-	require.Len(t, grants, 2, "still one row a person")
+	assert.Equal(t, []string{realProd}, grants[3].Environments)
+	assert.Equal(t, "finance-team", grants[3].Persona, "then people, then personas")
 
 	require.Error(t, s.SetGrant(ctx, st.ID, &site.Grant{Email: "UP@example.com", Level: site.LevelView, GrantedBy: realOwner}),
 		"the table holds an address in the form it is matched in")
-	require.Error(t, s.SetGrant(ctx, st.ID, &site.Grant{Email: "x@example.com", Level: "owner", GrantedBy: realOwner}),
-		"the table holds only the two levels")
+	require.Error(t, s.SetGrant(ctx, st.ID, &site.Grant{Persona: "finance-team", Level: site.LevelManage, GrantedBy: realOwner}),
+		"a persona is only ever given view")
+	require.Error(t, s.SetGrant(ctx, st.ID, &site.Grant{Email: "x@example.com", Persona: "p", Level: site.LevelView, GrantedBy: realOwner}),
+		"a grant names one principal")
 
-	require.NoError(t, s.RemoveGrant(ctx, st.ID, "pat@client.example"))
-	require.ErrorIs(t, s.RemoveGrant(ctx, st.ID, "pat@client.example"), site.ErrNoGrant)
-	access, err = s.SiteAccess(ctx, st.ID, "pat@client.example")
+	require.NoError(t, s.RemoveGrant(ctx, st.ID, "", "finance-team"))
+	_, byPersona = opens(realProd, "anyone@example.com", "finance-team")
+	assert.False(t, byPersona, "removing a persona takes effect on the next read")
+	require.NoError(t, s.RemoveGrant(ctx, st.ID, "pat@client.example", ""))
+	require.ErrorIs(t, s.RemoveGrant(ctx, st.ID, "pat@client.example", ""), site.ErrNoGrant)
+
+	yes := true
+	require.NoError(t, s.SetEnvironment(ctx, st.ID, realProd, site.EnvironmentSettings{InternalView: &yes}, realOwner))
+	access, err = s.SiteAccess(ctx, st.ID, realProd, "pat@client.example", "")
 	require.NoError(t, err)
-	assert.Empty(t, access.Level, "removing someone takes effect on the next read")
-
-	st.InternalView = true
-	require.NoError(t, s.Update(ctx, st))
-	access, err = s.SiteAccess(ctx, st.ID, "pat@client.example")
+	assert.True(t, access.InternalView, "internal view belongs to the environment")
+	access, err = s.SiteAccess(ctx, st.ID, site.EnvDev, "pat@client.example", "")
 	require.NoError(t, err)
-	assert.True(t, access.InternalView)
+	assert.False(t, access.InternalView)
 
-	_, err = s.SiteAccess(ctx, "site_none", "pat@client.example")
+	_, err = s.SiteAccess(ctx, "site_none", realProd, "pat@client.example", "")
 	require.ErrorIs(t, err, site.ErrNotFound)
 
 	require.NoError(t, s.Delete(ctx, st.ID))
 	grants, err = s.Grants(ctx, st.ID)
 	require.NoError(t, err)
 	assert.Equal(t, []site.Grant{}, grants, "a site's grants go with it")
+}
+
+// The main address serves the environment it is given to, or nothing; every
+// environment answers at <site>--<env>, private unless made public, and dev
+// can never be made public (#2604).
+func TestRealDB_RoutesAndAccess(t *testing.T) {
+	db := testdb.New(t)
+	ctx := context.Background()
+	s := New(db)
+	st := &site.Site{
+		ID: NewSiteID(), Name: "intranet", OwnerEmail: realOwner, CreatedBy: realOwner, MainEnvironment: site.EnvDev,
+		Environments: []site.Environment{{Name: site.EnvDev}, {Name: realProd}},
+	}
+	require.NoError(t, s.Create(ctx, st))
+
+	own, err := s.RouteOwn(ctx, "intranet")
+	require.NoError(t, err)
+	assert.Equal(t, site.EnvDev, own.Environment)
+	assert.True(t, own.Private)
+
+	env, err := s.RouteEnv(ctx, "intranet", realProd)
+	require.NoError(t, err)
+	assert.Equal(t, realProd, env.Environment)
+	assert.True(t, env.Private, "a new environment is private")
+	assert.Empty(t, env.PartOf)
+
+	require.NoError(t, s.SetMainEnvironment(ctx, st.ID, realProd))
+	own, err = s.RouteOwn(ctx, "intranet")
+	require.NoError(t, err)
+	assert.Equal(t, realProd, own.Environment, "the main address moved")
+
+	require.ErrorIs(t, s.SetMainEnvironment(ctx, st.ID, "nope"), site.ErrNoEnvironment)
+	require.NoError(t, s.SetMainEnvironment(ctx, st.ID, ""))
+	_, err = s.RouteOwn(ctx, "intranet")
+	require.ErrorIs(t, err, site.ErrNoDomain, "a main address given to none serves nothing")
+
+	before, err := s.Get(ctx, st.ID)
+	require.NoError(t, err)
+	yes := true
+	require.NoError(t, s.SetEnvironment(ctx, st.ID, realProd, site.EnvironmentSettings{Public: &yes}, realOwner))
+	env, err = s.RouteEnv(ctx, "intranet", realProd)
+	require.NoError(t, err)
+	assert.False(t, env.Private)
+	after, err := s.Get(ctx, st.ID)
+	require.NoError(t, err)
+	assert.True(t, after.Environment(realProd).AccessChangedAt.After(before.Environment(realProd).AccessChangedAt),
+		"a change to public stamps the access")
+
+	require.Error(t, s.SetEnvironment(ctx, st.ID, site.EnvDev, site.EnvironmentSettings{Public: &yes}, realOwner),
+		"the database refuses a public dev")
 }
 
 // A job is recorded running, reports progress while reading a stop asked for on
@@ -373,7 +443,7 @@ func TestRealDB_Jobs(t *testing.T) {
 	s := New(db)
 	st := realSite(ctx, t, s, "marketing")
 
-	j := &site.Job{ID: NewJobID(), SiteID: st.ID, Kind: site.JobCrawl, Phase: "Copying pages", Environment: site.EnvDefault, Source: "https://old.example.com/", CreatedBy: realOwner}
+	j := &site.Job{ID: NewJobID(), SiteID: st.ID, Kind: site.JobCrawl, Phase: "Copying pages", Environment: site.EnvDev, Source: "https://old.example.com/", CreatedBy: realOwner}
 	require.NoError(t, s.CreateJob(ctx, j))
 	assert.Equal(t, site.JobRunning, j.Status, "the database starts it running")
 	assert.False(t, j.CreatedAt.IsZero())
@@ -418,7 +488,7 @@ func TestRealDB_Jobs(t *testing.T) {
 	require.ErrorIs(t, err, site.ErrNoJob)
 	require.ErrorIs(t, s.FinishJob(ctx, "sjob_none", site.JobResult{Status: site.JobDone}), site.ErrNoJob)
 
-	nilSkipped := &site.Job{ID: NewJobID(), SiteID: st.ID, Kind: site.JobPublish, Environment: site.EnvDefault, CreatedBy: realOwner}
+	nilSkipped := &site.Job{ID: NewJobID(), SiteID: st.ID, Kind: site.JobPublish, Environment: site.EnvDev, CreatedBy: realOwner}
 	require.NoError(t, s.CreateJob(ctx, nilSkipped))
 	require.NoError(t, s.FinishJob(ctx, nilSkipped.ID, site.JobResult{Status: site.JobDone, Release: 4}))
 	got, err = s.Job(ctx, nilSkipped.ID)
@@ -493,13 +563,13 @@ func TestRealDB_AMoveThatLosesLeavesNoRelease(t *testing.T) {
 		}
 	}
 	first := release()
-	require.NoError(t, s.RecordRelease(ctx, first, &site.Pointer{SiteID: st.ID, Environment: site.EnvDefault, After: 0, Action: site.ActionPublish, Actor: realOwner}))
+	require.NoError(t, s.RecordRelease(ctx, first, &site.Pointer{SiteID: st.ID, Environment: site.EnvDev, After: 0, Action: site.ActionPublish, Actor: realOwner}))
 	got, err := s.Get(ctx, st.ID)
 	require.NoError(t, err)
-	assert.Equal(t, first.Number, got.Environment(site.EnvDefault).Release, "the environment moved with the write")
+	assert.Equal(t, first.Number, got.Environment(site.EnvDev).Release, "the environment moved with the write")
 
 	stale := release()
-	err = s.RecordRelease(ctx, stale, &site.Pointer{SiteID: st.ID, Environment: site.EnvDefault, After: 0, Action: site.ActionPublish, Actor: realOwner})
+	err = s.RecordRelease(ctx, stale, &site.Pointer{SiteID: st.ID, Environment: site.EnvDev, After: 0, Action: site.ActionPublish, Actor: realOwner})
 	require.ErrorIs(t, err, site.ErrStale)
 	list, err := s.Releases(ctx, st.ID)
 	require.NoError(t, err)

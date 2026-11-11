@@ -158,3 +158,7 @@ func between(s, open, closing string) string {
 	value, _, _ := strings.Cut(rest, closing)
 	return value
 }
+
+func (*store) EnvironmentApproved(context.Context, string, string, string) (bool, error) {
+	return false, nil
+}

@@ -25,13 +25,13 @@ var (
 )
 
 var (
-	siteCols    = []string{"id", "name", "description", "owner_email", "internal_view", "created_by", "created_at", "updated_at"}
-	envCols     = []string{"name", "release_number", "requires_approval", "updated_by", "updated_at"}
+	siteCols    = []string{"id", "name", "description", "owner_email", "main_environment", "created_by", "created_at", "updated_at"}
+	envCols     = []string{"name", "release_number", "requires_approval", "public", "internal_view", "access_changed_at", "updated_by", "updated_at"}
 	releaseCols = []string{"id", "site_id", "number", "source", "note", "file_count", "total_bytes", "manifest_sha256", "redirects", "created_by", "created_at", "base_number", "manifest_parent", "manifest_depth", "rendered"}
 	fileCols    = []string{"path", "sha256", "content_type", "size", "gzip_size", "brotli_size", "stored_in"}
 	deployCols  = []string{"environment", "action", "from_release", "to_release", "actor", "created_at"}
 	domainCols  = []string{"hostname", "site_id", "name", "environment", "application_id", "application", "created_by", "created_at"}
-	routeCols   = []string{"id", "name", "env", "number"}
+	routeCols   = []string{"id", "name", "env", "number", "private", "part_of"}
 )
 
 func newMock(t *testing.T) (*Store, sqlmock.Sqlmock) {
@@ -48,7 +48,7 @@ func newMock(t *testing.T) (*Store, sqlmock.Sqlmock) {
 func q(s string) string { return regexp.QuoteMeta(s) }
 
 func siteRows(name string) *sqlmock.Rows {
-	return sqlmock.NewRows(siteCols).AddRow("site_1", name, "words", "jane@example.com", true, "jane@example.com", rowTime, rowTime)
+	return sqlmock.NewRows(siteCols).AddRow("site_1", name, "words", "jane@example.com", "dev", "jane@example.com", rowTime, rowTime)
 }
 
 func releaseRow(n int, redirects string) []driver.Value {
@@ -76,10 +76,10 @@ func TestCreate(t *testing.T) {
 	t.Run("writes the site and each environment", func(t *testing.T) {
 		s, mock := newMock(t)
 		mock.ExpectBegin()
-		mock.ExpectQuery(q("INSERT INTO sites")).WithArgs("site_1", "marketing", "d", "jane@example.com", "jane@example.com").
+		mock.ExpectQuery(q("INSERT INTO sites")).WithArgs("site_1", "marketing", "d", "jane@example.com", "jane@example.com", "").
 			WillReturnRows(sqlmock.NewRows([]string{"created_at", "updated_at"}).AddRow(rowTime, rowTime))
-		mock.ExpectExec(q("INSERT INTO site_environments")).WithArgs("site_1", "dev", false, "jane@example.com").WillReturnResult(sqlmock.NewResult(0, 1))
-		mock.ExpectExec(q("INSERT INTO site_environments")).WithArgs("site_1", "prod", true, "jane@example.com").WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectExec(q("INSERT INTO site_environments")).WithArgs("site_1", "dev", false, false, false, "jane@example.com").WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectExec(q("INSERT INTO site_environments")).WithArgs("site_1", "prod", true, false, false, "jane@example.com").WillReturnResult(sqlmock.NewResult(0, 1))
 		mock.ExpectCommit()
 		got := st()
 		require.NoError(t, s.Create(ctx, got))
@@ -129,7 +129,7 @@ func TestGetAndGetByName(t *testing.T) {
 	ctx := context.Background()
 	s, mock := newMock(t)
 	env := func() *sqlmock.Rows {
-		return sqlmock.NewRows(envCols).AddRow("dev", 3, false, "jane@example.com", rowTime).AddRow("prod", 0, true, "", rowTime)
+		return sqlmock.NewRows(envCols).AddRow("dev", 3, false, false, false, rowTime, "jane@example.com", rowTime).AddRow("prod", 0, true, true, false, rowTime, "", rowTime)
 	}
 
 	mock.ExpectQuery(q("FROM sites WHERE id = $1")).WithArgs("site_1").WillReturnRows(siteRows("marketing"))
@@ -137,7 +137,8 @@ func TestGetAndGetByName(t *testing.T) {
 	got, err := s.Get(ctx, "site_1")
 	require.NoError(t, err)
 	assert.Equal(t, "marketing", got.Name)
-	assert.True(t, got.InternalView, "whether everyone internal may view it is read back")
+	assert.Equal(t, "dev", got.MainEnvironment, "the environment the main address serves is read back")
+	assert.True(t, got.Environment("prod").Public, "each environment's access is read back")
 	require.Len(t, got.Environments, 2)
 	assert.Equal(t, 3, got.Environment("dev").Release)
 	assert.True(t, got.Environment("prod").RequiresApproval)
@@ -173,7 +174,7 @@ func TestGetAndGetByName(t *testing.T) {
 
 	mock.ExpectQuery(q("FROM sites WHERE id = $1")).WillReturnRows(siteRows("marketing"))
 	mock.ExpectQuery(q("FROM site_environments")).WillReturnRows(
-		sqlmock.NewRows(envCols).AddRow("dev", 1, false, "", rowTime).RowError(0, errDown))
+		sqlmock.NewRows(envCols).AddRow("dev", 1, false, false, false, rowTime, "", rowTime).RowError(0, errDown))
 	_, err = s.Get(ctx, "site_1")
 	require.ErrorContains(t, err, "list environments")
 }
@@ -186,7 +187,7 @@ func TestList(t *testing.T) {
 		sqlmock.NewRows(siteCols).
 			AddRow("site_1", "a", "", "o", false, "o", rowTime, rowTime).
 			AddRow("site_2", "b", "", "o", false, "o", rowTime, rowTime))
-	mock.ExpectQuery(q("FROM site_environments")).WithArgs("site_1").WillReturnRows(sqlmock.NewRows(envCols).AddRow("dev", 1, false, "", rowTime))
+	mock.ExpectQuery(q("FROM site_environments")).WithArgs("site_1").WillReturnRows(sqlmock.NewRows(envCols).AddRow("dev", 1, false, false, false, rowTime, "", rowTime))
 	mock.ExpectQuery(q("FROM site_environments")).WithArgs("site_2").WillReturnRows(sqlmock.NewRows(envCols))
 	got, err := s.List(ctx)
 	require.NoError(t, err)
@@ -221,9 +222,9 @@ func TestList(t *testing.T) {
 func TestUpdateAndDelete(t *testing.T) {
 	ctx := context.Background()
 	s, mock := newMock(t)
-	st := &site.Site{ID: "site_1", Description: "new", OwnerEmail: "o@example.com", InternalView: true}
+	st := &site.Site{ID: "site_1", Description: "new", OwnerEmail: "o@example.com"}
 
-	mock.ExpectExec(q("UPDATE sites")).WithArgs("site_1", "new", "o@example.com", true).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(q("UPDATE sites")).WithArgs("site_1", "new", "o@example.com").WillReturnResult(sqlmock.NewResult(0, 1))
 	require.NoError(t, s.Update(ctx, st))
 	mock.ExpectExec(q("UPDATE sites")).WillReturnResult(sqlmock.NewResult(0, 0))
 	require.ErrorIs(t, s.Update(ctx, st), site.ErrNotFound)
@@ -243,10 +244,12 @@ func TestUpdateAndDelete(t *testing.T) {
 func TestSetEnvironment(t *testing.T) {
 	ctx := context.Background()
 	s, mock := newMock(t)
-	mock.ExpectExec(q("ON CONFLICT (site_id, name) DO UPDATE")).WithArgs("site_1", "qa", true, "jane@example.com").WillReturnResult(sqlmock.NewResult(0, 1))
-	require.NoError(t, s.SetEnvironment(ctx, "site_1", "qa", true, "jane@example.com"))
+	yes := true
+	set := site.EnvironmentSettings{RequiresApproval: &yes}
+	mock.ExpectExec(q("ON CONFLICT (site_id, name) DO UPDATE")).WithArgs("site_1", "qa", &yes, nil, nil, "jane@example.com").WillReturnResult(sqlmock.NewResult(0, 1))
+	require.NoError(t, s.SetEnvironment(ctx, "site_1", "qa", set, "jane@example.com"))
 	mock.ExpectExec(q("INSERT INTO site_environments")).WillReturnError(errDown)
-	require.ErrorContains(t, s.SetEnvironment(ctx, "site_1", "qa", true, "x"), "set environment")
+	require.ErrorContains(t, s.SetEnvironment(ctx, "site_1", "qa", set, "x"), "set environment")
 }
 
 func newRelease() *site.Release {
@@ -661,7 +664,7 @@ func TestRouteHost(t *testing.T) {
 		s, mock := newMock(t)
 		domain(mock, domainRow("www.example.com"))
 		mock.ExpectQuery(q("WHERE s.id = $1 AND e.name = $2")).WithArgs("site_1", "prod").
-			WillReturnRows(sqlmock.NewRows(routeCols).AddRow("site_1", "marketing", "prod", 2))
+			WillReturnRows(sqlmock.NewRows(routeCols).AddRow("site_1", "marketing", "prod", 2, false, ""))
 		mock.ExpectQuery(q("WHERE site_id = $1 AND number = $2")).WithArgs("site_1", 2).
 			WillReturnRows(sqlmock.NewRows(releaseCols).AddRow(releaseRow(2, `[]`)...))
 		r, err := s.RouteHost(ctx, "www.example.com")
@@ -671,7 +674,7 @@ func TestRouteHost(t *testing.T) {
 		require.NotNil(t, r.Release)
 		assert.Equal(t, 2, r.Release.Number)
 		assert.Empty(t, r.Application)
-		assert.False(t, r.Private, "only a site's own address is private")
+		assert.False(t, r.Private, "the environment row says it is public")
 	})
 	t.Run("no such hostname", func(t *testing.T) {
 		s, mock := newMock(t)
@@ -689,7 +692,7 @@ func TestRouteHost(t *testing.T) {
 	t.Run("an environment serving nothing has no release", func(t *testing.T) {
 		s, mock := newMock(t)
 		domain(mock, domainRow("www.example.com"))
-		mock.ExpectQuery(q("WHERE s.id = $1 AND e.name = $2")).WillReturnRows(sqlmock.NewRows(routeCols).AddRow("site_1", "marketing", "prod", 0))
+		mock.ExpectQuery(q("WHERE s.id = $1 AND e.name = $2")).WillReturnRows(sqlmock.NewRows(routeCols).AddRow("site_1", "marketing", "prod", 0, false, ""))
 		r, err := s.RouteHost(ctx, "www.example.com")
 		require.NoError(t, err)
 		assert.Nil(t, r.Release)
@@ -700,24 +703,24 @@ func TestRouteOwn(t *testing.T) {
 	ctx := context.Background()
 	s, mock := newMock(t)
 
-	mock.ExpectQuery(q("WHERE s.name = $1 AND e.name = $2")).WithArgs("marketing", site.EnvDefault).
-		WillReturnRows(sqlmock.NewRows(routeCols).AddRow("site_1", "marketing", site.EnvDefault, 1))
+	mock.ExpectQuery(q("WHERE s.name = $1 AND e.name = s.main_environment")).WithArgs("marketing").
+		WillReturnRows(sqlmock.NewRows(routeCols).AddRow("site_1", "marketing", site.EnvDev, 1, true, ""))
 	mock.ExpectQuery(q("WHERE site_id = $1 AND number = $2")).WillReturnRows(sqlmock.NewRows(releaseCols).AddRow(releaseRow(1, `[]`)...))
 	r, err := s.RouteOwn(ctx, "marketing")
 	require.NoError(t, err)
 	assert.Equal(t, 1, r.Release.Number)
-	assert.Equal(t, site.EnvDefault, r.Environment)
-	assert.True(t, r.Private, "a site's own address answers only to those who may open it")
+	assert.Equal(t, site.EnvDev, r.Environment)
+	assert.True(t, r.Private, "a private environment answers only to those who may open it")
 
-	mock.ExpectQuery(q("WHERE s.name = $1 AND e.name = $2")).WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery(q("WHERE s.name = $1 AND e.name = s.main_environment")).WillReturnError(sql.ErrNoRows)
 	_, err = s.RouteOwn(ctx, "none")
 	require.ErrorIs(t, err, site.ErrNoDomain)
 
-	mock.ExpectQuery(q("WHERE s.name = $1 AND e.name = $2")).WillReturnError(errDown)
+	mock.ExpectQuery(q("WHERE s.name = $1 AND e.name = s.main_environment")).WillReturnError(errDown)
 	_, err = s.RouteOwn(ctx, "marketing")
 	require.ErrorContains(t, err, "read route")
 
-	mock.ExpectQuery(q("WHERE s.name = $1 AND e.name = $2")).WillReturnRows(sqlmock.NewRows(routeCols).AddRow("site_1", "marketing", site.EnvDefault, 9))
+	mock.ExpectQuery(q("WHERE s.name = $1 AND e.name = s.main_environment")).WillReturnRows(sqlmock.NewRows(routeCols).AddRow("site_1", "marketing", site.EnvDev, 9, true, ""))
 	mock.ExpectQuery(q("WHERE site_id = $1 AND number = $2")).WillReturnError(sql.ErrNoRows)
 	_, err = s.RouteOwn(ctx, "marketing")
 	require.ErrorIs(t, err, site.ErrNoRelease, "a pointer at a release that is gone is told as that")
@@ -764,7 +767,7 @@ func TestHostsAndApplicationHosts(t *testing.T) {
 
 func TestApplicationHosts_PassesTheApplicationAndPagesDomain(t *testing.T) {
 	s, mock := newMock(t)
-	mock.ExpectQuery(q("p.kind = 'site'")).WithArgs("app_1", "pages.example.net", site.EnvDefault).WillReturnRows(sqlmock.NewRows([]string{"hostname"}))
+	mock.ExpectQuery(q("p.kind = 'site'")).WithArgs("app_1", "pages.example.net").WillReturnRows(sqlmock.NewRows([]string{"hostname"}))
 	_, err := s.ApplicationHosts(context.Background(), "app_1", "pages.example.net")
 	require.NoError(t, err)
 }

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -50,6 +51,7 @@ func Build(mux *http.ServeMux, p *platform.Platform, adminAuth func() func(http.
 	mux.HandleFunc("GET /sites/handoff", deps.Access.Handoff)
 	gateway := sitegw.New(deps)
 	rt.Service.Invalidate = gateway.Invalidate
+	rt.Service.External, rt.Service.PersonaExists = peopleChecks(p)
 	layer := &Layer{gateway: gateway, runtime: rt}
 	if p.Config().Admin.IsEnabled() {
 		(&adminAPI{rt: rt, author: author}).mount(mux, adminAuth())
@@ -108,6 +110,12 @@ func accessOver(p *platform.Platform, rt *sitewire.Runtime, portal *url.URL) *si
 		PagesDomain: func() string { return rt.Live.Get().PagesDomain },
 		IsAdmin:     func(name string) bool { return reg.IsAdminName(name, admin) },
 		IsExternal:  external, Secure: portal.Scheme == "https", PublicPort: portal.Port(),
+		PersonaFor: func(roles []string) string {
+			if found, ok := reg.GetForRoles(roles); ok {
+				return found.Name
+			}
+			return ""
+		},
 		Session: func(*http.Request) (*sitegw.SiteViewer, error) { return nil, nil }, //nolint:nilnil // no browser sign-in: nobody is signed in
 	}
 	if ba := p.BrowserSessionAuth(); ba != nil {
@@ -116,10 +124,11 @@ func accessOver(p *platform.Platform, rt *sitewire.Runtime, portal *url.URL) *si
 			if err != nil || info == nil {
 				return nil, err //nolint:wrapcheck // nobody is signed in
 			}
-			v := &sitegw.SiteViewer{UserID: info.UserID, Email: info.Email}
+			v := &sitegw.SiteViewer{UserID: info.UserID, Email: info.Email, Roles: info.Roles}
 			if found, ok := reg.GetForRoles(info.Roles); ok {
 				v.Persona = found.Name
 			}
+			v.Name = displayName(r.Context(), p, info.Email)
 			verified, stated := info.Claims[browsersession.ClaimEmailVerified].(bool)
 			v.EmailUnverified = stated && !verified
 			return v, nil
@@ -164,4 +173,37 @@ func (l *Layer) shutdown() {
 		close(l.stop)
 		<-l.done
 	}
+}
+
+// displayName is the name the directory holds for an email, "" for none.
+func displayName(ctx context.Context, p *platform.Platform, email string) string {
+	users := p.UserStore()
+	if users == nil || email == "" {
+		return ""
+	}
+	u, err := users.Get(ctx, email)
+	if err != nil || u == nil {
+		return ""
+	}
+	return strings.TrimSpace(u.FirstName + " " + u.LastName)
+}
+
+// peopleChecks are the site service's reads of the live persona registry: is
+// the person at an address external (from the roles the directory recorded at
+// their last sign-in), and does a persona a grant names exist.
+func peopleChecks(p *platform.Platform) (external func(context.Context, string) bool, exists func(string) bool) {
+	reg := p.PersonaRegistry()
+	external = func(ctx context.Context, email string) bool {
+		users := p.UserStore()
+		if users == nil {
+			return false
+		}
+		u, err := users.Get(ctx, email)
+		return err == nil && u != nil && reg.IsExternalRoles(u.Roles)
+	}
+	exists = func(name string) bool {
+		_, ok := reg.Get(name)
+		return ok
+	}
+	return external, exists
 }

@@ -324,3 +324,36 @@ func TestDescribe_ASiteIsNamedByItsPartID(t *testing.T) {
 	assert.Equal(t, PartOK, got[0].State)
 	assert.Equal(t, sitePart, got[0].Name)
 }
+
+// The old name of dev is read as dev for one release (#2604): the part is kept
+// as <site>/dev, so releasing and rolling back move dev.
+func TestAddPart_ASiteByTheOldNameOfDev(t *testing.T) {
+	svc, store, sites := siteFixture(t)
+	a, err := svc.AddPart(context.Background(), jane, "shop", application.KindSite, "marketing/default")
+	require.NoError(t, err)
+	require.Len(t, a.Parts, 1)
+	assert.Equal(t, "marketing/dev", a.Parts[0].ID)
+	assert.Equal(t, [][2]string{{"marketing", "dev"}}, sites.askedOwner)
+	assert.Equal(t, "marketing/dev", store.apps["app_shop"].Parts[0].ID)
+
+	b, err := svc.Create(context.Background(), jane, application.Application{Name: "defaults"})
+	require.NoError(t, err)
+	b, err = svc.AddPart(context.Background(), jane, b.Name, application.KindSite, "default/prod")
+	require.NoError(t, err, "a site named default is not the alias")
+	assert.Equal(t, "default/prod", b.Parts[0].ID)
+}
+
+// A new application cannot hold "--": <site>--<env> is a site environment's
+// address on the pages domain, and an application holding it would take it
+// over (#2604).
+func TestCreate_RefusesADoubleHyphen(t *testing.T) {
+	svc, store, _, _, _ := fixture()
+	_, err := svc.Create(context.Background(), jane, application.Application{Name: "intranet--dev"})
+	var r *RefusedError
+	require.ErrorAs(t, err, &r)
+	assert.Contains(t, r.Msg, "kept for site environment addresses")
+	assert.Empty(t, store.apps)
+
+	_, err = svc.Create(context.Background(), jane, application.Application{Name: "intranet-dev"})
+	require.NoError(t, err, "a single hyphen is fine")
+}

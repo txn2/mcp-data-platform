@@ -2,8 +2,8 @@ import fs from "fs";
 import { test, expect } from "@playwright/test";
 import { authenticate } from "../screenshots/helpers/auth";
 
-// The portal's Sites section (#2559), against MSW's sites: each state the
-// ticket names, and that a release is never rendered on the portal's origin.
+// The portal's Sites section (#2559, #2604), against MSW's sites: each state
+// the tickets name, and that a release is never rendered on the portal's origin.
 
 test.describe("Sites", () => {
   test.beforeEach(async ({ page }) => {
@@ -22,7 +22,7 @@ test.describe("Sites", () => {
     await page.goto("/portal/sites");
     await expect(page.getByRole("link", { name: "marketing.pages.example.net" })).toBeVisible();
     await expect(page.getByRole("link", { name: "go.example.com" })).toBeVisible();
-    await expect(page.getByText("default 12")).toBeVisible();
+    await expect(page.getByText("dev 12")).toBeVisible();
   });
 
   test("says how to start when there are no sites", async ({ page }) => {
@@ -39,7 +39,7 @@ test.describe("Sites", () => {
     await expect(page).toHaveURL(/\/admin\/settings\/sites/);
   });
 
-  test("a new site has only its own address, and creating one opens it", async ({ page }) => {
+  test("a new site has only dev, on its main address, and creating one opens it", async ({ page }) => {
     await page.goto("/portal/sites");
     await page.getByRole("button", { name: "New site" }).click();
     const dialog = page.getByRole("dialog", { name: "New site" });
@@ -47,7 +47,7 @@ test.describe("Sites", () => {
     await expect(dialog.getByText("careers.pages.example.net")).toBeVisible();
     await dialog.getByRole("button", { name: "Create site" }).click();
     await expect(page).toHaveURL(/\/sites\/careers/);
-    await expect(page.getByRole("cell", { name: "default" }).first()).toBeVisible();
+    await expect(page.getByTestId("env-dev")).toContainText("Working copy");
   });
 
   test("the tab in view is the one marked", async ({ page }) => {
@@ -57,10 +57,22 @@ test.describe("Sites", () => {
     await expect(page.getByRole("tab", { name: "Releases" })).toHaveAttribute("aria-selected", "false");
   });
 
-  test("environments show who can open what, and Share is only beside the site's own address", async ({ page }) => {
+  test("every environment says who can open it, and Share is offered only on private ones", async ({ page }) => {
     await page.goto("/portal/sites/marketing");
-    await expect(page.getByText("Sign-in and access needed")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Share" })).toHaveCount(1);
+    await expect(page.getByText("How this site works")).toBeVisible();
+    await expect(page.getByTestId("env-dev")).toContainText("Working copy");
+    await expect(page.getByTestId("env-prod")).toContainText("Anyone. The platform asks no one to sign in.");
+    await expect(page.getByRole("button", { name: "Share" })).toHaveCount(2);
+  });
+
+  test("making an environment public names every address that opens", async ({ page }) => {
+    await page.goto("/portal/sites/marketing");
+    await page.getByTestId("env-stage").getByRole("button", { name: "Settings" }).click();
+    await page.getByRole("dialog", { name: "stage settings" }).getByRole("radio", { name: "Public" }).click();
+    const confirm = page.getByRole("dialog", { name: "Make stage public?" });
+    await expect(confirm).toContainText("marketing--stage.pages.example.net");
+    await expect(confirm).toContainText("go.example.com");
+    await expect(confirm.getByRole("button", { name: "Make stage public" })).toBeDisabled();
   });
 
   test("a domain is added with a new environment and an optional approval rule", async ({ page }) => {
@@ -68,7 +80,10 @@ test.describe("Sites", () => {
     await page.getByRole("button", { name: "Add domain" }).click();
     const dialog = page.getByRole("dialog", { name: "Add domain" });
     await dialog.getByLabel("Domain").fill("qa.example.com");
+    await dialog.getByRole("combobox", { name: "Environment" }).click();
+    await page.getByRole("option", { name: "New environment" }).click();
     await dialog.getByLabel("Name").fill("qa");
+    await expect(dialog.getByRole("radio", { name: "Private" })).toBeChecked();
     await expect(dialog.getByText("Requires approval")).toBeVisible();
     await dialog.getByRole("button", { name: "Add domain" }).click();
     await expect(page.getByRole("link", { name: "qa.example.com" })).toBeVisible();
@@ -79,26 +94,28 @@ test.describe("Sites", () => {
     await page.getByRole("button", { name: "Add domain" }).click();
     const dialog = page.getByRole("dialog", { name: "Add domain" });
     await dialog.getByLabel("Domain").fill("go.example.com");
-    await dialog.getByLabel("Name").fill("x");
     await dialog.getByRole("button", { name: "Add domain" }).click();
     await expect(dialog.getByTestId("domain-refused")).toContainText("already in use");
   });
 
-  test("access has the intranet checkbox and adding a person shows both levels", async ({ page }) => {
+  test("access lists who manages and who each environment is shared with", async ({ page }) => {
     await page.goto("/portal/sites/marketing/access");
-    await expect(page.getByText("Everyone internal can view")).toBeVisible();
-    await page.getByRole("button", { name: "Add person" }).click();
-    const dialog = page.getByRole("dialog");
-    await expect(dialog.getByRole("radio", { name: "Can view" })).toBeVisible();
-    await expect(dialog.getByRole("radio", { name: "Can manage" })).toBeVisible();
+    await expect(page.getByText("Who manages")).toBeVisible();
+    await expect(page.getByRole("row", { name: /web-team/ })).toContainText("dev");
+    await expect(page.getByRole("row", { name: /Everyone internal/ })).toContainText("stage");
+    await page.getByRole("button", { name: "Share", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Share stage" });
+    await expect(dialog.getByRole("checkbox", { name: "stage" })).toBeChecked();
+    await expect(dialog.getByRole("checkbox", { name: "dev" })).not.toBeChecked();
   });
 
   test("promote shows what changes before confirming", async ({ page }) => {
     await page.goto("/portal/sites/marketing");
-    await page.getByRole("row", { name: /^prod/ }).getByRole("button", { name: "Promote" }).click();
+    await page.getByTestId("env-prod").getByRole("button", { name: "Promote" }).click();
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByText("What changes on prod")).toBeVisible();
     await expect(dialog.getByText("2 files changed")).toBeVisible();
+    await expect(dialog.getByText("Who sees it")).toBeVisible();
   });
 
   test("a release lists its files and renders none of them", async ({ page }) => {
@@ -111,8 +128,8 @@ test.describe("Sites", () => {
     const film = testInfo.outputPath("film.mp4");
     fs.writeFileSync(film, Buffer.alloc(68 * 1024 * 1024));
     await page.goto("/portal/sites/marketing");
-    await page.getByRole("button", { name: "Publish" }).click();
-    const dialog = page.getByRole("dialog", { name: "Publish to marketing" });
+    await page.getByTestId("env-dev").getByRole("button", { name: "Publish" }).click();
+    const dialog = page.getByRole("dialog", { name: "Publish to dev" });
     await dialog.getByLabel("Choose .zip").setInputFiles(film);
     await expect(dialog.getByTestId("publish-refused")).toContainText("One file can be at most");
     await expect(dialog.getByRole("button", { name: "Publish" })).toBeDisabled();
@@ -131,5 +148,19 @@ test.describe("Sites", () => {
     await expect(page.getByText("Each of these needs an ingress rule")).toBeVisible();
     await expect(page.getByRole("link", { name: "marketing.pages.example.net" })).toBeVisible();
     await expect(page.getByRole("link", { name: "shop.example.com" })).toBeVisible();
+  });
+
+  test("at 375px the environments, access and share pages fit the screen", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    for (const path of ["/portal/sites/marketing", "/portal/sites/marketing/access", "/portal/sites/marketing/domains"]) {
+      await page.goto(path);
+      await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible();
+      await expect.poll(overflow, `${path} scrolls sideways`).toBeLessThanOrEqual(0);
+    }
+    await page.goto("/portal/sites/marketing");
+    await page.getByTestId("env-stage").getByRole("button", { name: "Share" }).click();
+    await expect(page.getByRole("dialog", { name: "Share stage" })).toBeVisible();
+    await expect.poll(overflow, "the share dialog scrolls sideways").toBeLessThanOrEqual(0);
   });
 });

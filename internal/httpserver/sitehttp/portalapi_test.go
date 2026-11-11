@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/application/appstore"
+	"github.com/txn2/mcp-data-platform/internal/approval"
 	"github.com/txn2/mcp-data-platform/internal/site"
 	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
 	"github.com/txn2/mcp-data-platform/internal/site/sitecrawl"
@@ -74,8 +75,8 @@ func newFixture(t *testing.T) *fixture {
 		external: map[string]bool{},
 	}
 	f.store.sites[siteID] = &site.Site{
-		ID: siteID, Name: siteName, OwnerEmail: userOwner.Email, CreatedBy: userOwner.Email,
-		Environments: []site.Environment{{Name: site.EnvDefault}, {Name: "stage"}, {Name: envProd, RequiresApproval: true}},
+		ID: siteID, Name: siteName, OwnerEmail: userOwner.Email, CreatedBy: userOwner.Email, MainEnvironment: site.EnvDev,
+		Environments: []site.Environment{{Name: site.EnvDev}, {Name: "stage"}, {Name: envProd, RequiresApproval: true}},
 	}
 	f.store.grants[siteID] = map[string]site.Grant{
 		userManager.Email: {Email: userManager.Email, Level: site.LevelManage},
@@ -95,7 +96,8 @@ func newFixture(t *testing.T) *fixture {
 	f.mux = http.NewServeMux()
 	(&portalAPI{d: PortalDeps{
 		Runtime: f.rt, Audit: f.audit, Sharer: f.sharer,
-		IsAdmin: func(roles []string) bool { return len(roles) == 1 && roles[0] == "admin" },
+		IsAdmin:  func(roles []string) bool { return len(roles) == 1 && roles[0] == "admin" },
+		Personas: func() []string { return []string{"finance-team", "web-team"} },
 		Persona: func(roles []string) *portal.PersonaInfo {
 			if len(roles) == 0 {
 				return nil
@@ -276,7 +278,7 @@ func TestPortal_WritesRefused(t *testing.T) {
 		{"promote, unknown environment", http.MethodPost, siteBase + "/promote", userOwner, map[string]any{"to": "qa", "release": 1}, 404, "no such environment"},
 		{"promote, unknown release", http.MethodPost, siteBase + "/promote", userOwner, map[string]any{"to": "stage", "release": 9}, 404, "no such release"},
 		{"promote, bad JSON", http.MethodPost, siteBase + "/promote", userOwner, "{", 400, "not valid JSON"},
-		{"rollback, no earlier release", http.MethodPost, siteBase + "/rollback", userOwner, map[string]any{"environment": "default"}, 422, "no earlier release"},
+		{"rollback, no earlier release", http.MethodPost, siteBase + "/rollback", userOwner, map[string]any{"environment": "dev"}, 422, "no earlier release"},
 		{"rollback, stranger", http.MethodPost, siteBase + "/rollback", userStranger, map[string]any{"environment": "default"}, 403, "permission"},
 		{"rollback, unknown environment", http.MethodPost, siteBase + "/rollback", userOwner, map[string]any{"environment": "qa"}, 404, "no such environment"},
 		{"rollback, bad JSON", http.MethodPost, siteBase + "/rollback", userOwner, "{", 400, "not valid JSON"},
@@ -289,7 +291,8 @@ func TestPortal_WritesRefused(t *testing.T) {
 		{"domain, reserved host", http.MethodPost, siteBase + "/domains", userOwner, map[string]any{"hostname": "mcp.example.org", "environment": "x"}, 422, "answers on itself"},
 		{"domain, the portal", http.MethodPost, siteBase + "/domains", userOwner, map[string]any{"hostname": "portal.example.com", "environment": "x"}, 422, "answers on itself"},
 		{"domain, the pages domain", http.MethodPost, siteBase + "/domains", userOwner, map[string]any{"hostname": "a.pages.example.net", "environment": "x"}, 422, "pages domain"},
-		{"domain, default environment", http.MethodPost, siteBase + "/domains", userOwner, map[string]any{"hostname": "a.example.org", "environment": "default"}, 422, "own address"},
+		{"domain, dev", http.MethodPost, siteBase + "/domains", userOwner, map[string]any{"hostname": "a.example.org", "environment": "dev"}, 422, "cannot have a domain"},
+		{"domain, dev by its old name", http.MethodPost, siteBase + "/domains", userOwner, map[string]any{"hostname": "a.example.org", "environment": "default"}, 422, "cannot have a domain"},
 		{"domain, unknown site", http.MethodPost, base + "/nope/domains", userOwner, map[string]any{"hostname": "a.example.org", "environment": "x"}, 404, "no such site"},
 		{"domain, bad JSON", http.MethodPost, siteBase + "/domains", userOwner, "{", 400, "not valid JSON"},
 		{"access, stranger", http.MethodGet, siteBase + "/access", userStranger, nil, 403, "permission"},
@@ -304,7 +307,17 @@ func TestPortal_WritesRefused(t *testing.T) {
 		{"revoke, stranger", http.MethodDelete, siteBase + "/access?email=vi@client.example", userStranger, nil, 403, "permission"},
 		{"revoke, manager on a manager", http.MethodDelete, siteBase + "/access?email=mo@example.com", userManager, nil, 403, "permission"},
 		{"revoke, no such grant", http.MethodDelete, siteBase + "/access?email=none@example.com", userOwner, nil, 404, "no access"},
-		{"revoke, no email", http.MethodDelete, siteBase + "/access", userOwner, nil, 400, "email is required"},
+		{"revoke, no email", http.MethodDelete, siteBase + "/access", userOwner, nil, 400, "email or persona is required"},
+		{"revoke, email and persona", http.MethodDelete, siteBase + "/access?email=vi@client.example&persona=finance", userOwner, nil, 422, "an email or a persona"},
+		{"grant, email and persona", http.MethodPut, siteBase + "/access", userOwner, map[string]any{"email": "x@example.com", "persona": "finance", "level": "view"}, 422, "not both"},
+		{"grant, a persona to manage", http.MethodPut, siteBase + "/access", userOwner, map[string]any{"persona": "finance", "level": "manage"}, 422, "manage is given to a person"},
+		{"grant, an environment the site lacks", http.MethodPut, siteBase + "/access", userOwner, map[string]any{"email": "x@example.com", "level": "view", "environments": []string{"qa"}}, 404, "no such environment"},
+		{"environment, a manager making it public", http.MethodPut, siteBase + "/environments/stage", userManager, map[string]any{"public": true}, 403, "permission"},
+		{"environment, a public dev", http.MethodPut, siteBase + "/environments/dev", userOwner, map[string]any{"public": true}, 422, "always private"},
+		{"environment, bad JSON", http.MethodPut, siteBase + "/environments/stage", userOwner, "{", 400, "not valid JSON"},
+		{"main address, a manager", http.MethodPut, siteBase + "/main-environment", userManager, map[string]any{"environment": "stage"}, 403, "permission"},
+		{"main address, no such environment", http.MethodPut, siteBase + "/main-environment", userOwner, map[string]any{"environment": "qa"}, 404, "no such environment"},
+		{"main address, bad JSON", http.MethodPut, siteBase + "/main-environment", userOwner, "{", 400, "not valid JSON"},
 		{"grant, no email", http.MethodPut, siteBase + "/access", userOwner, map[string]any{"level": "view"}, 422, "email"},
 		{"revoke, unknown site", http.MethodDelete, base + "/nope/access?email=x@example.com", userOwner, nil, 404, "no such site"},
 		{"stop, stranger", http.MethodPost, siteBase + "/jobs/sjob_1/stop", userStranger, nil, 403, "permission"},
@@ -313,12 +326,12 @@ func TestPortal_WritesRefused(t *testing.T) {
 		{"publish, bad JSON", http.MethodPost, siteBase + "/publish", userOwner, "{", 400, "not valid JSON"},
 		{"publish, no source", http.MethodPost, siteBase + "/publish", userOwner, map[string]any{}, 422, "one source"},
 		{"publish, two sources", http.MethodPost, siteBase + "/publish", userOwner, map[string]any{"archive": "a", "folder": "b"}, 422, "one source"},
-		{"publish, requires approval", http.MethodPost, siteBase + "/publish", userOwner, map[string]any{"archive": "a", "environment": "prod"}, 422, "requires approval"},
-		{"publish, unknown environment", http.MethodPost, siteBase + "/publish", userOwner, map[string]any{"archive": "a", "environment": "qa"}, 404, "no such environment"},
+		{"publish, an environment people use", http.MethodPost, siteBase + "/publish", userOwner, map[string]any{"archive": "a", "environment": "prod"}, 422, `environment \"prod\" is read-only`},
+		{"publish, any environment but dev", http.MethodPost, siteBase + "/publish", userOwner, map[string]any{"archive": "a", "environment": "qa"}, 422, "is read-only"},
 		{"publish, unknown site", http.MethodPost, base + "/nope/publish", userOwner, map[string]any{"archive": "a"}, 404, "no such site"},
 		{"copy, stranger", http.MethodPost, siteBase + "/copy", userStranger, map[string]any{"url": "https://a.example/"}, 403, "permission"},
 		{"copy, bad JSON", http.MethodPost, siteBase + "/copy", userOwner, "{", 400, "not valid JSON"},
-		{"copy, unknown environment", http.MethodPost, siteBase + "/copy", userOwner, map[string]any{"url": "https://a.example/", "environment": "qa"}, 404, "no such environment"},
+		{"copy, any environment but dev", http.MethodPost, siteBase + "/copy", userOwner, map[string]any{"url": "https://a.example/", "environment": "qa"}, 422, "is read-only"},
 		{"create, bad name", http.MethodPost, base, userOwner, map[string]any{"name": "Bad Name"}, 422, "site name"},
 		{"create, bad JSON", http.MethodPost, base, userOwner, "{", 400, "not valid JSON"},
 		{"create, taken", http.MethodPost, base, userOwner, map[string]any{"name": siteName}, 409, "a site with that name"},
@@ -391,7 +404,7 @@ func TestPortal_ReadsThatFail(t *testing.T) {
 	for _, tc := range failures {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFixture(t)
-			f.release(1, site.EnvDefault)
+			f.release(1, site.EnvDev)
 			tc.breakIt(f.store)
 			rec := f.statusIs(t, http.StatusInternalServerError, route{http.MethodGet, tc.target, nil}, userStranger)
 			assert.Contains(t, rec.Body.String(), internalErr)
@@ -466,7 +479,7 @@ func TestPortal_CreateAndDelete(t *testing.T) {
 	assert.Equal(t, userOwner.Email, created.OwnerEmail)
 	assert.Equal(t, "https://blog.pages.example.net", created.Address)
 	require.Len(t, created.Environments, 1)
-	assert.Equal(t, site.EnvDefault, created.Environments[0].Name)
+	assert.Equal(t, site.EnvDev, created.Environments[0].Name)
 
 	ev := f.audit.last()
 	assert.Equal(t, "manage_site", ev.ToolName)
@@ -496,8 +509,7 @@ func TestPortal_Update(t *testing.T) {
 	got := decodeBody[site.Site](t, f.statusIs(t, 200, route{http.MethodPatch, siteBase, map[string]any{"description": "new words"}}, userOwner))
 	assert.Equal(t, "new words", got.Description)
 
-	got = decodeBody[site.Site](t, f.statusIs(t, 200, route{http.MethodPatch, siteBase, map[string]any{"internal_view": true}}, userManager))
-	assert.True(t, got.InternalView, "someone who manages it opens it to everyone internal")
+	got = decodeBody[site.Site](t, f.statusIs(t, 200, route{http.MethodPatch, siteBase, map[string]any{"owner_email": "jane@example.com"}}, userOwner))
 	assert.Equal(t, "new words", got.Description, "a field left out is left alone")
 
 	got = decodeBody[site.Site](t, f.statusIs(t, 200, route{http.MethodPatch, siteBase, map[string]any{"owner_email": "new@example.com"}}, userAdmin))
@@ -507,19 +519,19 @@ func TestPortal_Update(t *testing.T) {
 func TestPortal_ReleasesAndDeployments(t *testing.T) {
 	f := newFixture(t)
 	f.release(1, "")
-	f.release(2, site.EnvDefault)
+	f.release(2, site.EnvDev)
 
 	list := decodeBody[ReleaseList](t, f.statusIs(t, 200, route{http.MethodGet, siteBase + "/releases", nil}, userViewer))
 	require.Len(t, list.Releases, 2)
 	assert.Equal(t, 2, list.Releases[0].Number)
-	assert.Equal(t, []string{site.EnvDefault}, list.Releases[0].ServedIn)
+	assert.Equal(t, []string{site.EnvDev}, list.Releases[0].ServedIn)
 	assert.Equal(t, []string{}, list.Releases[1].ServedIn, "none is [], never null")
 
 	detail := decodeBody[ReleaseDetail](t, f.statusIs(t, 200, route{http.MethodGet, siteBase + "/releases/2", nil}, userViewer))
 	require.Len(t, detail.Files, 1)
 	assert.Equal(t, "index.html", detail.Files[0].Path)
 
-	history := decodeBody[DeploymentList](t, f.statusIs(t, 200, route{http.MethodGet, siteBase + "/deployments?environment=default", nil}, userViewer))
+	history := decodeBody[DeploymentList](t, f.statusIs(t, 200, route{http.MethodGet, siteBase + "/deployments?environment=dev", nil}, userViewer))
 	assert.Len(t, history.Deployments, 1)
 	none := decodeBody[DeploymentList](t, f.statusIs(t, 200, route{http.MethodGet, siteBase + "/deployments?environment=stage", nil}, userViewer))
 	assert.Equal(t, []site.Deployment{}, none.Deployments)
@@ -557,7 +569,7 @@ func TestPortal_PublishRunsApartAndAsTheCaller(t *testing.T) {
 	assert.Equal(t, "publish", f.audit.last().Parameters["command"])
 
 	f.store.mu.Lock()
-	assert.Equal(t, 1, f.store.sites[siteID].Environment(site.EnvDefault).Release)
+	assert.Equal(t, 1, f.store.sites[siteID].Environment(site.EnvDev).Release)
 	f.store.mu.Unlock()
 }
 
@@ -665,27 +677,126 @@ func TestPortal_JobsListAndStop(t *testing.T) {
 
 func TestPortal_PromoteRollbackAndEnvironment(t *testing.T) {
 	f := newFixture(t)
-	f.release(1, site.EnvDefault)
+	f.release(1, site.EnvDev)
 
-	got := decodeBody[sitesvc.Promoted](t, f.statusIs(t, 200, route{http.MethodPost, siteBase + "/promote", map[string]any{"from": site.EnvDefault, "to": "stage"}}, userManager))
+	got := decodeBody[sitesvc.Promoted](t, f.statusIs(t, 200, route{http.MethodPost, siteBase + "/promote", map[string]any{"from": site.EnvDev, "to": "stage"}}, userManager))
 	assert.Equal(t, sitesvc.StatusPromoted, got.Status)
 	assert.Equal(t, "promote", f.audit.last().Parameters["command"])
 
-	waiting := decodeBody[sitesvc.Promoted](t, f.statusIs(t, 200, route{http.MethodPost, siteBase + "/promote", map[string]any{"from": site.EnvDefault, "to": envProd}}, userManager))
+	waiting := decodeBody[sitesvc.Promoted](t, f.statusIs(t, 200, route{http.MethodPost, siteBase + "/promote", map[string]any{"from": site.EnvDev, "to": envProd}}, userManager))
 	assert.Equal(t, sitesvc.StatusAwaitingApproval, waiting.Status)
 	require.NotNil(t, waiting.Approval)
 
-	f.release(2, site.EnvDefault)
-	rolled := decodeBody[sitesvc.Promoted](t, f.statusIs(t, 200, route{http.MethodPost, siteBase + "/rollback", map[string]any{"environment": site.EnvDefault}}, userOwner))
+	f.release(2, site.EnvDev)
+	rolled := decodeBody[sitesvc.Promoted](t, f.statusIs(t, 200, route{http.MethodPost, siteBase + "/rollback", map[string]any{"environment": site.EnvDev}}, userOwner))
 	assert.Equal(t, 1, rolled.Release)
 
 	f.store.failPoint = site.ErrStale
 	f.statusIs(t, http.StatusConflict, route{http.MethodPost, siteBase + "/promote", map[string]any{"release": 2, "to": "stage"}}, userManager)
-	f.statusIs(t, http.StatusConflict, route{http.MethodPost, siteBase + "/rollback", map[string]any{"environment": site.EnvDefault, "release": 2}}, userOwner)
+	f.statusIs(t, http.StatusConflict, route{http.MethodPost, siteBase + "/rollback", map[string]any{"environment": site.EnvDev, "release": 2}}, userOwner)
 
-	env := decodeBody[site.Site](t, f.statusIs(t, 200, route{http.MethodPut, siteBase + "/environments/qa", map[string]any{"requires_approval": true}}, userOwner))
-	require.NotNil(t, env.Environment("qa"))
-	assert.True(t, env.Environment("qa").RequiresApproval)
+	env := decodeBody[EnvironmentResponse](t, f.statusIs(t, 200, route{http.MethodPut, siteBase + "/environments/qa", map[string]any{"requires_approval": true}}, userOwner))
+	require.NotNil(t, env.Site.Environment("qa"))
+	assert.True(t, env.Site.Environment("qa").RequiresApproval)
+	assert.False(t, env.Site.Environment("qa").Public, "a new environment is private")
+	assert.Equal(t, sitesvc.StatusDone, env.Status)
+	assert.Equal(t, "https://marketing--qa.pages.example.net", env.Site.Addresses["qa"])
+}
+
+// Making an environment public is the owner's; where it requires approval it
+// waits in Approvals and goes through once approved (#2604).
+func TestPortal_MakeAnEnvironmentPublic(t *testing.T) {
+	f := newFixture(t)
+	done := decodeBody[EnvironmentResponse](t, f.statusIs(t, 200, route{http.MethodPut, siteBase + "/environments/stage", map[string]any{"public": true}}, userOwner))
+	assert.Equal(t, sitesvc.StatusDone, done.Status)
+	assert.True(t, f.store.sites[siteID].Environment("stage").Public)
+
+	waiting := decodeBody[EnvironmentResponse](t, f.statusIs(t, 200, route{http.MethodPut, siteBase + "/environments/" + envProd, map[string]any{"public": true, "reason": "launch"}}, userOwner))
+	assert.Equal(t, sitesvc.StatusAwaitingApproval, waiting.Status)
+	require.NotNil(t, waiting.Approval)
+	assert.Equal(t, approval.PurposeSitePublic, waiting.Approval.Purpose)
+	assert.False(t, f.store.sites[siteID].Environment(envProd).Public, "prod stays private while it waits")
+
+	fa, ok := f.rt.Service.Approvals.(*fakeApprovals)
+	require.True(t, ok)
+	fa.approved = true
+	finished := decodeBody[EnvironmentResponse](t, f.statusIs(t, 200, route{http.MethodPut, siteBase + "/environments/" + envProd, map[string]any{"public": true}}, userOwner))
+	assert.Equal(t, sitesvc.StatusDone, finished.Status, "the same request goes through once approved")
+	assert.True(t, f.store.sites[siteID].Environment(envProd).Public)
+
+	private := decodeBody[EnvironmentResponse](t, f.statusIs(t, 200, route{http.MethodPut, siteBase + "/environments/stage", map[string]any{"public": false}}, userManager))
+	assert.False(t, private.Site.Environment("stage").Public, "anyone who manages the site makes an environment private")
+}
+
+func TestPortal_MainEnvironment(t *testing.T) {
+	f := newFixture(t)
+	got := decodeBody[SiteView](t, f.statusIs(t, 200, route{http.MethodPut, siteBase + "/main-environment", map[string]any{"environment": envProd}}, userOwner))
+	assert.Equal(t, envProd, got.MainEnvironment)
+	assert.Equal(t, "https://marketing.pages.example.net", got.Address)
+	assert.Equal(t, "https://marketing.pages.example.net", got.Addresses[envProd], "prod answers at the main address")
+	assert.Equal(t, "https://marketing--dev.pages.example.net", got.Addresses[site.EnvDev], "dev falls back to <site>--dev")
+
+	none := decodeBody[SiteView](t, f.statusIs(t, 200, route{http.MethodPut, siteBase + "/main-environment", map[string]any{"environment": ""}}, userAdmin))
+	assert.Empty(t, none.MainEnvironment)
+	assert.Empty(t, none.Address, "a main address given to none is no address")
+}
+
+// A persona is shared view of named environments; the access list offers every
+// persona to share with, and a persona grant is removed by name.
+func TestPortal_PersonaGrants(t *testing.T) {
+	f := newFixture(t)
+	list := decodeBody[AccessList](t, f.statusIs(t, 200, route{http.MethodGet, siteBase + "/access", nil}, userManager))
+	assert.Equal(t, []string{"finance-team", "web-team"}, list.Personas)
+
+	got := decodeBody[site.Grant](t, f.statusIs(t, 200, route{http.MethodPut, siteBase + "/access", map[string]any{"persona": "finance-team", "environments": []string{envProd, "default"}}}, userManager))
+	assert.Equal(t, "finance-team", got.Persona)
+	assert.Equal(t, site.LevelView, got.Level, "a persona is given view")
+	assert.Equal(t, []string{envProd, site.EnvDev}, got.Environments, "the old name of dev is read as dev")
+
+	f.statusIs(t, 200, route{http.MethodPut, siteBase + "/access", map[string]any{"persona": "finance-team", "level": "view", "notify": true}}, userOwner)
+	assert.Empty(t, f.sharer.sent, "a persona has no address to email")
+
+	f.statusIs(t, http.StatusNoContent, route{http.MethodDelete, siteBase + "/access?persona=finance-team", nil}, userManager)
+	assert.NotContains(t, f.store.grants[siteID], "persona:finance-team")
+	assert.Equal(t, "finance-team", f.audit.last().Parameters["persona"])
+
+	mux := http.NewServeMux()
+	(&portalAPI{d: PortalDeps{Runtime: f.rt, IsAdmin: func([]string) bool { return false }, Persona: func([]string) *portal.PersonaInfo { return &portal.PersonaInfo{Name: "analyst"} }}}).register(mux)
+	req := httptest.NewRequestWithContext(portal.ContextWithUser(context.Background(), userOwner), http.MethodGet, siteBase+"/access", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	assert.Equal(t, []string{}, decodeBody[AccessList](t, rec).Personas, "no persona list is [], never null")
+}
+
+// Someone who does not manage the site sees the environments they can open
+// and no other, and only those environments' domains.
+func TestPortal_AViewerSeesOnlyWhatOpensForThem(t *testing.T) {
+	f := newFixture(t)
+	f.store.grants[siteID][userViewer.Email] = site.Grant{Email: userViewer.Email, Level: site.LevelView, Environments: []string{"stage"}}
+	f.store.sites[siteID].Environment(envProd).Public = true
+	f.store.domains["www.client.example"] = &site.Domain{Hostname: "www.client.example", SiteID: siteID, Environment: envProd}
+	f.store.domains["dev.client.example"] = &site.Domain{Hostname: "dev.client.example", SiteID: siteID, Environment: site.EnvDev}
+
+	got := decodeBody[SiteView](t, f.statusIs(t, 200, route{http.MethodGet, siteBase, nil}, userViewer))
+	names := make([]string, 0, len(got.Environments))
+	for _, e := range got.Environments {
+		names = append(names, e.Name)
+	}
+	assert.Equal(t, []string{"stage", envProd}, names, "stage is shared with them and prod is public; dev is not theirs")
+	require.Len(t, got.Domains, 1)
+	assert.Equal(t, "www.client.example", got.Domains[0].Hostname)
+	_, hasDev := got.Addresses[site.EnvDev]
+	assert.False(t, hasDev, "no address for an environment they cannot see")
+
+	stranger := decodeBody[SiteView](t, f.statusIs(t, 200, route{http.MethodGet, siteBase, nil}, userStranger))
+	require.Len(t, stranger.Environments, 1)
+	assert.Equal(t, envProd, stranger.Environments[0].Name, "a stranger sees only what is public")
+
+	managed := decodeBody[SiteView](t, f.statusIs(t, 200, route{http.MethodGet, siteBase, nil}, userManager))
+	assert.Len(t, managed.Environments, 3, "someone who manages the site sees every environment")
+
+	f.store.failGrant = errBoom
+	f.statusIs(t, http.StatusInternalServerError, route{http.MethodGet, siteBase, nil}, userViewer)
 }
 
 func TestPortal_Domains(t *testing.T) {
@@ -730,7 +841,6 @@ func TestPortal_AccessGrantRevoke(t *testing.T) {
 	f := newFixture(t)
 	list := decodeBody[AccessList](t, f.statusIs(t, 200, route{http.MethodGet, siteBase + "/access", nil}, userManager))
 	assert.Equal(t, userOwner.Email, list.Owner)
-	assert.False(t, list.InternalView)
 	require.Len(t, list.Grants, 2)
 
 	got := decodeBody[site.Grant](t, f.statusIs(t, 200, route{http.MethodPut, siteBase + "/access", map[string]any{"email": "Pat@Client.Example", "level": "view"}}, userManager))
@@ -755,7 +865,7 @@ func TestPortal_GrantNotifiesWhenAsked(t *testing.T) {
 		f := newFixture(t)
 		f.statusIs(t, 200, route{http.MethodPut, siteBase + "/access", map[string]any{"email": "pat@client.example", "level": "view", "notify": true}}, userOwner)
 		require.Equal(t, []string{"pat@client.example/share"}, f.sharer.sent)
-		assert.Equal(t, "https://marketing.pages.example.net", f.sharer.body[0].Link)
+		assert.Equal(t, "https://marketing.pages.example.net", f.sharer.body[0].Link, "the first private environment the grant opens, dev on the main address")
 		assert.Equal(t, siteName, f.sharer.body[0].ItemTitle)
 		assert.Equal(t, userOwner.Email, f.sharer.body[0].Actor)
 	})
@@ -787,7 +897,7 @@ func TestPortal_GrantNotifiesWhenAsked(t *testing.T) {
 		f.store.mu.Unlock()
 		// share reads the site itself; once it is gone it sends nothing.
 		a := &portalAPI{d: PortalDeps{Runtime: f.rt, Sharer: f.sharer}}
-		a.share(context.Background(), &caller{user: userOwner}, "nope", "x@example.com")
+		a.share(context.Background(), &caller{user: userOwner}, "nope", &site.Grant{Email: "x@example.com"})
 		assert.Empty(t, f.sharer.sent)
 	})
 }
@@ -844,4 +954,37 @@ func TestWriteJSON_EmptyListsAreArrays(t *testing.T) {
 	writeJSON(rec, http.StatusOK, AccessList{Grants: []site.Grant{}})
 	assert.Contains(t, rec.Body.String(), `"grants":[]`)
 	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+}
+
+// A manager adding a domain never makes an environment public (#2604).
+func TestPortal_AManagersDomainNeverMakesAnythingPublic(t *testing.T) {
+	f := newFixture(t)
+	rec := f.do(t, http.MethodPost, siteBase+"/domains", userManager, map[string]any{"hostname": "a.example.org", "environment": "qa", "public": true})
+	if rec.Code == http.StatusCreated {
+		require.NotNil(t, f.store.sites[siteID].Environment("qa"))
+		assert.False(t, f.store.sites[siteID].Environment("qa").Public, "the environment it made is private")
+		return
+	}
+	assert.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+	assert.Nil(t, f.store.sites[siteID].Environment("qa"))
+}
+
+func TestShareLink_TheFirstPrivateEnvironmentTheGrantOpens(t *testing.T) {
+	f := newFixture(t)
+	svc := f.rt.Service
+	st := &site.Site{ID: siteID, Name: siteName, MainEnvironment: site.EnvDev, Environments: []site.Environment{
+		{Name: site.EnvDev}, {Name: "stage"}, {Name: envProd, Public: true},
+	}}
+	ctx := context.Background()
+	assert.Equal(t, "https://marketing--stage.pages.example.net", shareLink(ctx, svc, st, &site.Grant{Environments: []string{"stage"}}))
+	assert.Equal(t, "https://marketing.pages.example.net", shareLink(ctx, svc, st, &site.Grant{}), "every private environment: dev, on the main address")
+	assert.Equal(t, "https://marketing.pages.example.net", shareLink(ctx, svc, st, &site.Grant{Environments: []string{envProd}}),
+		"a grant naming only a public environment falls back to the main address")
+}
+
+func TestPortal_EnvironmentAnswersFailWhenTheDomainsCannotBeRead(t *testing.T) {
+	f := newFixture(t)
+	f.store.failSiteDomains = errBoom
+	f.statusIs(t, http.StatusInternalServerError, route{http.MethodPut, siteBase + "/main-environment", map[string]any{"environment": envProd}}, userOwner)
+	f.statusIs(t, http.StatusInternalServerError, route{http.MethodPut, siteBase + "/environments/stage", map[string]any{"internal_view": true}}, userOwner)
 }

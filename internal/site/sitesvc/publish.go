@@ -496,13 +496,13 @@ func (s *Service) publishTarget(st *site.Site, req PublishRequest) (*site.Enviro
 	if s.Objects == nil || s.Bucket == "" {
 		return nil, refused("this deployment serves no sites: it has no portal bucket, or sites.enabled is false")
 	}
-	name := cmp.Or(req.Environment, site.EnvDefault)
+	name, _ := site.CanonicalEnvironment(cmp.Or(req.Environment, site.EnvDev))
+	if name != site.EnvDev {
+		return nil, readOnly(name)
+	}
 	env := st.Environment(name)
 	if env == nil {
 		return nil, noEnvironment(name)
-	}
-	if env.RequiresApproval {
-		return nil, refused("environment %q requires approval, so a release reaches it by promote; publish to another environment first", name)
 	}
 	if len(req.Note) > site.MaxNote {
 		return nil, refused("note: at most %d bytes", site.MaxNote)
@@ -519,13 +519,17 @@ func (s *Service) publishTarget(st *site.Site, req PublishRequest) (*site.Enviro
 // serves now: an edit made against an older release would undo whatever came
 // after it.
 func checkBase(env *site.Environment, base int) error {
-	if env.Name != site.EnvDefault {
-		return refused("environment %q is read-only here: change %s, then move the release with promote", env.Name, site.EnvDefault)
-	}
 	if base != env.Release {
 		return textpatch.StaleBaseError(base, env.Release)
 	}
 	return nil
+}
+
+// readOnly is the refusal of a publish, patch or edit aimed at an environment
+// people use: agents and people change dev, and a release reaches every other
+// environment by promote.
+func readOnly(env string) error {
+	return refused("environment %q is read-only: publish, patch and edits change %s, and a release reaches %s by promote", env, site.EnvDev, env)
 }
 
 // publication is one publish decided and ready to write.

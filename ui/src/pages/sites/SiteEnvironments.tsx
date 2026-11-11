@@ -1,164 +1,317 @@
-import { useMemo, useState } from "react";
-import { ExternalLink } from "lucide-react";
+import { useState } from "react";
+import { ArrowRight, CircleHelp } from "lucide-react";
 import {
-  DEFAULT_ENVIRONMENT,
+  DEV_ENVIRONMENT,
   useApprovalForSite,
   usePromoteSite,
-  useRollbackSite,
-  useSiteCompare,
-  useSiteDeployments,
-  useSiteReleases,
+  useSetSiteEnvironment,
+  useSiteAccess,
   type Site,
+  type SiteAccessList,
   type SiteEnvironment,
 } from "@/api/portal/hooks/sites";
+import type { ApprovalRequest } from "@/api/portal/hooks/approvals";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Textarea } from "@/components/ui/textarea";
 import { useAuthStore } from "@/stores/auth";
-import { AddDomainDialog } from "./SiteDomains";
-import { AddPersonDialog } from "./SiteAccess";
-import { PublishDialog } from "./SitePublish";
-import { bareAddress, errorText, hostUrl, hostsOf, orderedEnvironments, when } from "./siteFormat";
+import { EnvironmentDialogs, type EnvDialog } from "./SiteEnvironmentDialogs";
+import { AccessBadge, AddressLink, EVERYONE_INTERNAL, Failure, ShareChip, grantName, grantOpens } from "./SiteParts";
+import { bareAddress, envAddress, errorText, hostUrl, hostsOf, orderedEnvironments, when } from "./siteFormat";
 
-type EnvDialog = { kind: "promote" | "rollback"; env: SiteEnvironment } | { kind: "publish" | "domain" | "share" } | null;
+const EXPLAINER_KEY = "sites.explainer.hidden";
 
-// SiteEnvironmentsTab is each environment: the release it serves, who moved it
-// and when, and where it answers (#2559). The default environment answers at
-// the site's own address to people with access; any other, at the domains added
-// to it, to anyone.
+function readHidden(): boolean {
+  try {
+    return window.localStorage.getItem(EXPLAINER_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeHidden(hidden: boolean) {
+  try {
+    if (hidden) window.localStorage.setItem(EXPLAINER_KEY, "1");
+    else window.localStorage.removeItem(EXPLAINER_KEY);
+  } catch {
+    // A browser that keeps nothing shows the explainer again next time.
+  }
+}
+
+// SiteEnvironmentsTab is each environment in the order a release is promoted
+// in (#2604): agents and the people who manage the site change dev, people use
+// the environments a release is promoted to, and each one says where it answers
+// and who can open it.
 export function SiteEnvironmentsTab({ site, onNavigate }: { site: Site; onNavigate: (path: string) => void }) {
   const [dialog, setDialog] = useState<EnvDialog>(null);
+  const [hidden, setHidden] = useState(readHidden);
   const canEdit = site.permissions.manage;
-  const close = () => setDialog(null);
+  const access = useSiteAccess(site.name, canEdit).data;
   const envs = orderedEnvironments(site.environments);
-  const action = canEdit ? (
-    <div className="flex flex-wrap gap-2">
-      <Button size="sm" variant="outline" onClick={() => setDialog({ kind: "domain" })}>
-        Add domain
-      </Button>
-      <Button size="sm" onClick={() => setDialog({ kind: "publish" })}>
-        Publish
-      </Button>
-    </div>
-  ) : undefined;
+  const hide = (h: boolean) => {
+    writeHidden(h);
+    setHidden(h);
+  };
   return (
     <>
       <ApprovalBanners site={site} onNavigate={onNavigate} />
-      <SectionCard title="Environments" action={action}>
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Environment</TableHead>
-                <TableHead>Release</TableHead>
-                <TableHead>Moved</TableHead>
-                <TableHead>Address</TableHead>
-                {canEdit && <TableHead />}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {envs.map((e) => (
-                <EnvironmentRow key={e.name} site={site} env={e} canEdit={canEdit} onAct={setDialog} />
-              ))}
-            </TableBody>
-          </Table>
+      <Guide site={site} canEdit={canEdit} hidden={hidden} onHide={hide} />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold">Environments</h3>
+        {canEdit && <HeaderActions site={site} onAct={setDialog} />}
+      </div>
+      {envs.length === 0 && (
+        <div className="rounded border border-dashed p-6 text-center">
+          <p className="font-medium">No environment to show</p>
+          <p className="text-xs text-muted-foreground">None of {site.name}'s environments is open to you. Ask the person who sent you the link to share one.</p>
         </div>
-        <p className="mt-3 text-xs text-muted-foreground">
-          The site's own address opens only for administrators and the people on the Access tab, after they sign in. A domain is public unless the site asks for a sign-in.
-        </p>
-      </SectionCard>
-      <EnvDialogs site={site} dialog={dialog} onClose={close} onNavigate={onNavigate} />
+      )}
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-stretch" data-testid="environment-flow">
+        {envs.map((e, i) => (
+          <div key={e.name} className="flex min-w-0 flex-1 flex-col gap-2 lg:flex-row lg:items-stretch">
+            {i > 0 && (
+              <div className="flex items-center justify-center text-muted-foreground" aria-hidden>
+                <ArrowRight className="h-5 w-5 rotate-90 lg:rotate-0" />
+              </div>
+            )}
+            <EnvironmentCard site={site} env={e} access={access} canEdit={canEdit} onAct={setDialog} />
+          </div>
+        ))}
+      </div>
+      <EnvironmentDialogs site={site} dialog={dialog} onClose={() => setDialog(null)} onNavigate={onNavigate} />
     </>
   );
 }
 
-function EnvDialogs({ site, dialog, onClose, onNavigate }: { site: Site; dialog: EnvDialog; onClose: () => void; onNavigate: (path: string) => void }) {
-  switch (dialog?.kind) {
-    case "publish":
-      return <PublishDialog site={site} onClose={onClose} onNavigate={onNavigate} />;
-    case "domain":
-      return <AddDomainDialog site={site} onClose={onClose} />;
-    case "share":
-      return <AddPersonDialog site={site} viewOnly onClose={onClose} />;
-    case "promote":
-      return <PromoteDialog site={site} target={dialog.env} onClose={onClose} />;
-    case "rollback":
-      return <RollbackDialog site={site} env={dialog.env} onClose={onClose} />;
-    default:
-      return null;
+function Guide({ site, canEdit, hidden, onHide }: { site: Site; canEdit: boolean; hidden: boolean; onHide: (h: boolean) => void }) {
+  if (!canEdit) {
+    return <p className="text-sm text-muted-foreground">These are the environments of {site.name} shared with you. Open one at its address; you sign in with your platform account.</p>;
   }
+  if (hidden) {
+    return (
+      <button type="button" className="inline-flex w-fit items-center gap-1 text-sm text-primary hover:underline" onClick={() => onHide(false)}>
+        <CircleHelp className="h-4 w-4" aria-hidden />
+        How this site works
+      </button>
+    );
+  }
+  return <Explainer site={site} onHide={() => onHide(true)} />;
 }
 
-function EnvironmentRow({
+function HeaderActions({ site, onAct }: { site: Site; onAct: (d: EnvDialog) => void }) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {site.permissions.own && (
+        <Button size="sm" variant="outline" onClick={() => onAct({ kind: "main" })}>
+          Main address
+        </Button>
+      )}
+      <Button size="sm" variant="outline" onClick={() => onAct({ kind: "domain" })}>
+        Add domain
+      </Button>
+      <Button size="sm" variant="outline" onClick={() => onAct({ kind: "new" })}>
+        New environment
+      </Button>
+    </div>
+  );
+}
+
+const STEPS: [string, string][] = [
+  ["Changes land in dev", "Publishing, editing files and agents change dev and nothing else. dev is the working copy: only the people who manage this site can open it, unless you share it."],
+  ["Promote what is ready", "Promote serves the exact release from dev in another environment. Those environments change only by Promote and Roll back, so nobody edits what people are using."],
+  [
+    "Each environment has its own access",
+    "Private asks for a sign-in to this platform and opens only for the people and personas it is shared with. Public opens for anyone; a site that wants a sign-in builds its own.",
+  ],
+];
+
+/** The pages domain an environment's address is under, read from one of them. */
+function pagesDomainOf(site: Site): string {
+  const any = bareAddress(Object.values(site.addresses ?? {}).find((a) => a.includes(`${site.name}--`)) ?? "");
+  const dot = any.indexOf(".");
+  return dot > 0 ? any.slice(dot + 1) : "";
+}
+
+function Explainer({ site, onHide }: { site: Site; onHide: () => void }) {
+  const main = site.address ? bareAddress(site.address) : "";
+  const domain = pagesDomainOf(site);
+  return (
+    <SectionCard
+      title="How this site works"
+      action={
+        <Button size="sm" variant="ghost" onClick={onHide}>
+          Hide
+        </Button>
+      }
+    >
+      <div className="space-y-4">
+        <ol className="grid gap-4 md:grid-cols-3">
+          {STEPS.map(([title, body], i) => (
+            <li key={title} className="flex items-start gap-3">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary" aria-hidden>
+                {i + 1}
+              </span>
+              <div className="space-y-1">
+                <p className="font-medium">{title}</p>
+                <p className="text-sm text-muted-foreground">{body}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+        <div className="grid gap-3 border-t pt-3 md:grid-cols-2">
+          <p className="text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">Addresses. </span>
+            {main ? (
+              <>
+                The main address, <span className="break-all font-mono">{main}</span>, serves the one environment you choose.{" "}
+              </>
+            ) : (
+              <>No environment holds the main address, so it answers Not found. </>
+            )}
+            {domain && (
+              <>
+                Every environment also answers at <span className="break-all font-mono">{site.name}--</span>
+                <span className="font-mono italic">environment</span>
+                <span className="break-all font-mono">.{domain}</span>, and at any domain added to it.
+              </>
+            )}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">Inside a private environment. </span>
+            The site can ask who signed in and run its endpoints as that person, so it can decide for itself which pages each of them sees.
+          </p>
+        </div>
+      </div>
+    </SectionCard>
+  );
+}
+
+function EnvironmentCard({
   site,
   env,
+  access,
   canEdit,
   onAct,
 }: {
   site: Site;
   env: SiteEnvironment;
+  access?: SiteAccessList;
   canEdit: boolean;
   onAct: (d: EnvDialog) => void;
 }) {
-  const moved = env.release > 0;
+  const working = env.name === DEV_ENVIRONMENT;
   return (
-    <TableRow>
-      <TableCell>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-medium">{env.name}</span>
+    <section className={`flex min-w-0 flex-1 flex-col gap-3 rounded-xl border bg-card p-4 shadow-sm ${working ? "border-primary/45" : ""}`} aria-label={env.name} data-testid={`env-${env.name}`}>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="text-base font-semibold">{env.name}</p>
+          <p className="text-xs text-muted-foreground">{working ? "Working copy" : "Changes by Promote and Roll back"}</p>
+        </div>
+        <div className="flex flex-wrap justify-end gap-2">
+          <AccessBadge env={env} />
           {env.requires_approval && <Badge variant="warning">Requires approval</Badge>}
         </div>
-      </TableCell>
-      <TableCell>{moved ? <Badge variant="info">{env.release}</Badge> : <span className="text-muted-foreground">None</span>}</TableCell>
-      <TableCell>
-        <div>{moved ? when(env.updated_at) : ""}</div>
-        <div className="text-xs text-muted-foreground">{moved ? env.updated_by : ""}</div>
-      </TableCell>
-      <TableCell>
-        <EnvironmentAddress site={site} env={env} />
-      </TableCell>
-      {canEdit && (
-        <TableCell>
-          <RowActions env={env} onAct={onAct} />
-        </TableCell>
-      )}
-    </TableRow>
+      </div>
+      <Release env={env} />
+      <Addresses site={site} env={env} />
+      <WhoCanOpen site={site} env={env} access={access} />
+      {canEdit && <CardActions env={env} onAct={onAct} />}
+    </section>
   );
 }
 
-function EnvironmentAddress({ site, env }: { site: Site; env: SiteEnvironment }) {
-  if (env.name === DEFAULT_ENVIRONMENT) {
-    return (
-      <div className="space-y-0.5">
-        {site.address && <AddressLink href={site.address} text={bareAddress(site.address)} />}
-        <p className="text-xs text-muted-foreground">Sign-in and access needed</p>
-      </div>
-    );
-  }
-  const hosts = hostsOf(site, env.name);
-  if (hosts.length === 0) return <span className="text-muted-foreground">No domain</span>;
+function Release({ env }: { env: SiteEnvironment }) {
   return (
-    <div className="space-y-0.5">
-      {hosts.map((d) => (
-        <AddressLink key={d.hostname} href={hostUrl(site, d.hostname)} text={d.hostname} />
-      ))}
+    <div className="space-y-1">
+      <p className="text-xs font-medium text-muted-foreground">Release</p>
+      {env.release > 0 ? (
+        <>
+          <Badge variant="info">{env.release}</Badge>
+          <p className="text-xs text-muted-foreground">
+            Moved {when(env.updated_at)}
+            {env.updated_by ? ` by ${env.updated_by}` : ""}
+          </p>
+        </>
+      ) : (
+        <p className="text-sm text-muted-foreground">None yet</p>
+      )}
     </div>
   );
 }
 
-function RowActions({ env, onAct }: { env: SiteEnvironment; onAct: (d: EnvDialog) => void }) {
-  const own = env.name === DEFAULT_ENVIRONMENT;
+function Addresses({ site, env }: { site: Site; env: SiteEnvironment }) {
+  const own = envAddress(site, env.name);
+  const main = site.main_environment === env.name;
+  const domains = hostsOf(site, env.name);
   return (
-    <div className="flex justify-end gap-2">
-      {own ? (
-        <Button size="sm" variant="outline" onClick={() => onAct({ kind: "share" })}>
-          Share
+    <div className="space-y-1">
+      <p className="text-xs font-medium text-muted-foreground">Addresses</p>
+      {own && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <AddressLink href={own} text={bareAddress(own)} />
+          {main && <Badge variant="muted">Main address</Badge>}
+        </div>
+      )}
+      {domains.map((d) => (
+        <div key={d.hostname} className="flex flex-wrap items-center gap-1.5">
+          <AddressLink href={hostUrl(site, d.hostname)} text={d.hostname} />
+          <Badge variant="muted">Domain</Badge>
+        </div>
+      ))}
+      {!own && domains.length === 0 && <p className="text-sm text-muted-foreground">No address</p>}
+    </div>
+  );
+}
+
+function managersSentence(n: number): string {
+  if (n === 0) return "The owner and administrators.";
+  if (n === 1) return "The owner, the person who manages this site and administrators.";
+  return `The owner, the ${n} people who manage this site and administrators.`;
+}
+
+// WhoCanOpen says, in words, who an environment opens for, and names the people
+// and personas it is shared with.
+function WhoCanOpen({ site, env, access }: { site: Site; env: SiteEnvironment; access?: SiteAccessList }) {
+  if (env.public) {
+    return (
+      <div className="space-y-1">
+        <p className="text-xs font-medium text-muted-foreground">Who can open it</p>
+        <p className="text-sm">Anyone. The platform asks no one to sign in.</p>
+      </div>
+    );
+  }
+  return <PrivateOpeners site={site} env={env} access={access} />;
+}
+
+function PrivateOpeners({ site, env, access }: { site: Site; env: SiteEnvironment; access?: SiteAccessList }) {
+  const grants = access?.grants ?? [];
+  const shared = grants.filter((g) => grantOpens(g, env.name));
+  const any = shared.length > 0 || env.internal_view;
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-medium text-muted-foreground">Who can open it</p>
+      <p className="text-sm">{any ? "The people who manage this site, administrators, and:" : managersSentence(grants.filter((g) => g.level === "manage").length)}</p>
+      {any && (
+        <div className="flex flex-wrap gap-1.5">
+          {env.internal_view && <ShareChip label={EVERYONE_INTERNAL} kind="internal" />}
+          {shared.map((g) => (
+            <ShareChip key={grantName(g)} label={grantName(g)} kind={g.persona ? "persona" : "person"} />
+          ))}
+        </div>
+      )}
+      {!any && access && site.permissions.manage && <p className="text-xs text-muted-foreground">Not shared with anyone else.</p>}
+    </div>
+  );
+}
+
+function CardActions({ env, onAct }: { env: SiteEnvironment; onAct: (d: EnvDialog) => void }) {
+  const working = env.name === DEV_ENVIRONMENT;
+  return (
+    <div className="mt-auto flex flex-wrap gap-2 border-t pt-3">
+      {working ? (
+        <Button size="sm" onClick={() => onAct({ kind: "publish" })}>
+          Publish
         </Button>
       ) : (
         <Button size="sm" variant="outline" onClick={() => onAct({ kind: "promote", env })}>
@@ -168,272 +321,110 @@ function RowActions({ env, onAct }: { env: SiteEnvironment; onAct: (d: EnvDialog
       <Button size="sm" variant="outline" disabled={env.release === 0} onClick={() => onAct({ kind: "rollback", env })}>
         Roll back
       </Button>
+      {!env.public && (
+        <Button size="sm" variant="outline" onClick={() => onAct({ kind: "share", env })}>
+          Share
+        </Button>
+      )}
+      <Button size="sm" variant="outline" onClick={() => onAct({ kind: "settings", env })}>
+        Settings
+      </Button>
     </div>
   );
 }
 
-function AddressLink({ href, text }: { href: string; text: string }) {
-  return (
-    <a className="inline-flex items-center gap-1 break-all font-mono text-sm text-primary hover:underline" href={href} target="_blank" rel="noreferrer" title="Open in a new tab">
-      {text}
-      <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
-    </a>
-  );
-}
-
-// ApprovalBanners says where a promote that needs approval stands.
+// ApprovalBanners says where each request that needs approval stands: a
+// promote, or making an environment public.
 function ApprovalBanners({ site, onNavigate }: { site: Site; onNavigate: (path: string) => void }) {
   const requests = useApprovalForSite(site);
-  const promote = usePromoteSite(site.name);
-  const email = useAuthStore((s) => s.user?.email ?? "");
   const [failure, setFailure] = useState<string | null>(null);
   return (
     <>
-      {requests.map((r) => {
-        const finish = () =>
-          promote.mutate({ to: r.target, release: r.version }, { onError: (e) => setFailure(errorText(e, "The promote could not be finished")) });
-        const mine = r.requester_email === email || site.permissions.manage;
-        if (r.status === "pending") {
-          return (
-            <Alert key={r.id} data-testid="approval-waiting">
-              <AlertTitle>
-                Release {r.version} is waiting for approval to serve {r.target}
-              </AlertTitle>
-              <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
-                <span>
-                  Asked by {r.requester_email} on {when(r.created_at)}. {r.target} keeps serving its release until this is approved and promoted.
-                </span>
-                <Button size="sm" variant="outline" onClick={() => onNavigate("/approvals")}>
-                  Open in Approvals
-                </Button>
-              </AlertDescription>
-            </Alert>
-          );
-        }
-        if (r.status === "approved" && mine) {
-          return (
-            <Alert key={r.id} data-testid="approval-approved">
-              <AlertTitle>
-                Release {r.version} is approved for {r.target}
-              </AlertTitle>
-              <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
-                <span>
-                  Approved by {r.decided_by} on {when(r.decided_at ?? "")}. Nothing changes on {r.target} until you finish the promote.
-                </span>
-                <Button size="sm" onClick={finish} disabled={promote.isPending}>
-                  Finish promote
-                </Button>
-              </AlertDescription>
-            </Alert>
-          );
-        }
-        return (
-          <Alert key={r.id} variant="destructive" data-testid="approval-rejected">
-            <AlertTitle>
-              Release {r.version} was rejected for {r.target}
-            </AlertTitle>
-            <AlertDescription>
-              Rejected by {r.decided_by} on {when(r.decided_at ?? "")}
-              {r.decision_comment ? `: "${r.decision_comment}"` : "."}
-            </AlertDescription>
-          </Alert>
-        );
-      })}
-      {failure && (
-        <Alert variant="destructive">
-          <AlertDescription>{failure}</AlertDescription>
-        </Alert>
-      )}
+      {requests.map((r) => (
+        <ApprovalBanner key={r.id} site={site} request={r} onNavigate={onNavigate} onFail={setFailure} />
+      ))}
+      <Failure text={failure} />
     </>
   );
 }
 
-function PromoteDialog({ site, target, onClose }: { site: Site; target: SiteEnvironment; onClose: () => void }) {
-  const isAdmin = useAuthStore((s) => s.isAdmin());
-  const promote = usePromoteSite(site.name);
-  const sources = useMemo(() => orderedEnvironments(site.environments).filter((e) => e.name !== target.name && e.release > 0), [site, target]);
-  const [from, setFrom] = useState(sources[0]?.name ?? "");
-  const [reason, setReason] = useState("");
-  const [failure, setFailure] = useState<string | null>(null);
-  const source = sources.find((s) => s.name === from);
-  const asks = target.requires_approval && !isAdmin;
-  const cmp = useSiteCompare(site.name, target.release, source?.release ?? 0);
-  const submit = () => {
-    setFailure(null);
-    promote.mutate(
-      { from, to: target.name, reason: reason.trim() },
-      { onSuccess: onClose, onError: (e) => setFailure(errorText(e, "The promote could not be done")) },
-    );
-  };
-  return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Promote to {target.name}</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div className="space-y-1">
-            <Label>Release from</Label>
-            <Select value={from} onValueChange={setFrom}>
-              <SelectTrigger aria-label="Release from">
-                <SelectValue placeholder="No environment serves a release yet" />
-              </SelectTrigger>
-              <SelectContent>
-                {sources.map((s) => (
-                  <SelectItem key={s.name} value={s.name}>
-                    {s.name}, release {s.release}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          {source && <Changes target={target} data={cmp.data} loading={cmp.isLoading} />}
-          <PromoteReason asks={asks} value={reason} onChange={setReason} />
-          <ApprovalNote target={target} asks={asks} />
-          <Failure text={failure} />
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={!source || promote.isPending}>
-            {asks ? "Ask for approval" : `Promote to ${target.name}`}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
+type SiteApproval = ApprovalRequest & { target: string };
+
+function ApprovalBanner({ site, request: r, onNavigate, onFail }: { site: Site; request: SiteApproval; onNavigate: (path: string) => void; onFail: (t: string) => void }) {
+  const email = useAuthStore((s) => s.user?.email ?? "");
+  const mine = r.requester_email === email || site.permissions.manage;
+  const publicReq = r.purpose === "site_public";
+  if (r.status === "pending") return <Waiting request={r} publicReq={publicReq} onNavigate={onNavigate} />;
+  if (r.status === "approved" && mine) {
+    return publicReq ? <PublicApproved site={site} request={r} onFail={onFail} /> : <PromoteApproved site={site} request={r} onFail={onFail} />;
+  }
+  if (r.status !== "denied") return null;
+  return <Rejected request={r} publicReq={publicReq} />;
 }
 
-function Failure({ text }: { text: string | null }) {
-  if (!text) return null;
+function Rejected({ request: r, publicReq }: { request: SiteApproval; publicReq: boolean }) {
   return (
-    <Alert variant="destructive">
-      <AlertDescription>{text}</AlertDescription>
+    <Alert variant="destructive" data-testid={publicReq ? "public-rejected" : "approval-rejected"}>
+      <AlertTitle>{publicReq ? `Making ${r.target} public was rejected` : `Release ${r.version} was rejected for ${r.target}`}</AlertTitle>
+      <AlertDescription>
+        Rejected by {r.decided_by} on {when(r.decided_at ?? "")}
+        {r.decision_comment ? `: "${r.decision_comment}"` : "."}
+      </AlertDescription>
     </Alert>
   );
 }
 
-function PromoteReason({ asks, value, onChange }: { asks: boolean; value: string; onChange: (v: string) => void }) {
-  if (!asks) return null;
+function Waiting({ request: r, publicReq, onNavigate }: { request: SiteApproval; publicReq: boolean; onNavigate: (path: string) => void }) {
   return (
-    <div className="space-y-1">
-      <Label htmlFor="promote-reason">Why this release</Label>
-      <Textarea id="promote-reason" value={value} onChange={(e) => onChange(e.target.value)} />
-    </div>
+    <Alert data-testid={publicReq ? "public-waiting" : "approval-waiting"}>
+      <AlertTitle>{publicReq ? `Making ${r.target} public is waiting for approval` : `Release ${r.version} is waiting for approval to serve ${r.target}`}</AlertTitle>
+      <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
+        <span>
+          Asked by {r.requester_email} on {when(r.created_at)}.{" "}
+          {publicReq ? `${r.target} stays private until it is approved and you finish.` : `${r.target} keeps serving its release until this is approved and promoted.`}
+        </span>
+        <Button size="sm" variant="outline" onClick={() => onNavigate("/approvals")}>
+          Open in Approvals
+        </Button>
+      </AlertDescription>
+    </Alert>
   );
 }
 
-function ApprovalNote({ target, asks }: { target: SiteEnvironment; asks: boolean }) {
-  if (!target.requires_approval) return null;
+function PromoteApproved({ site, request: r, onFail }: { site: Site; request: SiteApproval; onFail: (t: string) => void }) {
+  const promote = usePromoteSite(site.name);
+  const finish = () => promote.mutate({ to: r.target, release: r.version }, { onError: (e) => onFail(errorText(e, "The promote could not be finished")) });
   return (
-    <p className="text-xs text-muted-foreground">
-      {asks
-        ? `${target.name} requires approval. This sends a request to Approvals, and ${target.name} keeps serving its release until it is approved and you finish the promote.`
-        : `${target.name} requires approval. Because you are an administrator, this records your approval and serves the release at once.`}
-    </p>
+    <Alert data-testid="approval-approved">
+      <AlertTitle>
+        Release {r.version} is approved for {r.target}
+      </AlertTitle>
+      <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
+        <span>
+          Approved by {r.decided_by} on {when(r.decided_at ?? "")}. Nothing changes on {r.target} until you finish the promote.
+        </span>
+        <Button size="sm" onClick={finish} disabled={promote.isPending}>
+          Finish promote
+        </Button>
+      </AlertDescription>
+    </Alert>
   );
 }
 
-function Changes({
-  target,
-  data,
-  loading,
-}: {
-  target: SiteEnvironment;
-  data?: { changed: string[]; added: string[]; removed: string[]; redirects_added: unknown[] };
-  loading: boolean;
-}) {
-  if (loading || !data) return <p className="text-sm text-muted-foreground">Comparing…</p>;
-  const rows = [
-    ...data.changed.map((p) => ({ p, label: "Changed", variant: "info" as const })),
-    ...data.added.map((p) => ({ p, label: "Added", variant: "success" as const })),
-    ...data.removed.map((p) => ({ p, label: "Removed", variant: "danger" as const })),
-  ];
+function PublicApproved({ site, request: r, onFail }: { site: Site; request: SiteApproval; onFail: (t: string) => void }) {
+  const set = useSetSiteEnvironment(site.name);
+  const finish = () => set.mutate({ name: r.target, public: true }, { onError: (e) => onFail(errorText(e, "The environment could not be made public")) });
   return (
-    <div className="space-y-2">
-      <p className="text-sm font-medium">What changes on {target.name}</p>
-      <div className="flex flex-wrap gap-2">
-        <Badge variant="info">{data.changed.length} files changed</Badge>
-        <Badge variant="success">{data.added.length} added</Badge>
-        <Badge variant="danger">{data.removed.length} removed</Badge>
-        <Badge variant="muted">{data.redirects_added.length} redirects added</Badge>
-      </div>
-      {rows.length > 0 && (
-        <div className="max-h-56 overflow-auto rounded border">
-          <Table>
-            <TableBody>
-              {rows.map((r) => (
-                <TableRow key={r.label + r.p}>
-                  <TableCell className="w-24">
-                    <Badge variant={r.variant}>{r.label}</Badge>
-                  </TableCell>
-                  <TableCell className="break-all font-mono text-sm">{r.p}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function RollbackDialog({ site, env, onClose }: { site: Site; env: SiteEnvironment; onClose: () => void }) {
-  const rollback = useRollbackSite(site.name);
-  const deployments = useSiteDeployments(site.name, env.name);
-  const releases = useSiteReleases(site.name);
-  const options = useMemo(() => {
-    const seen = new Set<number>();
-    for (const d of deployments.data?.deployments ?? []) if (d.to !== env.release) seen.add(d.to);
-    return [...seen].sort((a, b) => b - a);
-  }, [deployments.data, env.release]);
-  const [picked, setPicked] = useState<number | null>(null);
-  const chosen = picked ?? options[0] ?? 0;
-  const [failure, setFailure] = useState<string | null>(null);
-  const note = (n: number) => releases.data?.releases.find((r) => r.number === n)?.note ?? "";
-  const submit = () => {
-    setFailure(null);
-    rollback.mutate(
-      { environment: env.name, release: chosen },
-      { onSuccess: onClose, onError: (e) => setFailure(errorText(e, "The roll back could not be done")) },
-    );
-  };
-  return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Roll back {env.name}</DialogTitle>
-          <DialogDescription>
-            {env.name} is serving release {env.release}. Choose a release it served before. It takes effect at once, and no approval is needed.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-2">
-          {options.length === 0 && <p className="text-sm text-muted-foreground">{env.name} has served no earlier release.</p>}
-          {options.map((n) => (
-            <label key={n} className="flex cursor-pointer items-start gap-2 rounded border p-3">
-              <input type="radio" name="rollback" checked={chosen === n} onChange={() => setPicked(n)} className="mt-1" />
-              <span>
-                <span className="block font-medium">Release {n}</span>
-                <span className="block text-xs text-muted-foreground">{note(n)}</span>
-              </span>
-            </label>
-          ))}
-          {failure && (
-            <Alert variant="destructive">
-              <AlertDescription>{failure}</AlertDescription>
-            </Alert>
-          )}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={chosen === 0 || rollback.isPending}>
-            Roll back to release {chosen}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <Alert data-testid="public-approved">
+      <AlertTitle>Making {r.target} public is approved</AlertTitle>
+      <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
+        <span>
+          Approved by {r.decided_by} on {when(r.decided_at ?? "")}. Nothing changes on {r.target} until you finish.
+        </span>
+        <Button size="sm" onClick={finish} disabled={set.isPending}>
+          Make {r.target} public
+        </Button>
+      </AlertDescription>
+    </Alert>
   );
 }

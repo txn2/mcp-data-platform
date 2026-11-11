@@ -126,16 +126,44 @@ func (m *memStore) Delete(_ context.Context, id string) error {
 	return nil
 }
 
-func (m *memStore) SetEnvironment(_ context.Context, siteID, name string, requiresApproval bool, _ string) error {
+func (m *memStore) SetEnvironment(_ context.Context, siteID, name string, set site.EnvironmentSettings, actor string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	s := m.sites[siteID]
-	if env := s.Environment(name); env != nil {
-		env.RequiresApproval = requiresApproval
-		return nil
+	st := m.sites[siteID]
+	e := st.Environment(name)
+	if e == nil {
+		st.Environments = append(st.Environments, site.Environment{Name: name})
+		e = &st.Environments[len(st.Environments)-1]
 	}
-	s.Environments = append(s.Environments, site.Environment{Name: name, RequiresApproval: requiresApproval})
+	if set.RequiresApproval != nil {
+		e.RequiresApproval = *set.RequiresApproval
+	}
+	if set.Public != nil {
+		if e.Public != *set.Public {
+			e.AccessChangedAt = e.AccessChangedAt.Add(time.Second)
+		}
+		e.Public = *set.Public
+	}
+	if set.InternalView != nil {
+		e.InternalView = *set.InternalView
+	}
+	e.UpdatedBy = actor
 	return nil
+}
+
+func (m *memStore) SetMainEnvironment(_ context.Context, siteID, env string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	st := m.sites[siteID]
+	if env != "" && st.Environment(env) == nil {
+		return site.ErrNoEnvironment
+	}
+	st.MainEnvironment = env
+	return nil
+}
+
+func (*memStore) RouteEnv(context.Context, string, string) (*site.Route, error) {
+	return nil, site.ErrNoDomain
 }
 
 func (m *memStore) RecordRelease(_ context.Context, r *site.Release, move *site.Pointer) error {
@@ -338,14 +366,14 @@ func (m *memStore) SetGrant(_ context.Context, siteID string, g *site.Grant) err
 		m.grants[siteID] = map[string]site.Grant{}
 	}
 	g.CreatedAt = time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
-	m.grants[siteID][g.Email] = *g
+	m.grants[siteID][grantKey(g.Email, g.Persona)] = *g
 	return nil
 }
 
-func (m *memStore) RemoveGrant(_ context.Context, siteID, email string) error {
+func (m *memStore) RemoveGrant(_ context.Context, siteID, email, persona string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	delete(m.grants[siteID], email)
+	delete(m.grants[siteID], grantKey(email, persona))
 	return nil
 }
 
@@ -551,7 +579,7 @@ func TestHandle_EveryCommandDispatches(t *testing.T) {
 	got := do(Input{Command: CmdGet, Site: siteName})
 	addresses, ok := got["addresses"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "https://marketing.pages.example.com", addresses[site.EnvDefault])
+	assert.Equal(t, "https://marketing.pages.example.com", addresses[site.EnvDev])
 	assert.Equal(t, []any{}, got["grants"], "someone who manages the site sees who has access, [] when no one")
 
 	byID := call(t, f, admin(), Input{Command: CmdGet, Site: stored(f).ID})
@@ -559,11 +587,9 @@ func TestHandle_EveryCommandDispatches(t *testing.T) {
 
 	assert.EqualValues(t, 1, do(Input{Command: CmdList})["total"])
 
-	internal := true
-	updated := do(Input{Command: CmdUpdate, Site: siteName, Description: "second", OwnerEmail: "jane@example.com", InternalView: &internal})
+	updated := do(Input{Command: CmdUpdate, Site: siteName, Description: "second", OwnerEmail: "jane@example.com"})
 	assert.Equal(t, "second", updated["description"])
 	assert.Equal(t, "jane@example.com", updated["owner_email"])
-	assert.Equal(t, true, updated["internal_view"])
 
 	requires := true
 	do(Input{Command: CmdEnvironment, Site: siteName, Environment: "qa", RequiresApproval: &requires})
@@ -571,27 +597,27 @@ func TestHandle_EveryCommandDispatches(t *testing.T) {
 	do(Input{Command: CmdEnvironment, Site: siteName, Environment: "stage"})
 
 	published := do(Input{Command: CmdPublish, Site: siteName, Files: files(indexName), Note: "first"})
-	assert.Equal(t, site.EnvDefault, published["environment"])
+	assert.Equal(t, site.EnvDev, published["environment"])
 	assert.Equal(t, "https://marketing.pages.example.com", published["address"])
-	assert.Equal(t, 1, stored(f).Environment(site.EnvDefault).Release)
+	assert.Equal(t, 1, stored(f).Environment(site.EnvDev).Release)
 
 	releases, ok := do(Input{Command: CmdReleases, Site: siteName})["releases"].([]any)
 	require.True(t, ok)
 	assert.Len(t, releases, 1)
 
-	deployments, ok := do(Input{Command: CmdDeployments, Site: siteName, Environment: site.EnvDefault})["deployments"].([]any)
+	deployments, ok := do(Input{Command: CmdDeployments, Site: siteName, Environment: site.EnvDev})["deployments"].([]any)
 	require.True(t, ok)
 	assert.Len(t, deployments, 1)
 
-	promoted := do(Input{Command: CmdPromote, Site: siteName, From: site.EnvDefault, To: "stage"})
+	promoted := do(Input{Command: CmdPromote, Site: siteName, From: site.EnvDev, To: "stage"})
 	assert.Equal(t, sitesvc.StatusPromoted, promoted["status"])
 	assert.Equal(t, 1, stored(f).Environment("stage").Release)
 
-	publishTo(t, f, site.EnvDefault)
-	require.Equal(t, 2, stored(f).Environment(site.EnvDefault).Release)
-	rolled := do(Input{Command: CmdRollback, Site: siteName, Environment: site.EnvDefault})
+	publishTo(t, f, site.EnvDev)
+	require.Equal(t, 2, stored(f).Environment(site.EnvDev).Release)
+	rolled := do(Input{Command: CmdRollback, Site: siteName, Environment: site.EnvDev})
 	assert.EqualValues(t, 1, rolled["release"])
-	assert.Equal(t, 1, stored(f).Environment(site.EnvDefault).Release)
+	assert.Equal(t, 1, stored(f).Environment(site.EnvDev).Release)
 
 	added := do(Input{Command: CmdAddDomain, Hostname: testHost, Site: siteName, Environment: "prod", RequiresApproval: &requires})
 	assert.Equal(t, testHost, added["hostname"])
@@ -663,7 +689,7 @@ func TestHandle_PublishAndReadsAreAllowedInsideAScriptRun(t *testing.T) {
 	run := ctxAs(adminEmail, true, middleware.SourceScript)
 
 	published := call(t, f, run, Input{Command: CmdPublish, Site: siteName, Files: files(indexName)})
-	assert.Equal(t, site.EnvDefault, published["environment"])
+	assert.Equal(t, site.EnvDev, published["environment"])
 	for _, cmd := range Reads {
 		t.Run(cmd, func(t *testing.T) {
 			call(t, f, run, Input{Command: cmd, Site: siteName})
@@ -762,12 +788,26 @@ func TestPublish_NoManagedResourcesRefusesAReference(t *testing.T) {
 	}
 }
 
-func TestPublish_AnEnvironmentThatRequiresApprovalIsNotPublishedTo(t *testing.T) {
+// Agents work in dev, people use what was promoted (#2604): a publish aimed at
+// any environment but dev is refused, naming dev and promote, even for an
+// administrator.
+func TestPublish_AnEnvironmentPeopleUseIsReadOnly(t *testing.T) {
 	f := newFixture()
 	createSite(t, f)
 	requireApproval(t, f, admin())
 	msg := refusal(t, f, admin(), Input{Command: CmdPublish, Site: siteName, Environment: "prod", Files: files(indexName)})
-	assert.Contains(t, msg, "requires approval")
+	assert.Contains(t, msg, `environment "prod" is read-only`)
+	assert.Contains(t, msg, "change dev")
+	assert.Contains(t, msg, "by promote")
+}
+
+// The old name of dev still works for one release, and the answer says so.
+func TestPublish_TheOldNameIsReadAsDevWithANote(t *testing.T) {
+	f := newFixture()
+	createSite(t, f)
+	out := call(t, f, admin(), Input{Command: CmdPublish, Site: siteName, Environment: "default", Files: files(indexName)})
+	assert.Equal(t, site.EnvDev, out["environment"])
+	assert.Equal(t, site.AliasNote, out["note"])
 }
 
 func TestPublish_ADotfileIsRefused(t *testing.T) {
@@ -780,9 +820,9 @@ func TestPromote_ToAnEnvironmentThatRequiresApproval(t *testing.T) {
 	f := newFixture()
 	createSite(t, f)
 	requireApproval(t, f, admin())
-	publishTo(t, f, site.EnvDefault)
+	publishTo(t, f, site.EnvDev)
 
-	promoted := call(t, f, admin(), Input{Command: CmdPromote, Site: siteName, From: site.EnvDefault, To: "prod"})
+	promoted := call(t, f, admin(), Input{Command: CmdPromote, Site: siteName, From: site.EnvDev, To: "prod"})
 	assert.Equal(t, sitesvc.StatusPromoted, promoted["status"])
 	assert.Equal(t, 1, f.approvals.selfApproved)
 	assert.Equal(t, 1, stored(f).Environment("prod").Release)
@@ -795,7 +835,7 @@ func TestPromote_AnOwnersPromotionToProdWaits(t *testing.T) {
 	requireApproval(t, f, owner)
 	call(t, f, owner, Input{Command: CmdPublish, Site: siteName, Files: files(indexName)})
 
-	promoted := call(t, f, owner, Input{Command: CmdPromote, Site: siteName, From: site.EnvDefault, To: "prod", Reason: "ship"})
+	promoted := call(t, f, owner, Input{Command: CmdPromote, Site: siteName, From: site.EnvDev, To: "prod", Reason: "ship"})
 	assert.Equal(t, sitesvc.StatusAwaitingApproval, promoted["status"])
 	assert.Equal(t, 1, f.approvals.submitted)
 	assert.Zero(t, stored(f).Environment("prod").Release, "nothing moves until it is approved")
@@ -971,13 +1011,45 @@ func TestGet_AnAddedDomainIsAnEnvironmentsAddress(t *testing.T) {
 	assert.Equal(t, "https://"+testHost, addresses["prod"])
 }
 
-func TestUpdate_InternalViewCanBeTurnedOff(t *testing.T) {
+func TestSetEnvironment_InternalViewCanBeTurnedOff(t *testing.T) {
 	f := newFixture()
 	createSite(t, f)
 	on, off := true, false
-	assert.Equal(t, true, call(t, f, admin(), Input{Command: CmdUpdate, Site: siteName, InternalView: &on})["internal_view"])
-	assert.Equal(t, false, call(t, f, admin(), Input{Command: CmdUpdate, Site: siteName, InternalView: &off})["internal_view"], "a false is told from unset")
-	assert.Equal(t, "the site", stored(f).Description, "an empty description leaves it")
+	call(t, f, admin(), Input{Command: CmdEnvironment, Site: siteName, Environment: site.EnvDev, InternalView: &on})
+	assert.True(t, stored(f).Environment(site.EnvDev).InternalView)
+	call(t, f, admin(), Input{Command: CmdEnvironment, Site: siteName, Environment: site.EnvDev, InternalView: &off})
+	assert.False(t, stored(f).Environment(site.EnvDev).InternalView, "a false is told from unset")
+	assert.Equal(t, "the site", stored(f).Description)
+}
+
+// set_environment makes an environment public only for the owner or an
+// administrator, refuses a public dev, and main moves the main address.
+func TestSetEnvironment_PublicAndMain(t *testing.T) {
+	f := newFixture()
+	createSite(t, f)
+	yes := true
+	call(t, f, admin(), Input{Command: CmdEnvironment, Site: siteName, Environment: "prod"})
+	assert.False(t, stored(f).Environment("prod").Public, "a new environment is private")
+	assert.Contains(t, refusal(t, f, admin(), Input{Command: CmdEnvironment, Site: siteName, Environment: site.EnvDev, Public: &yes}), "always private")
+	call(t, f, admin(), Input{Command: CmdEnvironment, Site: siteName, Environment: "prod", Public: &yes, Main: &yes})
+	assert.True(t, stored(f).Environment("prod").Public)
+	assert.Equal(t, "prod", stored(f).MainEnvironment)
+	none := ""
+	call(t, f, admin(), Input{Command: CmdUpdate, Site: siteName, MainEnvironment: &none})
+	assert.Empty(t, stored(f).MainEnvironment, "update with main_environment \"\" gives the main address to none")
+}
+
+// A persona is shared view of named environments, and revoked by name.
+func TestGrant_APersona(t *testing.T) {
+	f := newFixture()
+	createSite(t, f)
+	call(t, f, admin(), Input{Command: CmdEnvironment, Site: siteName, Environment: "prod"})
+	got := call(t, f, admin(), Input{Command: CmdGrant, Site: siteName, Persona: "finance-team", Environments: []string{"prod"}})
+	assert.Equal(t, "finance-team", got["persona"])
+	assert.Equal(t, site.LevelView, got["level"], "a persona is given view")
+	assert.Equal(t, []any{"prod"}, got["environments"])
+	assert.Contains(t, refusal(t, f, admin(), Input{Command: CmdGrant, Site: siteName, Persona: "finance-team", Level: site.LevelManage}), "manage is given to a person")
+	assert.Equal(t, "finance-team", call(t, f, admin(), Input{Command: CmdRevoke, Site: siteName, Persona: "finance-team"})["revoked"])
 }
 
 func TestGrant_ThroughTheTool(t *testing.T) {
@@ -1066,4 +1138,61 @@ func TestCrawl_RefusedFetchesNothing(t *testing.T) {
 	_, err = f.tool.crawl(context.Background(), sitesvc.Actor{Email: "stranger@example.com"}, Input{Site: created.Name, URL: "https://old.example.org/"})
 	require.ErrorIs(t, err, site.ErrNotAllowed)
 	assert.Empty(t, f.crawler.asked.Start, "nothing was fetched")
+}
+
+// grantKey is where a grant is kept: by email, or by persona for a persona grant.
+func grantKey(email, persona string) string {
+	if email != "" {
+		return email
+	}
+	return "persona:" + persona
+}
+
+func (*memApprovals) SubmitEnvironment(_ context.Context, _ approval.Actor, in approval.SubmitEnvironment) (*approval.Request, error) {
+	return &approval.Request{ID: "apr_env", Status: approval.StatusPending, Purpose: approval.PurposeSitePublic, Target: in.Target}, nil
+}
+
+func (*memApprovals) EnvironmentApproved(context.Context, string, string, string) bool {
+	return false
+}
+
+// SiteAccess reads the grants map the way the store's statement reads
+// site_grants: a manage grant or a view grant naming the environment (or
+// none) opens it by email, a view grant to the persona opens it by persona.
+func (m *memStore) SiteAccess(_ context.Context, siteID, env, email, persona string) (*site.Access, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	st, ok := m.sites[siteID]
+	if !ok {
+		return nil, site.ErrNotFound
+	}
+	a := &site.Access{OwnerEmail: st.OwnerEmail}
+	if e := st.Environment(env); e != nil {
+		a.InternalView = e.InternalView
+	}
+	email = site.NormalizeEmail(email)
+	for _, g := range m.grants[siteID] {
+		switch {
+		case g.Email != "" && g.Email == email && (g.Level == site.LevelManage || g.Opens(env)):
+			a.ByEmail = true
+		case g.Persona != "" && g.Persona == persona && g.Opens(env):
+			a.ByPersona = true
+		}
+	}
+	return a, nil
+}
+
+func TestWithNote(t *testing.T) {
+	got, ok := withNote(map[string]any{"environment": "dev"}).(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "dev", got["environment"])
+	assert.Equal(t, site.AliasNote, got["note"], "an object answer gains the note beside its fields")
+
+	wrapped, ok := withNote([]string{"a"}).(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, []string{"a"}, wrapped["result"], "an answer that is not an object is kept whole")
+	assert.Equal(t, site.AliasNote, wrapped["note"])
+
+	unmarshalable := make(chan int)
+	assert.Equal(t, unmarshalable, withNote(unmarshalable), "an answer that cannot be written is returned as it was")
 }

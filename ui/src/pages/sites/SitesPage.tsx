@@ -11,11 +11,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { AccessBadge } from "./SiteParts";
 import { bareAddress, day, errorText, hostUrl, hostsOf, orderedEnvironments } from "./siteFormat";
 
-// SitesPage lists every site (#2559): who owns it, its own address, and each
-// environment with the release it serves, when that last moved and the domains
-// added to it.
+// SitesPage lists every site (#2559, #2604): who owns it, its main address and
+// the environment that serves it, and each environment with the release it
+// serves and whether it is private or public.
 
 export function SitesPage({ onNavigate }: { onNavigate: (path: string) => void }) {
   const { data, isLoading, error } = useSites();
@@ -76,7 +77,12 @@ function SitesBody({
       </EmptyState>
     );
   }
-  return <SiteTable list={list} onOpen={onOpen} />;
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">A new site starts with dev, its working copy, on its main address. Promote releases to other environments when people should use them.</p>
+      <SiteTable list={list} onOpen={onOpen} />
+    </div>
+  );
 }
 
 function PreviewsOff({ admin, onNavigate }: { admin: boolean; onNavigate: (path: string) => void }) {
@@ -107,7 +113,7 @@ function SiteTable({ list, onOpen }: { list: SiteList; onOpen: (site: string) =>
           <TableRow>
             <TableHead>Name</TableHead>
             <TableHead>Owner</TableHead>
-            <TableHead>Address</TableHead>
+            <TableHead>Main address</TableHead>
             <TableHead>Environments</TableHead>
           </TableRow>
         </TableHeader>
@@ -123,10 +129,13 @@ function SiteTable({ list, onOpen }: { list: SiteList; onOpen: (site: string) =>
               <TableCell>{s.owner_email}</TableCell>
               <TableCell>
                 {s.address ? (
-                  <a className="inline-flex items-center gap-1 break-all font-mono text-primary hover:underline" href={s.address} target="_blank" rel="noreferrer">
-                    {bareAddress(s.address)}
-                    <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
-                  </a>
+                  <>
+                    <a className="inline-flex items-center gap-1 break-all font-mono text-primary hover:underline" href={s.address} target="_blank" rel="noreferrer">
+                      {bareAddress(s.address)}
+                      <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
+                    </a>
+                    {s.main_environment && <p className="text-xs text-muted-foreground">serves {s.main_environment}</p>}
+                  </>
                 ) : (
                   <span className="text-muted-foreground">None</span>
                 )}
@@ -157,6 +166,7 @@ function EnvironmentLines({ site }: { site: Site }) {
           ) : (
             <Badge variant="muted">{e.name}: no release</Badge>
           )}
+          <AccessBadge env={e} />
           {hostsOf(site, e.name).map((d) => (
             <a key={d.hostname} className="break-all text-xs text-primary hover:underline" href={hostUrl(site, d.hostname)} target="_blank" rel="noreferrer">
               {d.hostname}
@@ -192,7 +202,7 @@ function NewSiteDialog({ pagesDomain, onClose, onCreated }: { pagesDomain: strin
           <div className="space-y-1">
             <Label htmlFor="site-name">Name</Label>
             <Input id="site-name" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
-            <p className="text-xs text-muted-foreground">Lowercase letters, digits and single hyphens. It is part of the site's address and does not change.</p>
+            <p className="text-xs text-muted-foreground">Lowercase letters, digits and single hyphens, up to 58. It is part of every address the site has and does not change.</p>
           </div>
           <div className="space-y-1">
             <Label htmlFor="site-description">Description</Label>
@@ -200,11 +210,11 @@ function NewSiteDialog({ pagesDomain, onClose, onCreated }: { pagesDomain: strin
           </div>
           {pagesDomain && (
             <div className="space-y-1">
-              <Label>Address</Label>
-              <p className="font-mono text-sm text-muted-foreground">
+              <Label>Main address</Label>
+              <p className="break-all font-mono text-sm text-muted-foreground">
                 {trimmed || "name"}.{pagesDomain}
               </p>
-              <p className="text-xs text-muted-foreground">Only you and the people you add can open it, after they sign in. A system administrator adds its ingress before it answers.</p>
+              <p className="text-xs text-muted-foreground">It serves dev, the working copy. dev is private: only you, the people you add to manage the site and administrators can open it, after they sign in.</p>
             </div>
           )}
           {failure && (

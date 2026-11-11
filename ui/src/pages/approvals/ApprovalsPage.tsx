@@ -1,4 +1,4 @@
-import { useSite, useSiteCompare } from "@/api/portal/hooks/sites";
+import { useSite, useSiteCompare, type Site } from "@/api/portal/hooks/sites";
 import { useState } from "react";
 import {
   useApprovals,
@@ -111,6 +111,7 @@ function ScriptRequest({ request: r, onNavigate }: { request: ApprovalRequest; o
 
 /** SiteRequest is what a site release's approval shows. */
 function SiteRequest({ request: r }: { request: ApprovalRequest }) {
+  if (r.purpose === "site_public") return <SitePublicRequest request={r} />;
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
@@ -125,6 +126,47 @@ function SiteRequest({ request: r }: { request: ApprovalRequest }) {
       {r.site_name && <SiteRequestChanges site={r.site_name} target={r.target ?? ""} release={r.version} />}
     </>
   );
+}
+
+// SitePublicRequest is a request to open a private site environment to anyone
+// (#2604): it names every address that would stop asking for a sign-in.
+function SitePublicRequest({ request: r }: { request: ApprovalRequest }) {
+  const data = useSite(r.site_name ?? "").data;
+  const target = r.target ?? "";
+  const env = data?.environments.find((e) => e.name === target);
+  const hosts = publicHosts(data, target);
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-medium">{r.site_name}</span>
+        <span className="text-sm text-muted-foreground">{target}</span>
+        <Badge variant="info">Make public</Badge>
+        <StatusBadges request={r} />
+      </div>
+      <p className="text-sm">
+        Open {target} to anyone, without a sign-in. Asked by {r.requester_email} {formatWhen(r.created_at)}.
+      </p>
+      {r.reason && <p className="text-sm text-muted-foreground">“{r.reason}”</p>}
+      {hosts.length > 0 && (
+        <div className="space-y-0.5">
+          <p className="text-xs font-medium text-muted-foreground">Becomes public</p>
+          {hosts.map((h) => (
+            <p key={h} className="break-all font-mono text-sm">
+              {h.replace(/^https?:\/\//, "")}
+            </p>
+          ))}
+        </div>
+      )}
+      {(env?.release ?? 0) > 0 && <p className="text-xs text-muted-foreground">{target} serves release {env?.release} today. Its shares stop mattering while it is public.</p>}
+    </>
+  );
+}
+
+/** Every address of a site environment: its pages address and its domains. */
+function publicHosts(site: Site | undefined, env: string): string[] {
+  if (!site) return [];
+  const own = site.addresses?.[env] ?? "";
+  return [own, ...site.domains.filter((d) => d.environment === env).map((d) => d.hostname)].filter(Boolean);
 }
 
 // SiteRequestChanges is what approving would change on the environment (#2559),

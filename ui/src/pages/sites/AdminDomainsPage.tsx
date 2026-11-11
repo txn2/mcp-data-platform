@@ -7,7 +7,7 @@ import {
   type DeploymentAddress,
 } from "@/api/admin/hooks";
 import { useApplications } from "@/api/portal/hooks/applications";
-import { useSites } from "@/api/portal/hooks/sites";
+import { DEV_ENVIRONMENT, useSites } from "@/api/portal/hooks/sites";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { PUBLIC_DOMAIN_NOTE } from "./SiteDomains";
+import { DOMAIN_NOTE } from "./SiteDomains";
 import { errorText, orderedEnvironments, when } from "./siteFormat";
 
 const KIND_LABEL: Record<DeploymentAddress["kind"], string> = { site_address: "Site address", domain: "Domain", application: "Application" };
@@ -162,7 +162,7 @@ function AdminAddDomainDialog({ onClose }: { onClose: () => void }) {
             <p className="text-xs text-muted-foreground">Not the portal's own hostname, anything under the pages domain, or anything under the portal session's domain.</p>
           </div>
           <ServesPicker target={target} onChange={setTarget} />
-          <p className="text-xs text-muted-foreground">{PUBLIC_DOMAIN_NOTE}</p>
+          <p className="text-xs text-muted-foreground">{DOMAIN_NOTE} A domain answers with its environment's access.</p>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
@@ -210,7 +210,7 @@ function ServesPicker({ target, onChange }: { target: DomainTarget; onChange: (t
 
 function SiteTargetFields({ target, onChange }: { target: DomainTarget; onChange: (p: Partial<DomainTarget>) => void }) {
   const sites = useSites().data?.sites ?? [];
-  const envs = orderedEnvironments(sites.find((s) => s.name === target.site)?.environments ?? []).filter((e) => e.name !== "default");
+  const envs = orderedEnvironments(sites.find((s) => s.name === target.site)?.environments ?? []).filter((e) => e.name !== DEV_ENVIRONMENT);
   return (
     <span className="grid gap-2 sm:grid-cols-2">
       <Select value={target.site} onValueChange={(site) => onChange({ site, environment: "" })}>

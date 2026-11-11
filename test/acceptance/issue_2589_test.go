@@ -89,7 +89,7 @@ func TestIssue2589_ACopiedSiteKeepsWhatItsPagesLoad(t *testing.T) {
 	if pages, _ := got["pages"].(float64); pages < 9 {
 		t.Fatalf("the crawl copied %v files; want the page and the eight files it loads: %v", got["pages"], got)
 	}
-	host := s.preview("dev")
+	host := s.toStage(t) // dev is the working copy and has no domain (#2604); stage's is public
 	home := pollUntil2518(t, func() (pageResponse, bool) {
 		r := onHost(t, host, http.MethodGet, "/", nil, "")
 		return r, r.status == http.StatusOK

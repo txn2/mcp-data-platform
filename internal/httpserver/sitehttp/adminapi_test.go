@@ -33,8 +33,8 @@ const (
 
 var (
 	adminDomainCols = []string{"hostname", "site_id", "name", "environment", "application_id", "application", "created_by", "created_at"}
-	adminSiteCols   = []string{"id", "name", "description", "owner_email", "internal_view", "created_by", "created_at", "updated_at"}
-	adminEnvCols    = []string{"name", "release_number", "requires_approval", "updated_by", "updated_at"}
+	adminSiteCols   = []string{"id", "name", "description", "owner_email", "main_environment", "created_by", "created_at", "updated_at"}
+	adminEnvCols    = []string{"name", "release_number", "requires_approval", "public", "internal_view", "access_changed_at", "updated_by", "updated_at"}
 	stamp           = time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
 )
 
@@ -52,7 +52,7 @@ func newAdmin(t *testing.T) *adminFixture {
 	t.Cleanup(func() { _ = db.Close() })
 
 	store := newMem()
-	store.sites[siteID] = &site.Site{ID: siteID, Name: siteName, OwnerEmail: userOwner.Email, Environments: []site.Environment{{Name: site.EnvDefault}}}
+	store.sites[siteID] = &site.Site{ID: siteID, Name: siteName, OwnerEmail: userOwner.Email, Environments: []site.Environment{{Name: site.EnvDev}}}
 	cfg := siteconfig.Config{PagesDomain: pagesDomain}
 	live := siteconfig.NewLive(cfg)
 	rt := &sitewire.Runtime{
@@ -88,11 +88,12 @@ func (f *adminFixture) expectDomains(rows ...[]driver.Value) {
 func (f *adminFixture) expectSites(names ...string) {
 	rows := sqlmock.NewRows(adminSiteCols)
 	for _, n := range names {
-		rows.AddRow("site_"+n, n, "", userOwner.Email, false, "creator@example.com", stamp, stamp)
+		rows.AddRow("site_"+n, n, "", userOwner.Email, "dev", "creator@example.com", stamp, stamp)
 	}
 	f.mock.ExpectQuery(regexp.QuoteMeta("FROM sites ORDER BY name")).WillReturnRows(rows)
 	for range names {
-		f.mock.ExpectQuery(regexp.QuoteMeta("FROM site_environments")).WillReturnRows(sqlmock.NewRows(adminEnvCols))
+		f.mock.ExpectQuery(regexp.QuoteMeta("FROM site_environments")).WillReturnRows(
+			sqlmock.NewRows(adminEnvCols).AddRow("dev", 1, false, false, false, stamp, "", stamp))
 	}
 }
 
@@ -113,16 +114,18 @@ func TestAdmin_Domains(t *testing.T) {
 	rec := f.do(t, http.MethodGet, adminDomains, "")
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	got := decodeBody[AddressList](t, rec)
-	require.Len(t, got.Addresses, 3)
+	require.Len(t, got.Addresses, 4)
 
 	byHost := map[string]DeploymentAddress{}
-	hosts := make([]string, 0, 3)
+	hosts := make([]string, 0, 4)
 	for _, a := range got.Addresses {
 		byHost[a.Hostname], hosts = a, append(hosts, a.Hostname)
 	}
-	assert.Equal(t, []string{"alpha.pages.example.net", "shop.client.example", "zzz.client.example"}, hosts, "in hostname order")
+	assert.Equal(t, []string{"alpha--dev.pages.example.net", "alpha.pages.example.net", "shop.client.example", "zzz.client.example"}, hosts,
+		"in hostname order: the main address and every environment's own")
+	assert.Equal(t, site.EnvDev, byHost["alpha--dev.pages.example.net"].Environment)
 	assert.Equal(t, addressSite, byHost["alpha.pages.example.net"].Kind)
-	assert.Equal(t, site.EnvDefault, byHost["alpha.pages.example.net"].Environment)
+	assert.Equal(t, site.EnvDev, byHost["alpha.pages.example.net"].Environment)
 	assert.Equal(t, "creator@example.com", byHost["alpha.pages.example.net"].CreatedBy)
 	assert.Equal(t, stamp.Format(timeLayout), byHost["alpha.pages.example.net"].CreatedAt)
 	assert.Equal(t, addressApp, byHost["shop.client.example"].Kind)
