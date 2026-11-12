@@ -246,24 +246,9 @@ func OpenS3(cfg Config) (*s3client.Client, error) {
 	if connName == "" {
 		return nil, nil //nolint:nilnil // no connection is an answer, not a failure
 	}
-	s3Cfg := toolkitcfg.S3Config(cfg.Toolkits, connName)
-	if s3Cfg == nil {
-		return nil, fmt.Errorf("resource s3 connection %q not found in toolkits config", connName)
-	}
-	c, err := s3client.New(context.Background(), &s3client.Config{
-		Region:          s3Cfg.Region,
-		Endpoint:        s3Cfg.Endpoint,
-		AccessKeyID:     s3Cfg.AccessKeyID,
-		SecretAccessKey: s3Cfg.SecretKey,
-		Name:            s3Cfg.ConnectionName,
-		UsePathStyle:    s3Cfg.UsePathStyle,
-		// A resource is read whole -- by the registration that takes its
-		// header row, by a download, by the correction that rewrites it --
-		// and the client's one deadline covers that read (#1773).
-		Timeout: toolkitcfg.BlobReadTimeout(s3Cfg.Timeout, cfg.MaxObjectBytes),
-	})
+	c, err := toolkitcfg.OpenS3(cfg.Toolkits, connName, cfg.MaxObjectBytes)
 	if err != nil {
-		return nil, fmt.Errorf("creating resource s3 client for connection %q: %w", connName, err)
+		return nil, fmt.Errorf("managed resources: %w", err)
 	}
 	return c, nil
 }

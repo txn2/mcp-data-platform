@@ -18,7 +18,7 @@ import (
 //
 // Every criterion runs against the dev stack (make dev), whose SeaweedFS backs
 // dev-s3 (no prefix) and dev-s3-prefixed (bucket_prefix "portal-"): the bucket
-// portal-assets is inside the limit and dev-scratch outside it.
+// portal-lake is inside the limit and dev-scratch outside it.
 //
 // Wire forms: bucket, dest_bucket, key, dest_key, action and method are JSON
 // strings, the only form their schemas admit; method is sent as "PUT" and

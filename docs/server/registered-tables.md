@@ -777,6 +777,17 @@ registering it are one turn apart.
 
 ## What is refused, and why
 
+**A table, a schema or a partition a person points at the platform's own
+buckets (#2616).** The scratch catalog's credentials reach the resource bucket,
+because that is where the tables it registers read. A statement sent through
+the Trino tools that names a location there, or in the portal bucket, is
+refused whatever the persona: an external table over another library's prefix
+would read files the resource scopes keep from that person. A location the
+platform cannot read before the statement runs (assembled from parts, a
+procedure argument that is not a literal, a table copying another's properties)
+is refused too. Registration goes through `manage_table`, which the platform
+runs itself.
+
 **A directory holding a file Trino would read.** Trino reads every non-hidden
 object under an external location and parses it as CSV. A stray file beside the
 content does not fail the query - it comes back as rows of that file's bytes.

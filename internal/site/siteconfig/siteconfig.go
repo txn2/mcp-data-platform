@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -63,6 +64,44 @@ type Config struct {
 	// internal service name or a second address for the platform. A domain is
 	// answered ahead of the platform's own routes.
 	ReservedHostnames []string `yaml:"reserved_hostnames"`
+	// TLS is how a site's https answers keep a browser on https (#2557).
+	TLS TLSConfig `yaml:"tls"`
+}
+
+// TLSConfig is the sites.tls section.
+type TLSConfig struct {
+	HSTS HSTSConfig `yaml:"hsts"`
+}
+
+// DefaultHSTSMaxAge is how long a browser keeps the HSTS rule when max_age is
+// not set: a year.
+const DefaultHSTSMaxAge = 31536000
+
+// HSTSConfig sends Strict-Transport-Security on every https answer at a page
+// origin, a site's addresses on the pages domain and its added domains. Off
+// by default: once a browser holds the rule it cannot open those addresses
+// over http until it expires, whatever this says then.
+type HSTSConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// MaxAge is the rule's lifetime in seconds; 0 is DefaultHSTSMaxAge.
+	MaxAge            int  `yaml:"max_age"`
+	IncludeSubdomains bool `yaml:"include_subdomains"`
+}
+
+// Header is the Strict-Transport-Security value, "" when it is not sent.
+func (h HSTSConfig) Header() string {
+	if !h.Enabled {
+		return ""
+	}
+	age := h.MaxAge
+	if age <= 0 {
+		age = DefaultHSTSMaxAge
+	}
+	v := "max-age=" + strconv.Itoa(age)
+	if h.IncludeSubdomains {
+		v += "; includeSubDomains"
+	}
+	return v
 }
 
 // CacheConfig bounds a replica's cache of served files.

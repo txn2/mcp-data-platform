@@ -193,8 +193,11 @@ type builder struct {
 	libs     map[string]string
 	reads    map[string][]string
 	writes   map[string]bool
-	scripts  map[string]string // endpoint name -> script node
-	ids      map[string]string // asset output identity -> asset node
+	// unknownWriters are the scripts with a write step whose table is named
+	// when it runs, on a connection that may be the schema's (#2615).
+	unknownWriters []string
+	scripts        map[string]string // endpoint name -> script node
+	ids            map[string]string // asset output identity -> asset node
 }
 
 // Build draws in.
@@ -381,8 +384,9 @@ func (b *builder) data(id string, sc *script.Script, i int, ref scriptflow.DataR
 		node := fmt.Sprintf("computed:%s:%d", id, i)
 		b.node(Node{ID: node, Kind: NodeTable, Label: "table named when it runs", Group: GroupOutside, Computed: true, Detail: connDetail(ref.Connection)})
 		kind := LinkReads
-		if len(ref.Writes) > 0 {
+		if ref.Write || len(ref.Writes) > 0 {
 			kind = LinkWrites
+			b.unknownWrite(sc, ref.Connection)
 		}
 		b.link(Link{From: id, To: node, Kind: kind})
 		return
@@ -397,6 +401,16 @@ func (b *builder) data(id string, sc *script.Script, i int, ref scriptflow.DataR
 		b.writes[node] = true
 		b.link(Link{From: id, To: node, Kind: LinkWrites})
 	}
+}
+
+// unknownWrite records a script that writes a table named when it runs, when
+// that table could be in the schema: its connection is the schema's, the
+// default, or computed.
+func (b *builder) unknownWrite(sc *script.Script, connection string) {
+	if b.app.Schema == "" || (connection != "" && connection != b.app.Connection) || slices.Contains(b.unknownWriters, sc.Name) {
+		return
+	}
+	b.unknownWriters = append(b.unknownWriters, sc.Name)
 }
 
 func connDetail(connection string) []string {
@@ -525,11 +539,20 @@ func (b *builder) unwritten() {
 		if n.Group != GroupSchema || b.writes[id] || slices.Contains(filled, n.Label) {
 			continue
 		}
-		b.finding(Finding{
-			Kind: FindingUnwrittenTable, Node: id,
-			Message: fmt.Sprintf("table %s.%s is read by the application's scripts and written by no part", b.app.Schema, n.Label),
-		})
+		b.finding(Finding{Kind: FindingUnwrittenTable, Node: id, Message: b.unwrittenMessage(n.Label)})
 	}
+}
+
+// unwrittenMessage says a table has no writer the diagram knows of. With a
+// script that writes a table named only when it runs, it does not claim no
+// part writes it, since that script may (#2615).
+func (b *builder) unwrittenMessage(table string) string {
+	if len(b.unknownWriters) == 0 {
+		return fmt.Sprintf("table %s.%s is read by the application's scripts and written by no part", b.app.Schema, table)
+	}
+	sort.Strings(b.unknownWriters)
+	return fmt.Sprintf("table %s.%s is read by the application's scripts, and no part is known to write it: %s writes a table named only when it runs, which may be this one",
+		b.app.Schema, table, strings.Join(b.unknownWriters, ", "))
 }
 
 // Compare marks next against prev: each node and link added, removed (carried

@@ -6,12 +6,25 @@ import (
 
 // DomainBody adds a domain to a site.
 type DomainBody struct {
-	Hostname         string `json:"hostname" example:"dev.example.com"`
-	Environment      string `json:"environment" example:"prod"`
-	RequiresApproval bool   `json:"requires_approval,omitempty"`
-	// Public applies when the request creates the environment, which is
-	// otherwise private.
-	Public bool `json:"public,omitempty"`
+	Hostname    string `json:"hostname" example:"www.example.com"`
+	Environment string `json:"environment" example:"prod"`
+	// Public opens the domain to anyone (#2619): the owner's or an
+	// administrator's, through Approvals where the environment requires
+	// approval. A domain is added private otherwise.
+	Public bool   `json:"public,omitempty"`
+	Reason string `json:"reason,omitempty"`
+	// RequiresApproval sets whether the environment requires approval, on
+	// one the request creates or one that exists; After is where a new
+	// environment goes (#2617).
+	RequiresApproval *bool  `json:"requires_approval,omitempty"`
+	After            string `json:"after,omitempty"`
+}
+
+// DomainAccessBody makes a domain public or private (#2619).
+type DomainAccessBody struct {
+	Public bool `json:"public"`
+	// Reason goes with a request to make it public.
+	Reason string `json:"reason,omitempty"`
 }
 
 // GrantBody gives a person, by email, or a persona access.

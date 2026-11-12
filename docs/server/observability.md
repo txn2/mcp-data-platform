@@ -707,6 +707,9 @@ raises one; the log line carries the same `code`. The codes:
 | `script_destination_outside_prefix` | a script destination's bucket is outside its S3 connection's `bucket_prefix` |
 | `site_reserved_label` | a site's name is two characters, so its `<site>--<env>` addresses are labels certificate authorities refuse (#2611) |
 | `site_environment_renamed` | before migration 000239 runs: it is about to rename a site's environment named `dev`, which has a domain (#2608) |
+| `site_public_without_domain` | before migration 000245 runs: a public site environment has no domain, so it is about to answer only to someone signed in (#2619) |
+| `s3_connection_reaches_platform_bucket` | the credentials of an S3 connection a persona may read buckets through list one of the platform's own buckets; the S3 tools refuse it (#2616) |
+| `s3_connection_reaches_backup_bucket` | the credentials of an S3 connection a persona may read buckets through list a bucket named for backups (#2616) |
 
 **Startup.** Initialization runs as named phases (`observability`, `data`,
 `providers`, `registries`, `prompts`, `oauth_signing_key`, `auth`,

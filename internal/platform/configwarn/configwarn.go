@@ -67,6 +67,17 @@ const (
 	// site's environment named dev, which has a domain, and give the name to
 	// the site's working copy (#2608).
 	CodeSiteEnvironmentRenamed = "site_environment_renamed"
+	// CodeS3ReachesPlatformBucket: the credentials of an S3 connection a
+	// persona may read buckets through list one of the platform's own
+	// buckets. The S3 tools refuse it; the credentials still reach it (#2616).
+	CodeS3ReachesPlatformBucket = "s3_connection_reaches_platform_bucket"
+	// CodeS3ReachesBackupBucket: the credentials of an S3 connection a persona
+	// may read buckets through list a bucket named for backups (#2616).
+	CodeS3ReachesBackupBucket = "s3_connection_reaches_backup_bucket"
+	// CodeSitePublicWithoutDomain: migration 000245 is about to make a public
+	// site environment with no domain answer only to someone signed in
+	// (#2619).
+	CodeSitePublicWithoutDomain = "site_public_without_domain"
 )
 
 // logKeyCode is the attribute every warning's log line carries its code under,

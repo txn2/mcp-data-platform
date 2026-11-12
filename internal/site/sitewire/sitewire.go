@@ -235,7 +235,7 @@ func (rt *Runtime) PageAddress(ctx context.Context, scriptID string) string {
 	if err != nil {
 		return ""
 	}
-	return rt.Service.PageOrigin(a.Name)
+	return rt.Service.Addressing().PageOrigin(a.Name)
 }
 
 // ApplicationAddresses is where an application answers: its page origin and the
@@ -254,7 +254,7 @@ func (rt *Runtime) ApplicationAddresses(ctx context.Context, name string) (origi
 			domains = append(domains, d.Hostname)
 		}
 	}
-	return rt.Service.PageOrigin(name), domains, nil
+	return rt.Service.Addressing().PageOrigin(name), domains, nil
 }
 
 // SiteOrigins are the browser origins of the sites an application holds: its
@@ -270,7 +270,7 @@ func (rt *Runtime) SiteOrigins(ctx context.Context, applicationID string) []stri
 	}
 	out := make([]string, 0, len(hosts))
 	for _, h := range hosts {
-		out = append(out, rt.Service.Origin(h))
+		out = append(out, rt.Service.Addressing().Origin(h))
 	}
 	return out
 }

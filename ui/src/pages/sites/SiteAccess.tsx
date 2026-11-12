@@ -147,8 +147,8 @@ function SharedWith({
   onFail: (t: string) => void;
 }) {
   const set = useSetSiteEnvironment(site.name);
-  const internal = site.environments.filter((e) => e.internal_view && !e.public).map((e) => e.name);
-  const publicEnvs = site.environments.filter((e) => e.public).map((e) => e.name);
+  const internal = site.environments.filter((e) => e.internal_view).map((e) => e.name);
+  const publicDomains = site.domains.filter((d) => d.public).map((d) => d.hostname);
   const stopInternal = async () => {
     try {
       for (const name of internal) await set.mutateAsync({ name, internal_view: false });
@@ -167,8 +167,8 @@ function SharedWith({
     >
       <div className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          Who else can open each private environment, after signing in. A persona share follows the persona: someone who joins it can open the environment on their next visit, and someone who leaves cannot.
-          {publicEnvs.length > 0 && ` ${publicEnvs.join(", ")} ${publicEnvs.length === 1 ? "is" : "are"} public, so ${publicEnvs.length === 1 ? "it opens" : "they open"} for anyone and ${publicEnvs.length === 1 ? "is" : "are"} not shared.`}
+          Who else can open each environment, after signing in. A persona share follows the persona: someone who joins it can open the environment on their next visit, and someone who leaves cannot.
+          {publicDomains.length > 0 && ` ${publicDomains.join(", ")} ${publicDomains.length === 1 ? "is a public domain and opens" : "are public domains and open"} for anyone; every other address asks for a sign-in.`}
         </p>
         {shares.length === 0 && internal.length === 0 ? (
           <p className="text-sm text-muted-foreground">Not shared with anyone yet.</p>
@@ -261,7 +261,7 @@ function ShareRow({ grant: g, onChange, onRemove }: { grant: SiteGrant; onChange
 // ChangeShareDialog changes which private environments a share opens.
 function ChangeShareDialog({ site, grant: g, onClose }: { site: Site; grant: SiteGrant; onClose: () => void }) {
   const grant = useGrantSite(site.name);
-  const privateEnvs = orderedEnvironments(site.environments).filter((e) => !e.public);
+  const privateEnvs = orderedEnvironments(site.environments);
   const [envs, setEnvs] = useState<string[]>(g.environments.length ? g.environments : privateEnvs.map((e) => e.name));
   const [failure, setFailure] = useState<string | null>(null);
   const toggle = (name: string) => setEnvs((cur) => (cur.includes(name) ? cur.filter((e) => e !== name) : [...cur, name]));

@@ -57,6 +57,22 @@ func cloneSite(st *site.Site) *site.Site {
 	return &c
 }
 
+// withDomains is a copy of st with each environment's public domains, as the
+// store reads them (#2619).
+func (m *memStore) withDomains(st *site.Site) *site.Site {
+	c := cloneSite(st)
+	for i := range c.Environments {
+		c.Environments[i].PublicDomains = []string{}
+		for _, d := range m.domains {
+			if d.SiteID == c.ID && d.Environment == c.Environments[i].Name && d.Public {
+				c.Environments[i].PublicDomains = append(c.Environments[i].PublicDomains, d.Hostname)
+			}
+		}
+		slices.Sort(c.Environments[i].PublicDomains)
+	}
+	return c
+}
+
 func (m *memStore) Create(_ context.Context, st *site.Site) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -82,7 +98,7 @@ func (m *memStore) Get(_ context.Context, id string) (*site.Site, error) {
 	if !ok {
 		return nil, site.ErrNotFound
 	}
-	return cloneSite(st), nil
+	return m.withDomains(st), nil
 }
 
 func (m *memStore) GetByName(_ context.Context, name string) (*site.Site, error) {
@@ -93,7 +109,7 @@ func (m *memStore) GetByName(_ context.Context, name string) (*site.Site, error)
 	}
 	for _, st := range m.sites {
 		if st.Name == name {
-			return cloneSite(st), nil
+			return m.withDomains(st), nil
 		}
 	}
 	return nil, site.ErrNotFound
@@ -107,7 +123,7 @@ func (m *memStore) List(context.Context) ([]site.Site, error) {
 	}
 	out := make([]site.Site, 0, len(m.sites))
 	for _, st := range m.sites {
-		out = append(out, *cloneSite(st))
+		out = append(out, *m.withDomains(st))
 	}
 	slices.SortFunc(out, func(a, b site.Site) int { return strings.Compare(a.Name, b.Name) })
 	return out, nil
@@ -132,19 +148,23 @@ func (m *memStore) SetEnvironment(_ context.Context, siteID, name string, set si
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	st := m.sites[siteID]
-	e := st.Environment(name)
-	if e == nil {
-		st.Environments = append(st.Environments, site.Environment{Name: name})
-		e = &st.Environments[len(st.Environments)-1]
+	if st.Environment(name) == nil || set.Place != nil {
+		order, err := site.Placed(st.Order(), name, set.Place)
+		if err != nil {
+			return err //nolint:wrapcheck // the fake answers with the store's own sentence
+		}
+		byName := map[string]site.Environment{name: {Name: name}}
+		for _, e := range st.Environments {
+			byName[e.Name] = e
+		}
+		st.Environments = st.Environments[:0:0]
+		for _, n := range order {
+			st.Environments = append(st.Environments, byName[n])
+		}
 	}
+	e := st.Environment(name)
 	if set.RequiresApproval != nil {
 		e.RequiresApproval = *set.RequiresApproval
-	}
-	if set.Public != nil {
-		if e.Public != *set.Public {
-			e.AccessChangedAt = e.AccessChangedAt.Add(time.Second)
-		}
-		e.Public = *set.Public
 	}
 	if set.InternalView != nil {
 		e.InternalView = *set.InternalView
@@ -157,6 +177,20 @@ func (m *memStore) SetEnvironment(_ context.Context, siteID, name string, set si
 		e.KeepReleases, e.Keep, e.KeepDefault = &n, n, false
 	}
 	e.UpdatedBy = actor
+	return nil
+}
+
+func (m *memStore) SetDomainPublic(_ context.Context, hostname string, public bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	d, ok := m.domains[hostname]
+	if !ok || d.SiteID == "" {
+		return site.ErrNoDomain
+	}
+	if d.Public != public {
+		d.AccessChangedAt = d.AccessChangedAt.Add(time.Second)
+	}
+	d.Public = public
 	return nil
 }
 

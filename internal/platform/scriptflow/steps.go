@@ -126,6 +126,10 @@ var memberCards = map[string]func(*card, *Node){
 		form, full := c.value(c.arg("form", 0))
 		n.Role, n.Kind, n.Title, n.Subtitle, n.Computed = RoleReads, KindToken, "Decrypt", "form "+form, !full
 	},
+	"read_resource": func(c *card, n *Node) {
+		ref, full := c.value(c.arg("resource", 0))
+		n.Role, n.Kind, n.Title, n.Subtitle, n.Computed = RoleReads, KindTool, "Read resource", ref, !full
+	},
 	"result": func(_ *card, n *Node) {
 		n.Role, n.Kind, n.Title, n.Subtitle = RoleOutput, KindResult, "Run result", "handed back to whoever ran it"
 	},
@@ -182,6 +186,7 @@ func (c *card) execute(n *Node) {
 	c.writeStatement(n, c.arg(argSQL, 0), conn)
 	n.Computed = n.Computed || !full
 	n.Data = c.dataRef(c.kw[argConnection], c.arg(argSQL, 0))
+	n.Data.Write = true
 }
 
 func (c *card) export(n Node) []Node {
@@ -365,6 +370,7 @@ func (c *card) transaction(n *Node) {
 	tx, _ := def.Params[0].(*syntax.Ident)
 	n.Detail = c.txStatements(def.Body, nameOf(tx, tx != nil))
 	n.Data = c.dataRef(c.arg(argConnection, 0), txStatementExprs(def.Body, nameOf(tx, tx != nil))...)
+	n.Data.Write = n.Role == RoleWrites
 	if len(n.Detail) == 0 {
 		n.Detail = []string{"no statement through tx"}
 	}
@@ -374,9 +380,11 @@ func (c *card) transaction(n *Node) {
 func (c *card) batch(n *Node) {
 	conn, full := c.value(c.arg(argConnection, 0))
 	n.Role, n.Kind, n.Title, n.Computed = RoleWrites, KindTransaction, onConn("Batch", conn), !full
-	list, ok := c.arg("statements", 1).(*syntax.ListExpr)
-	if !ok {
+	list := c.s.scope.list(c.arg("statements", 1))
+	if list == nil {
 		n.Detail, n.Computed = []string{"statements assembled at run time"}, true
+		n.Data = c.dataRef(c.arg(argConnection, 0), nil)
+		n.Data.Write = true
 		return
 	}
 	for _, e := range list.List {
@@ -384,6 +392,7 @@ func (c *card) batch(n *Node) {
 	}
 	n.Detail = shortList(n.Detail, maxDetail)
 	n.Data = c.dataRef(c.arg(argConnection, 0), list.List...)
+	n.Data.Write = true
 }
 
 // txStatements are the statements a transaction's function runs through its
@@ -422,8 +431,8 @@ func (c *card) statementLine(member string, e syntax.Expr) string {
 		e = dictFields(d)[argSQL]
 	}
 	sql, full := c.value(e)
-	if m := dmlRe.FindStringSubmatch(sql); m != nil {
-		return strings.ToUpper(strings.Fields(m[1])[0]) + " " + m[2]
+	if w, ok := lastWrite(sql); ok {
+		return w.verb + " " + w.table
 	}
 	if tables := tablesIn(sql); len(tables) > 0 {
 		return "read " + strings.Join(tables, ", ")

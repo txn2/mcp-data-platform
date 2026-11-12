@@ -33,11 +33,13 @@ func TestIssue2607_ThePortalAddressesAnEnvironmentByItsDomain(t *testing.T) {
 	if !strings.Contains(prod, "://"+domain) || strings.Contains(prod, "--prod") {
 		t.Errorf("prod's address is %q, not its domain %s", prod, domain)
 	}
-	if p, _ := pages["prod"].(string); !strings.Contains(p, s.host("prod")) {
-		t.Errorf("prod's pages address is %q, not %s", p, s.host("prod"))
+	// prod holds the main address, so that is its pages address; dev answers
+	// at its own (#2617).
+	if p, _ := pages["prod"].(string); hostname2617(p) != s.host("") {
+		t.Errorf("prod's pages address is %q, not the main address %s", p, s.host(""))
 	}
-	if dev, _ := addresses["dev"].(string); !strings.Contains(dev, "://"+s.host("")) {
-		t.Errorf("dev, with no domain, is addressed %q, not at the main address %s", dev, s.host(""))
+	if dev, _ := addresses["dev"].(string); hostname2617(dev) != s.host("dev") {
+		t.Errorf("dev, with no domain, is addressed %q, not at its own address %s", dev, s.host("dev"))
 	}
 	if _, has := view["address_note"]; has {
 		t.Errorf("a site whose addresses answer carries an address note: %v", view["address_note"])

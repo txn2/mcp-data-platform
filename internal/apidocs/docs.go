@@ -12341,7 +12341,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/site.Domain"
+                            "$ref": "#/definitions/sitesvc.DomainResult"
                         }
                     },
                     "403": {
@@ -28702,7 +28702,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Maps a hostname to one of the site's environments, creating the environment when it does not exist. It routes as soon as it is added; the deployment's administrator adds the ingress.",
+                "description": "Maps a hostname to one of the site's environments, creating the environment when it does not exist (placed by after, #2617), and applying requires_approval to one that does. It routes as soon as it is added, private unless public is asked for (#2619); making it public is the owner's or an administrator's, and where the environment requires approval someone who is not an administrator adds it private and a request goes to Approvals. The deployment's administrator adds the ingress.",
                 "consumes": [
                     "application/json"
                 ],
@@ -28735,7 +28735,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/site.Domain"
+                            "$ref": "#/definitions/sitesvc.DomainResult"
                         }
                     },
                     "403": {
@@ -28766,6 +28766,78 @@ const docTemplate = `{
             }
         },
         "/portal/sites/{site}/domains/{hostname}": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Public opens this one domain to anyone (#2619); every address of the environment on the pages domain keeps asking for a sign-in. Making it public is the owner's or an administrator's, and where the environment requires approval someone who is not an administrator files a request in Approvals and asks again once it is approved. Anyone who manages the site makes a domain private.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Make a domain public or private",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Hostname",
+                        "name": "hostname",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The access",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.DomainAccessBody"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sitesvc.DomainResult"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
             "delete": {
                 "security": [
                     {
@@ -52590,6 +52662,10 @@ const docTemplate = `{
                     "type": "string",
                     "example": "www.example.com"
                 },
+                "public": {
+                    "description": "Public answers anyone at this hostname (#2619): the one way a site\nenvironment opens to someone who has not signed in. A domain is added\nprivate unless public is asked for.",
+                    "type": "boolean"
+                },
                 "site": {
                     "type": "string",
                     "example": "marketing"
@@ -52603,7 +52679,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "internal_view": {
-                    "description": "InternalView opens a private environment to everyone signed in whose\npersona is not external: a company intranet.",
+                    "description": "InternalView opens the environment's private addresses to everyone\nsigned in whose persona is not external: a company intranet.",
                     "type": "boolean"
                 },
                 "keep_releases": {
@@ -52619,9 +52695,12 @@ const docTemplate = `{
                     "type": "string",
                     "example": "prod"
                 },
-                "public": {
-                    "description": "Public answers to anyone. A private environment answers only to\nadministrators, the owner, the people who manage the site and whoever it\nis shared with, after they sign in. EnvDev is never public.",
-                    "type": "boolean"
+                "public_domains": {
+                    "description": "PublicDomains are the domains added to the environment that answer\nanyone (#2619). Every other address it has, its addresses on the pages\ndomain included, answers only to administrators, the owner, the people\nwho manage the site and whoever it is shared with, after they sign in.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "release": {
                     "description": "Release is the number of the release served, 0 before the first.",
@@ -52634,7 +52713,7 @@ const docTemplate = `{
                     "example": 37
                 },
                 "requires_approval": {
-                    "description": "RequiresApproval makes a promotion here, and making it public, a request\nin the Approvals queue.",
+                    "description": "RequiresApproval makes a promotion here, and making one of its domains\npublic, a request in the Approvals queue.",
                     "type": "boolean"
                 },
                 "updated_at": {
@@ -52699,6 +52778,34 @@ const docTemplate = `{
                 "persona": {
                     "type": "string",
                     "example": "finance-team"
+                }
+            }
+        },
+        "site.Header": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "example": "Content-Security-Policy"
+                },
+                "value": {
+                    "type": "string",
+                    "example": "default-src 'self'"
+                }
+            }
+        },
+        "site.HeaderRule": {
+            "type": "object",
+            "properties": {
+                "headers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/site.Header"
+                    }
+                },
+                "path": {
+                    "type": "string",
+                    "example": "/*"
                 }
             }
         },
@@ -52842,6 +52949,13 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/site.File"
+                    }
+                },
+                "headers": {
+                    "description": "Headers is what the release's _headers file declared (#2557).",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/site.HeaderRule"
                     }
                 },
                 "id": {
@@ -53030,6 +53144,10 @@ const docTemplate = `{
                     "type": "string",
                     "example": "shop.example.com"
                 },
+                "public": {
+                    "description": "Public opens a site's domain to anyone (#2619); private otherwise.",
+                    "type": "boolean"
+                },
                 "requires_approval": {
                     "type": "boolean"
                 },
@@ -53122,22 +53240,41 @@ const docTemplate = `{
                 }
             }
         },
+        "sitehttp.DomainAccessBody": {
+            "type": "object",
+            "properties": {
+                "public": {
+                    "type": "boolean"
+                },
+                "reason": {
+                    "description": "Reason goes with a request to make it public.",
+                    "type": "string"
+                }
+            }
+        },
         "sitehttp.DomainBody": {
             "type": "object",
             "properties": {
+                "after": {
+                    "type": "string"
+                },
                 "environment": {
                     "type": "string",
                     "example": "prod"
                 },
                 "hostname": {
                     "type": "string",
-                    "example": "dev.example.com"
+                    "example": "www.example.com"
                 },
                 "public": {
-                    "description": "Public applies when the request creates the environment, which is\notherwise private.",
+                    "description": "Public opens the domain to anyone (#2619): the owner's or an\nadministrator's, through Approvals where the environment requires\napproval. A domain is added private otherwise.",
                     "type": "boolean"
                 },
+                "reason": {
+                    "type": "string"
+                },
                 "requires_approval": {
+                    "description": "RequiresApproval sets whether the environment requires approval, on\none the request creates or one that exists; After is where a new\nenvironment goes (#2617).",
                     "type": "boolean"
                 }
             }
@@ -53145,6 +53282,10 @@ const docTemplate = `{
         "sitehttp.EnvironmentBody": {
             "type": "object",
             "properties": {
+                "after": {
+                    "description": "After places a new environment, or moves one, immediately after the\nenvironment it names: dev or one between dev and prod (#2617).",
+                    "type": "string"
+                },
                 "internal_view": {
                     "type": "boolean"
                 },
@@ -53154,10 +53295,8 @@ const docTemplate = `{
                     "example": "50"
                 },
                 "public": {
+                    "description": "Public is refused (#2619): public is a setting of a domain.",
                     "type": "boolean"
-                },
-                "reason": {
-                    "type": "string"
                 },
                 "requires_approval": {
                     "type": "boolean"
@@ -53167,9 +53306,6 @@ const docTemplate = `{
         "sitehttp.EnvironmentResponse": {
             "type": "object",
             "properties": {
-                "approval": {
-                    "$ref": "#/definitions/sitesvc.ApprovalRequest"
-                },
                 "note": {
                     "type": "string"
                 },
@@ -53177,7 +53313,6 @@ const docTemplate = `{
                     "$ref": "#/definitions/sitehttp.SiteView"
                 },
                 "status": {
-                    "description": "Status is done, or awaiting_approval when making the environment public\nwaits in Approvals.",
                     "type": "string",
                     "example": "done"
                 }
@@ -53394,6 +53529,13 @@ const docTemplate = `{
                         "$ref": "#/definitions/site.File"
                     }
                 },
+                "headers": {
+                    "description": "Headers is what the release's _headers file declared (#2557).",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/site.HeaderRule"
+                    }
+                },
                 "id": {
                     "type": "string"
                 },
@@ -53482,6 +53624,13 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/site.File"
+                    }
+                },
+                "headers": {
+                    "description": "Headers is what the release's _headers file declared (#2557).",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/site.HeaderRule"
                     }
                 },
                 "id": {
@@ -53956,86 +54105,6 @@ const docTemplate = `{
                 }
             }
         },
-        "sitesvc.ApprovalRequest": {
-            "type": "object",
-            "properties": {
-                "changes": {
-                    "$ref": "#/definitions/approval.Changes"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "decided_at": {
-                    "type": "string"
-                },
-                "decided_by": {
-                    "type": "string"
-                },
-                "decision_comment": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string",
-                    "example": "apr_0f3c9d2e"
-                },
-                "purpose": {
-                    "type": "string",
-                    "example": "form_public"
-                },
-                "reason": {
-                    "type": "string"
-                },
-                "requester_email": {
-                    "type": "string",
-                    "example": "jane@example.com"
-                },
-                "requester_persona": {
-                    "type": "string"
-                },
-                "script_id": {
-                    "type": "string"
-                },
-                "script_name": {
-                    "type": "string",
-                    "example": "order-intake"
-                },
-                "self_approved": {
-                    "type": "boolean"
-                },
-                "site_id": {
-                    "description": "SiteID is the site an environment request is about (#2604).",
-                    "type": "string"
-                },
-                "site_name": {
-                    "description": "SiteName is the site the release or environment belongs to.",
-                    "type": "string",
-                    "example": "marketing"
-                },
-                "site_release_id": {
-                    "description": "SiteReleaseID and Target name a site release a promotion waits on and\nthe environment it would serve (#2518); SourceSHA256 is then the\nrelease's manifest digest and Version its number.",
-                    "type": "string"
-                },
-                "source_sha256": {
-                    "type": "string"
-                },
-                "status": {
-                    "type": "string",
-                    "example": "pending"
-                },
-                "subject_kind": {
-                    "type": "string",
-                    "example": "script_version"
-                },
-                "target": {
-                    "type": "string",
-                    "example": "prod"
-                },
-                "version": {
-                    "type": "integer",
-                    "example": 2
-                }
-            }
-        },
         "sitesvc.Comparison": {
             "type": "object",
             "properties": {
@@ -54076,6 +54145,51 @@ const docTemplate = `{
                 "to": {
                     "type": "integer",
                     "example": 11
+                }
+            }
+        },
+        "sitesvc.DomainResult": {
+            "type": "object",
+            "properties": {
+                "application": {
+                    "type": "string",
+                    "example": "shop"
+                },
+                "application_id": {
+                    "description": "ApplicationID and Application name the application whose endpoints the\nhostname serves.",
+                    "type": "string"
+                },
+                "approval": {
+                    "$ref": "#/definitions/approval.Request"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "environment": {
+                    "type": "string",
+                    "example": "prod"
+                },
+                "hostname": {
+                    "type": "string",
+                    "example": "www.example.com"
+                },
+                "public": {
+                    "description": "Public answers anyone at this hostname (#2619): the one way a site\nenvironment opens to someone who has not signed in. A domain is added\nprivate unless public is asked for.",
+                    "type": "boolean"
+                },
+                "site": {
+                    "type": "string",
+                    "example": "marketing"
+                },
+                "site_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "Status is StatusDone, or StatusAwaitingApproval when making the domain\npublic waits on Approvals; the domain is private meanwhile.",
+                    "type": "string"
                 }
             }
         },

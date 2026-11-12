@@ -440,8 +440,10 @@ reads the same list from `/endpoints/shop/products`.
    the pending migrations and the role its scripts log in as), and anything
    a release would refuse (`problems`).
 4. `release` (an administrator) applies the pending migrations and pins each
-   script's and asset's newest version. A migration that fails refuses the
-   release and changes nothing.
+   script's and asset's newest version, and each site environment at the
+   release the environment before it serves (dev at the site's newest), so a
+   release moves a site one step as promoting it would. A migration that fails
+   refuses the release and changes nothing.
 
 From then on the endpoints, the form, the schedule, the events and
 `run_script` run the pinned script versions, and the portal serves the pinned

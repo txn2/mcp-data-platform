@@ -3,20 +3,21 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiFetchRaw, ApiError } from "../client";
 import { useApprovals, type ApprovalRequest } from "./approvals";
 
-// Sites (#2559, #2604): agents and the people who manage a site work in dev;
-// people use the environments a release was promoted to. Each environment is
-// private (a sign-in, and only the people and personas it is shared with) or
-// public, answers at <site>--<env> on the pages domain and at any domain added
-// to it, and one environment may hold the site's main address. The server
+// Sites (#2559, #2604, #2617, #2619): agents and the people who manage a site
+// work in dev; people use the environments a release was promoted to, one step
+// at a time, in the site's stored order (dev first, prod last). Every address
+// on the pages domain asks for a sign-in and opens for whoever the environment
+// is shared with; only a domain added to an environment and set public answers
+// anyone. prod holds the main address of a new site. The server
 // decides who may do what; each site reports the caller's permissions so the
 // page hides what they would be refused.
 
 /**
- * A site's name: one DNS label short enough that <site>--dev still fits in 63
+ * A site's name: one DNS label short enough that <site>--prod still fits in 63
  * characters, with no doubled or trailing hyphen. A name this admits may still
  * be two characters, which siteNameRefusal refuses.
  */
-export const SITE_NAME_RE = /^(?!.*--)(?!.*-$)[a-z][a-z0-9-]{0,57}$/;
+export const SITE_NAME_RE = /^(?!.*--)(?!.*-$)[a-z][a-z0-9-]{0,56}$/;
 
 /**
  * Why the server refuses a name the pattern admits, "" for none (#2611): a
@@ -34,8 +35,8 @@ export interface SiteEnvironment {
   name: string;
   release: number;
   requires_approval: boolean;
-  /** Opens for anyone; false asks for a sign-in and a share. dev is never public. */
-  public: boolean;
+  /** The domains added to it that answer anyone (#2619); every other address asks for a sign-in. */
+  public_domains: string[];
   /** Everyone signed in whose persona is not external can open it. */
   internal_view: boolean;
   /** How many releases it keeps (#2602): its last N distinct releases; 0 keeps every one. */
@@ -54,8 +55,36 @@ export interface SiteDomain {
   site?: string;
   environment?: string;
   application?: string;
+  /** Answers anyone at this hostname (#2619); a domain is private unless set public. */
+  public: boolean;
   created_by: string;
   created_at: string;
+}
+
+/** What adding a domain or changing its access did: done, or waiting on Approvals. */
+export interface DomainResult extends SiteDomain {
+  status: "done" | "awaiting_approval";
+  approval?: ApprovalRequest;
+}
+
+/** Whether an environment answers anyone at one of its domains. */
+export function answersAnyone(env: Pick<SiteEnvironment, "public_domains">): boolean {
+  return (env.public_domains ?? []).length > 0;
+}
+
+/** dev is always first and prod always last: neither moves (#2617). */
+export const PROD_ENVIRONMENT = "prod";
+
+/** What a new or moved environment can go after (#2617): every one in the order but prod and itself. */
+export function placeChoices(order: string[], name: string): string[] {
+  const out = order.filter((n) => n !== PROD_ENVIRONMENT && n !== name);
+  return out.length > 0 ? out : [DEV_ENVIRONMENT];
+}
+
+/** The environment immediately before name in the site's order: the one a promotion to it takes from. */
+export function previousEnvironment(site: Pick<Site, "environments">, name: string): SiteEnvironment | undefined {
+  const i = site.environments.findIndex((e) => e.name === name);
+  return i > 0 ? site.environments[i - 1] : undefined;
 }
 
 export interface SitePermissions {
@@ -348,7 +377,6 @@ export function useDeleteSite(site: string) {
   return useMutation({ mutationFn: () => noContent(one(site), "DELETE"), onSuccess: invalidate });
 }
 
-/** A publish always lands in dev, so it names no environment. */
 /** The objects under a prefix of a bucket on an S3 connection the person can use (#2593). */
 export interface BucketSource {
   connection: string;
@@ -428,12 +456,41 @@ export function useRollbackSite(site: string) {
   });
 }
 
+export interface DomainBody {
+  hostname: string;
+  environment: string;
+  /** Sets whether the environment requires approval, whether the domain creates it or it exists. */
+  requires_approval?: boolean;
+  /** Adds it public: the owner's or an administrator's, through Approvals where the environment requires approval. */
+  public?: boolean;
+  reason?: string;
+  /** Where an environment the domain creates goes (#2617). */
+  after?: string;
+}
+
 export function useAddSiteDomain(site: string) {
   const invalidate = useInvalidate();
+  const qc = useQueryClient();
   return useMutation({
-    mutationFn: (b: { hostname: string; environment: string; requires_approval?: boolean; public?: boolean }) =>
-      apiFetch<SiteDomain>(`${one(site)}/domains`, json("POST", b)),
-    onSuccess: invalidate,
+    mutationFn: (b: DomainBody) => apiFetch<DomainResult>(`${one(site)}/domains`, json("POST", b)),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["approvals"] });
+      return invalidate();
+    },
+  });
+}
+
+/** Makes one domain public or private (#2619). */
+export function useSetDomainAccess(site: string) {
+  const invalidate = useInvalidate();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ hostname, ...b }: { hostname: string; public: boolean; reason?: string }) =>
+      apiFetch<DomainResult>(`${one(site)}/domains/${encodeURIComponent(hostname)}`, json("PUT", b)),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["approvals"] });
+      return invalidate();
+    },
   });
 }
 
@@ -477,20 +534,19 @@ export function useRevokeSite(site: string) {
 
 export interface EnvironmentBody {
   requires_approval?: boolean;
-  public?: boolean;
   internal_view?: boolean;
-  reason?: string;
+  /** Places a new environment, or moves one, immediately after this one (#2617). */
+  after?: string;
   /** How many releases it keeps: a number (0 for every release) or "default". The owner and administrators only. */
   keep_releases?: number | "default";
 }
 
 export interface EnvironmentChanged {
   site: Site;
-  status: "done" | "awaiting_approval";
-  approval?: ApprovalRequest;
+  status: "done";
 }
 
-/** Creates an environment, or changes its access or approval rule. */
+/** Creates an environment, moves it, or changes its settings. */
 export function useSetSiteEnvironment(site: string) {
   const invalidate = useInvalidate();
   const qc = useQueryClient();
@@ -513,17 +569,12 @@ export function useSetMainEnvironment(site: string) {
   });
 }
 
-/**
- * Where each environment's latest approval stands, read from the Approvals
- * queue: what the banners on the Environments tab say, one per environment and
- * purpose (a promote, or making the environment public). A request already
- * carried out says nothing more.
- */
+/** The newest approval per target and purpose (a promote names an environment, making public a domain), until carried out. */
 export function useApprovalForSite(site: Site): (ApprovalRequest & { target: string })[] {
   const { data } = useApprovals();
   const newest = new Map<string, ApprovalRequest & { target: string }>();
   for (const r of data ?? []) {
-    if (r.subject_kind !== "site_release" || r.site_name !== site.name || !r.target) continue;
+    if ((r.subject_kind !== "site_release" && r.subject_kind !== "site_environment") || r.site_name !== site.name || !r.target) continue;
     const key = `${r.purpose}:${r.target}`;
     const held = newest.get(key);
     if (!held || r.created_at > held.created_at) newest.set(key, r as ApprovalRequest & { target: string });
@@ -532,7 +583,8 @@ export function useApprovalForSite(site: Site): (ApprovalRequest & { target: str
     const env = site.environments.find((e) => e.name === r.target);
     if (r.status === "pending" || r.status === "denied") return true;
     if (r.status !== "approved") return false;
-    return r.purpose === "site_public" ? !!env && !env.public : env?.release !== r.version;
+    if (r.purpose === "site_public") return site.domains.some((d) => d.hostname === r.target && !d.public);
+    return env?.release !== r.version;
   });
 }
 

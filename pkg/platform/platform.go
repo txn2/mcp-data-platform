@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	s3client "github.com/txn2/mcp-s3/pkg/client"
 
 	"github.com/txn2/mcp-data-platform/apps"
 	"github.com/txn2/mcp-data-platform/internal/agentinstructions"
@@ -118,6 +117,7 @@ import (
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
+	s3kit "github.com/txn2/mcp-data-platform/pkg/toolkits/s3"
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
 )
@@ -1772,30 +1772,11 @@ func blobReadCeiling(cfg *Config) int64 {
 
 // createPortalS3Client creates an S3Client from the referenced S3 connection config.
 func (p *Platform) createPortalS3Client() (portal.S3Client, error) {
-	connName := p.config.Portal.S3Connection
-	s3Cfg := toolkitcfg.S3Config(p.config.Toolkits, connName)
-	if s3Cfg == nil {
-		return nil, fmt.Errorf("s3 connection %q not found in toolkits config", connName)
-	}
-
-	clientCfg := &s3client.Config{
-		Region:          s3Cfg.Region,
-		Endpoint:        s3Cfg.Endpoint,
-		AccessKeyID:     s3Cfg.AccessKeyID,
-		SecretAccessKey: s3Cfg.SecretKey,
-		Name:            s3Cfg.ConnectionName,
-		UsePathStyle:    s3Cfg.UsePathStyle,
-		// An asset is read whole by the registration that takes its header
-		// row, and the client's one deadline covers that read (#1773).
-		Timeout: toolkitcfg.BlobReadTimeout(s3Cfg.Timeout, blobReadCeiling(p.config)),
-	}
-
-	c, err := s3client.New(context.Background(), clientCfg)
+	c, err := toolkitcfg.OpenS3(p.config.Toolkits, p.config.Portal.S3Connection, blobReadCeiling(p.config))
 	if err != nil {
-		return nil, fmt.Errorf("creating s3 client for connection %q: %w", connName, err)
+		return nil, fmt.Errorf("portal: %w", err)
 	}
-
-	slog.Info("portal: using s3 connection", "connection", connName)
+	slog.Info("portal: using s3 connection", "connection", p.config.Portal.S3Connection)
 	return s3adapter.New(c), nil
 }
 
@@ -2859,6 +2840,9 @@ func (p *Platform) Start(ctx context.Context) error {
 	// Register resource templates (schema, glossary, availability)
 	p.registerResourceTemplates()
 
+	// No S3 tool reaches the platform's own buckets (#2616); the reach check lists over the network, apart from startup.
+	s3kit.SetReservedBuckets(s3kit.PlatformBuckets(p.config.Portal.S3Bucket, p.config.Resources.Managed.S3Bucket))
+	go configwarn.CheckS3Reach(context.WithoutCancel(ctx), p.toolkitRegistry, p.personaRegistry)
 	// Boot configuration checks (#1174, #1898): each finding is logged and counted.
 	configwarn.CheckStartup(ctx, configwarn.Startup{
 		AgentInstructions: p.config.ServerAgentInstructions(ctx), Toolkits: p.toolkitRegistry,

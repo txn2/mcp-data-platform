@@ -83,10 +83,10 @@ func (s *Store) Create(ctx context.Context, st *site.Site) error {
 		if err != nil {
 			return fmt.Errorf("create site: %w", err)
 		}
-		for _, env := range st.Environments {
+		for i, env := range st.Environments {
 			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO site_environments (site_id, name, requires_approval, public, internal_view, updated_by) VALUES ($1, $2, $3, $4, $5, $6)`,
-				st.ID, env.Name, env.RequiresApproval, env.Public, env.InternalView, st.CreatedBy); err != nil {
+				INSERT INTO site_environments (site_id, name, requires_approval, internal_view, updated_by, position) VALUES ($1, $2, $3, $4, $5, $6)`,
+				st.ID, env.Name, env.RequiresApproval, env.InternalView, st.CreatedBy, i); err != nil {
 				return fmt.Errorf("create environment %s: %w", env.Name, err)
 			}
 		}
@@ -143,11 +143,13 @@ const windowOf = `
 
 func (s *Store) environments(ctx context.Context, siteID string) ([]site.Environment, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT e.name, COALESCE(e.release_number, 0), e.requires_approval, e.public, e.internal_view, e.access_changed_at, e.updated_by, e.updated_at,
+		SELECT e.name, COALESCE(e.release_number, 0), e.requires_approval, e.internal_view, e.updated_by, e.updated_at,
 		       e.keep_releases,
 		       (SELECT COUNT(*) FROM (`+windowOf+`) w
-		          JOIN site_releases r ON r.site_id = e.site_id AND r.number = w.to_release AND r.pruned_at IS NULL)
-		  FROM site_environments e WHERE e.site_id = $1 ORDER BY e.name`, siteID, s.keepDefault())
+		          JOIN site_releases r ON r.site_id = e.site_id AND r.number = w.to_release AND r.pruned_at IS NULL),
+		       COALESCE((SELECT array_agg(d.hostname ORDER BY d.hostname) FROM site_domains d
+		                  WHERE d.site_id = e.site_id AND d.environment = e.name AND d.public), '{}')
+		  FROM site_environments e WHERE e.site_id = $1 ORDER BY e.position, e.name`, siteID, s.keepDefault())
 	if err != nil {
 		return nil, fmt.Errorf("list environments: %w", err)
 	}
@@ -156,8 +158,9 @@ func (s *Store) environments(ctx context.Context, siteID string) ([]site.Environ
 	for rows.Next() {
 		var e site.Environment
 		var keep sql.NullInt64
-		if err := rows.Scan(&e.Name, &e.Release, &e.RequiresApproval, &e.Public, &e.InternalView, &e.AccessChangedAt, &e.UpdatedBy, &e.UpdatedAt,
-			&keep, &e.Kept); err != nil {
+		e.PublicDomains = []string{}
+		if err := rows.Scan(&e.Name, &e.Release, &e.RequiresApproval, &e.InternalView, &e.UpdatedBy, &e.UpdatedAt,
+			&keep, &e.Kept, pq.Array(&e.PublicDomains)); err != nil {
 			return nil, fmt.Errorf("read environment: %w", err)
 		}
 		e.Keep, e.KeepDefault = s.keepDefault(), !keep.Valid
@@ -231,30 +234,91 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 }
 
 // SetEnvironment creates an environment or changes its settings. A nil
-// setting keeps what the environment has, or false on a new one; a change to
-// public stamps access_changed_at. A nil Keep keeps the limit, or the
-// deployment's default on a new environment, and KeepDefault returns to it.
+// setting keeps what the environment has, or false on a new one. A nil Keep
+// keeps the limit, or the deployment's default on a new environment, and
+// KeepDefault returns to it. A new environment, or one given a Place, is put
+// in the site's order under the site's row lock, so two changes to one site's
+// order cannot interleave (#2617).
 func (s *Store) SetEnvironment(ctx context.Context, siteID, name string, set site.EnvironmentSettings, actor string) error {
 	var keep sql.NullInt64
 	if set.Keep != nil {
 		keep = sql.NullInt64{Int64: int64(*set.Keep), Valid: true}
 	}
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO site_environments (site_id, name, requires_approval, public, internal_view, updated_by, keep_releases)
-		VALUES ($1, $2, COALESCE($3, FALSE), COALESCE($4, FALSE), COALESCE($5, FALSE), $6, $7::int)
-		ON CONFLICT (site_id, name) DO UPDATE
-		   SET requires_approval = COALESCE($3, site_environments.requires_approval),
-		       public = COALESCE($4, site_environments.public),
-		       internal_view = COALESCE($5, site_environments.internal_view),
-		       access_changed_at = CASE WHEN COALESCE($4, site_environments.public) <> site_environments.public
-		                                THEN NOW() ELSE site_environments.access_changed_at END,
-		       keep_releases = CASE WHEN $8 THEN NULL ELSE COALESCE($7::int, site_environments.keep_releases) END,
-		       updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
-		siteID, name, set.RequiresApproval, set.Public, set.InternalView, actor, keep, set.KeepDefault)
-	if err != nil {
-		return fmt.Errorf("set environment: %w", err)
+	return s.withTx(ctx, func(tx *sql.Tx) error {
+		if err := lockSite(ctx, tx, siteID); err != nil {
+			return err
+		}
+		var created bool
+		err := tx.QueryRowContext(ctx, `
+			INSERT INTO site_environments (site_id, name, requires_approval, internal_view, updated_by, keep_releases)
+			VALUES ($1, $2, COALESCE($3, FALSE), COALESCE($4, FALSE), $5, $6::int)
+			ON CONFLICT (site_id, name) DO UPDATE
+			   SET requires_approval = COALESCE($3, site_environments.requires_approval),
+			       internal_view = COALESCE($4, site_environments.internal_view),
+			       keep_releases = CASE WHEN $7 THEN NULL ELSE COALESCE($6::int, site_environments.keep_releases) END,
+			       updated_by = EXCLUDED.updated_by, updated_at = NOW()
+			RETURNING xmax = 0`,
+			siteID, name, set.RequiresApproval, set.InternalView, actor, keep, set.KeepDefault).Scan(&created)
+		if err != nil {
+			return fmt.Errorf("set environment: %w", err)
+		}
+		if !created && set.Place == nil {
+			return nil
+		}
+		return placeEnvironment(ctx, tx, siteID, name, set.Place)
+	})
+}
+
+// lockSite takes the site's row for the transaction, ErrNotFound for none.
+func lockSite(ctx context.Context, tx *sql.Tx, siteID string) error {
+	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM sites WHERE id = $1 FOR UPDATE`, siteID).Scan(new(int)); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return site.ErrNotFound
+		}
+		return fmt.Errorf("lock site: %w", err)
 	}
 	return nil
+}
+
+// placeEnvironment puts name at p in the site's order and numbers every
+// environment of the site by it.
+func placeEnvironment(ctx context.Context, tx *sql.Tx, siteID, name string, p *site.Place) error {
+	order, err := orderOn(ctx, tx, siteID, name)
+	if err != nil {
+		return err
+	}
+	placed, err := site.Placed(order, name, p)
+	if err != nil {
+		return err //nolint:wrapcheck // the sentence a caller reads
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE site_environments e SET position = o.ord - 1
+		  FROM unnest($2::text[]) WITH ORDINALITY AS o(name, ord)
+		 WHERE e.site_id = $1 AND e.name = o.name`, siteID, pq.Array(placed)); err != nil {
+		return fmt.Errorf("write order: %w", err)
+	}
+	return nil
+}
+
+// orderOn is the site's environments in order, but the one named except.
+func orderOn(ctx context.Context, tx *sql.Tx, siteID, except string) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT name FROM site_environments WHERE site_id = $1 AND name <> $2 ORDER BY position, name`, siteID, except)
+	if err != nil {
+		return nil, fmt.Errorf("read order: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var order []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, fmt.Errorf("read order: %w", err)
+		}
+		order = append(order, n)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read order: %w", err)
+	}
+	return order, nil
 }
 
 // SetMainEnvironment gives the main address to an environment of the site, or
@@ -278,8 +342,15 @@ func (s *Store) RecordRelease(ctx context.Context, r *site.Release, move *site.P
 	if err != nil {
 		return fmt.Errorf("encode redirects: %w", err)
 	}
+	if r.Headers == nil {
+		r.Headers = []site.HeaderRule{}
+	}
+	headers, err := json.Marshal(r.Headers)
+	if err != nil {
+		return fmt.Errorf("encode headers: %w", err)
+	}
 	return s.withTx(ctx, func(tx *sql.Tx) error {
-		if err := writeRelease(ctx, tx, r, redirects); err != nil {
+		if err := writeRelease(ctx, tx, r, redirects, headers); err != nil {
 			return err
 		}
 		if err := checkHold(ctx, tx); err != nil {
@@ -297,7 +368,7 @@ func (s *Store) RecordRelease(ctx context.Context, r *site.Release, move *site.P
 }
 
 // writeRelease numbers a release under the site's row lock and inserts it.
-func writeRelease(ctx context.Context, tx *sql.Tx, r *site.Release, redirects []byte) error {
+func writeRelease(ctx context.Context, tx *sql.Tx, r *site.Release, redirects, headers []byte) error {
 	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM sites WHERE id = $1 FOR UPDATE`, r.SiteID).Scan(new(int)); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return site.ErrNotFound
@@ -309,10 +380,10 @@ func writeRelease(ctx context.Context, tx *sql.Tx, r *site.Release, redirects []
 	}
 	err := tx.QueryRowContext(ctx, `
 		INSERT INTO site_releases (id, site_id, number, source, note, file_count, total_bytes, manifest_sha256, redirects, created_by,
-		                           base_number, manifest_parent, manifest_depth, rendered)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULLIF($12, ''), $13, $14) RETURNING created_at`,
+		                           base_number, manifest_parent, manifest_depth, rendered, headers)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULLIF($12, ''), $13, $14, $15) RETURNING created_at`,
 		r.ID, r.SiteID, r.Number, r.Source, r.Note, r.FileCount, r.TotalBytes, r.ManifestSHA256, redirects, r.CreatedBy,
-		r.Base, r.ManifestParent, r.ManifestDepth, r.Rendered,
+		r.Base, r.ManifestParent, r.ManifestDepth, r.Rendered, headers,
 	).Scan(&r.CreatedAt)
 	if isUnique(err) {
 		return site.ErrStale
@@ -374,14 +445,14 @@ func insertRows(ctx context.Context, tx *sql.Tx, releaseID string, rows *fileRow
 	return nil
 }
 
-const releaseColumns = `id, site_id, number, source, note, file_count, total_bytes, manifest_sha256, redirects, created_by, created_at, base_number, COALESCE(manifest_parent, ''), manifest_depth, rendered, pruned_at`
+const releaseColumns = `id, site_id, number, source, note, file_count, total_bytes, manifest_sha256, redirects, created_by, created_at, base_number, COALESCE(manifest_parent, ''), manifest_depth, rendered, pruned_at, headers`
 
 func scanRelease(row interface{ Scan(...any) error }) (*site.Release, error) {
 	r := &site.Release{}
-	var redirects []byte
+	var redirects, headers []byte
 	var pruned sql.NullTime
 	err := row.Scan(&r.ID, &r.SiteID, &r.Number, &r.Source, &r.Note, &r.FileCount, &r.TotalBytes, &r.ManifestSHA256,
-		&redirects, &r.CreatedBy, &r.CreatedAt, &r.Base, &r.ManifestParent, &r.ManifestDepth, &r.Rendered, &pruned)
+		&redirects, &r.CreatedBy, &r.CreatedAt, &r.Base, &r.ManifestParent, &r.ManifestDepth, &r.Rendered, &pruned, &headers)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, site.ErrNoRelease
 	}
@@ -395,6 +466,10 @@ func scanRelease(row interface{ Scan(...any) error }) (*site.Release, error) {
 	r.Redirects = []site.Redirect{}
 	if err := json.Unmarshal(redirects, &r.Redirects); err != nil {
 		return nil, fmt.Errorf("decode redirects: %w", err)
+	}
+	r.Headers = []site.HeaderRule{}
+	if err := json.Unmarshal(headers, &r.Headers); err != nil {
+		return nil, fmt.Errorf("decode headers: %w", err)
 	}
 	return r, nil
 }
@@ -574,9 +649,9 @@ func (s *Store) Deployments(ctx context.Context, siteID, environment string, lim
 // AddDomain records a hostname, which routes at once.
 func (s *Store) AddDomain(ctx context.Context, d *site.Domain) error {
 	err := s.db.QueryRowContext(ctx, `
-		INSERT INTO site_domains (hostname, site_id, environment, application_id, created_by)
-		VALUES ($1, NULLIF($2, ''), $3, NULLIF($4, ''), $5) RETURNING created_at`,
-		d.Hostname, d.SiteID, d.Environment, d.ApplicationID, d.CreatedBy).Scan(&d.CreatedAt)
+		INSERT INTO site_domains (hostname, site_id, environment, application_id, created_by, public)
+		VALUES ($1, NULLIF($2, ''), $3, NULLIF($4, ''), $5, $6) RETURNING created_at`,
+		d.Hostname, d.SiteID, d.Environment, d.ApplicationID, d.CreatedBy, d.Public).Scan(&d.CreatedAt)
 	if isUnique(err) {
 		return site.ErrDomainTaken
 	}
@@ -588,14 +663,15 @@ func (s *Store) AddDomain(ctx context.Context, d *site.Domain) error {
 
 const domainSelect = `
 	SELECT d.hostname, COALESCE(d.site_id, ''), COALESCE(s.name, ''), d.environment, COALESCE(d.application_id, ''),
-	       COALESCE(a.name, ''), d.created_by, d.created_at
+	       COALESCE(a.name, ''), d.created_by, d.created_at, d.public, d.access_changed_at
 	  FROM site_domains d
 	  LEFT JOIN sites s ON s.id = d.site_id
 	  LEFT JOIN applications a ON a.id = d.application_id`
 
 func scanDomain(row interface{ Scan(...any) error }) (*site.Domain, error) {
 	d := &site.Domain{}
-	err := row.Scan(&d.Hostname, &d.SiteID, &d.Site, &d.Environment, &d.ApplicationID, &d.Application, &d.CreatedBy, &d.CreatedAt)
+	err := row.Scan(&d.Hostname, &d.SiteID, &d.Site, &d.Environment, &d.ApplicationID, &d.Application, &d.CreatedBy, &d.CreatedAt,
+		&d.Public, &d.AccessChangedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, site.ErrNoDomain
 	}
@@ -640,6 +716,19 @@ func (s *Store) listDomains(ctx context.Context, query string, args ...any) ([]s
 	return out, nil
 }
 
+// SetDomainPublic makes a site's domain public or private, stamping when its
+// access changed (#2619). An application's domain has no such setting.
+func (s *Store) SetDomainPublic(ctx context.Context, hostname string, public bool) error {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE site_domains SET public = $2,
+		       access_changed_at = CASE WHEN public <> $2 THEN NOW() ELSE access_changed_at END
+		 WHERE hostname = $1 AND site_id IS NOT NULL`, hostname, public)
+	if err != nil {
+		return fmt.Errorf("set domain access: %w", err)
+	}
+	return oneRow(res, site.ErrNoDomain)
+}
+
 // RemoveDomain deletes a mapping.
 func (s *Store) RemoveDomain(ctx context.Context, hostname string) error {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM site_domains WHERE hostname = $1`, hostname)
@@ -649,10 +738,10 @@ func (s *Store) RemoveDomain(ctx context.Context, hostname string) error {
 	return oneRow(res, site.ErrNoDomain)
 }
 
-// routeSelect reads an environment, the release it serves, whether it is
-// private, and the application it is a part of.
+// routeSelect reads an environment, the release it serves, whether the host
+// is private ($1, decided by the caller), and the application it is a part of.
 const routeSelect = `
-	SELECT s.id, s.name, e.name, COALESCE(e.release_number, 0), NOT e.public, COALESCE(a.name, '')
+	SELECT s.id, s.name, e.name, COALESCE(e.release_number, 0), $1::boolean, COALESCE(a.name, '')
 	  FROM site_environments e JOIN sites s ON s.id = e.site_id
 	  LEFT JOIN application_parts p ON p.kind = 'site' AND p.part_id = s.name || '/' || e.name
 	  LEFT JOIN applications a ON a.id = p.application_id`
@@ -666,18 +755,24 @@ func (s *Store) RouteHost(ctx context.Context, hostname string) (*site.Route, er
 	if d.ApplicationID != "" {
 		return &site.Route{Application: d.Application, Hostname: d.Hostname}, nil
 	}
-	return s.routeOf(ctx, routeSelect+` WHERE s.id = $1 AND e.name = $2`, d.SiteID, d.Environment)
+	r, err := s.routeOf(ctx, routeSelect+` WHERE s.id = $2 AND e.name = $3`, !d.Public, d.SiteID, d.Environment)
+	if err != nil {
+		return nil, err
+	}
+	r.Hostname = d.Hostname
+	return r, nil
 }
 
 // RouteOwn is what a site's main address serves: the environment it is given
-// to, ErrNoDomain when it is given to none.
+// to, ErrNoDomain when it is given to none. An address on the pages domain is
+// always private (#2619).
 func (s *Store) RouteOwn(ctx context.Context, siteName string) (*site.Route, error) {
-	return s.routeOf(ctx, routeSelect+` WHERE s.name = $1 AND e.name = s.main_environment`, siteName)
+	return s.routeOf(ctx, routeSelect+` WHERE s.name = $2 AND e.name = s.main_environment`, true, siteName)
 }
 
-// RouteEnv is what <site>--<env> serves.
+// RouteEnv is what <site>--<env> serves, always private (#2619).
 func (s *Store) RouteEnv(ctx context.Context, siteName, env string) (*site.Route, error) {
-	return s.routeOf(ctx, routeSelect+` WHERE s.name = $1 AND e.name = $2`, siteName, env)
+	return s.routeOf(ctx, routeSelect+` WHERE s.name = $2 AND e.name = $3`, true, siteName, env)
 }
 
 func (s *Store) routeOf(ctx context.Context, query string, args ...any) (*site.Route, error) {

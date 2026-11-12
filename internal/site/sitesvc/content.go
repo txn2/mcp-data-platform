@@ -50,8 +50,8 @@ func (s *Service) readableTree(ctx context.Context, actor Actor, st *site.Site, 
 
 // grantedTree is what someone other than the owner reads of one environment,
 // "" for nothing: the source for someone who manages the site, what is served
-// when the environment opens for them as the gateway decides it, or it is
-// public.
+// when the environment opens for them as the gateway decides it, or when anyone
+// opens it at one of its public domains.
 func (s *Service) grantedTree(ctx context.Context, actor Actor, st *site.Site, env string) (string, error) {
 	if actor.Email != "" && !actor.EmailUnverified {
 		level, err := s.Store.GrantLevel(ctx, st.ID, site.NormalizeEmail(actor.Email))
@@ -62,7 +62,7 @@ func (s *Service) grantedTree(ctx context.Context, actor Actor, st *site.Site, e
 			return site.TreeSource, nil
 		}
 	}
-	if e := st.Environment(env); e != nil && e.Public {
+	if e := st.Environment(env); e != nil && e.AnswersAnyone() {
 		return site.TreeOutput, nil
 	}
 	ok, err := s.opens(ctx, actor, st, env)
@@ -137,16 +137,19 @@ func filePath(ref site.Ref) (string, error) {
 	}
 	name, err := CleanPath(ref.Path)
 	if err != nil {
-		return "", refused("%s", err.Error())
+		return "", refusedBy(err)
 	}
 	return name, nil
 }
 
 // textOf is a file of a release as text, the _redirects file rendered from the
-// redirect map it became.
+// redirect map it became and the _headers file from its rules.
 func (s *Service) textOf(ctx context.Context, siteID string, rel *site.Release, files map[string]site.File, name string) (body, contentType string, err error) {
 	if name == redirectsFile {
 		return site.RenderRedirects(rel.Redirects), redirectsType, nil
+	}
+	if name == headersFile {
+		return site.RenderHeaders(rel.Headers), redirectsType, nil
 	}
 	f, ok := files[name]
 	if !ok {
@@ -224,6 +227,10 @@ func under(tree *sourceTree, prefix string) []site.File {
 	if len(tree.rel.Redirects) > 0 && strings.HasPrefix(redirectsFile, prefix) {
 		text := site.RenderRedirects(tree.rel.Redirects)
 		out = append(out, site.File{Path: redirectsFile, ContentType: redirectsType, Size: int64(len(text))})
+	}
+	if len(tree.rel.Headers) > 0 && strings.HasPrefix(headersFile, prefix) {
+		text := site.RenderHeaders(tree.rel.Headers)
+		out = append(out, site.File{Path: headersFile, ContentType: redirectsType, Size: int64(len(text))})
 	}
 	for _, f := range tree.files {
 		if strings.HasPrefix(f.Path, prefix) {

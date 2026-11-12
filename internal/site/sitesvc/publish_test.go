@@ -149,6 +149,8 @@ func TestPublish_Refusals(t *testing.T) {
 		{"only junk", []InputFile{page(".DS_Store")}, "holds no files"},
 		{"only a redirect map", []InputFile{{Path: "_redirects", Body: []byte("/a /b\n")}}, "holds no files"},
 		{"a bad redirect map", []InputFile{page("a.html"), {Path: "_redirects", Body: []byte("/a /b 200\n")}}, "line 1"},
+		{"a header a release cannot set", []InputFile{page("a.html"), {Path: "_headers", Body: []byte("/*\n  Set-Cookie: s=1\n")}}, "the _headers file, line 2: a release cannot set Set-Cookie"},
+		{"a header value with a control character", []InputFile{page("a.html"), {Path: "_headers", Body: []byte("/*\n  X-Frame-Options: DENY\x00\n")}}, "the _headers file, line 2: the value of X-Frame-Options holds a control character"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -340,4 +342,31 @@ func TestPublish_ReportsProgressAndThePhase(t *testing.T) {
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []int{1, 2, 3}, totals, "told once per file, counting up")
 	assert.Equal(t, []string{"Switching dev to the new release"}, phases)
+}
+
+// TestPublish_HeadersAreReadAndNotServed (#2557): a release's _headers file
+// becomes its header rules, is no file of the release, and an overlay keeps
+// the rules until the file is deleted.
+func TestPublish_HeadersAreReadAndNotServed(t *testing.T) {
+	ctx := context.Background()
+	svc, store, objects, _ := fixture(t)
+	got, err := svc.Publish(ctx, owner, publishReq(
+		page("index.html"), InputFile{Path: "_headers", Body: []byte("/*\n  Content-Security-Policy: default-src 'self'\n")},
+	))
+	require.NoError(t, err)
+	want := []site.HeaderRule{{Path: "/*", Headers: []site.Header{{Name: "Content-Security-Policy", Value: "default-src 'self'"}}}}
+	assert.Equal(t, want, got.Release.Headers)
+	assert.Equal(t, 1, got.Release.FileCount, "the rules are not a file of the release")
+	assert.NotContains(t, strings.Join(objects.keys(), ","), "_headers")
+
+	kept, err := svc.Publish(ctx, owner, PublishRequest{Site: "marketing", Base: 1, Files: []InputFile{page("about.html")}})
+	require.NoError(t, err)
+	assert.Equal(t, want, kept.Release.Headers, "an overlay keeps the base's rules")
+	same, err := svc.Publish(ctx, owner, PublishRequest{Site: "marketing", Base: 2, Files: []InputFile{{Path: "_headers", Body: []byte(site.RenderHeaders(want))}}})
+	require.NoError(t, err)
+	assert.True(t, same.Unchanged, "sending the same rules back changes nothing")
+	gone, err := svc.Publish(ctx, owner, PublishRequest{Site: "marketing", Base: 2, Remove: []string{"_headers"}})
+	require.NoError(t, err)
+	assert.Empty(t, gone.Release.Headers, "deleting the file clears the rules")
+	assert.Len(t, store.releases[siteID], 3)
 }

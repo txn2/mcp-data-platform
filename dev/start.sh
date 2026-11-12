@@ -765,6 +765,16 @@ if which aws > /dev/null 2>&1; then
     aws --endpoint-url http://localhost:$DEV_S3_PORT s3 mb s3://dev-scratch > /dev/null 2>&1 || \
     fail "Could not create the dev-scratch S3 bucket"
   ok "S3 bucket dev-scratch ready (Trino scratch metastore)"
+  # A business bucket the S3 tools serve: the platform's own buckets
+  # (portal-assets, managed-resources) are refused to every S3 tool (#2616).
+  # Named inside the portal- prefix the dev-s3-prefixed connection is limited
+  # to, so the bucket_prefix criteria (#2584) keep an inside bucket.
+  AWS_ACCESS_KEY_ID=dev-access-key AWS_SECRET_ACCESS_KEY=dev-secret-key \
+    aws --endpoint-url http://localhost:$DEV_S3_PORT s3 ls s3://portal-lake > /dev/null 2>&1 || \
+  AWS_ACCESS_KEY_ID=dev-access-key AWS_SECRET_ACCESS_KEY=dev-secret-key \
+    aws --endpoint-url http://localhost:$DEV_S3_PORT s3 mb s3://portal-lake > /dev/null 2>&1 || \
+    fail "Could not create the portal-lake S3 bucket"
+  ok "S3 bucket portal-lake ready (business data the S3 tools serve)"
   # Managed resources live on the SeaweedFS served over TLS, so the upload path
   # is exercised over HTTPS, the transport #1631's streaming write is for.
   # Retried like portal-assets above: the store answers before its filer is

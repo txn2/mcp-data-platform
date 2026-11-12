@@ -24,7 +24,7 @@ describe("media folders (#2591)", () => {
     const table = await screen.findByTestId("media-table");
     expect(table).toHaveTextContent("/media/");
     expect(table).toHaveTextContent("sites/marketing/downloads");
-    expect(screen.getByTestId("media-public")).toHaveTextContent("prod is public");
+    expect(screen.getByTestId("media-public")).toHaveTextContent("prod has a public domain");
   });
 
   it("removes a folder from the site and leaves the rest", async () => {
@@ -44,7 +44,7 @@ describe("media folders (#2591)", () => {
     media();
     fireEvent.click(await screen.findByRole("button", { name: "Add media folder" }));
     const dialog = await screen.findByRole("dialog", { name: "Add a media folder to marketing" });
-    expect(within(dialog).getByTestId("media-goes-public")).toHaveTextContent("Files in this folder become public on prod");
+    expect(within(dialog).getByTestId("media-goes-public")).toHaveTextContent("Files in this folder become public at the public domains of prod");
     fireEvent.change(within(dialog).getByLabelText("Address"), { target: { value: "/brand/" } });
     fireEvent.change(within(dialog).getByLabelText("Folder"), { target: { value: "sites/marketing/brand" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Add media folder" }));

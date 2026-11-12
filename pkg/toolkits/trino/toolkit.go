@@ -417,6 +417,9 @@ func buildToolkitOptions(
 	// Always scrub internal topology (connector transport envelopes) from
 	// upstream engine errors before they reach tool callers.
 	opts = append(opts, trinotools.WithMiddleware(&ErrorSanitizerMiddleware{}))
+	// No statement a person sends points a table, a schema or a partition at
+	// one of the platform's own buckets, on any connection (#2616).
+	opts = append(opts, trinotools.WithQueryInterceptor(LocationInterceptor{}))
 
 	if readOnly != nil {
 		opts = append(opts, trinotools.WithQueryInterceptor(readOnly))

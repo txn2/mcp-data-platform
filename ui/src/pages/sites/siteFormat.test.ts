@@ -32,49 +32,51 @@ describe("envBadgeText", () => {
 
 describe("envTip", () => {
   it("names the release, who can open it and since when", () => {
-    expect(envTip({ name: "prod", release: 39, public: true, updated_at: "2026-11-03T12:00:00Z" })).toBe("prod serves release 39, public, since 11/03/2026");
+    expect(envTip({ name: "prod", release: 39, public_domains: ["example.com"], updated_at: "2026-11-03T12:00:00Z" })).toBe(
+      "prod serves release 39, public at example.com, since 11/03/2026",
+    );
   });
 
   it("leaves out the date it cannot read", () => {
-    expect(envTip({ name: "dev", release: 4, public: false, updated_at: "" })).toBe("dev serves release 4, private");
+    expect(envTip({ name: "dev", release: 4, public_domains: [], updated_at: "" })).toBe("dev serves release 4, private");
   });
 
   it("says an environment has no release yet", () => {
-    expect(envTip({ name: "stage", release: 0, public: false, updated_at: "" })).toBe("stage has no release yet, private");
+    expect(envTip({ name: "stage", release: 0, public_domains: [], updated_at: "" })).toBe("stage has no release yet, private");
   });
 });
 
 // #2607 and #2611: what each environment card lists, and where people reach an
 // environment, from the addresses the server answers with.
 describe("cardAddresses and envOpenUrl", () => {
-  const site = (name: string, main: string, pages: Record<string, string>, addresses: Record<string, string>, domains: [string, string][]) =>
+  const site = (name: string, main: string, pages: Record<string, string>, addresses: Record<string, string>, domains: [string, string, boolean?][]) =>
     ({
       name, main_environment: main, address: pages[main] ?? "", pages_addresses: pages, addresses,
-      domains: domains.map(([hostname, environment]) => ({ hostname, environment, created_by: "x", created_at: "" })),
+      domains: domains.map(([hostname, environment, isPublic]) => ({ hostname, environment, public: !!isPublic, created_by: "x", created_at: "" })),
     }) as unknown as Site;
 
   const docs = site(
     "docs", "dev",
     { dev: "https://docs.pages.example.net", staging: "https://docs--staging.pages.example.net", prod: "https://docs--prod.pages.example.net" },
     { dev: "https://docs.pages.example.net", staging: "https://docs--staging.pages.example.net", prod: "https://docs.example.com" },
-    [["docs.example.com", "prod"], ["www.docs.example.com", "prod"]],
+    [["www.docs.example.com", "prod"], ["docs.example.com", "prod", true]],
   );
 
-  it("lists an environment's domains first, then its pages address", () => {
+  it("lists a public domain first, then the private ones, then its pages address, which is always private (#2619)", () => {
     expect(cardAddresses(docs, "prod")).toEqual([
-      { href: "https://docs.example.com", text: "docs.example.com", tag: "Domain" },
-      { href: "https://www.docs.example.com", text: "www.docs.example.com", tag: "Domain" },
-      { href: "https://docs--prod.pages.example.net", text: "docs--prod.pages.example.net", tag: "Pages address" },
+      { href: "https://docs.example.com", text: "docs.example.com", tag: "Domain", public: true },
+      { href: "https://www.docs.example.com", text: "www.docs.example.com", tag: "Domain", public: false },
+      { href: "https://docs--prod.pages.example.net", text: "docs--prod.pages.example.net", tag: "Pages address", public: false },
     ]);
   });
 
   it("tags the main address as the main address", () => {
-    expect(cardAddresses(docs, "dev")).toEqual([{ href: "https://docs.pages.example.net", text: "docs.pages.example.net", tag: "Main address" }]);
+    expect(cardAddresses(docs, "dev")).toEqual([{ href: "https://docs.pages.example.net", text: "docs.pages.example.net", tag: "Main address", public: false }]);
   });
 
   it("lists only the domains of a two-character site's environment, and nothing where it has none", () => {
     const ab = site("ab", "dev", { dev: "https://ab.pages.example.net", staging: "", prod: "" }, { dev: "https://ab.pages.example.net", staging: "", prod: "https://ab.example.com" }, [["ab.example.com", "prod"]]);
-    expect(cardAddresses(ab, "prod")).toEqual([{ href: "https://ab.example.com", text: "ab.example.com", tag: "Domain" }]);
+    expect(cardAddresses(ab, "prod")).toEqual([{ href: "https://ab.example.com", text: "ab.example.com", tag: "Domain", public: false }]);
     expect(cardAddresses(ab, "staging")).toEqual([]);
   });
 

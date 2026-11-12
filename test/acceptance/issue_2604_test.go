@@ -16,7 +16,9 @@ import (
 // own, answers at <site>--<env>.<pages domain> (one of them, or none, at the
 // main address <site>.<pages domain>), and is shared with people and personas.
 // A private environment hands the site who signed in (/_viewer) and runs its
-// application's endpoints as that person.
+// application's endpoints as that person. Since #2617 a new site holds dev and
+// prod, prod on the main address; since #2619 public is a setting of a domain,
+// and every address on the pages domain asks for a sign-in.
 //
 // Wire forms: REST bodies are JSON objects whose fields are strings, booleans
 // and lists of strings as each route documents (environments is a list of
@@ -205,8 +207,8 @@ func TestIssue2604_IntranetDevIsForItsDevelopersAndProdForThePersona(t *testing.
 	opens2604(t, s.host(""), member, "second")
 }
 
-// UC2: a client site whose dev is the main address for a persona, whose stage
-// is the client's, and whose prod is public on a domain after approval.
+// UC2: a client site whose dev is for a persona, whose stage is the client's,
+// and whose prod is public on a domain after approval.
 func TestIssue2604_ClientSiteStageForTheClientAndProdPublicAfterApproval(t *testing.T) {
 	s := newSite2604(t, keyOwner2604, "acc2604-cool-")
 	domain := s.name + ".example.test"
@@ -220,24 +222,24 @@ func TestIssue2604_ClientSiteStageForTheClientAndProdPublicAfterApproval(t *test
 	}
 
 	s.publish(t, s.key, "cool")
-	webTeam := signIn2604(t, s.host(""), emailKCAnalyst, passKCAnalyst)
-	opens2604(t, s.host(""), webTeam, "cool")
+	webTeam := signIn2604(t, s.host("dev"), emailKCAnalyst, passKCAnalyst)
+	opens2604(t, s.host("dev"), webTeam, "cool")
 
 	s.promote(t, "dev", "stage")
 	client := signIn2604(t, s.host("stage"), emailKCClient, passKCClient)
 	opens2604(t, s.host("stage"), client, "cool")
-	clientOnDev := signIn2604(t, s.host(""), emailKCClient, passKCClient)
-	refused2604(t, s.host(""), clientOnDev, "the client on dev")
+	clientOnDev := signIn2604(t, s.host("dev"), emailKCClient, passKCClient)
+	refused2604(t, s.host("dev"), clientOnDev, "the client on dev")
 
-	asked := s.setEnv(t, s.key, "prod", map[string]any{"public": true, "reason": "launch"})
+	asked := s.domainAccess2604(t, s.key, domain, map[string]any{"public": true, "reason": "launch"})
 	if asked["status"] != "awaiting_approval" {
-		t.Fatalf("making an approval environment public did not wait: %v", asked["_raw"])
+		t.Fatalf("making an approval environment's domain public did not wait: %v", asked["_raw"])
 	}
 	if r := onHost(t, domain, http.MethodGet, "/", nil, ""); r.status == http.StatusOK {
-		t.Fatal("prod went public before approval")
+		t.Fatal("prod's domain went public before approval")
 	}
 	approve2604(t, asked)
-	done := s.setEnv(t, s.key, "prod", map[string]any{"public": true})
+	done := s.domainAccess2604(t, s.key, domain, map[string]any{"public": true})
 	if done["status"] != "done" {
 		t.Fatalf("finishing make public: %v", done["_raw"])
 	}
@@ -327,27 +329,32 @@ func TestIssue2604_APersonaChangeAppliesOnTheNextRequest(t *testing.T) {
 	holds("acc2604-nobody")
 }
 
-// Making an environment public is the owner's or an administrator's, and waits
-// on Approvals where the environment requires approval; dev never goes public.
-func TestIssue2604_MakingAnEnvironmentPublicIsHeld(t *testing.T) {
+// Making a domain public is the owner's or an administrator's, and waits on
+// Approvals where its environment requires approval; an environment has no
+// public setting of its own (#2619), and dev takes no domain.
+func TestIssue2604_MakingADomainPublicIsHeld(t *testing.T) {
 	s := newSite2604(t, keyOwner2604, "acc2604-public-")
 	s.share(t, s.key, map[string]any{"email": emailPeer2604, "level": "manage"})
 	s.setEnv(t, s.key, "stage", map[string]any{})
 	s.setEnv(t, s.key, "prod", map[string]any{"requires_approval": true})
+	stage, prod := "stage."+s.name+".example.test", "www."+s.name+".example.test"
+	for host, env := range map[string]string{stage: "stage", prod: "prod"} {
+		status, got := s.rest(t, s.key, http.MethodPost, "/domains", map[string]any{"hostname": host, "environment": env})
+		want2559(t, "adding "+env+"'s domain", status, http.StatusCreated, got)
+	}
 
-	status, got := s.rest(t, keyPeer2604, http.MethodPut, "/environments/stage", map[string]any{"public": true})
+	status, got := s.rest(t, keyPeer2604, http.MethodPut, "/domains/"+stage, map[string]any{"public": true})
 	want2559(t, "someone who manages without owning", status, http.StatusForbidden, got)
 	status, got = s.rest(t, s.key, http.MethodPut, "/environments/dev", map[string]any{"public": true})
 	want2559(t, "a public dev", status, http.StatusUnprocessableEntity, got)
-	if !strings.Contains(fmt.Sprint(got["_raw"]), "always private") {
+	if !strings.Contains(fmt.Sprint(got["_raw"]), "public is a setting of a domain") {
 		t.Errorf("the refusal does not say why: %v", got["_raw"])
 	}
 
-	done := s.setEnv(t, s.key, "stage", map[string]any{"public": true})
-	if done["status"] != "done" {
+	if done := s.domainAccess2604(t, s.key, stage, map[string]any{"public": true}); done["status"] != "done" {
 		t.Errorf("the owner on an environment with no approval: %v", done["_raw"])
 	}
-	asked := s.setEnv(t, s.key, "prod", map[string]any{"public": true})
+	asked := s.domainAccess2604(t, s.key, prod, map[string]any{"public": true})
 	if asked["status"] != "awaiting_approval" {
 		t.Fatalf("the owner on prod did not wait: %v", asked["_raw"])
 	}
@@ -357,11 +364,19 @@ func TestIssue2604_MakingAnEnvironmentPublicIsHeld(t *testing.T) {
 		t.Errorf("the request is not in Approvals: %v", list["_raw"])
 	}
 	approve2604(t, asked)
-	if got := s.setEnv(t, s.key, "prod", map[string]any{"public": true}); got["status"] != "done" {
+	if got := s.domainAccess2604(t, s.key, prod, map[string]any{"public": true}); got["status"] != "done" {
 		t.Errorf("finishing after approval: %v", got["_raw"])
 	}
-	status, got = s.rest(t, keyPeer2604, http.MethodPut, "/environments/prod", map[string]any{"public": false})
+	status, got = s.rest(t, keyPeer2604, http.MethodPut, "/domains/"+prod, map[string]any{"public": false})
 	want2559(t, "someone who manages makes it private", status, http.StatusOK, got)
+}
+
+// domainAccess2604 makes a domain public or private through the portal.
+func (s *site2604) domainAccess2604(t *testing.T, key, host string, body map[string]any) map[string]any {
+	t.Helper()
+	status, got := s.rest(t, key, http.MethodPut, "/domains/"+host, body)
+	want2559(t, "setting "+host+"'s access", status, http.StatusOK, got)
+	return got
 }
 
 // The main address moves between environments, and to none, with no ingress
@@ -425,7 +440,7 @@ func TestIssue2604_TheHandoffCannotBeSteered(t *testing.T) {
 	s := newSite2604(t, keyOwner2604, "acc2604-steer-")
 	other := newSite2604(t, keyOwner2604, "acc2604-other-")
 	s.setEnv(t, s.key, "stage", map[string]any{})
-	s.setEnv(t, s.key, "prod", map[string]any{"public": true})
+	public := s.publicDomain(t, "prod")
 	otherDomain := other.name + ".example.test"
 	status, got := other.rest(t, other.key, http.MethodPost, "/domains", map[string]any{"hostname": otherDomain, "environment": "prod"})
 	want2559(t, "adding the other site's domain", status, http.StatusCreated, got)
@@ -438,11 +453,11 @@ func TestIssue2604_TheHandoffCannotBeSteered(t *testing.T) {
 	hc := browserSignIn(t, baseURL(), emailKCAnalyst, passKCAnalyst)
 	manual := &http.Client{Jar: hc.Jar, Timeout: hc.Timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	for what, host := range map[string]string{
-		"a host nobody serves":             "evil.example",
-		"another site's address":           other.host(""),
-		"another site's domain":            otherDomain,
-		"a public environment of the site": s.host("prod"),
-		"no host":                          "",
+		"a host nobody serves":        "evil.example",
+		"another site's address":      other.host(""),
+		"another site's domain":       otherDomain,
+		"a public domain of the site": public,
+		"no host":                     "",
 	} {
 		q := loc.Query()
 		q.Set("host", host)
@@ -470,12 +485,11 @@ func TestIssue2604_TheOldNameOfDevStillWorksWithANote(t *testing.T) {
 	}
 	status, view := s.rest(t, s.key, http.MethodGet, "", nil)
 	want2559(t, "reading the site", status, http.StatusOK, view)
-	if view["main_environment"] != "dev" {
-		t.Errorf("a new site's main address is not on dev: %v", view["_raw"])
+	if view["main_environment"] != "prod" {
+		t.Errorf("a new site's main address is not on prod: %v", view["_raw"])
 	}
-	envs, _ := view["environments"].([]any)
-	if len(envs) != 1 || envs[0].(map[string]any)["name"] != "dev" || envs[0].(map[string]any)["public"] != false {
-		t.Errorf("a new site holds only a private dev: %v", view["_raw"])
+	if names := order2617(t, view); len(names) != 2 || names[0] != "dev" || names[1] != "prod" {
+		t.Errorf("a new site holds dev and prod: %v", view["_raw"])
 	}
 }
 
@@ -516,16 +530,16 @@ func TestIssue2604_APrivateDomainSignsInOnItselfAndNeverGetsThePortalSession(t *
 }
 
 // A private environment tells its pages who signed in, and an application's
-// endpoints on the environment's own host run as that person; a public
-// environment has nobody.
+// endpoints on the environment's own host run as that person; a public domain
+// has nobody.
 func TestIssue2604_APrivateSiteKnowsItsViewerAndRunsItsEndpointsAsThem(t *testing.T) {
 	s := newSite2604(t, keyAdmin2604, "acc2604-viewer-")
-	s.setEnv(t, s.key, "prod", map[string]any{})
-	s.setEnv(t, s.key, "open", map[string]any{"public": true})
+	s.setEnv(t, s.key, "open", map[string]any{})
 	s.share(t, s.key, map[string]any{"persona": personaAnalyst2604, "level": "view", "environments": []string{"prod"}})
 	s.publish(t, s.key, "app")
-	s.promote(t, "dev", "prod")
 	s.promote(t, "dev", "open")
+	s.promote(t, "open", "prod")
+	open := s.publicDomain(t, "open")
 
 	admin := connect(t)
 	app := "acc2604-app-" + unique1579()
@@ -569,8 +583,12 @@ func TestIssue2604_APrivateSiteKnowsItsViewerAndRunsItsEndpointsAsThem(t *testin
 	if r := onHost(t, s.host("prod"), http.MethodGet, "/endpoints/"+api+"/", sibling, ""); r.status == http.StatusOK && strings.Contains(r.body, emailKCAnalyst) {
 		t.Errorf("a sibling site's page ran the endpoint as the viewer: %s", r.body)
 	}
-	if r := onHost(t, s.host("open"), http.MethodGet, "/_viewer", nil, ""); r.status != http.StatusUnauthorized || !strings.Contains(r.body, "nobody is signed in") {
-		t.Errorf("/_viewer on a public environment: %d %s", r.status, r.body)
+	r = pollUntil2518(t, func() (pageResponse, bool) {
+		r := onHost(t, open, http.MethodGet, "/_viewer", nil, "")
+		return r, r.status != http.StatusNotFound
+	})
+	if r.status != http.StatusUnauthorized || !strings.Contains(r.body, "nobody is signed in") {
+		t.Errorf("/_viewer on a public domain: %d %s", r.status, r.body)
 	}
 }
 

@@ -91,6 +91,9 @@ type Deps struct {
 	Metrics *observability.Metrics
 	// Media serves a site's mounted resource folders (#2591); nil serves none.
 	Media Media
+	// Secure is true where the origins answer over https: what decides
+	// whether an answer carries Strict-Transport-Security (#2557).
+	Secure bool
 }
 
 // Gateway routes by Host.
@@ -208,6 +211,7 @@ func (g *Gateway) refreshHosts(ctx context.Context) map[string]bool {
 // that resolves to a site or a page origin is counted under its name.
 func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, host string) {
 	httpobs.SetRoute(r, httpobs.RouteSite)
+	g.strictTransport(w, r)
 	if host == g.pagesDomain() {
 		http.NotFound(w, r)
 		return
@@ -251,10 +255,41 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, host string) {
 	g.serveSite(w, r, route)
 }
 
+// hdrHSTS is the header that keeps a browser on https.
+const hdrHSTS = "Strict-Transport-Security"
+
+// strictTransport sends Strict-Transport-Security on an https answer when the
+// deployment turns it on (#2557). The platform does not verify who owns an
+// added domain, so every hostname the gateway answers is held to it alike.
+func (g *Gateway) strictTransport(w http.ResponseWriter, r *http.Request) {
+	cfg := g.deps.Config
+	if g.deps.Live != nil {
+		cfg = g.deps.Live.Get()
+	}
+	if v := cfg.TLS.HSTS.Header(); v != "" && (g.deps.Secure || r.TLS != nil) {
+		w.Header().Set(hdrHSTS, v)
+	}
+}
+
+// releaseHeaders sets what the release's _headers file declares for the
+// path, and the framing default when it declares no framing rule (#2557). A
+// release that has none, or an environment that serves none yet, is held to
+// the default alone.
+func releaseHeaders(w http.ResponseWriter, r *http.Request, route *site.Route) {
+	var rules []site.HeaderRule
+	if route.Release != nil {
+		rules = route.Release.Headers
+	}
+	h := w.Header()
+	for _, hd := range site.HeadersFor(rules, path.Clean(pathSep+r.URL.Path)) {
+		h.Add(hd.Name, hd.Value)
+	}
+}
+
 // serveSiteRoutes answers the routes an environment keeps for itself beside
 // its files: who is signed in, and, for an environment that is a part of an
 // application, that application's endpoints run as the viewer. It reports
-// whether it answered. A public environment has no viewer.
+// whether it answered. An answer on a public domain has no viewer.
 func (g *Gateway) serveSiteRoutes(w http.ResponseWriter, r *http.Request, route *site.Route, viewer *epform.Viewer) bool {
 	switch {
 	case r.URL.Path == pathViewer:
@@ -359,6 +394,7 @@ func (g *Gateway) manifestOf(ctx context.Context, rel *site.Release) (*manifest,
 func (g *Gateway) serveSite(w http.ResponseWriter, r *http.Request, route *site.Route) {
 	w.Header().Set(hdrNosniff, nosniff)
 	w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+	releaseHeaders(w, r, route)
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		http.Error(w, "a site answers GET and HEAD", http.StatusMethodNotAllowed)

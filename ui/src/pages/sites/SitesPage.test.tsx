@@ -155,11 +155,11 @@ describe("the Sites list's layout", () => {
 
 describe("EnvironmentBadges", () => {
   const env = (name: string, release: number): SiteEnvironment => ({
-    name, release, requires_approval: false, public: false, internal_view: false, keep_releases: 0, keep_releases_default: true, releases_kept: 0, updated_at: "",
+    name, release, requires_approval: false, public_domains: [], internal_view: false, keep_releases: 0, keep_releases_default: true, releases_kept: 0, updated_at: "",
   });
 
-  it("folds the environments past the most a row shows into +N, named on hover", () => {
-    render(<EnvironmentBadges site={{ environments: [env("prod", 5), env("dev", 7), env("qa", 0), env("stage", 6), env("preview", 2)] }} max={3} />);
+  it("folds the environments past the most a row shows into +N, named on hover, in the stored order (#2617)", () => {
+    render(<EnvironmentBadges site={{ environments: [env("dev", 7), env("preview", 2), env("qa", 0), env("stage", 6), env("prod", 5)] }} max={3} />);
     expect(screen.getByText("dev 7")).toBeInTheDocument();
     expect(screen.getByText("preview 2")).toBeInTheDocument();
     expect(screen.getByText("qa · no release")).toBeInTheDocument();

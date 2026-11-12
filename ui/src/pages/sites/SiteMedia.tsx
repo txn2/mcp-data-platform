@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Folder, Plus } from "lucide-react";
-import { useUpdateSite, type Site, type SiteMedia } from "@/api/portal/hooks/sites";
+import { answersAnyone, useUpdateSite, type Site, type SiteMedia } from "@/api/portal/hooks/sites";
 import { useFacets } from "@/api/resources/hooks";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useAuthStore } from "@/stores/auth";
 import { Failure } from "./SiteParts";
-import { bareAddress, day, errorText, envOpenUrl, orderedEnvironments } from "./siteFormat";
+import { day, errorText, orderedEnvironments } from "./siteFormat";
 
 // SiteMediaTab is a site's media folders (#2591): Resources folders it serves
 // at an address on every environment, outside its releases. Publish, promote
@@ -75,17 +75,16 @@ export function SiteMediaTab({ site }: { site: Site }) {
 }
 
 function PublicNotice({ site, media }: { site: Site; media: SiteMedia[] }) {
-  const pub = orderedEnvironments(site.environments).filter((e) => e.public);
+  const pub = orderedEnvironments(site.environments).filter(answersAnyone);
   if (pub.length === 0) return null;
-  const at = (env: string) => bareAddress(envOpenUrl(site, env));
-  const where = pub.flatMap((e) => media.map((m) => `${at(e.name)}${m.prefix}`)).filter((w) => !w.startsWith("/"));
+  const where = pub.flatMap((e) => e.public_domains.flatMap((h) => media.map((m) => `${h}${m.prefix}`)));
   return (
     <Alert variant="warning" data-testid="media-public">
       <AlertTitle>
-        {pub.map((e) => e.name).join(", ")} {pub.length === 1 ? "is" : "are"} public
+        {pub.map((e) => e.name).join(", ")} {pub.length === 1 ? "has a public domain" : "have public domains"}
       </AlertTitle>
       <AlertDescription>
-        Everything in these folders opens for anyone{where.length ? ` at ${where.join(" and ")}` : ""}. On private environments only the people who can open them can.
+        Everything in these folders opens for anyone at {where.join(" and ")}. Every other address asks for a sign-in.
       </AlertDescription>
     </Alert>
   );
@@ -135,7 +134,7 @@ function AddMediaDialog({ site, onClose }: { site: Site; onClose: () => void }) 
   const [library, setLibrary] = useState<Library>("global");
   const [folder, setFolder] = useState("");
   const [failure, setFailure] = useState<string | null>(null);
-  const pub = site.environments.filter((e) => e.public).map((e) => e.name);
+  const pub = site.environments.filter(answersAnyone).map((e) => e.name);
   const submit = () => {
     setFailure(null);
     const entry = { prefix: prefix.trim(), scope: library, scope_id: library === "user" ? userId : "", folder: folder.trim().replace(/^\/+|\/+$/g, "") };
@@ -172,9 +171,9 @@ function AddMediaDialog({ site, onClose }: { site: Site; onClose: () => void }) 
           <FolderPick library={library} userId={userId} folder={folder} onFolder={setFolder} />
           {pub.length > 0 && (
             <Alert variant="warning" data-testid="media-goes-public">
-              <AlertTitle>Files in this folder become public on {pub.join(", ")}</AlertTitle>
+              <AlertTitle>Files in this folder become public at the public domains of {pub.join(", ")}</AlertTitle>
               <AlertDescription>
-                {pub.join(", ")} {pub.length === 1 ? "is" : "are"} public, so anyone can open them. Adding a folder publishes what is in it, and whatever is added to it later.
+                {pub.join(", ")} {pub.length === 1 ? "has a public domain" : "have public domains"}, so anyone can open them there. Adding a folder publishes what is in it, and whatever is added to it later.
               </AlertDescription>
             </Alert>
           )}

@@ -84,7 +84,10 @@ type Service struct {
 type Sites interface {
 	// EnvironmentOwner is the owner of the site holding the environment.
 	EnvironmentOwner(ctx context.Context, site, environment string) (string, error)
-	LatestRelease(ctx context.Context, site string) (int, error)
+	// StepRelease is the release an application release pins a site
+	// environment at: what the environment before it serves, the newest
+	// release for dev (#2617).
+	StepRelease(ctx context.Context, site, environment string) (int, error)
 	ReleaseExists(ctx context.Context, site string, number int) bool
 	ApplyPin(ctx context.Context, actorEmail, site, environment string, number int) error
 	// SiteEnvironments is every environment of every site (#2613).
@@ -495,12 +498,12 @@ func (s *Service) newestPin(ctx context.Context, p application.Part) (pin applic
 		if _, err := s.Sites.EnvironmentOwner(ctx, name, env); err != nil {
 			return pin, siteLabel + p.ID + labelSep + err.Error()
 		}
-		n, err := s.Sites.LatestRelease(ctx, name)
+		n, err := s.Sites.StepRelease(ctx, name, env)
 		if err != nil {
 			return pin, siteLabel + p.ID + labelSep + err.Error()
 		}
 		if n == 0 {
-			return pin, siteLabel + p.ID + " has no release to pin; publish one first"
+			return pin, siteLabel + p.ID + " has nothing to pin: " + noStepRelease(env)
 		}
 		pin.Version = n
 	case application.KindSource:
@@ -512,6 +515,15 @@ func (s *Service) newestPin(ctx context.Context, p application.Part) (pin applic
 		}
 	}
 	return pin, ""
+}
+
+// noStepRelease says why a site environment part has nothing to pin: the
+// environment before it serves no release, or the site has none.
+func noStepRelease(env string) string {
+	if env == "dev" {
+		return "the site has no release; publish one first"
+	}
+	return "the environment before " + env + " serves no release; promote one to it first"
 }
 
 // Release applies the application's pending migrations and pins every script

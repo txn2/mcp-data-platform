@@ -1,5 +1,5 @@
 import { Building2, ExternalLink, Globe, Lock, User, Users } from "lucide-react";
-import type { SiteEnvironment, SiteGrant } from "@/api/portal/hooks/sites";
+import { answersAnyone, type SiteEnvironment, type SiteGrant } from "@/api/portal/hooks/sites";
 import { ExternalBadge } from "@/components/ExternalBadge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -8,12 +8,27 @@ import { Badge } from "@/components/ui/badge";
 // an address link, a refusal, and the chips naming who an environment is
 // shared with.
 
-/** AccessBadge says whether an environment is private or public, in words and an icon. */
-export function AccessBadge({ env }: { env: Pick<SiteEnvironment, "public"> }) {
-  return env.public ? (
+/** AddressAccess says whether one address answers anyone or asks for a sign-in (#2619). */
+export function AddressAccess({ isPublic }: { isPublic: boolean }) {
+  return isPublic ? (
     <Badge variant="info">
       <Globe aria-hidden />
       Public
+    </Badge>
+  ) : (
+    <Badge variant="muted">
+      <Lock aria-hidden />
+      Private
+    </Badge>
+  );
+}
+
+/** AccessBadge is an environment's: Public domain when one of its domains answers anyone, else Private. */
+export function AccessBadge({ env }: { env: Pick<SiteEnvironment, "public_domains"> }) {
+  return answersAnyone(env) ? (
+    <Badge variant="info">
+      <Globe aria-hidden />
+      Public domain
     </Badge>
   ) : (
     <Badge variant="muted">

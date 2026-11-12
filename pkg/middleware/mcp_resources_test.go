@@ -1,8 +1,10 @@
 package middleware
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -225,6 +227,40 @@ func TestGetOrAuthenticatePC(t *testing.T) {
 			func(roles []string) bool { return slices.Contains(roles, "dp_admin") })
 		if got == nil || got.IsAdmin {
 			t.Fatalf("IsAdmin should follow the admin rule, got %+v", got)
+		}
+	})
+
+	// A managed-script run reads a resource through resources/read on this
+	// direct-authentication path. It acts for its author, as on the tool-call
+	// path, so it reads its author's library and no one else's (#2616).
+	t.Run("a run reads its author's library and no other", func(t *testing.T) {
+		auth := &mockManagedAuth{user: &UserInfo{
+			UserID: "script:report", Roles: []string{"dp_analyst"},
+			OnBehalfOf: "owner@example.com", OnBehalfOfSub: "apikey:owner",
+		}}
+		pc := getOrAuthenticatePC(context.Background(), nil, auth, func(_ []string) []string { return []string{"analyst"} }, nil)
+		if pc == nil || pc.OnBehalfOfEmail != "owner@example.com" || pc.OnBehalfOfSub != "apikey:owner" {
+			t.Fatalf("the run's author is not carried: %+v", pc)
+		}
+		claims := claimsFromPC(pc, ManagedResourceConfig{})
+		if !resource.CanReadResource(claims, &resource.Resource{Scope: resource.ScopeUser, ScopeID: "apikey:owner"}) {
+			t.Error("a run cannot read its author's own resource")
+		}
+		if resource.CanReadResource(claims, &resource.Resource{Scope: resource.ScopeUser, ScopeID: "apikey:peer"}) {
+			t.Error("a run reads another person's resource")
+		}
+	})
+
+	// A managed-script run's in-process session carries its user on the
+	// server's context, as the tool-call path reads it; no token is sent.
+	t.Run("a pre-authenticated user needs no authenticator", func(t *testing.T) {
+		ctx := WithPreAuthenticatedUser(context.Background(), &UserInfo{
+			UserID: "script:report", Roles: []string{"dp_analyst"}, AuthType: AuthTypeScript,
+			OnBehalfOf: "owner@example.com", OnBehalfOfSub: "apikey:owner",
+		})
+		pc := getOrAuthenticatePC(ctx, nil, &mockManagedAuth{err: errors.New("no token")}, func(_ []string) []string { return []string{"analyst"} }, nil)
+		if pc == nil || pc.UserID != "script:report" || pc.OnBehalfOfSub != "apikey:owner" || pc.PersonaName != "analyst" {
+			t.Fatalf("the pre-authenticated run is not the caller: %+v", pc)
 		}
 	})
 
@@ -694,6 +730,25 @@ func TestFetchResourceContent_TextInline(t *testing.T) {
 	}
 	if c.MIMEType != "text/csv" {
 		t.Errorf("MIMEType = %q", c.MIMEType)
+	}
+}
+
+// TestFetchResourceContent_TextThatIsNotUTF8IsABlob: a text file holding a
+// byte that is not UTF-8 (a Latin-1 CSV) is sent as a blob, byte for byte,
+// since a JSON string would replace that byte (#2616).
+func TestFetchResourceContent_TextThatIsNotUTF8IsABlob(t *testing.T) {
+	latin1 := []byte("name\nJos\xe9\n")
+	blob := newMockBlobReader()
+	blob.objects["resources/global/r1/people.csv"] = latin1
+	cfg := ManagedResourceConfig{S3Client: blob, S3Bucket: "test-bucket"}
+	res := &resource.Resource{URI: "mcp://global/people.csv", MIMEType: "text/csv", S3Key: "resources/global/r1/people.csv"}
+	result, err := fetchResourceContent(context.Background(), cfg, res)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	c := result.Contents[0]
+	if c.Text != "" || !bytes.Equal(c.Blob, latin1) {
+		t.Errorf("Text = %q, Blob = %q; want the bytes as a blob", c.Text, c.Blob)
 	}
 }
 

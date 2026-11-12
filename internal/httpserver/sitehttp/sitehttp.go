@@ -59,6 +59,9 @@ func Build(mux *http.ServeMux, p *platform.Platform, adminAuth func() func(http.
 	return layer, nil
 }
 
+// schemeHTTPS is the scheme an origin that answers over TLS is written with.
+const schemeHTTPS = "https"
+
 // serving reports whether the deployment serves sites at all.
 func serving(p *platform.Platform) bool {
 	return p != nil && p.Endpoints() != nil && p.Endpoints().Sites != nil && p.Endpoints().Sites.Serving()
@@ -77,7 +80,7 @@ func gatewayDeps(p *platform.Platform, rt *sitewire.Runtime) (sitegw.Deps, error
 	}
 	deps := sitegw.Deps{
 		Store: rt.Store, Objects: objects, Bucket: p.Config().Portal.S3Bucket, Config: rt.Config, Live: rt.Live, PortalHost: rt.Service.PortalHost,
-		Access: accessOver(p, rt, portal), Metrics: p.Metrics(), Media: rt.Media,
+		Access: accessOver(p, rt, portal), Metrics: p.Metrics(), Media: rt.Media, Secure: portal.Scheme == schemeHTTPS,
 	}
 	if p.Endpoints().Handler != nil {
 		deps.Pages = pagesOver(p, rt, portal)
@@ -91,7 +94,7 @@ func pagesOver(p *platform.Platform, rt *sitewire.Runtime, portal *url.URL) *sit
 		Apps: rt.Apps, Assets: p.PortalAssetStore(), Versions: p.PortalVersionStore(), Server: e.Handler,
 		Authenticate: e.PortalCaller, RouteHost: rt.Store.RouteHost, UseHandoff: rt.Store.UseHandoff,
 		FormKey: e.Runner.FormKey, PortalURL: p.Config().Portal.PublicBaseURL, PagesDomain: func() string { return rt.Live.Get().PagesDomain },
-		Secure: portal.Scheme == "https", PublicPort: portal.Port(),
+		Secure: portal.Scheme == schemeHTTPS, PublicPort: portal.Port(),
 	}
 }
 
@@ -109,7 +112,7 @@ func accessOver(p *platform.Platform, rt *sitewire.Runtime, portal *url.URL) *si
 		Store: rt.Store, FormKey: p.Endpoints().Runner.FormKey, PortalURL: p.Config().Portal.PublicBaseURL,
 		PagesDomain: func() string { return rt.Live.Get().PagesDomain },
 		IsAdmin:     func(name string) bool { return reg.IsAdminName(name, admin) },
-		IsExternal:  external, Secure: portal.Scheme == "https", PublicPort: portal.Port(),
+		IsExternal:  external, Secure: portal.Scheme == schemeHTTPS, PublicPort: portal.Port(),
 		PersonaFor: func(roles []string) string {
 			if found, ok := reg.GetForRoles(roles); ok {
 				return found.Name

@@ -88,6 +88,7 @@ func (a *portalAPI) register(mux *http.ServeMux) {
 	mux.HandleFunc("PUT "+pathSite+"/environments/{name}", a.setEnvironment)
 	mux.HandleFunc("PUT "+pathSite+"/main-environment", a.setMainEnvironment)
 	mux.HandleFunc("POST "+pathSite+"/domains", a.addDomain)
+	mux.HandleFunc("PUT "+pathSite+"/domains/{hostname}", a.setDomainAccess)
 	mux.HandleFunc("DELETE "+pathSite+"/domains/{hostname}", a.removeDomain)
 	mux.HandleFunc("GET "+pathSite+"/access", a.access)
 	mux.HandleFunc("PUT "+pathSite+"/access", a.grant)
@@ -226,9 +227,10 @@ func (a *portalAPI) view(ctx context.Context, c *caller, st *site.Site, domains 
 		st = &trimmed
 		domains = slices.DeleteFunc(slices.Clone(domains), func(d site.Domain) bool { return trimmed.Environment(d.Environment) == nil })
 	}
+	at := a.svc().Addressing()
 	return SiteView{
-		Site: *st, Address: a.svc().OwnAddress(st), Addresses: a.svc().Addresses(st, domains), PagesAddresses: a.svc().PagesAddresses(st),
-		AddressNote: a.svc().AddressNote(st), Domains: domains, Permissions: perms,
+		Site: *st, Address: at.OwnAddress(st), Addresses: at.Addresses(st, domains), PagesAddresses: at.PagesAddresses(st),
+		AddressNote: at.AddressNote(st), Domains: domains, Permissions: perms,
 	}, nil
 }
 

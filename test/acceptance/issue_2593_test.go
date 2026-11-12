@@ -35,7 +35,7 @@ import (
 // Host, after the platform's sign-in.
 
 const (
-	issue2593Bucket  = "portal-assets"
+	issue2593Bucket  = devBusinessBucket
 	issue2593Purpose = "Acceptance for #2593: a site and a media folder from a bucket prefix."
 )
 

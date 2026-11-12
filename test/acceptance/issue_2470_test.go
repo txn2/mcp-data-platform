@@ -14,9 +14,9 @@ import (
 // longer counted as orphaned; an object younger than the reclaim age, and one
 // a row names, is left; the deletes are counted per purpose.
 //
-// Wire forms: the upload is the REST route (multipart, one form); s3_object's
-// action, connection, bucket, key, content, content_type and purpose are typed
-// strings, each sent as a literal tools/call parameter of that one form.
+// Wire forms: the upload is the REST route (multipart, one form). The orphans
+// are written and looked for with the store's own client, since the S3 tools
+// refuse the platform's own buckets (#2616); no tool parameter is sent.
 //
 // Stack: `make dev`, whose dev/start.sh lists the buckets every 30s, counts an
 // object with no row as an orphan at once, and reclaims one older than
@@ -29,35 +29,20 @@ const (
 )
 
 // objectExists2470 reports whether the managed-resources bucket holds key,
-// asked through s3_object on the bucket's own connection.
-func objectExists2470(t *testing.T, c *client, key string) bool {
+// asked of the store with its own client: the S3 tools refuse the platform's
+// own bucket (#2616).
+func objectExists2470(t *testing.T, _ *client, key string) bool {
 	t.Helper()
-	res, _, err := c.callRaw("s3_object", map[string]any{
-		"action": "metadata", "connection": issue1899Resources, "bucket": issue1899Bucket,
-		"key": key, "purpose": issue2470Purpose,
-	})
-	if err != nil {
-		t.Fatalf("s3_object metadata %s: transport error: %v", key, err)
-	}
-	return !res.IsError
+	return resourceStore(t).exists(key)
 }
 
 // putOrphan2470 writes an object under the resources prefix that no row names,
 // behind the platform's back, and removes it when the test ends if the
 // reclaim did not.
-func putOrphan2470(t *testing.T, c *client, name string) string {
+func putOrphan2470(t *testing.T, _ *client, name string) string {
 	t.Helper()
 	key := fmt.Sprintf("resources/global/global/acceptance-2470-%d/%s", time.Now().UnixNano(), name)
-	c.call("s3_object", map[string]any{
-		"action": "put", "connection": issue1899Resources, "bucket": issue1899Bucket,
-		"key": key, "content": "no row names me", "content_type": "text/plain", "purpose": issue2470Purpose,
-	})
-	t.Cleanup(func() {
-		_, _, _ = connect(t).callRaw("s3_object", map[string]any{
-			"action": "delete", "connection": issue1899Resources, "bucket": issue1899Bucket,
-			"key": key, "purpose": issue2470Purpose,
-		})
-	})
+	resourceStore(t).put(key, "text/plain", []byte("no row names me"))
 	return key
 }
 

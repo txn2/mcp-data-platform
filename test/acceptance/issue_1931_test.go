@@ -22,10 +22,10 @@ import (
 // writes an empty bucket. Resolving the bucket, deleting the objects and
 // removing the row are the platform's work.
 //
-// Wire forms: save_asset's name, content and content_type, and s3_list's
-// connection, bucket and prefix are typed strings, so each admits one JSON
-// form and is sent as a literal tools/call parameter of it. The portal's
-// delete route takes no body.
+// Wire forms: save_asset's name, content and content_type are typed strings,
+// so each admits one JSON form and is sent as a literal tools/call parameter
+// of it. The portal's delete route takes no body. The bucket is read with the
+// store's own client, since the S3 tools refuse the platform's buckets (#2616).
 
 // issue1931Deleted saves an HTML asset, waits for its tiles, deletes it
 // through the portal and returns its id and the directory its objects are in.
@@ -48,7 +48,7 @@ func TestIssue1931_AnAssetRowWithNoBucketIsPurgedFromThePortalBucket(t *testing.
 	c := connectFor(t, 3*tileWait1787)
 	db := issue1904DB(t)
 	id, dir := issue1931Deleted(t, c, "legacy row")
-	if objects := issue1903List(t, c, issue1903PortalConn, issue1903PortalBucket, dir); len(objects) < 2 {
+	if objects := issue1903List(t, c, issue1903PortalBucket, dir); len(objects) < 2 {
 		t.Fatalf("the asset's directory %s holds %v; want its content and tiles before the purge", dir, objects)
 	}
 
@@ -58,7 +58,7 @@ func TestIssue1931_AnAssetRowWithNoBucketIsPurgedFromThePortalBucket(t *testing.
 	issue1904Await(t, "the row with no bucket removed", func() bool {
 		return issue1904Count(t, db, `SELECT COUNT(*) FROM portal_assets WHERE id = $1`, id) == 0
 	})
-	if left := issue1903List(t, c, issue1903PortalConn, issue1903PortalBucket, dir); len(left) != 0 {
+	if left := issue1903List(t, c, issue1903PortalBucket, dir); len(left) != 0 {
 		t.Errorf("objects left in the portal bucket under the purged asset's directory %s: %v", dir, left)
 	}
 }

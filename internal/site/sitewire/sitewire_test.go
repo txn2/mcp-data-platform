@@ -458,7 +458,7 @@ func TestRegister_SavedSettingsAreInForceAtStart(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "saved.example.net", rt.Live.Get().PagesDomain)
-	assert.Equal(t, "https://marketing.saved.example.net", rt.Service.OwnAddress(&site.Site{Name: "marketing", MainEnvironment: site.EnvDev}), "the service reads the configuration in force")
+	assert.Equal(t, "https://marketing.saved.example.net", rt.Service.Addressing().OwnAddress(&site.Site{Name: "marketing", MainEnvironment: site.EnvDev}), "the service reads the configuration in force")
 }
 
 func TestReservedHosts(t *testing.T) {
@@ -589,9 +589,9 @@ func TestApplicationAddresses(t *testing.T) {
 		rt.Service.Live = rt.Live
 		expectApplicationNamed(mock, "FROM applications WHERE name", "shop")
 		mock.ExpectQuery("ORDER BY d.hostname").WillReturnRows(sqlmock.NewRows([]string{
-			"hostname", "site_id", "name", "environment", "application_id", "application", "created_by", "created_at",
-		}).AddRow("shop.client.example", "", "", "", "app_1", "shop", "a", time.Now()).
-			AddRow("www.client.example", "site_1", "marketing", "prod", "", "", "a", time.Now()))
+			"hostname", "site_id", "name", "environment", "application_id", "application", "created_by", "created_at", "public", "access_changed_at",
+		}).AddRow("shop.client.example", "", "", "", "app_1", "shop", "a", time.Now(), false, time.Now()).
+			AddRow("www.client.example", "site_1", "marketing", "prod", "", "", "a", time.Now(), true, time.Now()))
 
 		origin, domains, err := rt.ApplicationAddresses(ctx, "shop")
 		require.NoError(t, err)

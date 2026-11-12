@@ -205,6 +205,51 @@ func TestBuild_Findings(t *testing.T) {
 		Problems(&Diagram{Findings: []Finding{kinds[FindingForeignSchema], kinds[FindingLibraryVersion]}}))
 }
 
+// unwrittenFindings is every unwritten_table finding of a diagram.
+func unwrittenFindings(d *Diagram) []Finding {
+	var out []Finding
+	for _, fd := range d.Findings {
+		if fd.Kind == FindingUnwrittenTable {
+			out = append(out, fd)
+		}
+	}
+	return out
+}
+
+// TestBuild_WritesTheAnalyzerMissed is #2615: a table the application's own
+// script writes through a data-modifying CTE in tx.batch inside a transaction
+// has a writes link and no unwritten_table finding; a table only a statement
+// chosen at run time could write is not reported as written by no part; and a
+// table nothing writes in any form still is.
+func TestBuild_WritesTheAnalyzerMissed(t *testing.T) {
+	f, in := shop()
+	f.filled = []string{"products"}
+	f.sources[api][1] = "def handle(req):\n    \"\"\"Answers.\"\"\"\n    return platform.query(\"SELECT * FROM shop.invoice JOIN shop.document ON true\", connection = \"orders\")\n"
+	f.sources[intake][2] = "def record(tx):\n    \"\"\"Records.\"\"\"\n    tx.batch([\"WITH a AS (INSERT INTO shop.document (b) VALUES (1) RETURNING id) INSERT INTO shop.invoice (d) SELECT id FROM a\"])\n\n" +
+		"def main():\n    \"\"\"Files.\"\"\"\n    platform.transaction(\"orders\", record)\n    platform.execute(\"INSERT INTO shop.signups (email) VALUES (1)\", connection = \"orders\")\n"
+	d := Build(context.Background(), f, in)
+	assert.True(t, hasLink(d, "script:"+intake, "table:orders/shop.invoice", LinkWrites), "the CTE's outer target is written")
+	assert.True(t, hasLink(d, "script:"+intake, "table:orders/shop.document", LinkWrites), "the CTE's own target is written")
+	assert.Empty(t, unwrittenFindings(d), "every table read is written by a part")
+
+	f.filled = nil
+	f.sources[intake][2] = "SPEC = {\"a\": [\"x\"]}\n\ndef main():\n    \"\"\"Files.\"\"\"\n    platform.execute(SPEC[run.params[\"k\"]][0], connection = \"orders\")\n"
+	f.sources[api][1] = "def handle(req):\n    \"\"\"Answers.\"\"\"\n    return platform.query(\"SELECT * FROM shop.products\", connection = \"orders\")\n"
+	d = Build(context.Background(), f, in)
+	found := unwrittenFindings(d)
+	require.NotEmpty(t, found)
+	for _, fd := range found {
+		assert.NotContains(t, fd.Message, "written by no part", "a run-time write may be the writer")
+		assert.Contains(t, fd.Message, "intake writes a table named only when it runs")
+	}
+
+	f.sources[intake][2] = "def main():\n    \"\"\"Files.\"\"\"\n    platform.execute(SPEC[0], connection = \"elsewhere\")\n\nSPEC = [\"x\"]\n"
+	d = Build(context.Background(), f, in)
+	found = unwrittenFindings(d)
+	require.NotEmpty(t, found, "a run-time write on another connection cannot be the schema's writer")
+	assert.Contains(t, found[0].Message, "written by no part")
+}
+
 // TestBuild_AnAssetTheCallerCannotOpen is drawn unnamed and not read.
 func TestBuild_AnAssetTheCallerCannotOpen(t *testing.T) {
 	f, in := shop()

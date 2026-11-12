@@ -109,7 +109,7 @@ def main():
         "action": "presign",
         "method": "PUT",
         "connection": "dev-s3",
-        "bucket": "portal-assets",
+        "bucket": "portal-lake",
         "key": "acceptance-2533/draft-upload.txt",
         "expires_in": 60,
         "purpose": "Acceptance #2533: an upload link is a write.",

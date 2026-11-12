@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -402,5 +403,27 @@ func TestConfigReadersFillStoredSecrets(t *testing.T) {
 	}
 	if got := S3Config(toolkits, "missing"); got != nil {
 		t.Errorf("missing instance = %+v", got)
+	}
+}
+
+// TestOpenS3 builds the platform store's client from a connection's
+// configuration, under the connection's name, and refuses a connection the
+// configuration does not hold.
+func TestOpenS3(t *testing.T) {
+	toolkits := map[string]any{"s3": map[string]any{
+		"instances": map[string]any{"primary": map[string]any{
+			"region": "us-east-1", "endpoint": "http://127.0.0.1:1", "access_key_id": "ak", "secret_access_key": "sk", "use_path_style": true,
+		}},
+	}}
+	c, err := OpenS3(toolkits, "primary", 1<<20)
+	if err != nil {
+		t.Fatalf("OpenS3: %v", err)
+	}
+	defer func() { _ = c.Close() }()
+	if got := c.ConnectionName(); got != "primary" {
+		t.Errorf("the client is named %q, want primary", got)
+	}
+	if _, err := OpenS3(toolkits, "missing", 1<<20); err == nil || !strings.Contains(err.Error(), `s3 connection "missing" not found`) {
+		t.Errorf("a connection the configuration does not hold: %v", err)
 	}
 }

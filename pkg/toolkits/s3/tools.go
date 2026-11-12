@@ -143,6 +143,9 @@ func (t *Toolkit) list(ctx context.Context, in listInput) (res *mcp.CallToolResu
 	if in.Bucket == "" {
 		return listBuckets(ctx, client, prefix)
 	}
+	if refused := refuseReserved(in.Bucket); refused != nil {
+		return refused, nil
+	}
 	if refused := t.refuseOutsidePrefix(in.Connection, prefix, in.Bucket); refused != nil {
 		return refused, nil
 	}
@@ -188,10 +191,33 @@ func (t *Toolkit) ReadClient(connection, bucket string) (s3tools.S3Client, error
 	if err != nil {
 		return nil, fmt.Errorf("no S3 connection named %q", connection)
 	}
+	if r, ok := IsReserved(bucket); ok {
+		return nil, errors.New(reservedRefusal(bucket, r))
+	}
 	if prefix, outside := t.OutsideBucketPrefix(connection, bucket); outside {
 		return nil, errors.New(outsidePrefix(connection, prefix, bucket))
 	}
 	return client, nil
+}
+
+// BucketNames is every bucket a connection's credentials list, with no limit
+// of the toolkit's applied: what the boot check reads to warn of a granted
+// connection that reaches the platform's buckets or a backup (#2616). It is
+// never answered to a caller.
+func (t *Toolkit) BucketNames(ctx context.Context, connection string) ([]string, error) {
+	client, err := t.s3Toolkit.GetClient(connection)
+	if err != nil {
+		return nil, fmt.Errorf("no S3 connection named %q", connection)
+	}
+	buckets, err := client.ListBuckets(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing the buckets of connection %q: %w", connection, err)
+	}
+	out := make([]string, 0, len(buckets))
+	for _, b := range buckets {
+		out = append(out, b.Name)
+	}
+	return out, nil
 }
 
 // OutsideBucketPrefix reports whether a bucket lies outside the bucket_prefix
@@ -220,6 +246,9 @@ func listBuckets(ctx context.Context, client s3tools.S3Client, prefix string) (r
 	result := s3tools.ListBucketsResult{Buckets: make([]s3tools.BucketResult, 0, len(buckets))}
 	for _, b := range buckets {
 		if prefix != "" && !strings.HasPrefix(b.Name, prefix) {
+			continue
+		}
+		if _, ok := IsReserved(b.Name); ok {
 			continue
 		}
 		result.Buckets = append(result.Buckets, s3tools.BucketResult{Name: b.Name, CreationDate: stamp(b.CreationDate)})
@@ -284,9 +313,10 @@ func (t *Toolkit) object(ctx context.Context, in objectInput) (res *mcp.CallTool
 }
 
 // admitObject resolves the connection a call names and refuses what cannot
-// proceed: a missing bucket or key, an unknown connection, a bucket outside
-// the connection's bucket_prefix (a copy's destination included), or a
-// writing action on a read-only connection.
+// proceed: a missing bucket or key, an unknown connection, a bucket the
+// platform keeps its own data in (#2616) or one outside the connection's
+// bucket_prefix (a copy's destination included), or a writing action on a
+// read-only connection.
 func (t *Toolkit) admitObject(in objectInput) (s3tools.S3Client, connSettings, *mcp.CallToolResult) {
 	if in.Bucket == "" {
 		return nil, connSettings{}, s3tools.ErrorResult("bucket parameter is required")
@@ -302,6 +332,9 @@ func (t *Toolkit) admitObject(in objectInput) (s3tools.S3Client, connSettings, *
 	buckets := []string{in.Bucket}
 	if in.Action == actionCopy && in.DestBucket != "" {
 		buckets = append(buckets, in.DestBucket)
+	}
+	if refused := refuseReserved(buckets...); refused != nil {
+		return nil, connSettings{}, refused
 	}
 	if refused := t.refuseOutsidePrefix(in.Connection, settings.bucketPrefix, buckets...); refused != nil {
 		return nil, connSettings{}, refused

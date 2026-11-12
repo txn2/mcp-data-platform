@@ -92,9 +92,9 @@ func newSite2518(t *testing.T, c *client) *siteClient {
 		_, _, _ = connect(t).callRaw("manage_site", map[string]any{"command": "delete", "site": name})
 	})
 	s := &siteClient{c: c, name: name}
-	// A new site has only dev, its working copy (#2604); stage and prod are
-	// created by adding a domain to them, which an administrator makes public
-	// so they answer there to anyone. dev cannot have a domain.
+	// A new site has dev and prod (#2617); stage is created between them by
+	// adding a domain to it. An administrator adds each domain public, so it
+	// answers there to anyone (#2619). dev cannot have a domain.
 	admin := connect(t)
 	for _, env := range []string{"stage", "prod"} {
 		admin.call("manage_site", map[string]any{
@@ -174,8 +174,8 @@ func TestIssue2518_APublishPromotesAndRollsBackOnThreeHostnamesAudited(t *testin
 	mapDomain2518(t, s, prod, "prod")
 
 	one := s.publish(t, "dev", "one")
-	if url, _ := one["address"].(string); !strings.Contains(url, s.name+"."+pagesDomain2517) {
-		t.Errorf("publish's address is not dev's, the main address: %v", one["address"])
+	if url, _ := one["address"].(string); !strings.Contains(url, "//"+s.name+"--dev."+pagesDomain2517) {
+		t.Errorf("publish's address is not dev's own: %v", one["address"])
 	}
 
 	admin.call("manage_site", map[string]any{"command": "promote", "site": s.name, "from": "dev", "to": "stage"})
@@ -187,17 +187,21 @@ func TestIssue2518_APublishPromotesAndRollsBackOnThreeHostnamesAudited(t *testin
 	served2518(t, prod, "one")
 
 	s.publish(t, "dev", "two")
-	admin.call("manage_site", map[string]any{"command": "promote", "site": s.name, "from": "dev", "to": "prod"})
-	served2518(t, prod, "two")
 	if r := onHost(t, stage, http.MethodGet, "/", nil, ""); !strings.Contains(r.body, "<h1>one</h1>") {
-		t.Errorf("a promotion to prod moved stage: %s", r.body)
+		t.Errorf("a publish to dev moved stage: %s", r.body)
 	}
+	admin.call("manage_site", map[string]any{"command": "promote", "site": s.name, "from": "dev", "to": "stage"})
+	admin.call("manage_site", map[string]any{"command": "promote", "site": s.name, "from": "stage", "to": "prod"})
+	served2518(t, prod, "two")
 
 	back := admin.call("manage_site", map[string]any{"command": "rollback", "site": s.name, "environment": "prod"})
 	if back["release"] != float64(1) {
 		t.Errorf("rollback went to %v, want release 1", back["release"])
 	}
 	served2518(t, prod, "one")
+	if r := onHost(t, stage, http.MethodGet, "/", nil, ""); !strings.Contains(r.body, "<h1>two</h1>") {
+		t.Errorf("a rollback of prod moved stage: %s", r.body)
+	}
 
 	audited := auditedCommands2518(t, s.name)
 	for _, cmd := range []string{"publish", "promote", "rollback"} {
@@ -212,8 +216,11 @@ func TestIssue2518_APromotionToProdByTheOwnerWaitsForApproval(t *testing.T) {
 	admin := connect(t)
 	s := newSite2518(t, owner)
 	s.publish(t, "dev", "one")
+	if got := owner.call("manage_site", map[string]any{"command": "promote", "site": s.name, "from": "dev", "to": "stage"}); got["status"] != "promoted" {
+		t.Fatalf("the owner's promotion to stage, which needs no approval: %v", got)
+	}
 
-	waiting := owner.call("manage_site", map[string]any{"command": "promote", "site": s.name, "from": "dev", "to": "prod", "reason": "launch"})
+	waiting := owner.call("manage_site", map[string]any{"command": "promote", "site": s.name, "from": "stage", "to": "prod", "reason": "launch"})
 	if waiting["status"] != "awaiting_approval" {
 		t.Fatalf("the owner's promotion: %v", waiting)
 	}
@@ -227,7 +234,7 @@ func TestIssue2518_APromotionToProdByTheOwnerWaitsForApproval(t *testing.T) {
 	request, _ := waiting["approval"].(map[string]any)
 	id, _ := request["id"].(string)
 	admin.call("manage_approval", map[string]any{"command": "decide", "id": id, "decision": "approve"})
-	done := owner.call("manage_site", map[string]any{"command": "promote", "site": s.name, "from": "dev", "to": "prod"})
+	done := owner.call("manage_site", map[string]any{"command": "promote", "site": s.name, "from": "stage", "to": "prod"})
 	if done["status"] != "promoted" {
 		t.Fatalf("after the approval: %v", done)
 	}

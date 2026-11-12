@@ -519,9 +519,10 @@ toolkits:
         use_path_style: true
         read_only: true
         description: "Local SeaweedFS, read-only"
-      # The same SeaweedFS, limited to buckets named portal-*: portal-assets is
+      # The same SeaweedFS, limited to buckets named portal-*: portal-lake is
       # inside the limit and dev-scratch outside it. It is what the #2584
-      # acceptance test exercises bucket_prefix on.
+      # acceptance test exercises bucket_prefix on. portal-assets is inside
+      # the prefix too, and refused all the same: it is the platform's (#2616).
       dev-s3-prefixed:
         enabled: true
         endpoint: "http://localhost:${DEV_S3_PORT:-9000}"

@@ -125,8 +125,10 @@ type AdminDomainBody struct {
 	Hostname         string `json:"hostname" example:"shop.example.com"`
 	Site             string `json:"site,omitempty"`
 	Environment      string `json:"environment,omitempty"`
-	RequiresApproval bool   `json:"requires_approval,omitempty"`
+	RequiresApproval *bool  `json:"requires_approval,omitempty"`
 	Application      string `json:"application,omitempty"`
+	// Public opens a site's domain to anyone (#2619); private otherwise.
+	Public bool `json:"public,omitempty"`
 }
 
 // addDomain handles POST /api/v1/admin/sites/domains.
@@ -137,7 +139,7 @@ type AdminDomainBody struct {
 // @Accept       json
 // @Produce      json
 // @Param        body  body      AdminDomainBody  true  "The domain"
-// @Success      201   {object}  site.Domain
+// @Success      201   {object}  sitesvc.DomainResult
 // @Failure      403   {object}  httpjson.ProblemDetail
 // @Failure      404   {object}  httpjson.ProblemDetail
 // @Failure      409   {object}  httpjson.ProblemDetail
@@ -152,6 +154,7 @@ func (a *adminAPI) addDomain(w http.ResponseWriter, r *http.Request) {
 	}
 	d, err := a.rt.Service.AddDomain(r.Context(), a.actor(r), sitesvc.DomainRequest{
 		Hostname: in.Hostname, Site: in.Site, Environment: in.Environment, RequiresApproval: in.RequiresApproval, Application: in.Application,
+		Public: in.Public,
 	})
 	if err != nil {
 		fail(w, r, err)

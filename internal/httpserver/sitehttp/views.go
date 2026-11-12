@@ -75,10 +75,7 @@ type MainEnvironmentBody struct {
 
 // EnvironmentResponse is what creating or changing an environment did.
 type EnvironmentResponse struct {
-	Site SiteView `json:"site"`
-	// Status is done, or awaiting_approval when making the environment public
-	// waits in Approvals.
-	Status   string                   `json:"status" example:"done"`
-	Approval *sitesvc.ApprovalRequest `json:"approval,omitempty"`
-	Note     string                   `json:"note,omitempty"`
+	Site   SiteView `json:"site"`
+	Status string   `json:"status" example:"done"`
+	Note   string   `json:"note,omitempty"`
 }

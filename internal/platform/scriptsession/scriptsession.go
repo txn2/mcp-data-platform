@@ -31,12 +31,15 @@ const TextResultKey = "text"
 // authentication, authorization, gate, rate-limit, and audit middleware an
 // agent's call crosses, with no second implementation to keep in step.
 //
-// The one exception is an application database (#2428, #2402): the calls
-// IsAppDBCall names are answered here, against the connection's pool, and
-// never reach the server.
+// The exceptions are an application database (#2428, #2402), whose calls
+// IsAppDBCall names are answered here against the connection's pool and never
+// reach the server, and a resource read (#2616), answered by the session's own
+// resources/read.
 type SessionCaller struct {
 	session *mcp.ClientSession
 	appdb   *appdbCaller
+	// maxRead bounds a resource read; zero is MaxResourceReadBytes.
+	maxRead int
 }
 
 // Connect opens an in-memory MCP session against server and returns the
@@ -83,6 +86,9 @@ func Connect(ctx context.Context, server *mcp.Server, label string) (*SessionCal
 func (c *SessionCaller) CallTool(ctx context.Context, name string, args map[string]any) (map[string]any, error) {
 	if IsAppDBCall(name) {
 		return c.appdb.call(ctx, name, args)
+	}
+	if name == ResourceRead {
+		return c.readResource(ctx, args)
 	}
 	params := &mcp.CallToolParams{Name: name, Arguments: args}
 	// Where in the script the call was made (#1907), for the audit row.

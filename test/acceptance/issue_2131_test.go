@@ -3,7 +3,9 @@
 package acceptance
 
 import (
+	"context"
 	"fmt"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -12,9 +14,8 @@ import (
 // Issue #2131: a registration whose CREATE TABLE the platform stopped waiting
 // for, and which the coordinator completed anyway, left a table with no
 // registration, and every later registration of the same file failed "already
-// exists". The orphan is made here by hand through the scratch connection,
-// with the definition an earlier registration of the file would have given
-// it; what is under test is that the next registration through manage_table
+// exists". The orphan is made here by hand in Trino, with the definition an
+// earlier registration of the file would have given it; what is under test is that the next registration through manage_table
 // adopts it, and that a table over anything else is still refused.
 //
 // Wire forms: every manage_table, manage_resource and trino_execute parameter
@@ -72,22 +73,38 @@ func location2131(t *testing.T, c *client, table string) string {
 }
 
 // orphan2131 creates, behind the platform's back, the table an abandoned
-// registration leaves: the registration's own definition, with no row.
-func orphan2131(t *testing.T, c *client, table, location string) {
+// registration leaves: the registration's own definition, with no row. It is
+// made in Trino directly, as the coordinator completing the statement did:
+// no Trino tool points a table at the platform's resource bucket (#2616).
+func orphan2131(t *testing.T, _ *client, table, location string) {
 	t.Helper()
-	c.call("trino_execute", map[string]any{
-		"connection": scratchResourceConnection,
-		"sql": "CREATE TABLE " + table + ` ("store_id" VARCHAR, "units" VARCHAR) WITH (external_location = '` +
-			location + `', format = 'CSV', skip_header_line_count = 1)`,
-		"purpose": "Acceptance #2131: leave the table an abandoned registration leaves.",
-	})
-	t.Cleanup(func() {
-		_, _, _ = c.callRaw("trino_execute", map[string]any{
-			"connection": scratchResourceConnection,
-			"sql":        "DROP TABLE IF EXISTS " + table,
-			"purpose":    "Acceptance #2131: remove the table the test left.",
-		})
-	})
+	qualified := scratchTable2131(table)
+	trinoCLI2131(t, "CREATE TABLE "+qualified+` ("store_id" VARCHAR, "units" VARCHAR) WITH (external_location = '`+
+		location+`', format = 'CSV', skip_header_line_count = 1)`)
+	t.Cleanup(func() { trinoCLI2131(t, "DROP TABLE IF EXISTS "+qualified) })
+}
+
+// scratchTable2131 is a table the scratch connection names, qualified with
+// the connection's catalog and, when it names none, its schema.
+func scratchTable2131(table string) string {
+	switch strings.Count(table, ".") {
+	case 0:
+		return "scratch_resources.uploads." + table
+	case 1:
+		return "scratch_resources." + table
+	}
+	return table
+}
+
+// trinoCLI2131 runs one statement in the dev stack's Trino container.
+func trinoCLI2131(t *testing.T, sql string) {
+	t.Helper()
+	// The CLI's JVM writes its start-up notices to stderr.
+	out, err := exec.CommandContext(context.Background(), "docker", "exec", "acme-dev-trino", //nolint:gosec // a test running SQL in its own stack
+		"trino", "--execute", sql).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running %q in Trino: %v\n%s", firstRunes(sql, 120), err, out)
+	}
 }
 
 // queryTable2131 is the qualified name a registration answers with.

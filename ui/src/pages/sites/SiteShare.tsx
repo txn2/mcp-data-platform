@@ -104,7 +104,7 @@ export function ShareDialog({ site, env, level: startLevel = "view", onClose }: 
 // ShareScope is what the share covers: one sentence for Can manage, the
 // private environments to pick for Can view, and where a refusal shows.
 function ShareScope({ site, sh }: { site: Site; sh: ReturnType<typeof useShare> }) {
-  const privateEnvs = orderedEnvironments(site.environments).filter((e) => !e.public);
+  const privateEnvs = orderedEnvironments(site.environments);
   const people = sh.picked.some((r) => r.kind !== "group");
   if (sh.level === "manage") {
     return (
@@ -210,7 +210,7 @@ function Choice({
 }
 
 function EnvironmentPick({ site, envs, chosen, onToggle }: { site: Site; envs: string[]; chosen: string[]; onToggle: (name: string) => void }) {
-  const publicEnvs = site.environments.filter((e) => e.public).map((e) => e.name);
+  const publicDomains = site.domains.filter((d) => d.public && envs.includes(d.environment ?? "")).map((d) => d.hostname);
   return (
     <fieldset className="space-y-2">
       <legend className="mb-2 text-sm font-medium">Environments</legend>
@@ -233,8 +233,8 @@ function EnvironmentPick({ site, envs, chosen, onToggle }: { site: Site; envs: s
         );
       })}
       <p className="text-xs text-muted-foreground">
-        Only private environments are listed.
-        {publicEnvs.length > 0 && ` ${publicEnvs.join(", ")} ${publicEnvs.length === 1 ? "is" : "are"} public, so ${publicEnvs.length === 1 ? "it opens" : "they open"} for anyone.`}
+        A share opens an environment's addresses that ask for a sign-in.
+        {publicDomains.length > 0 && ` ${publicDomains.join(", ")} ${publicDomains.length === 1 ? "answers" : "answer"} anyone without one.`}
       </p>
     </fieldset>
   );
@@ -243,7 +243,7 @@ function EnvironmentPick({ site, envs, chosen, onToggle }: { site: Site; envs: s
 /** The environment a share starts on: the one it was opened from, else the first private one people use. */
 function startingEnvs(site: Site, env?: string): string[] {
   if (env) return [env];
-  const first = orderedEnvironments(site.environments).find((e) => !e.public && e.name !== DEV_ENVIRONMENT);
+  const first = orderedEnvironments(site.environments).find((e) => e.name !== DEV_ENVIRONMENT);
   return first ? [first.name] : [];
 }
 

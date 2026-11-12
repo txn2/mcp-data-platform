@@ -99,10 +99,9 @@ func TestIssue2367_AResourceDeletedWhileItsTileIsDrawnEndsQuietly(t *testing.T) 
 			t.Fatalf("a resource deleted while its tile was drawn logged ERROR:\n%s", strings.Join(lines, "\n"))
 		}
 	}
-	listed := c.call("s3_list", map[string]any{
-		"connection": "dev-resources", "bucket": "managed-resources", "prefix": dir,
-		"purpose": "Acceptance #2367: a deleted resource's directory holds no tile.",
-	})
+	// Read with the store's own client: the S3 tools refuse the platform's
+	// own bucket (#2616).
+	listed := resourceStore(t).keys(dir)
 	if strings.Contains(fmt.Sprint(listed), "thumbnail") {
 		t.Errorf("the deleted resource's directory %s still holds a tile: %v", dir, listed)
 	}

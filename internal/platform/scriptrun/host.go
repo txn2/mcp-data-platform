@@ -9,6 +9,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptpace"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptres"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
 	"github.com/txn2/mcp-data-platform/internal/platform/scripttx"
@@ -114,7 +115,7 @@ var Capabilities = []string{
 	CapabilityQuery, CapabilityExecute, CapabilityExport, CapabilityPublishData, CapabilityCall, CapabilitySaveState,
 	CapabilityCheckpoint, CapabilityRemainingMS, scriptpace.SleepCapability, CapabilityNotify, CapabilityPublish, scriptlive.CapabilityProgress, scriptlive.CapabilityResult,
 	scripttoken.CapabilityMint, scripttoken.CapabilityVerify, scripttoken.CapabilityDecrypt, scripttx.CapabilityTransaction, scripttx.CapabilityBatch,
-	scripttx.CapabilityQueryIter, scripttx.CapabilityCopyIn, scripttx.CapabilityCopyOut, scripttx.CapabilityMaintain,
+	scripttx.CapabilityQueryIter, scripttx.CapabilityCopyIn, scripttx.CapabilityCopyOut, scripttx.CapabilityMaintain, scriptres.CapabilityRead,
 }
 
 // The formats platform.export accepts, split by what serializes them. A format

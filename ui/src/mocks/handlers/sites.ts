@@ -8,9 +8,9 @@ import { siteFileHandlers, resetSiteFiles } from "./siteFiles";
 
 const at = "2026-11-08T13:52:00Z";
 const DEFAULT_KEEP = 50;
-/** An environment; keep is its own release limit, undefined for the deployment's default. */
-const env = (name: string, release: number, requires_approval = false, isPublic = false, internal_view = false, keep?: number, kept?: number): SiteEnvironment => ({
-  name, release, requires_approval, public: isPublic, internal_view, updated_by: "jane.doe@example.com", updated_at: at,
+/** An environment; keep is its own release limit, undefined for the deployment's default. Its public domains come from the site's domains (withAddresses). */
+const env = (name: string, release: number, requires_approval = false, internal_view = false, keep?: number, kept?: number): SiteEnvironment => ({
+  name, release, requires_approval, public_domains: [], internal_view, updated_by: "jane.doe@example.com", updated_at: at,
   keep_releases: keep ?? DEFAULT_KEEP, keep_releases_default: keep === undefined, releases_kept: kept ?? Math.min(release, keep || DEFAULT_KEEP),
 });
 const PAGES = "pages.example.net";
@@ -33,7 +33,8 @@ function withAddresses(s: Site, pages = PAGES): Site {
     }),
   );
   const note = pages && s.name.length === 2 ? addressNote(s.name, pages) : undefined;
-  return { ...s, address: pages && s.main_environment ? `https://${s.name}.${pages}` : "", addresses, pages_addresses: own, ...(note ? { address_note: note } : {}) };
+  const environments = s.environments.map((e) => ({ ...e, public_domains: domains.filter((d) => d.environment === e.name && d.public).map((d) => d.hostname) }));
+  return { ...s, environments, address: pages && s.main_environment ? `https://${s.name}.${pages}` : "", addresses, pages_addresses: own, ...(note ? { address_note: note } : {}) };
 }
 
 /** What the server tells a two-character site (#2611), word for word. */
@@ -43,26 +44,26 @@ function addressNote(name: string, pages: string): string {
     "DNS reserves that form, so certificate authorities refuse it. The main address still works; give each other environment people use a domain."
   );
 }
-const domain = (hostname: string, site: string, environment: string) => ({
-  hostname, site, environment, created_by: "jane.doe@example.com", created_at: at,
+const domain = (hostname: string, site: string, environment: string, isPublic = false) => ({
+  hostname, site, environment, public: isPublic, created_by: "jane.doe@example.com", created_at: at,
 });
 
 function makeSites(): Site[] {
-  const site = (name: string, description: string, owner: string, environments: Site["environments"], domains: Site["domains"], permissions: Site["permissions"], main = "dev"): Site =>
+  const site = (name: string, description: string, owner: string, environments: Site["environments"], domains: Site["domains"], permissions: Site["permissions"], main = "prod"): Site =>
     withAddresses({
       id: `site_${name}`, name, description, owner_email: owner, main_environment: main, environments, domains, permissions,
       created_by: owner, created_at: "2026-09-14T18:20:00Z", updated_at: at, address: "", addresses: {}, pages_addresses: {},
     });
   const admin = { manage: true, own: true, delete: true };
   return [
-    site("annual-report", "2026 annual report", "priya.nair@example.com", [env("dev", 2)], [], admin),
+    site("annual-report", "2026 annual report", "priya.nair@example.com", [env("dev", 2), env("prod", 0)], [], admin),
     // The caller only views docs, so the server sends only the environments that open for them.
     site("docs", "Product documentation", "sam.lee@example.com", [env("prod", 30, true)], [domain("docs.example.com", "docs", "prod")], { manage: false, own: false, delete: false }, ""),
     site(
       "marketing", "Company website", "jane.doe@example.com",
       // dev keeps its last 3, stage the deployment's default, prod every release it served (#2602).
-      [env("dev", 12, false, false, false, 3, 3), env("stage", 11, false, false, true, undefined, 1), env("prod", 9, true, true, false, 0, 2)],
-      [domain("go.example.com", "marketing", "stage"), domain("example.com", "marketing", "prod"), domain("www.example.com", "marketing", "prod")],
+      [env("dev", 12, false, false, 3, 3), env("stage", 11, false, true, undefined, 1), env("prod", 9, true, false, 0, 2)],
+      [domain("go.example.com", "marketing", "stage"), domain("example.com", "marketing", "prod", true), domain("www.example.com", "marketing", "prod")],
       admin,
     ),
   ].map((st) => ({ ...st, media: st.name === "marketing" ? [media("/media/", "sites/marketing/media"), media("/downloads/", "sites/marketing/downloads")] : [] }));
@@ -74,13 +75,13 @@ function makeSites(): Site[] {
 // adds it to the list.
 function crowdedSite(): Site {
   const name = "marketing-launch-fall-2026-regional-pages";
-  const envs = [env("dev", 7), env("stage", 6), env("preview", 0), env("prod", 5, true, true)];
+  const envs = [env("dev", 7), env("stage", 6), env("preview", 0), env("prod", 5, true)];
   return withAddresses({
-    id: `site_${name}`, name, owner_email: "priya.ramanathan-oconnell@example.com", main_environment: "dev",
+    id: `site_${name}`, name, owner_email: "priya.ramanathan-oconnell@example.com", main_environment: "prod",
     description:
       "Landing pages for the fall launch: the pricing table, the signup form, the regional variants the field team asked for in September, the partner pages, the press kit and the event schedule, kept apart from the company website until the launch date so the regional teams can review every page before it goes out.",
     environments: envs,
-    domains: envs.flatMap((e) => [domain(`${e.name}.fall-launch.example.com`, name, e.name), domain(`${e.name}.launch.example.org`, name, e.name)]),
+    domains: envs.filter((e) => e.name !== "dev").flatMap((e) => [domain(`${e.name}.fall-launch.example.com`, name, e.name, e.name === "prod"), domain(`${e.name}.launch.example.org`, name, e.name)]),
     permissions: { manage: true, own: true, delete: true },
     created_by: "priya.ramanathan-oconnell@example.com", created_at: at, updated_at: at, address: "", addresses: {}, pages_addresses: {}, media: [],
   });
@@ -93,8 +94,8 @@ function twoCharSite(): Site {
   const owner = "mina.kowalski@example.com";
   return withAddresses({
     id: "site_ab", name: "ab", description: "Annual benefits guide", owner_email: owner, main_environment: "dev",
-    environments: [env("dev", 15), env("staging", 14), env("prod", 13, false, true)],
-    domains: [domain("ab.example.com", "ab", "prod")], permissions: { manage: true, own: true, delete: true },
+    environments: [env("dev", 15), env("staging", 14), env("prod", 13)],
+    domains: [domain("ab.example.com", "ab", "prod", true)], permissions: { manage: true, own: true, delete: true },
     created_by: owner, created_at: at, updated_at: at, address: "", addresses: {}, pages_addresses: {}, media: [],
   });
 }
@@ -108,6 +109,14 @@ function mediaPrefix(raw: string): string | { detail: string } {
   const p = `/${raw.trim().replace(/^\/+|\/+$/g, "")}/`;
   if (p === "//" || p.startsWith("/_") || p.startsWith("/.well-known/")) return { detail: `media prefix ${raw}: "/", a path under /_ and /.well-known/ are the platform's` };
   return p;
+}
+
+/** Puts an environment after another in the site's order, last before prod with none named (#2617). */
+function placeEnv(s: Site, e: SiteEnvironment, after?: string) {
+  const at = after ? s.environments.findIndex((x) => x.name === after) + 1 : s.environments.findIndex((x) => x.name === "prod");
+  const i = at <= 0 ? s.environments.length : at;
+  s.environments = [...s.environments.slice(0, i), e, ...s.environments.slice(i)];
+  Object.assign(s, withAddresses(s));
 }
 
 let sites = makeSites();
@@ -214,7 +223,7 @@ export const siteHandlers = [
       );
     }
     const s: Site = withAddresses({
-      id: `site_${b.name}`, name: b.name, description: b.description, owner_email: "admin@example.com", main_environment: "dev", environments: [env("dev", 0)], domains: [],
+      id: `site_${b.name}`, name: b.name, description: b.description, owner_email: "admin@example.com", main_environment: "prod", environments: [env("dev", 0), env("prod", 0)], domains: [],
       permissions: { manage: true, own: true, delete: true }, created_by: "admin@example.com", created_at: at, updated_at: at, address: "", addresses: {}, pages_addresses: {},
     });
     sites = [...sites, s];
@@ -313,18 +322,29 @@ export const siteHandlers = [
     return HttpResponse.json({ environment: b.environment, release: b.release, status: "rollback" });
   }),
   http.post(`${base}/:site/domains`, async ({ params, request }) => {
-    const b = (await request.json()) as { hostname: string; environment: string; requires_approval?: boolean; public?: boolean };
+    const b = (await request.json()) as { hostname: string; environment: string; requires_approval?: boolean; public?: boolean; after?: string };
     const s = find(params.site as string);
     if (!s) return missing();
-    if (b.environment === "dev") return HttpResponse.json({ detail: "dev is the working copy and can't have a domain" }, { status: 422 });
+    if (b.environment === "dev") return HttpResponse.json({ detail: "dev is the working copy and cannot have a domain: add the domain to the environment people use, and promote dev's release to it" }, { status: 422 });
     if (s.domains.some((d) => d.hostname === b.hostname)) return HttpResponse.json({ detail: "that domain is already in use" }, { status: 409 });
-    if (!s.environments.some((e) => e.name === b.environment)) {
-      s.environments.push(env(b.environment, 0, !!b.requires_approval, !!b.public));
-      Object.assign(s, withAddresses(s));
-    }
-    const d = domain(b.hostname, s.name, b.environment);
+    if (!s.environments.some((e) => e.name === b.environment)) placeEnv(s, env(b.environment, 0, !!b.requires_approval), b.after);
+    const gated = !!s.environments.find((e) => e.name === b.environment)?.requires_approval;
+    const waits = !!b.public && gated && !s.permissions.delete;
+    const d = domain(b.hostname, s.name, b.environment, !!b.public && !waits);
     s.domains.push(d);
-    return HttpResponse.json(d, { status: 201 });
+    Object.assign(s, withAddresses(s));
+    return HttpResponse.json({ ...d, status: waits ? "awaiting_approval" : "done", ...(waits ? { approval: { id: "apr_public1" } } : {}) }, { status: 201 });
+  }),
+  http.put(`${base}/:site/domains/:hostname`, async ({ params, request }) => {
+    const b = (await request.json()) as { public: boolean };
+    const s = find(params.site as string);
+    const d = s?.domains.find((x) => x.hostname === params.hostname);
+    if (!s || !d) return HttpResponse.json({ detail: "no such domain" }, { status: 404 });
+    const gated = !!s.environments.find((e) => e.name === d.environment)?.requires_approval;
+    if (b.public && !d.public && gated && !s.permissions.delete) return HttpResponse.json({ ...d, status: "awaiting_approval", approval: { id: "apr_public1" } });
+    d.public = b.public;
+    Object.assign(s, withAddresses(s));
+    return HttpResponse.json({ ...d, status: "done" });
   }),
   http.delete(`${base}/:site/domains/:hostname`, ({ params }) => {
     const s = find(params.site as string);
@@ -353,21 +373,28 @@ export const siteHandlers = [
   http.put(`${base}/:site/environments/:name`, async ({ params, request }) => {
     const s = find(params.site as string);
     if (!s) return missing();
-    const b = (await request.json()) as { requires_approval?: boolean; public?: boolean; internal_view?: boolean; keep_releases?: number | "default" };
+    const b = (await request.json()) as { requires_approval?: boolean; public?: boolean; internal_view?: boolean; keep_releases?: number | "default"; after?: string };
     const name = params.name as string;
+    if (b.public !== undefined) {
+      return HttpResponse.json(
+        {
+          detail: `public is a setting of a domain, not of an environment: every address of ${name} on the pages domain asks for a sign-in. Add a domain to ${name} and set public on it (add_domain with public, or set_domain).`,
+        },
+        { status: 422 },
+      );
+    }
+    if (b.keep_releases !== undefined && !s.permissions.own) return HttpResponse.json({ detail: "you do not have permission to do this on this site" }, { status: 403 });
     let e = s.environments.find((x) => x.name === name);
     if (!e) {
       e = env(name, 0);
-      s.environments.push(e);
-    }
-    if (b.public && name === "dev") return HttpResponse.json({ detail: "dev is the working copy, so it is always private" }, { status: 422 });
-    if (b.keep_releases !== undefined && !s.permissions.own) return HttpResponse.json({ detail: "you do not have permission to do this on this site" }, { status: 403 });
-    if (b.public && e.requires_approval) {
-      return HttpResponse.json({ site: s, status: "awaiting_approval", approval: { id: "apr_public1" } });
+      placeEnv(s, e, b.after);
+    } else if (b.after) {
+      if (name === "dev" || name === "prod") return HttpResponse.json({ detail: `${name} is always ${name === "dev" ? "first" : "last"}, so it cannot be moved. Move an environment between dev and prod instead.` }, { status: 422 });
+      s.environments = s.environments.filter((x) => x.name !== name);
+      placeEnv(s, e, b.after);
     }
     Object.assign(e, {
       ...(b.requires_approval !== undefined ? { requires_approval: b.requires_approval } : {}),
-      ...(b.public !== undefined ? { public: b.public } : {}),
       ...(b.internal_view !== undefined ? { internal_view: b.internal_view } : {}),
     });
     if (b.keep_releases !== undefined) {

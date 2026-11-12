@@ -180,3 +180,11 @@ func TestLive_SwapsTheConfigInForce(t *testing.T) {
 	live.Set(second)
 	assert.Equal(t, second, live.Get())
 }
+
+// TestHSTSHeader is the Strict-Transport-Security value sites.tls.hsts sends
+// (#2557): none when off, a year by default, and include_subdomains.
+func TestHSTSHeader(t *testing.T) {
+	assert.Empty(t, HSTSConfig{}.Header())
+	assert.Equal(t, "max-age=31536000", HSTSConfig{Enabled: true}.Header())
+	assert.Equal(t, "max-age=600; includeSubDomains", HSTSConfig{Enabled: true, MaxAge: 600, IncludeSubdomains: true}.Header())
+}

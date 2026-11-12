@@ -131,19 +131,23 @@ func (m *memStore) SetEnvironment(_ context.Context, siteID, name string, set si
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	st := m.sites[siteID]
-	e := st.Environment(name)
-	if e == nil {
-		st.Environments = append(st.Environments, site.Environment{Name: name})
-		e = &st.Environments[len(st.Environments)-1]
+	if st.Environment(name) == nil || set.Place != nil {
+		order, err := site.Placed(st.Order(), name, set.Place)
+		if err != nil {
+			return err //nolint:wrapcheck // the fake answers with the store's own sentence
+		}
+		byName := map[string]site.Environment{name: {Name: name}}
+		for _, e := range st.Environments {
+			byName[e.Name] = e
+		}
+		st.Environments = st.Environments[:0:0]
+		for _, n := range order {
+			st.Environments = append(st.Environments, byName[n])
+		}
 	}
+	e := st.Environment(name)
 	if set.RequiresApproval != nil {
 		e.RequiresApproval = *set.RequiresApproval
-	}
-	if set.Public != nil {
-		if e.Public != *set.Public {
-			e.AccessChangedAt = e.AccessChangedAt.Add(time.Second)
-		}
-		e.Public = *set.Public
 	}
 	if set.InternalView != nil {
 		e.InternalView = *set.InternalView
@@ -156,6 +160,20 @@ func (m *memStore) SetEnvironment(_ context.Context, siteID, name string, set si
 		e.KeepReleases, e.Keep = &n, n
 	}
 	e.UpdatedBy = actor
+	return nil
+}
+
+func (m *memStore) SetDomainPublic(_ context.Context, hostname string, public bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	d, ok := m.domains[hostname]
+	if !ok || d.SiteID == "" {
+		return site.ErrNoDomain
+	}
+	if d.Public != public {
+		d.AccessChangedAt = d.AccessChangedAt.Add(time.Second)
+	}
+	d.Public = public
 	return nil
 }
 
@@ -590,7 +608,8 @@ func TestHandle_EveryCommandDispatches(t *testing.T) {
 	got := do(Input{Command: CmdGet, Site: siteName})
 	addresses, ok := got["addresses"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "https://marketing.pages.example.com", addresses[site.EnvDev])
+	assert.Equal(t, "https://marketing--dev.pages.example.com", addresses[site.EnvDev])
+	assert.Equal(t, "https://marketing.pages.example.com", addresses["prod"], "prod holds the main address")
 	assert.Equal(t, []any{}, got["grants"], "someone who manages the site sees who has access, [] when no one")
 
 	byID := call(t, f, admin(), Input{Command: CmdGet, Site: stored(f).ID})
@@ -605,11 +624,11 @@ func TestHandle_EveryCommandDispatches(t *testing.T) {
 	requires := true
 	do(Input{Command: CmdEnvironment, Site: siteName, Environment: "qa", RequiresApproval: &requires})
 	assert.True(t, stored(f).Environment("qa").RequiresApproval)
-	do(Input{Command: CmdEnvironment, Site: siteName, Environment: "stage"})
+	do(Input{Command: CmdEnvironment, Site: siteName, Environment: "stage", After: site.EnvDev})
 
 	published := do(Input{Command: CmdPublish, Site: siteName, Files: files(indexName), Note: "first"})
 	assert.Equal(t, site.EnvDev, published["environment"])
-	assert.Equal(t, "https://marketing.pages.example.com", published["address"])
+	assert.Equal(t, "https://marketing--dev.pages.example.com", published["address"])
 	assert.Equal(t, 1, stored(f).Environment(site.EnvDev).Release)
 
 	releases, ok := do(Input{Command: CmdReleases, Site: siteName})["releases"].([]any)
@@ -630,11 +649,13 @@ func TestHandle_EveryCommandDispatches(t *testing.T) {
 	assert.EqualValues(t, 1, rolled["release"])
 	assert.Equal(t, 1, stored(f).Environment(site.EnvDev).Release)
 
-	added := do(Input{Command: CmdAddDomain, Hostname: testHost, Site: siteName, Environment: "prod", RequiresApproval: &requires})
+	added := do(Input{Command: CmdAddDomain, Hostname: testHost, Site: siteName, Environment: "uat", RequiresApproval: &requires, After: "qa"})
 	assert.Equal(t, testHost, added["hostname"])
-	require.NotNil(t, stored(f).Environment("prod"), "adding a domain creates its environment")
-	assert.True(t, stored(f).Environment("prod").RequiresApproval)
-	assert.Contains(t, do(Input{Command: CmdGet, Site: siteName})["addresses"], "prod")
+	require.NotNil(t, stored(f).Environment("uat"), "adding a domain creates its environment")
+	assert.True(t, stored(f).Environment("uat").RequiresApproval)
+	assert.Contains(t, do(Input{Command: CmdGet, Site: siteName})["addresses"], "uat")
+	public := true
+	assert.Equal(t, true, do(Input{Command: CmdSetDomain, Hostname: testHost, Public: &public})["public"])
 
 	domains, ok := do(Input{Command: CmdDomains})["domains"].([]any)
 	require.True(t, ok)
@@ -1034,7 +1055,8 @@ func TestGet_AnswersAsThePortalDoes(t *testing.T) {
 	got := call(t, f, admin(), Input{Command: CmdGet, Site: siteName})
 	pages, ok := got["pages_addresses"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "https://"+siteName+"--prod.pages.example.com", pages["prod"], "the composed address is reported apart")
+	assert.Equal(t, "https://"+siteName+".pages.example.com", pages["prod"], "prod's pages address is the main address it holds, reported apart from its domain")
+	assert.Equal(t, "https://"+siteName+"--dev.pages.example.com", pages[site.EnvDev])
 	assert.NotContains(t, got, "address_note", "a site whose addresses answer is told nothing")
 
 	two := stored(f)
@@ -1057,21 +1079,68 @@ func TestSetEnvironment_InternalViewCanBeTurnedOff(t *testing.T) {
 	assert.Equal(t, "the site", stored(f).Description)
 }
 
-// set_environment makes an environment public only for the owner or an
-// administrator, refuses a public dev, and main moves the main address.
-func TestSetEnvironment_PublicAndMain(t *testing.T) {
+// set_environment refuses public, naming the domain setting (#2619); it
+// places a new environment with before or after (#2617); and main moves the
+// main address.
+func TestSetEnvironment_PlaceAndMain(t *testing.T) {
 	f := newFixture()
 	createSite(t, f)
 	yes := true
-	call(t, f, admin(), Input{Command: CmdEnvironment, Site: siteName, Environment: "prod"})
-	assert.False(t, stored(f).Environment("prod").Public, "a new environment is private")
-	assert.Contains(t, refusal(t, f, admin(), Input{Command: CmdEnvironment, Site: siteName, Environment: site.EnvDev, Public: &yes}), "always private")
-	call(t, f, admin(), Input{Command: CmdEnvironment, Site: siteName, Environment: "prod", Public: &yes, Main: &yes})
-	assert.True(t, stored(f).Environment("prod").Public)
-	assert.Equal(t, "prod", stored(f).MainEnvironment)
+	assert.Equal(t, []string{site.EnvDev, "prod"}, stored(f).Order(), "a new site starts with dev and prod")
+	assert.Contains(t, refusal(t, f, admin(), Input{Command: CmdEnvironment, Site: siteName, Environment: "prod", Public: &yes}),
+		"public is a setting of a domain, not of an environment")
+	call(t, f, admin(), Input{Command: CmdEnvironment, Site: siteName, Environment: "stage"})
+	assert.Contains(t, refusal(t, f, admin(), Input{Command: CmdEnvironment, Site: siteName, Environment: "test"}), "say which environment test goes after: dev or stage")
+	call(t, f, admin(), Input{Command: CmdEnvironment, Site: siteName, Environment: "test", After: site.EnvDev})
+	assert.Equal(t, []string{site.EnvDev, "test", "stage", "prod"}, stored(f).Order())
+	call(t, f, admin(), Input{Command: CmdEnvironment, Site: siteName, Environment: "test", After: "stage", Main: &yes})
+	assert.Equal(t, []string{site.EnvDev, "stage", "test", "prod"}, stored(f).Order(), "moved")
+	assert.Equal(t, "test", stored(f).MainEnvironment)
+	assert.Contains(t, refusal(t, f, admin(), Input{Command: CmdEnvironment, Site: siteName, Environment: "prod", After: site.EnvDev}), "prod is always last")
 	none := ""
 	call(t, f, admin(), Input{Command: CmdUpdate, Site: siteName, MainEnvironment: &none})
 	assert.Empty(t, stored(f).MainEnvironment, "update with main_environment \"\" gives the main address to none")
+}
+
+// add_domain is private unless public is asked for, set_domain changes one
+// domain's access, and get answers each domain with its access (#2619).
+func TestDomainAccess(t *testing.T) {
+	f := newFixture()
+	createSite(t, f)
+	yes, no := true, false
+	call(t, f, admin(), Input{Command: CmdAddDomain, Site: siteName, Environment: "prod", Hostname: "beta.example.org"})
+	added := call(t, f, admin(), Input{Command: CmdAddDomain, Site: siteName, Environment: "prod", Hostname: "www.example.org", Public: &yes})
+	assert.Equal(t, true, added["public"], "the answer is the domain, with its access")
+	assert.Equal(t, "done", added["status"])
+	assert.False(t, f.store.domains["beta.example.org"].Public, "added private when public is not asked for")
+	assert.True(t, f.store.domains["www.example.org"].Public)
+
+	got := call(t, f, admin(), Input{Command: CmdSetDomain, Hostname: "www.example.org", Public: &no})
+	assert.Equal(t, false, got["public"])
+	assert.Contains(t, refusal(t, f, admin(), Input{Command: CmdSetDomain, Hostname: "www.example.org"}), "say public true or false")
+
+	call(t, f, admin(), Input{Command: CmdSetDomain, Hostname: "beta.example.org", Public: &yes})
+	view := call(t, f, admin(), Input{Command: CmdGet, Site: siteName})
+	domains, _ := view["domains"].([]any)
+	require.Len(t, domains, 2)
+	for _, d := range domains {
+		m, _ := d.(map[string]any)
+		assert.Equal(t, m["hostname"] == "beta.example.org", m["public"], m["hostname"])
+	}
+}
+
+// promote goes one step (#2617): prod takes a release only from the
+// environment before it.
+func TestPromote_OneStep(t *testing.T) {
+	f := newFixture()
+	createSite(t, f)
+	call(t, f, admin(), Input{Command: CmdEnvironment, Site: siteName, Environment: "stage"})
+	publishTo(t, f, site.EnvDev)
+	assert.Equal(t, "prod takes releases only from stage, the environment before it: promote it from stage",
+		refusal(t, f, admin(), Input{Command: CmdPromote, Site: siteName, From: site.EnvDev, To: "prod"}))
+	call(t, f, admin(), Input{Command: CmdPromote, Site: siteName, To: "stage"})
+	got := call(t, f, admin(), Input{Command: CmdPromote, Site: siteName, From: "stage", To: "prod"})
+	assert.Equal(t, "promoted", got["status"])
 }
 
 // A persona is shared view of named environments, and revoked by name.
