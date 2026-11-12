@@ -412,8 +412,8 @@ func (a *portalAPI) setEnvironment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out, err := a.svc().SetEnvironment(r.Context(), c.actor, r.PathValue(paramSite), r.PathValue("name"), sitesvc.EnvironmentChange{
-		RequiresApproval: in.RequiresApproval, Public: in.Public, InternalView: in.InternalView, Reason: in.Reason,
-		Keep: keep.Keep, KeepDefault: keep.Default,
+		RequiresApproval: in.RequiresApproval, Public: in.Public, InternalView: in.InternalView,
+		Keep: keep.Keep, KeepDefault: keep.Default, Place: placeOf(in.After),
 	})
 	a.record(r.Context(), c, sitetool.CmdEnvironment, map[string]any{paramSite: r.PathValue(paramSite), paramEnv: r.PathValue("name")}, err)
 	if err != nil {
@@ -425,7 +425,7 @@ func (a *portalAPI) setEnvironment(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, EnvironmentResponse{Site: view, Status: out.Status, Approval: out.Approval, Note: out.Note})
+	writeJSON(w, http.StatusOK, EnvironmentResponse{Site: view, Status: out.Status, Note: out.Note})
 }
 
 // setMainEnvironment handles PUT /api/v1/portal/sites/{site}/main-environment.
@@ -478,13 +478,13 @@ func (a *portalAPI) fullView(ctx context.Context, c *caller, st *site.Site) (Sit
 // addDomain handles POST /api/v1/portal/sites/{site}/domains.
 //
 // @Summary      Add a domain
-// @Description  Maps a hostname to one of the site's environments, creating the environment when it does not exist. It routes as soon as it is added; the deployment's administrator adds the ingress.
+// @Description  Maps a hostname to one of the site's environments, creating the environment when it does not exist (placed by after, #2617), and applying requires_approval to one that does. It routes as soon as it is added, private unless public is asked for (#2619); making it public is the owner's or an administrator's, and where the environment requires approval someone who is not an administrator adds it private and a request goes to Approvals. The deployment's administrator adds the ingress.
 // @Tags         Sites
 // @Accept       json
 // @Produce      json
 // @Param        site  path      string      true  "Site name or id"
 // @Param        body  body      DomainBody  true  "The domain"
-// @Success      201   {object}  site.Domain
+// @Success      201   {object}  sitesvc.DomainResult
 // @Failure      403   {object}  httpjson.ProblemDetail
 // @Failure      404   {object}  httpjson.ProblemDetail
 // @Failure      409   {object}  httpjson.ProblemDetail
@@ -502,7 +502,8 @@ func (a *portalAPI) addDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d, err := a.svc().AddDomain(r.Context(), c.actor, sitesvc.DomainRequest{
-		Hostname: in.Hostname, Site: r.PathValue(paramSite), Environment: in.Environment, RequiresApproval: in.RequiresApproval, Public: in.Public,
+		Hostname: in.Hostname, Site: r.PathValue(paramSite), Environment: in.Environment, RequiresApproval: in.RequiresApproval,
+		Public: in.Public, Reason: in.Reason, Place: placeOf(in.After),
 	})
 	a.record(r.Context(), c, sitetool.CmdAddDomain, map[string]any{paramSite: r.PathValue(paramSite), "hostname": in.Hostname}, err)
 	if err != nil {
@@ -510,6 +511,54 @@ func (a *portalAPI) addDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, d)
+}
+
+// setDomainAccess handles PUT /api/v1/portal/sites/{site}/domains/{hostname}.
+//
+// @Summary      Make a domain public or private
+// @Description  Public opens this one domain to anyone (#2619); every address of the environment on the pages domain keeps asking for a sign-in. Making it public is the owner's or an administrator's, and where the environment requires approval someone who is not an administrator files a request in Approvals and asks again once it is approved. Anyone who manages the site makes a domain private.
+// @Tags         Sites
+// @Accept       json
+// @Produce      json
+// @Param        site      path      string            true  "Site name or id"
+// @Param        hostname  path      string            true  "Hostname"
+// @Param        body      body      DomainAccessBody  true  "The access"
+// @Success      200       {object}  sitesvc.DomainResult
+// @Failure      403       {object}  httpjson.ProblemDetail
+// @Failure      404       {object}  httpjson.ProblemDetail
+// @Failure      422       {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/sites/{site}/domains/{hostname} [put]
+func (a *portalAPI) setDomainAccess(w http.ResponseWriter, r *http.Request) {
+	c, r, ok := a.who(w, r)
+	if !ok {
+		return
+	}
+	var in DomainAccessBody
+	if !decode(w, r, &in) {
+		return
+	}
+	host := r.PathValue("hostname")
+	err := a.belongs(r.Context(), r.PathValue(paramSite), host)
+	var out *sitesvc.DomainResult
+	if err == nil {
+		out, err = a.svc().SetDomainAccess(r.Context(), c.actor, host, in.Public, in.Reason)
+	}
+	a.record(r.Context(), c, sitetool.CmdSetDomain, map[string]any{paramSite: r.PathValue(paramSite), "hostname": host, "public": in.Public}, err)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// placeOf is the place a request names, nil for none.
+func placeOf(after string) *site.Place {
+	if after == "" {
+		return nil
+	}
+	return &site.Place{After: after}
 }
 
 // removeDomain handles DELETE /api/v1/portal/sites/{site}/domains/{hostname}.
@@ -691,13 +740,16 @@ func (a *portalAPI) revoke(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// shareLink is the address a share email points at: the first private
-// environment the grant opens, by its address on the pages domain.
-func shareLink(ctx context.Context, svc *sitesvc.Service, st *site.Site, g *site.Grant) string {
+// shareLink is the address a share email points at: the first environment
+// the grant opens, by its address on the pages domain, where a share applies
+// to every environment (#2619).
+func shareLink(_ context.Context, svc *sitesvc.Service, st *site.Site, g *site.Grant) string {
 	for _, e := range st.Environments {
-		if !e.Public && g.Opens(e.Name) {
-			return svc.Address(ctx, st, e.Name)
+		if g.Opens(e.Name) {
+			if at := svc.Addressing().PagesAddress(st, e.Name); at != "" {
+				return at
+			}
 		}
 	}
-	return svc.OwnAddress(st)
+	return svc.Addressing().OwnAddress(st)
 }

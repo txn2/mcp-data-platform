@@ -214,13 +214,14 @@ func (s *Service) Revoke(ctx context.Context, actor Actor, ref, email, persona s
 	return s.Store.RemoveGrant(ctx, st.ID, email, persona) //nolint:wrapcheck // read by identity
 }
 
-// OpenableEnvironments is the environments of a site the actor can open: every
-// public one, and each private one the access check opens for them. It is what
-// someone who does not manage the site is shown.
+// OpenableEnvironments is the environments of a site the actor can open: each
+// one with a public domain, which anyone opens there (#2619), and each other
+// one the access check opens for them. It is what someone who does not manage
+// the site is shown.
 func (s *Service) OpenableEnvironments(ctx context.Context, actor Actor, st *site.Site) ([]site.Environment, error) {
 	out := []site.Environment{}
 	for _, e := range st.Environments {
-		if e.Public {
+		if e.AnswersAnyone() {
 			out = append(out, e)
 			continue
 		}

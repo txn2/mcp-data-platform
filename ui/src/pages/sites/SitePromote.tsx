@@ -1,35 +1,45 @@
 import { useMemo, useState } from "react";
-import { usePromoteSite, useRollbackSite, useSiteAccess, useSiteCompare, useSiteDeployments, useSiteReleases, type Site, type SiteEnvironment } from "@/api/portal/hooks/sites";
+import {
+  answersAnyone,
+  previousEnvironment,
+  usePromoteSite,
+  useRollbackSite,
+  useSiteAccess,
+  useSiteCompare,
+  useSiteDeployments,
+  useSiteReleases,
+  type Site,
+  type SiteEnvironment,
+} from "@/api/portal/hooks/sites";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuthStore } from "@/stores/auth";
 import { EVERYONE_INTERNAL, Failure, grantName, grantOpens } from "./SiteParts";
-import { bareAddress, envOpenUrl, errorText, orderedEnvironments } from "./siteFormat";
+import { bareAddress, envAddress, errorText } from "./siteFormat";
 import { rollbackChoices, rollbackNote } from "./SiteRetention";
 
-// Promote serves a release that already exists in another environment;
-// Roll back returns an environment to a release it served before (#2559). Both
-// move a pointer and nothing else (#2604).
+// Promote serves the release of the environment immediately before the target
+// (#2617), one step at a time; Roll back returns an environment to a release it
+// served before (#2559). Both move a pointer and nothing else (#2604).
 
 export function PromoteDialog({ site, target, onClose }: { site: Site; target: SiteEnvironment; onClose: () => void }) {
   const isAdmin = useAuthStore((s) => s.isAdmin());
   const promote = usePromoteSite(site.name);
-  const sources = useMemo(() => orderedEnvironments(site.environments).filter((e) => e.name !== target.name && e.release > 0), [site, target]);
-  const [from, setFrom] = useState(sources[0]?.name ?? "");
+  const prev = previousEnvironment(site, target.name);
+  const source = prev && prev.release > 0 ? prev : undefined;
   const [reason, setReason] = useState("");
   const [failure, setFailure] = useState<string | null>(null);
-  const source = sources.find((s) => s.name === from);
   const asks = target.requires_approval && !isAdmin;
   const cmp = useSiteCompare(site.name, target.release, source?.release ?? 0);
   const submit = () => {
+    if (!source) return;
     setFailure(null);
     promote.mutate(
-      { from, to: target.name, reason: reason.trim() },
+      { from: source.name, to: target.name, release: source.release, reason: reason.trim() },
       { onSuccess: onClose, onError: (e) => setFailure(errorText(e, "The promote could not be done")) },
     );
   };
@@ -41,21 +51,7 @@ export function PromoteDialog({ site, target, onClose }: { site: Site; target: S
           <DialogDescription>{site.name}</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
-          <div className="space-y-1">
-            <Label>Release from</Label>
-            <Select value={from} onValueChange={setFrom}>
-              <SelectTrigger aria-label="Release from">
-                <SelectValue placeholder="No environment serves a release yet" />
-              </SelectTrigger>
-              <SelectContent>
-                {sources.map((s) => (
-                  <SelectItem key={s.name} value={s.name}>
-                    {s.name}, release {s.release}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <PromoteSource target={target} prev={prev} />
           {source && (
             <>
               <Changes target={target} data={cmp.data} loading={cmp.isLoading} />
@@ -79,6 +75,30 @@ export function PromoteDialog({ site, target, onClose }: { site: Site; target: S
   );
 }
 
+// PromoteSource names the one place a promotion takes its release from: the
+// environment before the target, and the release it serves.
+function PromoteSource({ target, prev }: { target: SiteEnvironment; prev?: SiteEnvironment }) {
+  if (!prev) return null;
+  if (prev.release === 0) {
+    return (
+      <p className="rounded border border-dashed p-3 text-sm" data-testid="promote-nothing">
+        {prev.name} serves no release yet, and {target.name} takes releases only from {prev.name}. Promote to {prev.name} first.
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-1">
+      <p className="text-sm font-medium">Release from</p>
+      <p className="text-sm" data-testid="promote-source">
+        {prev.name}, release {prev.release}
+      </p>
+      <p className="text-xs text-muted-foreground">
+        {target.name} takes releases only from {prev.name}, the environment before it.
+      </p>
+    </div>
+  );
+}
+
 function PromoteReason({ asks, value, onChange }: { asks: boolean; value: string; onChange: (v: string) => void }) {
   if (!asks) return null;
   return (
@@ -92,22 +112,22 @@ function PromoteReason({ asks, value, onChange }: { asks: boolean; value: string
 // WhoSees names who will open the release once it is promoted: the reason to
 // stop before promoting to the wrong place.
 function WhoSees({ site, target, release }: { site: Site; target: SiteEnvironment; release: number }) {
-  const access = useSiteAccess(site.name, site.permissions.manage && !target.public).data;
-  const at = envOpenUrl(site, target.name);
+  const access = useSiteAccess(site.name, site.permissions.manage).data;
+  const at = envAddress(site, target.name);
   const where = at ? <span className="font-mono">{bareAddress(at)}</span> : target.name;
-  let who: string;
-  if (target.public) {
-    who = "anyone, with no sign-in";
-  } else {
-    const named = (access?.grants ?? []).filter((g) => grantOpens(g, target.name)).map(grantName);
-    if (target.internal_view) named.unshift(EVERYONE_INTERNAL.toLowerCase());
-    who = [...named, "the people who manage this site", "administrators"].join(", ");
-  }
+  const named = (access?.grants ?? []).filter((g) => grantOpens(g, target.name)).map(grantName);
+  if (target.internal_view) named.unshift(EVERYONE_INTERNAL.toLowerCase());
+  const who = [...named, "the people who manage this site", "administrators"].join(", ");
   return (
     <div className="space-y-1 rounded border p-3">
       <p className="text-sm font-medium">Who sees it</p>
+      {answersAnyone(target) && (
+        <p className="text-sm">
+          Anyone at <span className="font-mono">{target.public_domains.join(", ")}</span> sees release {release}, with no sign-in.
+        </p>
+      )}
       <p className="text-sm">
-        {target.name} is {target.public ? "public" : "private"}. After the promote, {where} serves release {release} to {who}.
+        After the promote, {where} serves release {release} to {who}, after a sign-in.
       </p>
     </div>
   );

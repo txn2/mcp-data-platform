@@ -1,7 +1,6 @@
-import { compareNames } from "@/lib/sortByName";
 import { formatBytes } from "@/pages/scripts/runFormat";
 import type { Site, SiteDomain, SiteEnvironment } from "@/api/portal/hooks/sites";
-import { DEV_ENVIRONMENT } from "@/api/portal/hooks/sites";
+import { answersAnyone } from "@/api/portal/hooks/sites";
 
 export { formatBytes };
 
@@ -55,21 +54,16 @@ export function envBadgeText(env: Pick<SiteEnvironment, "name" | "release">): st
 }
 
 /** What an environment's badge says on hover: the release, who can open it, and since when. */
-export function envTip(env: Pick<SiteEnvironment, "name" | "release" | "public" | "updated_at">): string {
-  const access = env.public ? "public" : "private";
+export function envTip(env: Pick<SiteEnvironment, "name" | "release" | "public_domains" | "updated_at">): string {
+  const access = answersAnyone(env) ? `public at ${env.public_domains.join(", ")}` : "private";
   if (env.release <= 0) return `${env.name} has no release yet, ${access}`;
   const since = day(env.updated_at);
   return `${env.name} serves release ${env.release}, ${access}${since ? `, since ${since}` : ""}`;
 }
 
-// The names a release usually reaches last, so they are drawn at the end of the
-// promote order.
-const LAST = ["prod", "production", "live"];
-
-/** dev first and prod last, the rest by name between: the order a release is promoted in. */
+/** The environments in the site's stored order (#2617), the order a release is promoted in, as the server sends them. */
 export function orderedEnvironments(envs: SiteEnvironment[]): SiteEnvironment[] {
-  const rank = (n: string) => (n === DEV_ENVIRONMENT ? 0 : LAST.includes(n) ? 2 : 1);
-  return [...envs].sort((a, b) => rank(a.name) - rank(b.name) || compareNames(a.name, b.name));
+  return [...envs];
 }
 
 /** An environment's address on the pages domain: the main address for the one holding it, "" with none (#2611). */
@@ -87,12 +81,20 @@ export interface CardAddress {
   href: string;
   text: string;
   tag: "Domain" | "Main address" | "Pages address";
+  /** Answers anyone (#2619): only a domain set public does. */
+  public: boolean;
 }
 
-/** An environment's addresses as its card lists them (#2607): its domains first, then its pages address. */
+/**
+ * An environment's addresses as its card lists them (#2607, #2619): a public
+ * domain first, then its private domains, then its addresses on the pages
+ * domain, which always ask for a sign-in: the main address for the
+ * environment holding it, and its own <site>--<env>.
+ */
 export function cardAddresses(site: Site, env: string): CardAddress[] {
-  const out: CardAddress[] = hostsOf(site, env).map((d) => ({ href: hostUrl(site, d.hostname), text: d.hostname, tag: "Domain" }));
+  const domains = hostsOf(site, env).map((d): CardAddress => ({ href: hostUrl(site, d.hostname), text: d.hostname, tag: "Domain", public: d.public }));
+  const out = [...domains.filter((d) => d.public), ...domains.filter((d) => !d.public)];
   const own = envAddress(site, env);
-  if (own) out.push({ href: own, text: bareAddress(own), tag: site.main_environment === env ? "Main address" : "Pages address" });
+  if (own) out.push({ href: own, text: bareAddress(own), tag: site.main_environment === env ? "Main address" : "Pages address", public: false });
   return out;
 }

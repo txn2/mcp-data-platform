@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -61,8 +62,10 @@ type Release struct {
 	// digest, in path order.
 	ManifestSHA256 string     `json:"manifest_sha256"`
 	Redirects      []Redirect `json:"redirects"`
-	CreatedBy      string     `json:"created_by"`
-	CreatedAt      time.Time  `json:"created_at"`
+	// Headers is what the release's _headers file declared (#2557).
+	Headers   []HeaderRule `json:"headers"`
+	CreatedBy string       `json:"created_by"`
+	CreatedAt time.Time    `json:"created_at"`
 	// Base is the number of the release this one was derived from, 0 for a
 	// release built from a complete file set.
 	Base int `json:"base,omitempty" example:"41"`
@@ -185,4 +188,43 @@ func validateTarget(to string) error {
 // space-separated fields, so a space cannot be part of one.
 func hasControl(s string) bool {
 	return strings.ContainsFunc(s, func(r rune) bool { return r <= 0x20 || r == 0x7f })
+}
+
+// RollbackTarget is the release a rollback returns an environment to: the one
+// named, which the environment must have served and which must not be pruned
+// (ErrPruned), or, with to 0, the newest kept release it served before the
+// current one. A release it never served is reached by promote.
+func RollbackTarget(env *Environment, history []Deployment, to int, gone map[int]bool) (int, error) {
+	served := make([]int, 0, len(history))
+	for _, d := range history {
+		if d.To != env.Release {
+			served = append(served, d.To)
+		}
+	}
+	if to != 0 {
+		switch {
+		case !slices.Contains(served, to):
+			return 0, fmt.Errorf("environment %q has not served release %d; a release it never served is reached by promote", env.Name, to)
+		case gone[to]:
+			return 0, ErrPruned
+		}
+		return to, nil
+	}
+	return previousRelease(env, served, gone)
+}
+
+// previousRelease is the newest kept release the environment served that is
+// older than the current one, so a second rollback keeps going back rather
+// than returning.
+func previousRelease(env *Environment, served []int, gone map[int]bool) (int, error) {
+	before := 0
+	for _, n := range served {
+		if n < env.Release && n > before && !gone[n] {
+			before = n
+		}
+	}
+	if before == 0 {
+		return 0, fmt.Errorf("environment %q has served no earlier release it still keeps", env.Name)
+	}
+	return before, nil
 }

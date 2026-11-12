@@ -44,15 +44,17 @@ test.describe("Sites", () => {
     await expect(page).toHaveURL(/\/admin\/settings\/sites/);
   });
 
-  test("a new site has only dev, on its main address, and creating one opens it", async ({ page }) => {
+  test("a new site has dev and prod, prod on its main address, and creating one opens it", async ({ page }) => {
     await page.goto("/portal/sites");
     await page.getByRole("button", { name: "New site" }).click();
     const dialog = page.getByRole("dialog", { name: "New site" });
     await dialog.getByLabel("Name").fill("careers");
+    await expect(dialog.getByText("careers--dev.pages.example.net")).toBeVisible();
     await expect(dialog.getByText("careers.pages.example.net")).toBeVisible();
     await dialog.getByRole("button", { name: "Create site" }).click();
     await expect(page).toHaveURL(/\/sites\/careers/);
     await expect(page.getByTestId("env-dev")).toContainText("Working copy");
+    await expect(page.getByTestId("env-prod")).toContainText("Main address");
   });
 
   test("the tab in view is the one marked", async ({ page }) => {
@@ -62,22 +64,22 @@ test.describe("Sites", () => {
     await expect(page.getByRole("tab", { name: "Releases" })).toHaveAttribute("aria-selected", "false");
   });
 
-  test("every environment says who can open it, and Share is offered only on private ones", async ({ page }) => {
+  test("every environment says who can open it, in the stored order, with Share on each", async ({ page }) => {
     await page.goto("/portal/sites/marketing");
     await expect(page.getByText("How this site works")).toBeVisible();
     await expect(page.getByTestId("env-dev")).toContainText("Working copy");
-    await expect(page.getByTestId("env-prod")).toContainText("Anyone. The platform asks no one to sign in.");
-    await expect(page.getByRole("button", { name: "Share" })).toHaveCount(2);
+    await expect(page.getByTestId("env-dev")).toContainText("Always first");
+    await expect(page.getByTestId("env-prod")).toContainText("Anyone at example.com, with no sign-in.");
+    await expect(page.getByTestId("env-prod")).toContainText("Always last");
+    await expect(page.getByRole("button", { name: "Share" })).toHaveCount(3);
   });
 
-  test("making an environment public names every address that opens", async ({ page }) => {
-    await page.goto("/portal/sites/marketing");
-    await page.getByTestId("env-stage").getByRole("button", { name: "Settings" }).click();
-    await page.getByRole("dialog", { name: "stage settings" }).getByRole("radio", { name: "Public" }).click();
-    const confirm = page.getByRole("dialog", { name: "Make stage public?" });
-    await expect(confirm).toContainText("marketing--stage.pages.example.net");
-    await expect(confirm).toContainText("go.example.com");
-    await expect(confirm.getByRole("button", { name: "Make stage public" })).toBeDisabled();
+  test("making a domain public names it and waits for the owner to confirm", async ({ page }) => {
+    await page.goto("/portal/sites/marketing/domains");
+    await page.getByRole("row", { name: /www\.example\.com/ }).getByRole("button", { name: "Make public" }).click();
+    const confirm = page.getByRole("dialog", { name: "Make www.example.com public?" });
+    await expect(confirm).toContainText("Every release promoted to prod is public there");
+    await expect(confirm.getByRole("button", { name: "Make public" })).toBeDisabled();
   });
 
   test("a domain is added with a new environment and an optional approval rule", async ({ page }) => {

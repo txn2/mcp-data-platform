@@ -79,11 +79,21 @@ publish, overlay or patch aimed at one is refused, naming `dev` and `promote`. N
 try to change `prod` directly.
 
 ```
-manage_site command=create name=marketing
+manage_site command=create name=marketing          # dev and prod; prod holds the main address
 manage_site command=publish site=marketing files=[{"path":"index.html","content":"<h1>Hello</h1>"}]
-manage_site command=set_environment site=marketing environment=prod
-manage_site command=promote site=marketing from=dev to=prod
+manage_site command=promote site=marketing to=prod # from dev, the environment before it
 ```
+
+**Environments are in order, and a release moves one step at a time.** `dev` is
+always first and `prod` always last. An environment you add goes between them:
+`set_environment site=marketing environment=stage` when there is one place, and
+`after=dev` or `after=stage` when there are more, naming the environment it follows
+(left out, the call is refused naming them; nothing goes after `prod`). The same
+call with `after` moves an existing one.
+`promote` names the target: it takes only the release the environment before it
+serves, and `from`, when you give it, must be that environment. With `dev`,
+`stage`, `prod`, promote to `stage` first, then to `prod`. A refusal names the
+environment the release must come from.
 
 `publish` takes `files` inline, an `archive` (a zip or gzipped tar managed
 resource), or a `folder` of managed resources, which is how a script's build
@@ -95,9 +105,9 @@ an environment's pointer: no file is copied and the change shows at once.
 
 | Address | What answers |
 |---|---|
-| `https://<site>.<pages_domain>/` | The main address: one environment the owner chooses (`dev` on a new site), or none, when it answers "Nothing is published here" |
-| `https://<site>--<env>.<pages_domain>/` | That environment |
-| A domain added to an environment | That environment |
+| `https://<site>.<pages_domain>/` | The main address: one environment the owner chooses (`prod` on a new site), or none, when it answers "Nothing is published here". Private |
+| `https://<site>--<env>.<pages_domain>/` | That environment. Private |
+| A domain added to an environment | That environment: private, or public when set public |
 
 `set_environment ... main=true` gives an environment the main address, and
 `update main_environment=""` gives it to none; both are the owner's or an
@@ -116,14 +126,17 @@ those environments a domain.
 
 ### Private and public
 
-Each environment is private or public. **Private** asks for the platform's sign-in
-and opens only for administrators, the owner, the people who manage the site and
-whoever it is shared with. **Public** opens for anyone, and the site builds any
-sign-in it wants itself. A new environment is private unless `public=true` is
-asked for, and `dev` is always private. Only the owner or an administrator makes an
-environment public; where the environment requires approval, the request waits in
-`manage_approval`, and the same request after approval makes it public. Anyone who
-manages the site makes one private.
+Access is per address. **Every address on the pages domain** (the main address and
+each `<site>--<env>`) is private: it asks for the platform's sign-in and opens only
+for administrators, the owner, the people who manage the site and whoever the
+environment is shared with. **Only an added domain can be public**, opening for
+anyone at that hostname; the site builds any sign-in it wants itself. No domain is
+needed for people who sign in. A domain is added private unless `public=true` is
+asked for, and `set_domain hostname=... public=true` (or `false`) changes it later.
+`set_environment` with `public` is refused: public is a setting of a domain. Only
+the owner or an administrator makes a domain public; where the environment
+requires approval, the request waits in `manage_approval`, and the same request
+after approval makes it public. Anyone who manages the site makes one private.
 
 An environment can require approval (`requires_approval` on `add_domain` or
 `set_environment`). It is then reached only by `promote`: an administrator's
@@ -257,8 +270,8 @@ environment to everyone internal, for an intranet.
 
 The platform decides who may open an environment; anything finer is the site's.
 A private environment answers `/_viewer` with the signed-in person (`email`,
-`user_id`, `persona`, `name`), so the site's script knows who is there; a public
-one answers 401, nobody signed in. When the environment is a part of an
+`user_id`, `persona`, `name`), so the site's script knows who is there; at a public
+domain it answers 401, nobody signed in. When the environment is a part of an
 application (`manage_application add_part kind=site part_id="<site>/<environment>"`),
 its hosts also serve that application's endpoints at `/endpoints/<name>/...`, run
 as the signed-in person (`req["caller"]`), so the site enforces its own rules on
@@ -267,28 +280,28 @@ carry the viewer.
 
 ### Two shapes
 
-An intranet: `dev` for its developers, `prod` private on the main address for a
-persona.
+An intranet: `dev` for its developers, `prod` on the main address for a persona.
+Everyone signs in; no domain is needed.
 
 ```
 manage_site command=create name=intranet
-manage_site command=set_environment site=intranet environment=prod requires_approval=true main=true
+manage_site command=set_environment site=intranet environment=prod requires_approval=true
 manage_site command=grant site=intranet persona=management-team environments=["prod"]
 manage_site command=publish site=intranet files=[...]
-manage_site command=promote site=intranet from=dev to=prod
+manage_site command=promote site=intranet to=prod
 ```
 
-A client site: `dev` on the main address for the web team, `stage` for the client,
-`prod` public on the client's domain after approval.
+A client site: `stage` for the client, `prod` public on the client's domain after
+approval.
 
 ```
 manage_site command=grant site=cool-site persona=web-team environments=["dev"]
 manage_site command=set_environment site=cool-site environment=stage
+manage_site command=set_environment site=cool-site environment=prod requires_approval=true
 manage_site command=grant site=cool-site email=client@example.com level=view environments=["stage"]
-manage_site command=add_domain site=cool-site hostname=cool-site.example.com environment=prod requires_approval=true
-manage_site command=set_environment site=cool-site environment=prod public=true
-manage_site command=promote site=cool-site from=dev to=stage
-manage_site command=promote site=cool-site from=stage to=prod
+manage_site command=add_domain site=cool-site hostname=cool-site.example.com environment=prod public=true
+manage_site command=promote site=cool-site to=stage
+manage_site command=promote site=cool-site to=prod
 ```
 
 ### What a release holds
@@ -296,6 +309,7 @@ manage_site command=promote site=cool-site from=stage to=prod
 | File | Meaning |
 |---|---|
 | `_redirects` | The redirect map, not served: `from to [status]`, with `/old/*` and `:splat` |
+| `_headers` | The headers each path is served with, not served: a path line (`/*`), then indented `Name: value` lines. Only `Content-Security-Policy`, `Content-Security-Policy-Report-Only`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`, `Cross-Origin-Embedder-Policy`, `Cross-Origin-Resource-Policy` and `X-Frame-Options`; anything else refuses the publish naming the line. A release declaring no framing rule is served with `frame-ancestors 'self'` |
 | `404.html` | Served with status 404 for a path nothing answers |
 | `index.html` in a folder | The folder's address |
 | `name.html` | Also answers at `/name` |
@@ -334,7 +348,7 @@ manage_site command=update site=marketing
 
 `media` is every mount, replacing the list (`[]` removes them all). A mounted file
 answers on every environment after the release's own files, so a release file at the
-same path wins, and it is public on a public environment: mounting publishes the
+same path wins, and it is public at a public domain: mounting publishes the
 folder, so it needs manage access to the site and read access to the folder. Publish,
 promote and rollback leave media alone, it counts toward no release limit, and a file
 replaced with `manage_resource replace_content` shows at once, and a file moved out
@@ -345,9 +359,10 @@ deleted unless forced.
 ### Domains
 
 `add_domain` maps a hostname to an environment, creating the environment when it
-does not exist (private, unless the owner or an administrator asks for
-`public=true`), or an administrator's `application` maps it to an application's
-endpoints and pages. A domain answers with its environment's access: a private one
+does not exist (placed with `after`; `requires_approval` sent with it applies to
+an environment that already exists too), or an administrator's
+`application` maps it to an application's endpoints and pages. The domain is
+private unless the owner or an administrator asks for `public=true`: a private one
 signs people in on that domain and sends them back to it. It routes as soon as it
 is added. The platform does not check DNS, certificates or who owns the name; a
 system administrator adds the ingress, and whoever owns the domain points its DNS

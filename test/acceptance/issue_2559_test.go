@@ -108,7 +108,19 @@ func newSite2559(t *testing.T, key string) *site2559 {
 	return &site2559{name: name, key: key}
 }
 
-func (s *site2559) host() string { return s.name + "." + pagesDomain2517 }
+// host is dev's own address, where every publish lands: a new site holds dev
+// and prod, and the main address serves prod (#2617).
+func (s *site2559) host() string { return s.name + "--dev." + pagesDomain2517 }
+
+// main is the site's main address, which serves prod.
+func (s *site2559) main() string { return s.name + "." + pagesDomain2517 }
+
+// promote moves a release one environment on through the portal.
+func (s *site2559) promote(t *testing.T, key, from, to string) {
+	t.Helper()
+	status, got := rest2559(t, key, http.MethodPost, s.path("/promote"), map[string]any{"from": from, "to": to})
+	want2559(t, "promoting "+from+" to "+to, status, http.StatusOK, got)
+}
 
 func (s *site2559) path(rest string) string { return portal2559 + "/" + s.name + rest }
 
@@ -215,7 +227,13 @@ func viewer2559(t *testing.T, s *site2559, email, password string) string {
 
 func handoff2559(t *testing.T, s *site2559, hc *http.Client) string {
 	t.Helper()
-	start := onHost(t, s.host(), http.MethodGet, "/_signin?path=%2F", nil, "")
+	return handoffOn2559(t, s.host(), hc)
+}
+
+// handoffOn2559 walks the handoff to one of a site's addresses.
+func handoffOn2559(t *testing.T, host string, hc *http.Client) string {
+	t.Helper()
+	start := onHost(t, host, http.MethodGet, "/_signin?path=%2F", nil, "")
 	state := cookieOf2517(start.header, "site_state")
 	loc, err := url.Parse(start.header.Get("Location"))
 	if err != nil || state == "" || start.status != http.StatusFound || !strings.HasSuffix(loc.Path, "/sites/handoff") {
@@ -231,10 +249,10 @@ func handoff2559(t *testing.T, s *site2559, hc *http.Client) string {
 	}
 	_ = res.Body.Close()
 	back, err := url.Parse(res.Header.Get("Location"))
-	if err != nil || res.StatusCode != http.StatusFound || back.Hostname() != s.host() || back.Path != "/_auth" {
+	if err != nil || res.StatusCode != http.StatusFound || back.Hostname() != host || back.Path != "/_auth" {
 		t.Fatalf("the handoff answered %d to %q", res.StatusCode, res.Header.Get("Location"))
 	}
-	done := onHost(t, s.host(), http.MethodGet, back.RequestURI(), map[string]string{"Cookie": "site_state=" + state}, "")
+	done := onHost(t, host, http.MethodGet, back.RequestURI(), map[string]string{"Cookie": "site_state=" + state}, "")
 	cookie := cookieOf2517(done.header, "site_viewer")
 	if done.status != http.StatusFound || cookie == "" {
 		t.Fatalf("completing the handoff: %d %v %s", done.status, done.header, done.body)
@@ -251,11 +269,17 @@ func withCookie2559(cookie string) map[string]string {
 	return map[string]string{"Cookie": "site_viewer=" + cookie}
 }
 
-// openUntil2559 waits for the address to serve want to the cookie.
+// openUntil2559 waits for dev's address to serve want to the cookie.
 func openUntil2559(t *testing.T, s *site2559, cookie, want string) pageResponse {
 	t.Helper()
+	return openOn2559(t, s.host(), cookie, want)
+}
+
+// openOn2559 waits for host to serve want to the cookie.
+func openOn2559(t *testing.T, host, cookie, want string) pageResponse {
+	t.Helper()
 	return pollUntil2518(t, func() (pageResponse, bool) {
-		r := onHost(t, s.host(), http.MethodGet, "/", withCookie2559(cookie), "")
+		r := onHost(t, host, http.MethodGet, "/", withCookie2559(cookie), "")
 		return r, r.status == http.StatusOK && strings.Contains(r.body, "<h1>"+want+"</h1>")
 	})
 }
@@ -272,8 +296,8 @@ func (s *site2559) revoke(t *testing.T, key, email string) {
 	want2559(t, "revoking", status, http.StatusNoContent, got)
 }
 
-// addDomain adds a public domain: since #2604 an environment is private unless
-// public is asked for, and an environment that requires approval is made
+// addDomain adds a public domain: a domain is private unless public is asked
+// for (#2619), and a domain of an environment that requires approval is made
 // public through Approvals, which an administrator's own request skips.
 func (s *site2559) addDomain(t *testing.T, key, host, env string, approval bool) {
 	t.Helper()
@@ -284,7 +308,7 @@ func (s *site2559) addDomain(t *testing.T, key, host, env string, approval bool)
 		t.Errorf("a domain carries a verification token: %v", got["_raw"])
 	}
 	if !direct {
-		status, got = rest2559(t, keyAdmin2559, http.MethodPut, s.path("/environments/"+env), map[string]any{"public": true})
+		status, got = rest2559(t, keyAdmin2559, http.MethodPut, s.path("/domains/"+host), map[string]any{"public": true})
 		want2559(t, "making it public", status, http.StatusOK, got)
 	}
 }
@@ -306,11 +330,10 @@ func TestIssue2559_APersonCreatesASiteUploadsAZipAndOpensItsOwnAddress(t *testin
 	s := newSite2559(t, keyEngineer2559)
 	status, got := rest2559(t, keyEngineer2559, http.MethodGet, s.path(""), nil)
 	want2559(t, "reading the site", status, http.StatusOK, got)
-	envs, _ := got["environments"].([]any)
-	if len(envs) != 1 || envs[0].(map[string]any)["name"] != "dev" {
-		t.Fatalf("a new site's environments: %v", envs)
+	if names := order2617(t, got); len(names) != 2 || names[0] != "dev" || names[1] != "prod" {
+		t.Fatalf("a new site's environments: %v", names)
 	}
-	if want := "://" + s.host(); !strings.Contains(fmt.Sprint(got["address"]), want) {
+	if want := "://" + s.main(); !strings.Contains(fmt.Sprint(got["address"]), want) {
 		t.Errorf("the site's address is %v", got["address"])
 	}
 	s.publish(t, keyEngineer2559, "", "one")
@@ -415,16 +438,22 @@ func TestIssue2559_ADomainServesAsSoonAsItIsAddedAndAnyoneCanOpenIt(t *testing.T
 	})
 }
 
-func TestIssue2559_TheSitesOwnAddressServesItsDefaultEnvironmentNotAnother(t *testing.T) {
+// TestIssue2559_TheSitesOwnAddressServesProdNotAnother: with dev, other and
+// prod each serving a different release, the main address serves prod's
+// (#2617), and the reversed <environment>--<site> form is no address.
+func TestIssue2559_TheSitesOwnAddressServesProdNotAnother(t *testing.T) {
 	s := newSite2559(t, keyEngineer2559)
 	s.addDomain(t, keyEngineer2559, s.name+"-other.example.test", "other", false)
+	s.publish(t, keyEngineer2559, "", "the-prod")
+	s.promote(t, keyEngineer2559, "dev", "other")
+	s.promote(t, keyEngineer2559, "other", "prod")
 	s.publish(t, keyEngineer2559, "", "the-other")
-	status, got := rest2559(t, keyEngineer2559, http.MethodPost, s.path("/promote"), map[string]any{"from": "dev", "to": "other"})
-	want2559(t, "promoting to other", status, http.StatusOK, got)
-	s.publish(t, keyEngineer2559, "", "the-default")
+	s.promote(t, keyEngineer2559, "dev", "other")
+	s.publish(t, keyEngineer2559, "", "the-dev")
 	s.grant(t, keyEngineer2559, emailKCAnalyst, "view")
-	openUntil2559(t, s, viewer2559(t, s, emailKCAnalyst, passKCAnalyst), "the-default")
-	if r := onHost(t, "other--"+s.host(), http.MethodGet, "/", nil, ""); r.status != http.StatusNotFound {
+	hc := browserSignIn(t, baseURL(), emailKCAnalyst, passKCAnalyst)
+	openOn2559(t, s.main(), handoffOn2559(t, s.main(), hc), "the-prod")
+	if r := onHost(t, "other--"+s.main(), http.MethodGet, "/", nil, ""); r.status != http.StatusNotFound {
 		t.Errorf("an <environment>--<site> address answered %d", r.status)
 	}
 }
@@ -539,7 +568,7 @@ func TestIssue2559_EveryRouteIsRefusedWithoutTheAreaAndForSomeoneNotGivenAccess(
 
 	// Someone with the area who was given nothing, then given Can manage.
 	publish := map[string]any{"archive": "x"}
-	promote := map[string]any{"from": "default", "to": "default"}
+	promote := map[string]any{"from": "dev", "to": "prod"}
 	mustRefuse := func(what string) {
 		t.Helper()
 		if status, got := rest2559(t, keyDirector2559, http.MethodPost, s.path("/publish"), publish); status != http.StatusForbidden {
@@ -549,7 +578,7 @@ func TestIssue2559_EveryRouteIsRefusedWithoutTheAreaAndForSomeoneNotGivenAccess(
 			t.Errorf("%s: promote: %d %v", what, status, got["_raw"])
 		}
 		res, text, err := connectAs(t, keyDirector2559).callRaw("manage_site", map[string]any{
-			"command": "promote", "site": s.name, "from": "default", "to": "default",
+			"command": "promote", "site": s.name, "from": "dev", "to": "prod",
 		})
 		if err != nil || !res.IsError || !strings.Contains(text, "changed by its owner") {
 			t.Errorf("%s: manage_site promote: %v %s", what, err, text)

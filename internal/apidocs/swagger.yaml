@@ -15239,6 +15239,12 @@ definitions:
       hostname:
         example: www.example.com
         type: string
+      public:
+        description: |-
+          Public answers anyone at this hostname (#2619): the one way a site
+          environment opens to someone who has not signed in. A domain is added
+          private unless public is asked for.
+        type: boolean
       site:
         example: marketing
         type: string
@@ -15249,8 +15255,8 @@ definitions:
     properties:
       internal_view:
         description: |-
-          InternalView opens a private environment to everyone signed in whose
-          persona is not external: a company intranet.
+          InternalView opens the environment's private addresses to everyone
+          signed in whose persona is not external: a company intranet.
         type: boolean
       keep_releases:
         description: |-
@@ -15264,12 +15270,15 @@ definitions:
       name:
         example: prod
         type: string
-      public:
+      public_domains:
         description: |-
-          Public answers to anyone. A private environment answers only to
-          administrators, the owner, the people who manage the site and whoever it
-          is shared with, after they sign in. EnvDev is never public.
-        type: boolean
+          PublicDomains are the domains added to the environment that answer
+          anyone (#2619). Every other address it has, its addresses on the pages
+          domain included, answers only to administrators, the owner, the people
+          who manage the site and whoever it is shared with, after they sign in.
+        items:
+          type: string
+        type: array
       release:
         description: Release is the number of the release served, 0 before the first.
         example: 3
@@ -15281,8 +15290,8 @@ definitions:
         type: integer
       requires_approval:
         description: |-
-          RequiresApproval makes a promotion here, and making it public, a request
-          in the Approvals queue.
+          RequiresApproval makes a promotion here, and making one of its domains
+          public, a request in the Approvals queue.
         type: boolean
       updated_at:
         type: string
@@ -15331,6 +15340,25 @@ definitions:
         type: string
       persona:
         example: finance-team
+        type: string
+    type: object
+  site.Header:
+    properties:
+      name:
+        example: Content-Security-Policy
+        type: string
+      value:
+        example: default-src 'self'
+        type: string
+    type: object
+  site.HeaderRule:
+    properties:
+      headers:
+        items:
+          $ref: '#/definitions/site.Header'
+        type: array
+      path:
+        example: /*
         type: string
     type: object
   site.Job:
@@ -15442,6 +15470,11 @@ definitions:
           ManifestParent it holds only what differs from the parent.
         items:
           $ref: '#/definitions/site.File'
+        type: array
+      headers:
+        description: Headers is what the release's _headers file declared (#2557).
+        items:
+          $ref: '#/definitions/site.HeaderRule'
         type: array
       id:
         type: string
@@ -15590,6 +15623,9 @@ definitions:
       hostname:
         example: shop.example.com
         type: string
+      public:
+        description: Public opens a site's domain to anyone (#2619); private otherwise.
+        type: boolean
       requires_approval:
         type: boolean
       site:
@@ -15653,24 +15689,46 @@ definitions:
           $ref: '#/definitions/site.Deployment'
         type: array
     type: object
+  sitehttp.DomainAccessBody:
+    properties:
+      public:
+        type: boolean
+      reason:
+        description: Reason goes with a request to make it public.
+        type: string
+    type: object
   sitehttp.DomainBody:
     properties:
+      after:
+        type: string
       environment:
         example: prod
         type: string
       hostname:
-        example: dev.example.com
+        example: www.example.com
         type: string
       public:
         description: |-
-          Public applies when the request creates the environment, which is
-          otherwise private.
+          Public opens the domain to anyone (#2619): the owner's or an
+          administrator's, through Approvals where the environment requires
+          approval. A domain is added private otherwise.
         type: boolean
+      reason:
+        type: string
       requires_approval:
+        description: |-
+          RequiresApproval sets whether the environment requires approval, on
+          one the request creates or one that exists; After is where a new
+          environment goes (#2617).
         type: boolean
     type: object
   sitehttp.EnvironmentBody:
     properties:
+      after:
+        description: |-
+          After places a new environment, or moves one, immediately after the
+          environment it names: dev or one between dev and prod (#2617).
+        type: string
       internal_view:
         type: boolean
       keep_releases:
@@ -15681,24 +15739,18 @@ definitions:
         example: "50"
         type: string
       public:
+        description: 'Public is refused (#2619): public is a setting of a domain.'
         type: boolean
-      reason:
-        type: string
       requires_approval:
         type: boolean
     type: object
   sitehttp.EnvironmentResponse:
     properties:
-      approval:
-        $ref: '#/definitions/sitesvc.ApprovalRequest'
       note:
         type: string
       site:
         $ref: '#/definitions/sitehttp.SiteView'
       status:
-        description: |-
-          Status is done, or awaiting_approval when making the environment public
-          waits in Approvals.
         example: done
         type: string
     type: object
@@ -15856,6 +15908,11 @@ definitions:
         items:
           $ref: '#/definitions/site.File'
         type: array
+      headers:
+        description: Headers is what the release's _headers file declared (#2557).
+        items:
+          $ref: '#/definitions/site.HeaderRule'
+        type: array
       id:
         type: string
       kept_by:
@@ -15930,6 +15987,11 @@ definitions:
           ManifestParent it holds only what differs from the parent.
         items:
           $ref: '#/definitions/site.File'
+        type: array
+      headers:
+        description: Headers is what the release's _headers file declared (#2557).
+        items:
+          $ref: '#/definitions/site.HeaderRule'
         type: array
       id:
         type: string
@@ -16304,66 +16366,6 @@ definitions:
       started_at:
         type: string
     type: object
-  sitesvc.ApprovalRequest:
-    properties:
-      changes:
-        $ref: '#/definitions/approval.Changes'
-      created_at:
-        type: string
-      decided_at:
-        type: string
-      decided_by:
-        type: string
-      decision_comment:
-        type: string
-      id:
-        example: apr_0f3c9d2e
-        type: string
-      purpose:
-        example: form_public
-        type: string
-      reason:
-        type: string
-      requester_email:
-        example: jane@example.com
-        type: string
-      requester_persona:
-        type: string
-      script_id:
-        type: string
-      script_name:
-        example: order-intake
-        type: string
-      self_approved:
-        type: boolean
-      site_id:
-        description: SiteID is the site an environment request is about (#2604).
-        type: string
-      site_name:
-        description: SiteName is the site the release or environment belongs to.
-        example: marketing
-        type: string
-      site_release_id:
-        description: |-
-          SiteReleaseID and Target name a site release a promotion waits on and
-          the environment it would serve (#2518); SourceSHA256 is then the
-          release's manifest digest and Version its number.
-        type: string
-      source_sha256:
-        type: string
-      status:
-        example: pending
-        type: string
-      subject_kind:
-        example: script_version
-        type: string
-      target:
-        example: prod
-        type: string
-      version:
-        example: 2
-        type: integer
-    type: object
   sitesvc.Comparison:
     properties:
       added:
@@ -16392,6 +16394,45 @@ definitions:
       to:
         example: 11
         type: integer
+    type: object
+  sitesvc.DomainResult:
+    properties:
+      application:
+        example: shop
+        type: string
+      application_id:
+        description: |-
+          ApplicationID and Application name the application whose endpoints the
+          hostname serves.
+        type: string
+      approval:
+        $ref: '#/definitions/approval.Request'
+      created_at:
+        type: string
+      created_by:
+        type: string
+      environment:
+        example: prod
+        type: string
+      hostname:
+        example: www.example.com
+        type: string
+      public:
+        description: |-
+          Public answers anyone at this hostname (#2619): the one way a site
+          environment opens to someone who has not signed in. A domain is added
+          private unless public is asked for.
+        type: boolean
+      site:
+        example: marketing
+        type: string
+      site_id:
+        type: string
+      status:
+        description: |-
+          Status is StatusDone, or StatusAwaitingApproval when making the domain
+          public waits on Approvals; the domain is private meanwhile.
+        type: string
     type: object
   sitesvc.Permissions:
     properties:
@@ -26970,7 +27011,7 @@ paths:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/site.Domain'
+            $ref: '#/definitions/sitesvc.DomainResult'
         "403":
           description: Forbidden
           schema:
@@ -38012,9 +38053,13 @@ paths:
     post:
       consumes:
       - application/json
-      description: Maps a hostname to one of the site's environments, creating the
-        environment when it does not exist. It routes as soon as it is added; the
-        deployment's administrator adds the ingress.
+      description: 'Maps a hostname to one of the site''s environments, creating the
+        environment when it does not exist (placed by after, #2617), and applying
+        requires_approval to one that does. It routes as soon as it is added, private
+        unless public is asked for (#2619); making it public is the owner''s or an
+        administrator''s, and where the environment requires approval someone who
+        is not an administrator adds it private and a request goes to Approvals. The
+        deployment''s administrator adds the ingress.'
       parameters:
       - description: Site name or id
         in: path
@@ -38033,7 +38078,7 @@ paths:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/site.Domain'
+            $ref: '#/definitions/sitesvc.DomainResult'
         "403":
           description: Forbidden
           schema:
@@ -38086,6 +38131,57 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Remove a domain
+      tags:
+      - Sites
+    put:
+      consumes:
+      - application/json
+      description: Public opens this one domain to anyone (#2619); every address of
+        the environment on the pages domain keeps asking for a sign-in. Making it
+        public is the owner's or an administrator's, and where the environment requires
+        approval someone who is not an administrator files a request in Approvals
+        and asks again once it is approved. Anyone who manages the site makes a domain
+        private.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: Hostname
+        in: path
+        name: hostname
+        required: true
+        type: string
+      - description: The access
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/sitehttp.DomainAccessBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sitesvc.DomainResult'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Make a domain public or private
       tags:
       - Sites
   /portal/sites/{site}/environments/{name}:

@@ -17,21 +17,22 @@ test.describe("Environment addresses", () => {
     await authenticate(page);
   });
 
-  test("a card lists its domains first and its pages address after them, muted", async ({ page }) => {
+  test("a card lists its public domain first and its private addresses after it, muted", async ({ page }) => {
     await page.goto("/portal/sites/marketing");
     const prod = page.getByTestId("env-prod");
     await expect(prod.getByRole("link").first()).toHaveText("example.com");
     expect(await links(prod)).toEqual([
       ["example.com", false],
       ["www.example.com", true],
-      ["marketing--prod.pages.example.net", true],
+      ["marketing.pages.example.net", true],
     ]);
     const first = prod.getByRole("link").first();
     const last = prod.getByRole("link").last();
     expect(await first.evaluate((a) => getComputedStyle(a).color)).not.toBe(await last.evaluate((a) => getComputedStyle(a).color));
-    await expect(prod.getByText("Pages address", { exact: true })).toBeVisible();
+    await expect(prod.getByText("Main address", { exact: true })).toBeVisible();
     await expect(prod.getByText("Domain", { exact: true })).toHaveCount(2);
-    expect(await links(page.getByTestId("env-dev"))).toEqual([["marketing.pages.example.net", false]]);
+    await expect(prod.getByText("Public", { exact: true })).toHaveCount(1);
+    expect(await links(page.getByTestId("env-dev"))).toEqual([["marketing--dev.pages.example.net", false]]);
   });
 
   test("a two-character site says why its environments have no pages address", async ({ page }) => {

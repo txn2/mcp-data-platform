@@ -27,10 +27,11 @@ import (
 // dev stack runs the sweeps every 30 seconds (retention.every).
 //
 // Wire forms: save_asset's name, content and content_type, memory_capture's
-// type, content, category and confidence, memory_manage's command and id, and
-// s3_list's connection, bucket and prefix are typed strings, so each admits one
-// JSON form and is sent as a literal tools/call parameter of it. The portal's
-// delete route takes no body.
+// type, content, category and confidence, and memory_manage's command and id
+// are typed strings, so each admits one JSON form and is sent as a literal
+// tools/call parameter of it. The portal's delete route takes no body. The
+// bucket is read with the store's own client, since the S3 tools refuse the
+// platform's buckets (#2616).
 
 // issue1904Sweep bounds how long the criterion waits for a sweep that runs
 // every 30 seconds to have run.
@@ -89,7 +90,7 @@ func TestIssue1904_ADeletedAssetIsPurgedWithItsObjectsAfterItsRetention(t *testi
 	recent := saveAsset1789(t, c, "text/html", "<!DOCTYPE html><html><body><h1>recent</h1></body></html>")
 	row := awaitAssetTile1787(t, c, expired, true)
 	dir := path.Dir(fmt.Sprint(row["s3_key"])) + "/"
-	if objects := issue1903List(t, c, issue1903PortalConn, issue1903PortalBucket, dir); len(objects) < 2 {
+	if objects := issue1903List(t, c, issue1903PortalBucket, dir); len(objects) < 2 {
 		t.Fatalf("the asset's directory %s holds %v; want its content and tiles before the purge", dir, objects)
 	}
 
@@ -106,7 +107,7 @@ func TestIssue1904_ADeletedAssetIsPurgedWithItsObjectsAfterItsRetention(t *testi
 	if n := issue1904Count(t, db, `SELECT COUNT(*) FROM portal_asset_versions WHERE asset_id = $1`, expired); n != 0 {
 		t.Errorf("%d version rows of the purged asset remain", n)
 	}
-	if left := issue1903List(t, c, issue1903PortalConn, issue1903PortalBucket, dir); len(left) != 0 {
+	if left := issue1903List(t, c, issue1903PortalBucket, dir); len(left) != 0 {
 		t.Errorf("objects left under the purged asset's directory %s: %v", dir, left)
 	}
 	if n := issue1904Count(t, db, `SELECT COUNT(*) FROM portal_assets WHERE id = $1 AND deleted_at IS NOT NULL`, recent); n != 1 {

@@ -51,13 +51,16 @@ type RollbackBody struct {
 	Release     int    `json:"release,omitempty"`
 }
 
-// EnvironmentBody creates or changes an environment; a field left out is left
-// alone, and a new environment is private.
+// EnvironmentBody creates, places or changes an environment; a field left
+// out is left alone.
 type EnvironmentBody struct {
-	RequiresApproval *bool  `json:"requires_approval,omitempty"`
-	Public           *bool  `json:"public,omitempty"`
-	InternalView     *bool  `json:"internal_view,omitempty"`
-	Reason           string `json:"reason,omitempty"`
+	RequiresApproval *bool `json:"requires_approval,omitempty"`
+	// Public is refused (#2619): public is a setting of a domain.
+	Public       *bool `json:"public,omitempty"`
+	InternalView *bool `json:"internal_view,omitempty"`
+	// After places a new environment, or moves one, immediately after the
+	// environment it names: dev or one between dev and prod (#2617).
+	After string `json:"after,omitempty"`
 	// KeepReleases is how many releases the environment keeps: a whole number
 	// (0 keeps every release), or "default" for the deployment's default
 	// (#2602). The owner and administrators only.

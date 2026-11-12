@@ -1,5 +1,5 @@
 import { ChevronRight, ExternalLink, Globe, Lock } from "lucide-react";
-import type { Site, SiteEnvironment, SiteList as SiteListing } from "@/api/portal/hooks/sites";
+import { answersAnyone, type Site, type SiteEnvironment, type SiteList as SiteListing } from "@/api/portal/hooks/sites";
 import { OpenRowChevron, OpenRowHead } from "@/components/patterns/OpenRowChevron";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -185,12 +185,12 @@ export function EnvironmentBadges({ site, max }: { site: Pick<Site, "environment
 function EnvironmentBadge({ env }: { env: SiteEnvironment }) {
   return (
     <Badge
-      variant={env.public ? "info" : "muted"}
+      variant={answersAnyone(env) ? "info" : "muted"}
       className={cn("max-w-full", env.release > 0 ? "" : "border-dashed border-border bg-transparent")}
       title={envTip(env)}
       data-testid={`env-badge-${env.name}`}
     >
-      {env.public ? <Globe aria-hidden /> : <Lock aria-hidden />}
+      {answersAnyone(env) ? <Globe aria-hidden /> : <Lock aria-hidden />}
       <span className="min-w-0 truncate">{envBadgeText(env)}</span>
     </Badge>
   );

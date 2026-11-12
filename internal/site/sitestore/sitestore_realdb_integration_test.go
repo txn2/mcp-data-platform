@@ -88,7 +88,8 @@ func TestRealDB_SiteRecord(t *testing.T) {
 	assert.False(t, got.Environment("qa").RequiresApproval, "a second write changes the rule")
 	assert.Equal(t, "other@example.com", got.Environment("qa").UpdatedBy)
 
-	assert.False(t, got.Environment("qa").Public, "an environment is private until someone opens it")
+	assert.Empty(t, got.Environment("qa").PublicDomains, "an environment answers no one who has not signed in until a domain of it is public")
+	assert.Equal(t, []string{site.EnvDev, "qa", realProd}, got.Order(), "a new environment goes last before prod (#2617)")
 	got.Description, got.OwnerEmail = "new", "new@example.com"
 	require.NoError(t, s.Update(ctx, got))
 	list, err := s.List(ctx)
@@ -206,7 +207,8 @@ func TestRealDB_Domains(t *testing.T) {
 	route, err := s.RouteHost(ctx, "www.example.com")
 	require.NoError(t, err, "a hostname routes as soon as it is added")
 	assert.Equal(t, realProd, route.Environment)
-	assert.True(t, route.Private, "a domain serves its environment's access, private until made public")
+	assert.True(t, route.Private, "a domain is private until made public (#2619)")
+	assert.Equal(t, "www.example.com", route.Hostname)
 	require.NotNil(t, route.Release)
 	assert.Equal(t, 1, route.Release.Number)
 
@@ -388,8 +390,9 @@ func TestRealDB_GrantsAndSiteAccess(t *testing.T) {
 }
 
 // The main address serves the environment it is given to, or nothing; every
-// environment answers at <site>--<env>, private unless made public, and dev
-// can never be made public (#2604).
+// environment answers at <site>--<env>; every address on the pages domain is
+// private whatever the environment's domains are, and only a domain set public
+// answers anyone (#2604, #2619).
 func TestRealDB_RoutesAndAccess(t *testing.T) {
 	db := testdb.New(t)
 	ctx := context.Background()
@@ -421,20 +424,69 @@ func TestRealDB_RoutesAndAccess(t *testing.T) {
 	_, err = s.RouteOwn(ctx, "intranet")
 	require.ErrorIs(t, err, site.ErrNoDomain, "a main address given to none serves nothing")
 
-	before, err := s.Get(ctx, st.ID)
+	require.NoError(t, s.AddDomain(ctx, &site.Domain{Hostname: "intranet.example.com", SiteID: st.ID, Environment: realProd, CreatedBy: realOwner}))
+	require.NoError(t, s.AddDomain(ctx, &site.Domain{Hostname: "beta.example.com", SiteID: st.ID, Environment: realProd, CreatedBy: realOwner, Public: true}))
+	before, err := s.Domain(ctx, "intranet.example.com")
 	require.NoError(t, err)
-	yes := true
-	require.NoError(t, s.SetEnvironment(ctx, st.ID, realProd, site.EnvironmentSettings{Public: &yes}, realOwner))
+	assert.False(t, before.Public, "added private")
+	require.NoError(t, s.SetDomainPublic(ctx, "intranet.example.com", true))
+	after, err := s.Domain(ctx, "intranet.example.com")
+	require.NoError(t, err)
+	assert.True(t, after.Public)
+	assert.True(t, after.AccessChangedAt.After(before.AccessChangedAt), "a change to public stamps the access")
+	require.NoError(t, s.SetDomainPublic(ctx, "beta.example.com", false))
+
+	public, err := s.RouteHost(ctx, "intranet.example.com")
+	require.NoError(t, err)
+	assert.False(t, public.Private, "a public domain answers anyone")
+	private, err := s.RouteHost(ctx, "beta.example.com")
+	require.NoError(t, err)
+	assert.True(t, private.Private, "a second domain made private asks for a sign-in")
 	env, err = s.RouteEnv(ctx, "intranet", realProd)
 	require.NoError(t, err)
-	assert.False(t, env.Private)
-	after, err := s.Get(ctx, st.ID)
+	assert.True(t, env.Private, "the environment's pages address stays private")
+	require.NoError(t, s.SetMainEnvironment(ctx, st.ID, realProd))
+	own, err = s.RouteOwn(ctx, "intranet")
 	require.NoError(t, err)
-	assert.True(t, after.Environment(realProd).AccessChangedAt.After(before.Environment(realProd).AccessChangedAt),
-		"a change to public stamps the access")
+	assert.True(t, own.Private, "the main address stays private")
 
-	require.Error(t, s.SetEnvironment(ctx, st.ID, site.EnvDev, site.EnvironmentSettings{Public: &yes}, realOwner),
-		"the database refuses a public dev")
+	got, err := s.Get(ctx, st.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"intranet.example.com"}, got.Environment(realProd).PublicDomains)
+	require.ErrorIs(t, s.SetDomainPublic(ctx, "none.example.com", true), site.ErrNoDomain)
+}
+
+// An environment is placed in the site's stored order and moved, under the
+// site's lock; the order survives a re-read (#2617).
+func TestRealDB_EnvironmentOrder(t *testing.T) {
+	db := testdb.New(t)
+	ctx := context.Background()
+	s := New(db)
+	st := &site.Site{
+		ID: NewSiteID(), Name: "d4l", OwnerEmail: realOwner, CreatedBy: realOwner, MainEnvironment: realProd,
+		Environments: []site.Environment{{Name: site.EnvDev}, {Name: realProd}},
+	}
+	require.NoError(t, s.Create(ctx, st))
+	require.NoError(t, s.SetEnvironment(ctx, st.ID, "stage", site.EnvironmentSettings{}, realOwner))
+	require.NoError(t, s.SetEnvironment(ctx, st.ID, "test", site.EnvironmentSettings{Place: &site.Place{After: site.EnvDev}}, realOwner))
+	got, err := s.Get(ctx, st.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{site.EnvDev, "test", "stage", realProd}, got.Order())
+
+	require.NoError(t, s.SetEnvironment(ctx, st.ID, "test", site.EnvironmentSettings{Place: &site.Place{After: "stage"}}, realOwner))
+	got, err = New(db).Get(ctx, st.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{site.EnvDev, "stage", "test", realProd}, got.Order(), "a moved environment keeps its place")
+	list, err := s.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, got.Order(), list[0].Order(), "a list follows the stored order")
+
+	require.ErrorIs(t, s.SetEnvironment(ctx, st.ID, "uat", site.EnvironmentSettings{Place: &site.Place{After: "nope"}}, realOwner), site.ErrNoEnvironment)
+	got, err = s.Get(ctx, st.ID)
+	require.NoError(t, err)
+	assert.Nil(t, got.Environment("uat"), "a place that is not one leaves nothing behind")
+	require.ErrorIs(t, s.SetEnvironment(ctx, "site_none", "uat", site.EnvironmentSettings{}, realOwner), site.ErrNotFound)
 }
 
 // A job is recorded running, reports progress while reading a stop asked for on

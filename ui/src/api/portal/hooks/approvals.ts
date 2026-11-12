@@ -21,7 +21,7 @@ export interface ApprovalChanges {
 
 export interface ApprovalRequest {
   id: string;
-  subject_kind: "script_version" | "site_release";
+  subject_kind: "script_version" | "site_release" | "site_environment";
   purpose: "form_public" | "site_promote" | "site_public";
   script_id: string;
   script_name?: string;

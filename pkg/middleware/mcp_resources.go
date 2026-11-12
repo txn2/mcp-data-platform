@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -348,7 +349,11 @@ func fetchResourceContent(ctx context.Context, cfg ManagedResourceConfig, res *r
 	// return as blob. The threshold and the text-family test are the shared ones
 	// (resource.MaxInlineContentBytes, contenttype.IsTextual) so this path and the
 	// search `fetch` reference make the same call for the same file (#1012).
-	if contenttype.IsTextual(res.MIMEType) && int64(len(body)) <= resource.MaxInlineContentBytes {
+	//
+	// Text is a JSON string on the wire, which cannot carry a byte that is
+	// not UTF-8: one would arrive replaced, and a reader hashing what it got
+	// would hash something else (#2616). Such a file goes as a blob.
+	if contenttype.IsTextual(res.MIMEType) && int64(len(body)) <= resource.MaxInlineContentBytes && utf8.Valid(body) {
 		return &mcp.ReadResourceResult{
 			Contents: []*mcp.ResourceContents{{
 				URI:      res.URI,
@@ -406,26 +411,18 @@ func getOrAuthenticatePC(ctx context.Context, req mcp.Request, auth Authenticato
 		slog.DebugContext(ctx, "getOrAuthenticatePC: using existing PlatformContext", logKeyUserID, pc.UserID)
 		return pc
 	}
-	if auth == nil {
-		slog.DebugContext(ctx, "getOrAuthenticatePC: no authenticator configured")
+	userInfo := directUser(ctx, req, auth)
+	if userInfo == nil {
 		return nil
 	}
-	// Bridge auth token from per-request headers (Streamable HTTP).
-	if req != nil {
-		ctx = bridgeAuthToken(ctx, req)
-	}
-	tokenPresent := GetToken(ctx) != ""
-	slog.DebugContext(ctx, "getOrAuthenticatePC: attempting direct auth", "token_present", tokenPresent)
-	userInfo, err := auth.Authenticate(ctx)
-	if err != nil || userInfo == nil {
-		slog.DebugContext(ctx, "getOrAuthenticatePC: auth failed", logKeyError, err, "user_nil", userInfo == nil)
-		return nil
-	}
-	slog.DebugContext(ctx, "getOrAuthenticatePC: auth succeeded", logKeyUserID, userInfo.UserID, "email", userInfo.Email)
+	// A run's author rides along as on the tool-call path (mcp.go), so a run
+	// reads what its author reads here too: their own library (#2616).
 	pc := &PlatformContext{
-		UserID:    userInfo.UserID,
-		UserEmail: userInfo.Email,
-		Roles:     userInfo.Roles,
+		UserID:          userInfo.UserID,
+		UserEmail:       userInfo.Email,
+		Roles:           userInfo.Roles,
+		OnBehalfOfEmail: userInfo.OnBehalfOf,
+		OnBehalfOfSub:   userInfo.OnBehalfOfSub,
 	}
 	if personasForRoles != nil {
 		personas := personasForRoles(userInfo.Roles)
@@ -437,6 +434,34 @@ func getOrAuthenticatePC(ctx context.Context, req mcp.Request, auth Authenticato
 	// share with it (#2257).
 	pc.IsAdmin = isAdmin != nil && isAdmin(userInfo.Roles)
 	return pc
+}
+
+// directUser is who a resources method was sent by when no tool-call
+// middleware ran: the user the server's own context was opened for (a
+// managed-script run's in-process session, the admin console), as on the
+// tool-call path, else whoever the request's token authenticates. Nil when
+// neither answers.
+func directUser(ctx context.Context, req mcp.Request, auth Authenticator) *UserInfo {
+	if userInfo := GetPreAuthenticatedUser(ctx); userInfo != nil {
+		slog.DebugContext(ctx, "getOrAuthenticatePC: using pre-authenticated user", logKeyUserID, userInfo.UserID, "auth_type", userInfo.AuthType)
+		return userInfo
+	}
+	if auth == nil {
+		slog.DebugContext(ctx, "getOrAuthenticatePC: no authenticator configured")
+		return nil
+	}
+	// Bridge auth token from per-request headers (Streamable HTTP).
+	if req != nil {
+		ctx = bridgeAuthToken(ctx, req)
+	}
+	slog.DebugContext(ctx, "getOrAuthenticatePC: attempting direct auth", "token_present", GetToken(ctx) != "")
+	userInfo, err := auth.Authenticate(ctx)
+	if err != nil || userInfo == nil {
+		slog.DebugContext(ctx, "getOrAuthenticatePC: auth failed", logKeyError, err, "user_nil", userInfo == nil)
+		return nil
+	}
+	slog.DebugContext(ctx, "getOrAuthenticatePC: auth succeeded", logKeyUserID, userInfo.UserID, "email", userInfo.Email)
+	return userInfo
 }
 
 // extractResourceURI extracts the URI from a resources/read request.

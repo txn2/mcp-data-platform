@@ -21,10 +21,17 @@ import (
 //
 // Every criterion runs through the real surface against the dev stack (make
 // dev), whose SeaweedFS backs two S3 connections: dev-s3, writable, and
-// dev-s3-readonly, the same store bound read-only.
+// dev-s3-readonly, the same store bound read-only. The bucket is portal-lake,
+// one the platform keeps nothing in: the platform's own buckets are refused to
+// every S3 tool (#2616).
+//
+// Wire forms: s3_list and s3_object take connection, bucket, key, prefix,
+// delimiter, action, method, content, content_type and purpose as JSON
+// strings, max_keys and expires_in as numbers, is_base64 as a boolean and
+// metadata as an object of strings, each sent as its schema's one form.
 
 const (
-	issue1591Bucket     = "portal-assets"
+	issue1591Bucket     = devBusinessBucket
 	issue1591Writable   = "dev-s3"
 	issue1591ReadOnly   = "dev-s3-readonly"
 	issue1591Purpose    = "Acceptance for #1591: the two S3 tools replace the eight."

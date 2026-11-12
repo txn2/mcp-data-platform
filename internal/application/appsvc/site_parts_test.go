@@ -19,10 +19,14 @@ const sitePart = "marketing/prod"
 // fakeSites answers the site calls an application makes and records each pin
 // it is asked to apply.
 type fakeSites struct {
-	owner      string
-	ownerErr   error
+	owner    string
+	ownerErr error
+	// latest is what StepRelease answers for an environment step does not
+	// name, and askedStep records each environment it was asked of.
 	latest     int
 	latestErr  error
+	step       map[string]int
+	askedStep  []string
 	releases   map[int]bool
 	failPin    error
 	pins       []pinCall
@@ -44,7 +48,11 @@ func (f *fakeSites) EnvironmentOwner(_ context.Context, site, environment string
 	return f.owner, f.ownerErr
 }
 
-func (f *fakeSites) LatestRelease(context.Context, string) (int, error) {
+func (f *fakeSites) StepRelease(_ context.Context, _, environment string) (int, error) {
+	f.askedStep = append(f.askedStep, environment)
+	if n, ok := f.step[environment]; ok {
+		return n, f.latestErr
+	}
 	return f.latest, f.latestErr
 }
 
@@ -159,7 +167,14 @@ func TestNewestPin_ASite(t *testing.T) {
 		problem string
 	}{
 		{name: "the newest release", part: part, version: 3},
-		{name: "a site with no release", part: part, set: func(_ *Service, f *fakeSites) { f.latest = 0 }, problem: "has no release to pin; publish one first"},
+		{
+			name: "the environment before serves nothing", part: part, set: func(_ *Service, f *fakeSites) { f.latest = 0 },
+			problem: "has nothing to pin: the environment before prod serves no release; promote one to it first",
+		},
+		{
+			name: "a dev part on a site with no release", part: application.Part{Kind: application.KindSite, ID: "marketing/dev"},
+			set: func(_ *Service, f *fakeSites) { f.latest = 0 }, problem: "has nothing to pin: the site has no release; publish one first",
+		},
 		{name: "a site that cannot be read", part: part, set: func(_ *Service, f *fakeSites) { f.latestErr = errors.New("gone") }, problem: "site marketing/prod: gone"},
 		{name: "a malformed id", part: application.Part{Kind: application.KindSite, ID: "marketing"}, problem: "cannot be read"},
 		{name: "no sites here", part: part, set: func(s *Service, _ *fakeSites) { s.Sites = nil }, problem: "cannot be read"},
@@ -210,7 +225,7 @@ func TestRelease_ASiteWithNoReleaseRefusesTheRelease(t *testing.T) {
 	var r *RefusedError
 	require.ErrorAs(t, err, &r)
 	assert.Contains(t, r.Msg, "nothing was released")
-	assert.Contains(t, r.Msg, "has no release to pin")
+	assert.Contains(t, r.Msg, "the environment before prod serves no release")
 	assert.Empty(t, sites.pins)
 	assert.Empty(t, store.releases["app_shop"])
 }
@@ -433,4 +448,22 @@ func TestFindCandidates_Sites(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, none.Candidates, "a deployment with no sites lists none")
 	assert.Equal(t, calls, sites.listedEnvs)
+}
+
+// An application release pins each site environment part one step (#2617):
+// at what the environment before it serves, read before any part moves, so
+// stage and prod parts of one application each move one step.
+func TestRelease_PinsEachSitePartOneStep(t *testing.T) {
+	svc, _, sites := siteFixture(t)
+	ctx := context.Background()
+	sites.step = map[string]int{"stage": 3, "prod": 2}
+	_, err := svc.AddPart(ctx, jane, "shop", application.KindSite, "marketing/stage")
+	require.NoError(t, err)
+	_, err = svc.AddPart(ctx, jane, "shop", application.KindSite, sitePart)
+	require.NoError(t, err)
+	_, err = svc.Release(ctx, admin, "shop", "")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []pinCall{{admin.Email, "marketing", "stage", 3}, {admin.Email, "marketing", "prod", 2}}, sites.pins,
+		"prod takes what stage served before the release, not what stage takes in it")
+	assert.Subset(t, sites.askedStep, []string{"stage", "prod"}, "each part is asked of its own environment")
 }

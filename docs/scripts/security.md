@@ -753,6 +753,27 @@ version later carries that exact code, in either order, and to no other. It is
 owner-and-admin reading like every other run record, and it is bounded at
 write: an author keeps the newest handful of accounts per script.
 
+### Reading a managed resource's bytes
+
+`platform.read_resource(ref)` reads a managed resource, named by its `mcp://`
+address or its `mcp:resource:<id>` reference, and hands the script its bytes,
+their sha256, its content type, size, filename and address (#2616). It is the
+supported way for a script to read a stored file's raw bytes or hash: the S3
+tools refuse the platform's own buckets, so a script can no longer read
+`resources/<scope>/<scope_id>/...` keys from the bucket, which coupled it to
+the store's layout and bypassed the library's scope.
+
+The read goes through the run's own MCP session as a `resources/read`
+(`internal/platform/scriptsession/resourceread.go`), so it is authenticated as
+the run, refused for a resource outside the run identity's scope (global, its
+personas, its own library) by the check every `resources/read` crosses, and
+recorded as a read of the resource. A reference is resolved to its address by
+`manage_resource get` under the same identity, so reading by reference needs
+`manage_resource` in the run's persona; an address does not. One read hands a
+script at most 8 MiB: the bytes cross the in-process session base64-encoded
+inside its 16 MiB frame. Like any host call, the read and its answer are kept
+in the run's recording (below), so a test replays the bytes the run read.
+
 ### Recordings hold what upstreams answered
 
 Every draft run and every run records each host call and its answer

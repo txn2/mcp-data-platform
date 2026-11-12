@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/approval"
@@ -37,10 +36,12 @@ const (
 	StatusAwaitingApproval = "awaiting_approval"
 )
 
-// Promote points an environment at another environment's release. Where the
-// target requires approval, an administrator's promotion records its own
-// approval; anyone else's files a request and is carried out when they promote
-// again after it is approved. An approval names the release's manifest digest.
+// Promote points an environment at the release the environment immediately
+// before it serves (#2617): a release moves one environment at a time, from
+// dev to prod. Where the target requires approval, an administrator's promotion
+// records its own approval; anyone else's files a request and is carried out
+// when they promote again after it is approved. An approval names the release's
+// manifest digest.
 func (s *Service) Promote(ctx context.Context, actor Actor, req PromoteRequest) (*Promoted, error) {
 	req.From, _ = site.CanonicalEnvironment(req.From)
 	req.To, _ = site.CanonicalEnvironment(req.To)
@@ -79,19 +80,59 @@ func (s *Service) Promote(ctx context.Context, actor Actor, req PromoteRequest) 
 	return out, nil
 }
 
+// promotable is the release a promotion serves: the one the environment
+// before the target serves. A promotion naming another environment, or a
+// release that environment does not serve, is refused naming the one it must
+// come from, in the words the portal, the API and manage_site all answer.
 func (s *Service) promotable(ctx context.Context, st *site.Site, req PromoteRequest) (*site.Release, error) {
-	number := req.Release
-	if number == 0 {
-		from := st.Environment(req.From)
-		if from == nil {
-			return nil, noEnvironment(req.From)
-		}
-		if from.Release == 0 {
-			return nil, refused("environment %q serves no release yet", req.From)
-		}
-		number = from.Release
+	prev := st.Previous(req.To)
+	if prev == nil {
+		return nil, refused("%s takes every publish and edit directly, so nothing is promoted to it", req.To)
 	}
-	return s.liveRelease(ctx, st, number)
+	if req.From != "" && req.From != prev.Name {
+		return nil, refused("%s takes releases only from %s, the environment before it: promote it from %s", req.To, prev.Name, prev.Name)
+	}
+	if prev.Release == 0 {
+		return nil, noReleaseBefore(st, prev, req.To)
+	}
+	if req.Release != 0 && req.Release != prev.Release {
+		return nil, refused("%s takes only the release %s serves, and %s serves release %d, not %d. Promote %s from %s to serve %d.",
+			req.To, prev.Name, prev.Name, prev.Release, req.Release, req.To, prev.Name, prev.Release)
+	}
+	return s.liveRelease(ctx, st, prev.Release)
+}
+
+// noReleaseBefore is the refusal of a promotion whose source serves nothing
+// yet: where its release comes from first.
+func noReleaseBefore(st *site.Site, prev *site.Environment, to string) error {
+	if before := st.Previous(prev.Name); before != nil {
+		return refused("%s serves no release yet. Promote %s's release to %s first; %s can then take it from %s.",
+			prev.Name, before.Name, prev.Name, to, prev.Name)
+	}
+	return refused("%s serves no release yet. Publish to %s first; %s can then take it from %s.", prev.Name, prev.Name, to, prev.Name)
+}
+
+// StepRelease is the release an application release pins a site environment
+// part at (#2617): what the environment before it serves, so an application
+// release moves each environment one step as a promotion does, or the site's
+// newest release for dev, which has nothing before it. 0 is none to pin.
+func (s *Service) StepRelease(ctx context.Context, ref, environment string) (int, error) {
+	st, err := s.Find(ctx, ref)
+	if err != nil {
+		return 0, err
+	}
+	if st.Environment(environment) == nil {
+		return 0, noEnvironment(environment)
+	}
+	prev := st.Previous(environment)
+	if prev != nil {
+		return prev.Release, nil
+	}
+	rels, err := s.Store.Releases(ctx, st.ID)
+	if err != nil || len(rels) == 0 {
+		return 0, err //nolint:wrapcheck // read by identity
+	}
+	return rels[0].Number, nil
 }
 
 // approvedOrRequest is nil when the promotion may go ahead, or the request it
@@ -142,60 +183,17 @@ func (s *Service) Rollback(ctx context.Context, actor Actor, ref, environment st
 	if err != nil {
 		return nil, err
 	}
-	target, err := rollbackTarget(env, history, to, gone)
+	target, err := site.RollbackTarget(env, history, to, gone)
 	if errors.Is(err, site.ErrPruned) {
 		return nil, prunedRefusal(st, to)
 	}
 	if err != nil {
-		return nil, err
+		return nil, refusedBy(err)
 	}
 	if err := s.move(ctx, actor, repoint{st: st, env: env, to: target, action: site.ActionRollback}); err != nil {
 		return nil, err
 	}
 	return &Promoted{Environment: env.Name, Release: target, URL: s.Address(ctx, st, env.Name), Status: site.ActionRollback}, nil
-}
-
-// rollbackTarget is the release a rollback returns to: the one named, which the
-// environment must have served and which must not be pruned, or the newest
-// kept release it served before the current one.
-func rollbackTarget(env *site.Environment, history []site.Deployment, to int, gone map[int]bool) (int, error) {
-	served := make([]int, 0, len(history))
-	for _, d := range history {
-		if d.To != env.Release {
-			served = append(served, d.To)
-		}
-	}
-	if to != 0 {
-		return namedTarget(env, served, to, gone)
-	}
-	return previousTarget(env, served, gone)
-}
-
-// namedTarget checks the release a rollback names.
-func namedTarget(env *site.Environment, served []int, to int, gone map[int]bool) (int, error) {
-	switch {
-	case !slices.Contains(served, to):
-		return 0, refused("environment %q has not served release %d; a release it never served is reached by promote", env.Name, to)
-	case gone[to]:
-		return 0, site.ErrPruned
-	}
-	return to, nil
-}
-
-// previousTarget is the newest kept release the environment served that is
-// older than the current one, so a second rollback keeps going back rather
-// than returning.
-func previousTarget(env *site.Environment, served []int, gone map[int]bool) (int, error) {
-	before := 0
-	for _, n := range served {
-		if n < env.Release && n > before && !gone[n] {
-			before = n
-		}
-	}
-	if before == 0 {
-		return 0, refused("environment %q has served no earlier release it still keeps", env.Name)
-	}
-	return before, nil
 }
 
 // prunedNumbers is every release of the site a sweep pruned.

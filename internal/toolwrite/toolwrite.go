@@ -161,6 +161,9 @@ var readOnlyTools = map[string]bool{
 	// ONLY transaction that is always rolled back, so nothing it does persists
 	// (#2428). It is a host call, not a tool.
 	"appdb.query": true,
+	// platform.read_resource (#2616): a managed resource's bytes, read through
+	// the run's resources/read. It is a host call, not a tool.
+	"resource.read": true,
 	// platform.transaction's steps that write nothing themselves (#2402):
 	// opening the transaction, a read in it, and ending it. A write in it is
 	// appdb.tx_execute, which the barrier refuses in a draft, so a commit
@@ -314,11 +317,12 @@ var actionTools = map[string]actionRule{
 		"get", "list", "releases",
 	), writes: set("create", "update", "delete", "add_part", "remove_part", "release", "rollback", "export", "import")},
 	// manage_site (#2518): publish writes a release, promote and rollback
-	// move what an environment serves, crawl publishes a copied site.
+	// move what an environment serves, crawl publishes a copied site, and
+	// set_domain changes who a domain answers (#2619).
 	"manage_site": {arg: "command", reads: set(
 		"get", "list", "releases", "deployments", "domains",
 	), writes: set("create", "update", "delete", "set_environment", "publish", "promote", "rollback",
-		"add_domain", "remove_domain", "crawl", "grant", "revoke")},
+		"add_domain", "set_domain", "remove_domain", "crawl", "grant", "revoke")},
 	// manage_approval (#2437, #2494): submit files a request and decide
 	// decides one; list and get read.
 	"manage_approval": {arg: "command", reads: set("list", "get"), writes: set("submit", "decide")},

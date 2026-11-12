@@ -842,11 +842,11 @@ func TestBuildMultiserverConfig(t *testing.T) {
 }
 
 func TestBuildToolkitOptions(t *testing.T) {
-	// The error sanitizer middleware is always present, so every case
-	// carries a baseline of one option.
-	const baseline = 1
+	// The error sanitizer middleware and the location interceptor (#2616)
+	// are always present, so every case carries a baseline of two options.
+	const baseline = 2
 
-	t.Run("empty config produces only the error sanitizer", func(t *testing.T) {
+	t.Run("empty config produces only the error sanitizer and the location check", func(t *testing.T) {
 		opts := buildToolkitOptions(Config{}, nil, nil)
 		if len(opts) != baseline {
 			t.Errorf("expected %d option, got %d", baseline, len(opts))

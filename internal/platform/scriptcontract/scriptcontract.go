@@ -308,18 +308,15 @@ WHAT IS AVAILABLE
       is safe to repeat. A failure ends the run, or is handed back with
       on_error="return" (see A FAILED CALL).
   platform.call(tool, args={}, on_error="raise", retry=True)  Call any
-      platform tool by name and get its
-      structured result. This is the same mechanism the helpers above
-      are built on, with the tool left to you, and it is how a script reaches
-      everything else the platform can do: writing a table with
+      platform tool by name and get its structured result. The helpers above
+      are built on it; it reaches everything else the platform can do: writing a table with
       trino_execute, fetching an external API server-side with
       api_invoke_endpoint, reading an object with s3_object, capturing a
       memory, updating the catalog, refreshing the stored file a dashboard
       reads with manage_resource.
-      That last one is how a referencing asset's data half stays current:
-      manage_resource replace_content writes new bytes over a managed
-      resource and keeps its id, its mcp:// URI and its filename, so every
-      asset referencing it serves the new content with no asset re-saved.
+      That keeps a referencing asset's data current: replace_content writes
+      new bytes and keeps the resource's id, mcp:// URI and filename, so
+      every asset referencing it serves them with no asset re-saved.
       A table registered over that resource, or over an output this script
       exports, follows the version you write unless it was registered with
       follow=false: the write moves the table before it returns, its result
@@ -331,11 +328,10 @@ WHAT IS AVAILABLE
       and carries the author's address, so it can refresh or patch a
       dashboard the author owns. An asset merely SHARED with them is not
       inherited.
-      A script may call every tool ITS AUTHOR may call. Each call is
-      authorized by the persona filter at the moment it is made, presenting
-      the roles you held when you saved the version, so a tool your persona
-      does not allow is refused in the persona filter's own words. There is
-      no separate script allowlist to consult.
+      A script may call every tool ITS AUTHOR may call: the persona filter
+      authorizes each call as it is made, with the roles you held when you
+      saved the version, and refuses in its own words. There is no separate
+      script allowlist.
       Prefer the helpers where they apply; SQL goes through platform.query
       and platform.execute, which bind values, and a platform.call to
       trino_query or trino_execute with SQL built from values is refused on
@@ -502,6 +498,10 @@ WHAT IS AVAILABLE
       verify that accepts it.
   platform.decrypt(form, payload)  A stored form submission's values,
       sensitive fields decrypted (see FORMS).
+  platform.read_resource(ref)  A managed resource (mcp://... or
+      mcp:resource:<id>) read as the run, up to 8 MiB: .bytes, .sha256,
+      .content_type, .size, .filename, .uri. The S3 tools refuse the
+      platform's own buckets.
   print(...)  Goes to the run log (capped; anything larger is an export).
   run.run_id, run.fire_time, run.params["name"], run.state, run.event  The
       frozen run record. run.state is the script's state as it stood when the

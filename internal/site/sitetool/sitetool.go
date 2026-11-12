@@ -47,12 +47,13 @@ const (
 	CmdCrawl        = "crawl"
 	CmdGrant        = "grant"
 	CmdRevoke       = "revoke"
+	CmdSetDomain    = "set_domain"
 )
 
 // Commands is every command, in the order the schema lists them.
 var Commands = []string{
 	CmdCreate, CmdGet, CmdList, CmdUpdate, CmdDelete, CmdEnvironment, CmdPublish, CmdPromote, CmdRollback,
-	CmdReleases, CmdDeployments, CmdAddDomain, CmdRemoveDomain, CmdDomains, CmdCrawl, CmdGrant, CmdRevoke,
+	CmdReleases, CmdDeployments, CmdAddDomain, CmdSetDomain, CmdRemoveDomain, CmdDomains, CmdCrawl, CmdGrant, CmdRevoke,
 }
 
 // Reads is the commands that change nothing.
@@ -105,6 +106,8 @@ type Input struct {
 	From    string       `json:"from,omitempty"`
 	To      string       `json:"to,omitempty"`
 	Release int          `json:"release,omitempty"`
+	// After places an environment in the site's order (#2617).
+	After string `json:"after,omitempty"`
 	// Base makes the files an overlay on that release.
 	Base   int    `json:"base,omitempty"`
 	Note   string `json:"note,omitempty"`
@@ -157,25 +160,33 @@ const description = "Static sites served by the platform. AGENTS WORK IN dev, PE
 	"person reviews it, and promote moves the exact release to an environment people use (stage, prod). Those environments " +
 	"are read-only: they move only by promote and rollback, with approval where required, and publish, patch or an edit " +
 	"aimed at one is refused. Never try to change prod directly. " +
+	"ENVIRONMENTS: a new site has dev and prod. dev is always first and prod always last; set_environment places a new " +
+	"environment between them with after, naming the environment it follows (dev, or one between; never prod; when there " +
+	"is only one place it goes there), and moves one later the same way. PROMOTION GOES ONE STEP: an environment takes a release only from the environment immediately before it, and " +
+	"only the release that one serves; promote names the target (to), and from, when given, must be the one before it. " +
 	"ADDRESSES: every environment answers at <site>--<env>.<pages domain>; the main address, <site>.<pages domain>, serves " +
-	"one environment the owner chooses (dev on a new site) or none; add_domain adds a hostname to any environment but dev. " +
-	"ACCESS: each environment is private or public. Private (every new environment, and dev always) asks for the platform's " +
-	"sign-in and opens only for administrators, the owner, the people who manage the site and whoever it is shared with; " +
-	"public opens for anyone, and only the owner or an administrator makes an environment public (through Approvals where " +
-	"it requires approval). grant shares: level view with email (a person) or persona (everyone holding it, read on every " +
-	"request) and environments (the private environments it opens; none is every one); level manage (internal people only, " +
+	"one environment the owner chooses (prod on a new site) or none; add_domain adds a hostname to any environment but dev. " +
+	"No domain is needed: an environment works at its pages addresses for people who sign in. " +
+	"ACCESS: every address on the pages domain asks for the platform's sign-in and opens only for administrators, the owner, " +
+	"the people who manage the site and whoever the environment is shared with. ONLY AN ADDED DOMAIN CAN BE PUBLIC: add_domain " +
+	"with public true, or set_domain with public true, opens that one domain to anyone (owner or administrator only; through " +
+	"Approvals where the environment requires approval); a domain is added private otherwise, and set_domain public false makes " +
+	"it private again. grant shares: level view with email (a person) or persona (everyone holding it, read on every " +
+	"request) and environments (the environments it opens; none is every one); level manage (internal people only, " +
 	"site-wide) publishes, promotes, rolls back, adds domains and shares. Inside a private environment the site reads " +
 	"/_viewer for who signed in, and when the environment is a part of an application (add_part kind site, part_id " +
 	"\"<site>/<environment>\") its /endpoints/<name> run as that person, so the site decides its own finer rules. " +
 	"COMMANDS: publish writes a new release into dev (from files, an archive managed resource, a resource folder, or from_bucket, a prefix of a bucket on an S3 connection; a " +
-	"_redirects file becomes its redirect map, a 404.html its not-found page). To change a site, do not resend it: " +
+	"_redirects file becomes its redirect map, a _headers file the policies each path is served with (Content-Security-Policy, " +
+	"Content-Security-Policy-Report-Only, Permissions-Policy, Cross-Origin-Opener/Embedder/Resource-Policy, X-Frame-Options; a release " +
+	"declaring no framing rule is served with frame-ancestors 'self'), a 404.html its not-found page). To change a site, do not resend it: " +
 	"manage_asset reads and edits dev's files in place with mcp:site:<site>/dev/<path> (outline, locate, get_content, stats, " +
 	"diff, and patch, whose version is the release number), and mcp:site:<site>/dev names the whole tree; publish with base " +
 	"overlays the release dev serves now. A site with a _layouts folder is rendered at publish (Liquid layouts, includes, " +
-	"_data records, front matter). promote points an environment at another's release, rollback at one it served before; " +
-	"neither copies a file. set_environment creates or changes an environment (public, internal_view, requires_approval, " +
+	"_data records, front matter). promote serves the release of the environment before the target, rollback returns one to a release it served before; " +
+	"neither copies a file. set_environment creates, places or changes an environment (after, internal_view, requires_approval, " +
 	"keep_releases, main true to give it the main address); update with media mounts resource folders at URL prefixes (images and " +
-	"files outside releases, public on a public environment); RELEASES ARE KEPT PER ENVIRONMENT: each keeps its last keep_releases " +
+	"files outside releases, public at a public domain); RELEASES ARE KEPT PER ENVIRONMENT: each keeps its last keep_releases " +
 	"releases (the deployment's default, 50 unless an administrator changed it), and a daily sweep removes the rest, so a rollback " +
 	"reaches only a kept release; update with main_environment moves the main address (\"\" for none). An " +
 	"environment that requires approval is reached only by promote: an administrator's promote records its own approval, " +
@@ -227,7 +238,8 @@ func schema() map[string]any {
 				}},
 			},
 			"internal_view":     map[string]any{keyType: typBool, keyDesc: "set_environment: open this private environment to everyone signed in whose persona is not external."},
-			"public":            map[string]any{keyType: typBool, keyDesc: "set_environment, or add_domain creating an environment: true opens it to anyone (owner or administrator only; through Approvals where it requires approval), false makes it private. A new environment is private unless this is true; dev is always private."},
+			"public":            map[string]any{keyType: typBool, keyDesc: "add_domain, set_domain: true opens this one domain to anyone (owner or administrator only; through Approvals where the environment requires approval), false makes it private. A domain is added private unless this is true. Every address on the pages domain is always private, so set_environment refuses public."},
+			"after":             str("set_environment: put the environment immediately after this one (dev, or one between dev and prod; never after prod). With a new environment, or to move one. add_domain creating an environment: the same."),
 			"main":              map[string]any{keyType: typBool, keyDesc: "set_environment: true gives this environment the main address, <site>.<pages domain> (owner or administrator)."},
 			"main_environment":  str("update: the environment the main address serves; \"\" gives it to none, and it answers not found (owner or administrator)."),
 			"email":             str("grant, revoke: the person, by the email they sign in with."),
@@ -235,17 +247,17 @@ func schema() map[string]any {
 			"environments":      map[string]any{keyType: typArray, keyItems: map[string]any{keyType: typString}, keyDesc: "grant with level view: the private environments it opens; none is every private environment."},
 			"level":             map[string]any{keyType: typString, keyEnum: []string{site.LevelManage, site.LevelView}, keyDesc: "grant: manage publishes, promotes, rolls back, adds domains and shares (internal people only, site-wide); view opens the private environments it names and reads their current files, and changes nothing."},
 			"environment":       str("publish: always dev (it may be left out); any other environment is refused, and moves by promote. rollback, set_environment, deployments: the environment. add_domain: the environment the hostname serves, created private when it does not exist; never dev."),
-			"requires_approval": map[string]any{keyType: typBool, keyDesc: "set_environment, or add_domain creating an environment: promotions here, and making it public, go through the Approvals queue."},
+			"requires_approval": map[string]any{keyType: typBool, keyDesc: "set_environment, or add_domain creating an environment: promotions here, and making one of its domains public, go through the Approvals queue."},
 			"keep_releases": map[string]any{keyType: []string{"integer", typString}, keyDesc: "set_environment, or add_domain creating an environment: " +
 				"how many releases it keeps, the last N distinct releases it pointed at (0 keeps every one), or \"default\" for the deployment's default. " +
 				"A daily sweep removes every release no environment keeps (one an application release pins or a pending approval names stays), " +
 				"and the files only those releases held: a removed release cannot be rolled back to. Only the owner or an administrator changes it."},
-			"from":    str("promote: the environment whose release moves."),
+			"from":    str("promote: the environment whose release moves; it must be the one immediately before to, which is used when from is left out."),
 			"to":      str("promote: the environment that moves."),
-			"release": num("promote: a release number instead of from. rollback: the release to return to (default the one before)."),
+			"release": num("promote: the release, which must be the one the environment before to serves. rollback: the release to return to (default the one before)."),
 			"base":    num("publish: overlay this release instead of replacing the file set. It must be the release dev serves now, so read it first; files you do not send carry over."),
 			"note":    str("publish: what the release is for."),
-			"reason":  str("promote: why, for the approver."),
+			"reason":  str("promote, add_domain and set_domain making a domain public: why, for the approver."),
 			"files": map[string]any{
 				keyType: typArray, keyDesc: "publish: the files, up to the inline size a tool call carries.",
 				keyItems: map[string]any{keyType: typObject, keyReq: []string{"path"}, keyProps: map[string]any{
@@ -270,7 +282,7 @@ func schema() map[string]any {
 			},
 			keyScope:      str("publish with folder: the library's scope (user, persona, global; default user)."),
 			"scope_id":    str("publish with folder: the persona name or user subject."),
-			"hostname":    str("add_domain, remove_domain: the hostname."),
+			"hostname":    str("add_domain, set_domain, remove_domain: the hostname."),
 			"application": str("add_domain: the application whose endpoints and pages the hostname serves, in place of site and environment."),
 			"url":         str("crawl: the site to copy."),
 			"form_map": map[string]any{
@@ -419,9 +431,16 @@ func (t *Tool) handlers() map[string]handler {
 				return nil, &sitesvc.RefusedError{Msg: err.Error()}
 			}
 			return s.AddDomain(ctx, a, sitesvc.DomainRequest{
-				Hostname: in.Hostname, Site: in.Site, Environment: in.Environment, Application: in.Application,
-				RequiresApproval: in.RequiresApproval != nil && *in.RequiresApproval, Public: in.Public != nil && *in.Public, Keep: keep.Keep,
+				Hostname: in.Hostname, Site: in.Site, Environment: in.Environment, Application: in.Application, Reason: in.Reason,
+				RequiresApproval: in.RequiresApproval, Public: in.Public != nil && *in.Public, Keep: keep.Keep,
+				Place: placeOf(in),
 			})
+		},
+		CmdSetDomain: func(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
+			if in.Public == nil {
+				return nil, &sitesvc.RefusedError{Msg: "set_domain: say public true or false"}
+			}
+			return s.SetDomainAccess(ctx, a, in.Hostname, *in.Public, in.Reason)
 		},
 		CmdRemoveDomain: func(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
 			return map[string]any{"removed": in.Hostname}, s.RemoveDomain(ctx, a, in.Hostname)
@@ -448,8 +467,8 @@ func (t *Tool) setEnvironment(ctx context.Context, a sitesvc.Actor, in Input) (a
 		return nil, &sitesvc.RefusedError{Msg: err.Error()}
 	}
 	res, err := t.Service.SetEnvironment(ctx, a, in.Site, in.Environment, sitesvc.EnvironmentChange{
-		RequiresApproval: in.RequiresApproval, Public: in.Public, InternalView: in.InternalView, Reason: in.Reason,
-		Keep: keep.Keep, KeepDefault: keep.Default,
+		RequiresApproval: in.RequiresApproval, Public: in.Public, InternalView: in.InternalView,
+		Keep: keep.Keep, KeepDefault: keep.Default, Place: placeOf(in),
 	})
 	if err != nil || in.Main == nil || !*in.Main {
 		return res, err //nolint:wrapcheck // the caller's message
@@ -460,8 +479,16 @@ func (t *Tool) setEnvironment(ctx context.Context, a sitesvc.Actor, in Input) (a
 	return res, nil
 }
 
-// get is a site with where each environment answers and, for someone who
-// manages it, who has access.
+// placeOf is the place a call names, nil for none.
+func placeOf(in Input) *site.Place {
+	if in.After == "" {
+		return nil
+	}
+	return &site.Place{After: in.After}
+}
+
+// get is a site with where each environment answers, its domains with each
+// one's access, and, for someone who manages it, who has access.
 func (t *Tool) get(ctx context.Context, actor sitesvc.Actor, in Input) (any, error) {
 	st, err := t.Service.Find(ctx, in.Site)
 	if err != nil {
@@ -471,8 +498,9 @@ func (t *Tool) get(ctx context.Context, actor sitesvc.Actor, in Input) (any, err
 	if err != nil {
 		return nil, fmt.Errorf("listing domains: %w", err)
 	}
-	out := map[string]any{keySite: st, "addresses": t.Service.Addresses(st, domains), "pages_addresses": t.Service.PagesAddresses(st)}
-	if note := t.Service.AddressNote(st); note != "" {
+	at := t.Service.Addressing()
+	out := map[string]any{keySite: st, "domains": domains, "addresses": at.Addresses(st, domains), "pages_addresses": at.PagesAddresses(st)}
+	if note := at.AddressNote(st); note != "" {
 		out["address_note"] = note
 	}
 	perms, err := t.Service.PermissionsOf(ctx, actor, st)

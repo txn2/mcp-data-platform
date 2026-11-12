@@ -36,7 +36,7 @@ import (
 // and the error, and a text resource's source can be edited and saved, through
 // the route the portal editor posts to, recording a version that says so.
 //
-// Wire forms. The 500 detail is a property of the REST route the portal's
+// Wire forms: the 500 detail is a property of the REST route the portal's
 // Register dialog posts, which takes one JSON object; `repair` and `follow`
 // are booleans and `table_name` a string, and the forms they admit are sent by
 // the #1774 and #1577 criteria. Nothing here is a tool parameter, so the calls
@@ -60,12 +60,10 @@ func TestIssue1775_APlatformFailureNamesWhereItStopped(t *testing.T) {
 	_, id := file1774(t, c, "content", "1775failure"+stamp, insightsExport1774(insightsRows1774))
 
 	// The object the resource's head points at, taken out from under it.
+	// The S3 tools refuse the platform's own bucket (#2616), so the object is
+	// removed with the store's own client, as an operator would.
 	key := resourceS3Key1775(t, c, id)
-	c.call("s3_object", map[string]any{
-		"action": "delete", "connection": "dev-resources",
-		"bucket": "managed-resources", "key": key,
-		"purpose": "Acceptance #1775: the registration must answer a read it cannot complete.",
-	})
+	resourceStore(t).remove(key)
 
 	status, body := c.rest(http.MethodPost, "/api/v1/resources/"+id+"/tables",
 		jsonBody(t, map[string]any{

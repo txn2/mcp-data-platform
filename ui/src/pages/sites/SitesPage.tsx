@@ -78,7 +78,7 @@ function SitesBody({
   }
   return (
     <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">A new site starts with dev, its working copy, on its main address. Promote releases to other environments when people should use them.</p>
+      <p className="text-xs text-muted-foreground">A new site starts with dev, its working copy, and prod, on its main address. Promote releases one step at a time when people should use them.</p>
       <SiteTable list={list} onOpen={onOpen} />
     </div>
   );
@@ -159,21 +159,13 @@ function NewSiteDialog({ pagesDomain, onClose, onCreated }: { pagesDomain: strin
                 {refusal}
               </p>
             )}
-            <p className="text-xs text-muted-foreground">Lowercase letters, digits and single hyphens, up to 58. It is part of every address the site has and does not change.</p>
+            <p className="text-xs text-muted-foreground">Lowercase letters, digits and single hyphens, up to 57. It is part of every address the site has and does not change.</p>
           </div>
           <div className="space-y-1">
             <Label htmlFor="site-description">Description</Label>
             <Textarea id="site-description" value={description} onChange={(e) => setDescription(e.target.value)} />
           </div>
-          {pagesDomain && (
-            <div className="space-y-1">
-              <Label>Main address</Label>
-              <p className="break-all font-mono text-sm text-muted-foreground">
-                {trimmed || "name"}.{pagesDomain}
-              </p>
-              <p className="text-xs text-muted-foreground">It serves dev, the working copy. dev is private: only you, the people you add to manage the site and administrators can open it, after they sign in.</p>
-            </div>
-          )}
+          <NewSiteAddresses name={trimmed} pagesDomain={pagesDomain} />
           {failure && (
             <Alert variant="destructive">
               <AlertDescription>{failure}</AlertDescription>
@@ -190,5 +182,26 @@ function NewSiteDialog({ pagesDomain, onClose, onCreated }: { pagesDomain: strin
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// NewSiteAddresses is where a new site's two environments answer (#2617): dev
+// at its own address and prod at the main address.
+function NewSiteAddresses({ name, pagesDomain }: { name: string; pagesDomain: string }) {
+  if (!pagesDomain) return null;
+  return (
+    <div className="space-y-1" data-testid="new-site-addresses">
+      <Label>Environments</Label>
+      <p className="text-sm">
+        <span className="font-medium">dev</span> <span className="break-all font-mono text-muted-foreground">{name || "name"}--dev.{pagesDomain}</span>
+      </p>
+      <p className="text-sm">
+        <span className="font-medium">prod</span> <span className="break-all font-mono text-muted-foreground">{name || "name"}.{pagesDomain}</span>{" "}
+        <span className="text-xs text-muted-foreground">(main address)</span>
+      </p>
+      <p className="text-xs text-muted-foreground">
+        Every publish lands in dev; promote dev's release to prod when people should use it. Both addresses ask for a sign-in. To open the site to anyone, add a domain and make it public.
+      </p>
+    </div>
   );
 }

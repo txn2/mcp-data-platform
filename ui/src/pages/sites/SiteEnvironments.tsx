@@ -1,10 +1,13 @@
 import { useState } from "react";
-import { ArrowRight, CircleHelp, TriangleAlert } from "lucide-react";
+import { ArrowRight, CircleHelp, Lock, TriangleAlert } from "lucide-react";
 import {
   DEV_ENVIRONMENT,
+  PROD_ENVIRONMENT,
+  answersAnyone,
+  placeChoices,
   useApprovalForSite,
   usePromoteSite,
-  useSetSiteEnvironment,
+  useSetDomainAccess,
   useSiteAccess,
   type Site,
   type SiteAccessList,
@@ -17,7 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/stores/auth";
 import { EnvironmentDialogs, type EnvDialog } from "./SiteEnvironmentDialogs";
-import { AccessBadge, AddressLink, EVERYONE_INTERNAL, Failure, ShareChip, grantName, grantOpens } from "./SiteParts";
+import { AccessBadge, AddressAccess, AddressLink, EVERYONE_INTERNAL, Failure, ShareChip, grantName, grantOpens } from "./SiteParts";
 import { PublishBanner } from "./SitePublishJob";
 import { KeptLine } from "./SiteRetention";
 import { bareAddress, cardAddresses, errorText, orderedEnvironments, when } from "./siteFormat";
@@ -41,10 +44,10 @@ function writeHidden(hidden: boolean) {
   }
 }
 
-// SiteEnvironmentsTab is each environment in the order a release is promoted
-// in (#2604): agents and the people who manage the site change dev, people use
-// the environments a release is promoted to, and each one says where it answers
-// and who can open it.
+// SiteEnvironmentsTab is each environment in the site's stored order, the order
+// a release is promoted in, one step at a time (#2604, #2617): agents and the
+// people who manage the site change dev, people use the environments a release
+// is promoted to, and each one says where it answers and who can open it.
 export function SiteEnvironmentsTab({ site, onNavigate }: { site: Site; onNavigate: (path: string) => void }) {
   const [dialog, setDialog] = useState<EnvDialog>(null);
   const [hidden, setHidden] = useState(readHidden);
@@ -79,7 +82,7 @@ export function SiteEnvironmentsTab({ site, onNavigate }: { site: Site; onNaviga
                 <ArrowRight className="h-5 w-5 rotate-90 lg:rotate-0" />
               </div>
             )}
-            <EnvironmentCard site={site} env={e} access={access} canEdit={canEdit} onAct={setDialog} />
+            <EnvironmentCard site={site} env={e} access={access} canEdit={canEdit} movable={canMove(site, e.name)} onAct={setDialog} />
           </div>
         ))}
       </div>
@@ -123,12 +126,22 @@ function HeaderActions({ site, onAct }: { site: Site; onAct: (d: EnvDialog) => v
 
 const STEPS: [string, string][] = [
   ["Changes land in dev", "Publishing, editing files and agents change dev and nothing else. dev is the working copy: only the people who manage this site can open it, unless you share it."],
-  ["Promote what is ready", "Promote serves the exact release from dev in another environment. Those environments change only by Promote and Roll back, so nobody edits what people are using."],
   [
-    "Each environment has its own access",
-    "Private asks for a sign-in to this platform and opens only for the people and personas it is shared with. Public opens for anyone; a site that wants a sign-in builds its own.",
+    "Promote one step at a time",
+    "A release moves left to right: each environment takes the release of the one before it. Those environments change only by Promote and Roll back, so nobody edits what people are using.",
+  ],
+  [
+    "Only a domain you make public opens for anyone",
+    "Every address on the pages domain asks for a sign-in and opens for whoever the environment is shared with. Add a domain and make it public to open that one domain to anyone.",
   ],
 ];
+
+/** Whether an environment can move: one between dev and prod with another place to go. */
+function canMove(site: Site, name: string): boolean {
+  if (name === DEV_ENVIRONMENT || name === PROD_ENVIRONMENT) return false;
+  const order = site.environments.map((e) => e.name);
+  return placeChoices(order, name).length > 1;
+}
 
 /** The pages domain an environment's address is under, read from one of them. */
 function pagesDomainOf(site: Site): string {
@@ -168,7 +181,7 @@ function Explainer({ site, onHide }: { site: Site; onHide: () => void }) {
             <span className="font-medium text-foreground">Addresses. </span>
             {main ? (
               <>
-                The main address, <span className="break-all font-mono">{main}</span>, serves the one environment you choose.{" "}
+                The main address, <span className="break-all font-mono">{main}</span>, serves the one environment you choose (prod on a new site).{" "}
               </>
             ) : (
               <>No environment holds the main address, so it answers Not found. </>
@@ -177,7 +190,7 @@ function Explainer({ site, onHide }: { site: Site; onHide: () => void }) {
               <>
                 Every environment also answers at <span className="break-all font-mono">{site.name}--</span>
                 <span className="font-mono italic">environment</span>
-                <span className="break-all font-mono">.{domain}</span>, and at any domain added to it.
+                <span className="break-all font-mono">.{domain}</span>, and at any domain added to it. Each of these asks for a sign-in, except a domain you make public.
               </>
             )}
           </p>
@@ -196,15 +209,18 @@ function EnvironmentCard({
   env,
   access,
   canEdit,
+  movable,
   onAct,
 }: {
   site: Site;
   env: SiteEnvironment;
   access?: SiteAccessList;
   canEdit: boolean;
+  movable: boolean;
   onAct: (d: EnvDialog) => void;
 }) {
   const working = env.name === DEV_ENVIRONMENT;
+  const fixed = working ? "Always first" : env.name === PROD_ENVIRONMENT ? "Always last" : "";
   return (
     <section className={`flex min-w-0 flex-1 flex-col gap-3 rounded-xl border bg-card p-4 shadow-sm ${working ? "border-primary/45" : ""}`} aria-label={env.name} data-testid={`env-${env.name}`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -221,7 +237,13 @@ function EnvironmentCard({
       <Addresses site={site} env={env} />
       <WhoCanOpen site={site} env={env} access={access} />
       {canEdit && <KeptLine env={env} />}
-      {canEdit && <CardActions env={env} onAct={onAct} />}
+      {fixed && (
+        <p className="flex items-center gap-1 text-xs text-muted-foreground" data-testid={`fixed-${env.name}`}>
+          <Lock className="h-3 w-3" aria-hidden />
+          {fixed}
+        </p>
+      )}
+      {canEdit && <CardActions env={env} movable={movable} onAct={onAct} />}
     </section>
   );
 }
@@ -256,6 +278,7 @@ function Addresses({ site, env }: { site: Site; env: SiteEnvironment }) {
         <div key={a.text} className="flex flex-wrap items-center gap-1.5">
           <AddressLink href={a.href} text={a.text} muted={i > 0} />
           <Badge variant="muted">{a.tag}</Badge>
+          <AddressAccess isPublic={a.public} />
         </div>
       ))}
       {list.length === 0 && <p className="text-sm text-muted-foreground">No address</p>}
@@ -276,34 +299,36 @@ function AddressNote({ site }: { site: Site }) {
   );
 }
 
+/** Who opens an environment's private addresses, as one sentence. */
+function privateSentence(shared: boolean, open: boolean, managers: number): string {
+  const who = shared ? "The people who manage this site, administrators, and:" : managersSentence(managers);
+  return open ? `Everywhere else, after a sign-in: ${who.charAt(0).toLowerCase()}${who.slice(1)}` : who;
+}
+
 function managersSentence(n: number): string {
   if (n === 0) return "The owner and administrators.";
   if (n === 1) return "The owner, the person who manages this site and administrators.";
   return `The owner, the ${n} people who manage this site and administrators.`;
 }
 
-// WhoCanOpen says, in words, who an environment opens for, and names the people
-// and personas it is shared with.
+// WhoCanOpen says, in words, who an environment opens for (#2619): anyone at a
+// public domain, and everywhere else the people and personas it is shared with,
+// after they sign in.
 function WhoCanOpen({ site, env, access }: { site: Site; env: SiteEnvironment; access?: SiteAccessList }) {
-  if (env.public) {
-    return (
-      <div className="space-y-1">
-        <p className="text-xs font-medium text-muted-foreground">Who can open it</p>
-        <p className="text-sm">Anyone. The platform asks no one to sign in.</p>
-      </div>
-    );
-  }
-  return <PrivateOpeners site={site} env={env} access={access} />;
-}
-
-function PrivateOpeners({ site, env, access }: { site: Site; env: SiteEnvironment; access?: SiteAccessList }) {
   const grants = access?.grants ?? [];
   const shared = grants.filter((g) => grantOpens(g, env.name));
   const any = shared.length > 0 || env.internal_view;
+  const open = answersAnyone(env);
+  const privately = privateSentence(any, open, grants.filter((g) => g.level === "manage").length);
   return (
     <div className="space-y-1">
       <p className="text-xs font-medium text-muted-foreground">Who can open it</p>
-      <p className="text-sm">{any ? "The people who manage this site, administrators, and:" : managersSentence(grants.filter((g) => g.level === "manage").length)}</p>
+      {open && (
+        <p className="text-sm">
+          Anyone at <span className="break-all font-mono text-[13px]">{env.public_domains.join(", ")}</span>, with no sign-in.
+        </p>
+      )}
+      <p className="text-sm">{privately}</p>
       {any && (
         <div className="flex flex-wrap gap-1.5">
           {env.internal_view && <ShareChip label={EVERYONE_INTERNAL} kind="internal" />}
@@ -317,7 +342,7 @@ function PrivateOpeners({ site, env, access }: { site: Site; env: SiteEnvironmen
   );
 }
 
-function CardActions({ env, onAct }: { env: SiteEnvironment; onAct: (d: EnvDialog) => void }) {
+function CardActions({ env, movable, onAct }: { env: SiteEnvironment; movable: boolean; onAct: (d: EnvDialog) => void }) {
   const working = env.name === DEV_ENVIRONMENT;
   return (
     <div className="mt-auto flex flex-wrap gap-2 border-t pt-3">
@@ -333,9 +358,12 @@ function CardActions({ env, onAct }: { env: SiteEnvironment; onAct: (d: EnvDialo
       <Button size="sm" variant="outline" disabled={env.release === 0} onClick={() => onAct({ kind: "rollback", env })}>
         Roll back
       </Button>
-      {!env.public && (
-        <Button size="sm" variant="outline" onClick={() => onAct({ kind: "share", env })}>
-          Share
+      <Button size="sm" variant="outline" onClick={() => onAct({ kind: "share", env })}>
+        Share
+      </Button>
+      {movable && (
+        <Button size="sm" variant="outline" onClick={() => onAct({ kind: "move", env })}>
+          Move
         </Button>
       )}
       <Button size="sm" variant="outline" onClick={() => onAct({ kind: "settings", env })}>
@@ -346,7 +374,7 @@ function CardActions({ env, onAct }: { env: SiteEnvironment; onAct: (d: EnvDialo
 }
 
 // ApprovalBanners says where each request that needs approval stands: a
-// promote, or making an environment public.
+// promote, or making a domain public.
 function ApprovalBanners({ site, onNavigate }: { site: Site; onNavigate: (path: string) => void }) {
   const requests = useApprovalForSite(site);
   const [failure, setFailure] = useState<string | null>(null);
@@ -377,7 +405,7 @@ function ApprovalBanner({ site, request: r, onNavigate, onFail }: { site: Site; 
 function Rejected({ request: r, publicReq }: { request: SiteApproval; publicReq: boolean }) {
   return (
     <Alert variant="destructive" data-testid={publicReq ? "public-rejected" : "approval-rejected"}>
-      <AlertTitle>{publicReq ? `Making ${r.target} public was rejected` : `Release ${r.version} was rejected for ${r.target}`}</AlertTitle>
+      <AlertTitle>{publicReq ? `Making the domain ${r.target} public was rejected` : `Release ${r.version} was rejected for ${r.target}`}</AlertTitle>
       <AlertDescription>
         Rejected by {r.decided_by} on {when(r.decided_at ?? "")}
         {r.decision_comment ? `: "${r.decision_comment}"` : "."}
@@ -389,7 +417,7 @@ function Rejected({ request: r, publicReq }: { request: SiteApproval; publicReq:
 function Waiting({ request: r, publicReq, onNavigate }: { request: SiteApproval; publicReq: boolean; onNavigate: (path: string) => void }) {
   return (
     <Alert data-testid={publicReq ? "public-waiting" : "approval-waiting"}>
-      <AlertTitle>{publicReq ? `Making ${r.target} public is waiting for approval` : `Release ${r.version} is waiting for approval to serve ${r.target}`}</AlertTitle>
+      <AlertTitle>{publicReq ? `Making the domain ${r.target} public is waiting for approval` : `Release ${r.version} is waiting for approval to serve ${r.target}`}</AlertTitle>
       <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
         <span>
           Asked by {r.requester_email} on {when(r.created_at)}.{" "}
@@ -424,11 +452,11 @@ function PromoteApproved({ site, request: r, onFail }: { site: Site; request: Si
 }
 
 function PublicApproved({ site, request: r, onFail }: { site: Site; request: SiteApproval; onFail: (t: string) => void }) {
-  const set = useSetSiteEnvironment(site.name);
-  const finish = () => set.mutate({ name: r.target, public: true }, { onError: (e) => onFail(errorText(e, "The environment could not be made public")) });
+  const set = useSetDomainAccess(site.name);
+  const finish = () => set.mutate({ hostname: r.target, public: true }, { onError: (e) => onFail(errorText(e, "The domain could not be made public")) });
   return (
     <Alert data-testid="public-approved">
-      <AlertTitle>Making {r.target} public is approved</AlertTitle>
+      <AlertTitle>Making the domain {r.target} public is approved</AlertTitle>
       <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
         <span>
           Approved by {r.decided_by} on {when(r.decided_at ?? "")}. Nothing changes on {r.target} until you finish.

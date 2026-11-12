@@ -569,3 +569,32 @@ func TestReadFailuresAreReported(t *testing.T) {
 		require.ErrorContains(t, err, "dotted segment")
 	})
 }
+
+// TestPatchFile_HeadersFilePatchesTheRules (#2557): the _headers file reads
+// as the rules it became, is listed with the release's files, and an edit of
+// it changes the rules; one that does not parse writes nothing.
+func TestPatchFile_HeadersFilePatchesTheRules(t *testing.T) {
+	ctx := context.Background()
+	svc, store, _ := seeded(t)
+	_, err := svc.Publish(ctx, owner, PublishRequest{Site: "marketing", Base: 1, Files: []InputFile{
+		{Path: "_headers", Body: []byte("/*\n  X-Frame-Options: DENY\n")},
+	}})
+	require.NoError(t, err)
+	ref := site.Ref{Site: "marketing", Environment: site.EnvDev, Path: "_headers"}
+	read, err := svc.ReadFile(ctx, owner, ref)
+	require.NoError(t, err)
+	assert.Equal(t, "/*\n  X-Frame-Options: DENY\n", read.Body)
+	all, err := svc.Tree(ctx, owner, treeRef, 0, 0)
+	require.NoError(t, err)
+	assert.Equal(t, "_headers", all.Files[0].Path, "listed with the files")
+
+	_, err = svc.PatchFile(ctx, owner, PatchRequest{Ref: ref, Edits: edit("DENY", "SAMEORIGIN")})
+	require.NoError(t, err)
+	assert.Equal(t, []site.HeaderRule{{Path: "/*", Headers: []site.Header{{Name: "X-Frame-Options", Value: "SAMEORIGIN"}}}}, store.releases[siteID][0].Headers,
+		"the newest release holds the edited rules")
+
+	count := len(store.releases[siteID])
+	_, err = svc.PatchFile(ctx, owner, PatchRequest{Ref: ref, Edits: edit("X-Frame-Options", "Set-Cookie")})
+	require.ErrorContains(t, err, "a release cannot set Set-Cookie")
+	assert.Len(t, store.releases[siteID], count, "rules that do not parse write nothing")
+}

@@ -13,7 +13,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -136,29 +135,31 @@ func (s *Service) Find(ctx context.Context, ref string) (*site.Site, error) {
 	return s.Store.GetByName(ctx, ref) //nolint:wrapcheck // read by identity
 }
 
-// Create makes a site with dev, its working copy, holding the main address;
-// its creator is its owner. A site and an application share the name space of
-// the pages domain, so a name one of them holds is refused, and so is a site
-// whose dev address could not be one DNS label.
+// Create makes a site with dev, its working copy, and prod, holding the main
+// address (#2617); its creator is its owner. A site and an application share
+// the name space of the pages domain, so a name one of them holds is refused,
+// and so is a site whose dev or prod address could not be one DNS label.
 func (s *Service) Create(ctx context.Context, actor Actor, name, description string) (*site.Site, error) {
 	if actor.Email == "" {
 		return nil, refused("a site needs an owner with an email")
 	}
 	st := &site.Site{
 		ID: sitestore.NewSiteID(), Name: name, Description: description, OwnerEmail: actor.Email, CreatedBy: actor.Email,
-		Environments: []site.Environment{{Name: site.EnvDev}}, MainEnvironment: site.EnvDev,
+		Environments: []site.Environment{{Name: site.EnvDev}, {Name: site.EnvProd}}, MainEnvironment: site.EnvProd,
 	}
 	if err := st.Validate(); err != nil {
-		return nil, refusedBy(err)
-	}
-	if err := site.ValidateLabel(name, site.EnvDev); err != nil {
 		return nil, refusedBy(err)
 	}
 	if err := s.notAnApplication(ctx, name); err != nil {
 		return nil, err
 	}
-	if err := s.notAnApplication(ctx, site.EnvLabel(name, site.EnvDev)); err != nil {
-		return nil, err
+	for _, env := range []string{site.EnvDev, site.EnvProd} {
+		if err := site.ValidateLabel(name, env); err != nil {
+			return nil, refusedBy(err)
+		}
+		if err := s.notAnApplication(ctx, site.EnvLabel(name, env)); err != nil {
+			return nil, err
+		}
 	}
 	if err := s.Store.Create(ctx, st); err != nil {
 		return nil, err //nolint:wrapcheck // read by identity
@@ -296,25 +297,27 @@ func (s *Service) removeObjects(ctx context.Context, keys []string) {
 }
 
 // EnvironmentChange creates an environment or changes it; a nil field is left
-// alone. Reason goes with a request to make it public.
+// alone.
 type EnvironmentChange struct {
 	RequiresApproval *bool
-	Public           *bool
-	InternalView     *bool
-	Reason           string
+	// Public is refused (#2619): public is a setting of a domain. It is read
+	// only so the refusal can say so.
+	Public       *bool
+	InternalView *bool
 	// Keep sets how many releases the environment keeps (0 keeps every one),
 	// and KeepDefault returns it to the deployment's default (#2602).
 	Keep        *int
 	KeepDefault bool
+	// Place is where a new environment goes, or where an existing one moves
+	// to (#2617).
+	Place *site.Place
 }
 
 // EnvironmentResult is what setting an environment did.
 type EnvironmentResult struct {
 	Site *site.Site `json:"site"`
-	// Status is StatusDone, or StatusAwaitingApproval when making the
-	// environment public waits on Approvals.
-	Status   string            `json:"status"`
-	Approval *approval.Request `json:"approval,omitempty"`
+	// Status is StatusDone.
+	Status string `json:"status"`
 	// Note says the old environment name was read as dev.
 	Note string `json:"note,omitempty"`
 }
@@ -326,12 +329,11 @@ type ApprovalRequest = approval.Request
 // StatusDone is a change that took effect.
 const StatusDone = "done"
 
-// SetEnvironment adds an environment or changes its settings. A new
-// environment is private unless public is asked for. dev is always private and
-// never requires approval. Making an environment public is the owner's or an
-// administrator's, and where the environment requires approval it waits on
-// Approvals like a promote; anyone who manages the site makes one private.
-// Taking the approval rule off is an administrator's.
+// SetEnvironment adds an environment or changes its settings or its place. A
+// new environment is placed between dev and prod: where the caller says, or,
+// when there is only one such place, there. dev never requires approval, and
+// dev and prod never move. Taking the approval rule off is an administrator's,
+// and so is moving an environment forward past one that requires approval.
 func (s *Service) SetEnvironment(ctx context.Context, actor Actor, ref, name string, c EnvironmentChange) (*EnvironmentResult, error) {
 	st, err := s.Find(ctx, ref)
 	if err != nil {
@@ -345,16 +347,20 @@ func (s *Service) SetEnvironment(ctx context.Context, actor Actor, ref, name str
 	if err := s.checkEnvironmentChange(ctx, actor, t, c); err != nil {
 		return nil, err
 	}
-	out := &EnvironmentResult{Status: StatusDone}
-	if aliased {
-		out.Note = site.AliasNote
-	}
-	set, err := s.environmentSettings(ctx, actor, t, c, out)
+	place, err := placeFor(actor, t, c.Place)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.writeEnvironment(ctx, actor, envWrite{envTarget: t, set: set, reason: c.Reason}, out); err != nil {
-		return nil, err
+	set := site.EnvironmentSettings{RequiresApproval: c.RequiresApproval, InternalView: c.InternalView, Keep: c.Keep, KeepDefault: c.KeepDefault, Place: place}
+	if err := s.Store.SetEnvironment(ctx, st.ID, name, set, actor.Email); err != nil {
+		return nil, err //nolint:wrapcheck // read by identity
+	}
+	if s.Invalidate != nil {
+		s.Invalidate(st.Name)
+	}
+	out := &EnvironmentResult{Status: StatusDone}
+	if aliased {
+		out.Note = site.AliasNote
 	}
 	if out.Site, err = s.Store.Get(ctx, st.ID); err != nil {
 		return nil, err //nolint:wrapcheck // read by identity
@@ -362,95 +368,63 @@ func (s *Service) SetEnvironment(ctx context.Context, actor Actor, ref, name str
 	return out, nil
 }
 
-// writeEnvironment stores the settings and, for an environment created by
-// asking to make it public where that waits on Approvals, files the request
-// now that it exists, private.
-func (s *Service) writeEnvironment(ctx context.Context, actor Actor, w envWrite, out *EnvironmentResult) error {
-	if err := s.Store.SetEnvironment(ctx, w.st.ID, w.name, w.set, actor.Email); err != nil {
-		return err //nolint:wrapcheck // read by identity
-	}
-	if out.Status == StatusAwaitingApproval && w.env == nil {
-		var err error
-		if out.Approval, err = s.requestPublic(ctx, actor, w.st, w.name, w.reason); err != nil {
-			return err
-		}
-	}
-	if s.Invalidate != nil {
-		s.Invalidate(w.st.Name)
-	}
-	return nil
-}
-
-// envWrite is one decided write of an environment's settings.
-type envWrite struct {
-	envTarget
-	set    site.EnvironmentSettings
-	reason string
-}
-
-// environmentSettings is what the store writes: the change as asked, less
-// making it public when that waits on Approvals, which out then says.
-func (s *Service) environmentSettings(ctx context.Context, actor Actor, t envTarget, c EnvironmentChange, out *EnvironmentResult) (site.EnvironmentSettings, error) {
-	set := site.EnvironmentSettings{RequiresApproval: c.RequiresApproval, Public: c.Public, InternalView: c.InternalView, Keep: c.Keep, KeepDefault: c.KeepDefault}
-	if !makesPublic(t.env, c) {
-		return set, nil
-	}
-	waiting, err := s.publicApproval(ctx, actor, t, c)
-	if err != nil {
-		return set, err
-	}
-	if waiting != nil {
-		set.Public = nil
-		out.Status, out.Approval = StatusAwaitingApproval, waiting
-	}
-	return set, nil
-}
-
-// makesPublic reports whether the change opens an environment that is not
-// public yet.
-func makesPublic(env *site.Environment, c EnvironmentChange) bool {
-	return isTrue(c.Public) && (env == nil || !env.Public)
+// publicOnEnvironment is the refusal of public on an environment (#2619).
+func publicOnEnvironment(env string) error {
+	return refused("public is a setting of a domain, not of an environment: every address of %s on the pages domain asks for a sign-in. "+
+		"Add a domain to %s and set public on it (add_domain with public, or set_domain).", env, env)
 }
 
 func (s *Service) checkEnvironmentChange(ctx context.Context, actor Actor, t envTarget, c EnvironmentChange) error {
+	if c.Public != nil {
+		return publicOnEnvironment(t.name)
+	}
 	if t.env == nil {
 		if err := s.checkNewEnvironment(ctx, t.st, t.name); err != nil {
 			return err
 		}
 	}
-	if err := devRefusal(t.name, c); err != nil {
-		return err
+	if t.name == site.EnvDev && isTrue(c.RequiresApproval) {
+		return refused("dev takes every publish and edit directly, so it never requires approval")
 	}
 	if err := s.checkKeep(ctx, actor, t.st, c); err != nil {
 		return err
 	}
-	if takesApprovalOff(t.env, c) && !actor.Admin {
+	if t.env != nil && t.env.TakesApprovalOff(c.RequiresApproval) && !actor.Admin {
 		return fmt.Errorf("an administrator removes an environment's approval rule: %w", site.ErrNotAllowed)
 	}
-	if makesPublic(t.env, c) {
-		if err := s.mayOwn(ctx, actor, t.st); err != nil {
-			return fmt.Errorf("only the owner of site %q or an administrator makes an environment public: %w", t.st.Name, site.ErrNotAllowed)
+	return nil
+}
+
+// placeFor is the place an environment is written with: for a new one, the
+// place asked for or the one place there is; for an existing one, the place
+// it moves to, nil when it stays.
+func placeFor(actor Actor, t envTarget, p *site.Place) (*site.Place, error) {
+	order := t.st.Order()
+	if t.env == nil {
+		place, err := site.PlaceNew(order, t.name, p)
+		if err != nil {
+			return nil, refusedBy(err)
 		}
+		return place, nil
 	}
-	return nil
-}
-
-// takesApprovalOff reports whether the change removes an environment's
-// approval rule.
-func takesApprovalOff(env *site.Environment, c EnvironmentChange) bool {
-	return env != nil && env.RequiresApproval && c.RequiresApproval != nil && !*c.RequiresApproval
-}
-
-// devRefusal refuses what dev, the working copy, never is: public, or held
-// for approval.
-func devRefusal(name string, c EnvironmentChange) error {
-	switch {
-	case name == site.EnvDev && isTrue(c.Public):
-		return refused("dev is the working copy, so it is always private; share it, or promote its release to an environment people use")
-	case name == site.EnvDev && isTrue(c.RequiresApproval):
-		return refused("dev takes every publish and edit directly, so it never requires approval")
+	if p == nil {
+		return nil, nil //nolint:nilnil // nil place: the environment stays where it is
 	}
-	return nil
+	switch t.name {
+	case site.EnvDev:
+		return nil, refused("dev is always first, so it cannot be moved. Move an environment between dev and prod instead.")
+	case site.EnvProd:
+		return nil, refused("prod is always last, so it cannot be moved. Move an environment between dev and prod instead.")
+	}
+	placed, err := site.Placed(order, t.name, p)
+	if err != nil {
+		return nil, refusedBy(err)
+	}
+	if gated := t.st.PassedGated(order, placed, t.name); gated != "" && !actor.Admin {
+		return nil, fmt.Errorf("an administrator moves %s past %s, which requires approval: the environment after %s would take a release %s never approved: %w",
+			t.name, gated, gated, gated, site.ErrNotAllowed)
+	}
+	return p, nil
 }
 
 // checkNewEnvironment refuses a name that is not one, whose address could not
@@ -476,51 +450,6 @@ type envTarget struct {
 	st   *site.Site
 	name string
 	env  *site.Environment
-}
-
-// publicApproval is nil when making the environment public may go ahead, or
-// the request it now waits on. An environment that does not exist yet and
-// will require approval waits too; its request is filed once it exists.
-func (s *Service) publicApproval(ctx context.Context, actor Actor, t envTarget, c EnvironmentChange) (*approval.Request, error) {
-	gated := (t.env != nil && t.env.RequiresApproval) || isTrue(c.RequiresApproval)
-	if !gated || actor.Admin {
-		return nil, nil //nolint:nilnil // nil request is "go ahead"
-	}
-	if s.Approvals == nil {
-		return nil, refused("this deployment has no approvals queue, so environment %q cannot be made public", t.name)
-	}
-	if t.env == nil {
-		return &approval.Request{}, nil
-	}
-	if s.Approvals.EnvironmentApproved(ctx, t.st.ID, t.name, publicStamp(t.env)) {
-		return nil, nil //nolint:nilnil // nil request is "go ahead"
-	}
-	return s.requestPublic(ctx, actor, t.st, t.name, c.Reason)
-}
-
-func (s *Service) requestPublic(ctx context.Context, actor Actor, st *site.Site, env, reason string) (*approval.Request, error) {
-	siteID, siteName := st.ID, st.Name
-	fresh, err := s.Store.Get(ctx, siteID)
-	if err != nil {
-		return nil, err //nolint:wrapcheck // read by identity
-	}
-	e := fresh.Environment(env)
-	if e == nil {
-		return nil, noEnvironment(env)
-	}
-	r, err := s.Approvals.SubmitEnvironment(ctx, approval.Actor{Email: actor.Email, Persona: actor.Persona, Admin: actor.Admin}, approval.SubmitEnvironment{
-		SiteID: siteID, Site: siteName, Target: env, Stamp: publicStamp(e), Reason: reason,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("requesting approval: %w", err)
-	}
-	return r, nil
-}
-
-// publicStamp fixes an approval to make an environment public to the access
-// it was asked against: a later change to private and back asks again.
-func publicStamp(env *site.Environment) string {
-	return "public:" + env.AccessChangedAt.UTC().Format(time.RFC3339Nano)
 }
 
 // SetMainEnvironment gives the site's main address to an environment, or to
@@ -572,52 +501,10 @@ func (s *Service) move(ctx context.Context, actor Actor, m repoint) error {
 	return nil
 }
 
-// OwnAddress is where a site's main address answers, "" with no pages
-// domain or when the main address is given to no environment.
-func (s *Service) OwnAddress(st *site.Site) string {
-	domain := s.cfg().PagesDomain
-	if domain == "" || st.MainEnvironment == "" {
-		return ""
-	}
-	return s.Origin(st.Name + "." + domain)
-}
-
-// PagesAddress is an environment's address on the pages domain: the main
-// address for the environment holding it, otherwise <site>--<env>; "" with no
-// pages domain, and "" for a <site>--<env> no certificate can be issued for
-// (site.ReservedLabel, #2611).
-func (s *Service) PagesAddress(st *site.Site, environment string) string {
-	domain := s.cfg().PagesDomain
-	if domain == "" {
-		return ""
-	}
-	if environment == st.MainEnvironment {
-		return s.Origin(st.Name + "." + domain)
-	}
-	label := site.EnvLabel(st.Name, environment)
-	if site.ReservedLabel(label) {
-		return ""
-	}
-	return s.Origin(label + "." + domain)
-}
-
-// AddressNote is why a site's environments have no address on the pages
-// domain, "" for a site whose addresses answer or a deployment with no pages
-// domain (#2611).
-func (s *Service) AddressNote(st *site.Site) string {
-	if domain := s.cfg().PagesDomain; domain != "" {
-		return site.ReservedLabelNote(st.Name, domain)
-	}
-	return ""
-}
-
-// PagesAddresses is every environment's address on the pages domain, by name.
-func (s *Service) PagesAddresses(st *site.Site) map[string]string {
-	out := make(map[string]string, len(st.Environments))
-	for _, e := range st.Environments {
-		out[e.Name] = s.PagesAddress(st, e.Name)
-	}
-	return out
+// Addressing is where the deployment's sites answer, as the configuration in
+// force names it.
+func (s *Service) Addressing() site.Addressing {
+	return site.Addressing{PagesDomain: s.cfg().PagesDomain, Scheme: s.PublicScheme, Port: s.PublicPort}
 }
 
 // Address is where people reach an environment: the first of its domains,
@@ -627,59 +514,7 @@ func (s *Service) Address(ctx context.Context, st *site.Site, environment string
 	if err != nil {
 		domains = nil
 	}
-	return s.addressFrom(st, environment, domains)
-}
-
-// Addresses is where people reach each environment of st, by name, as Address
-// answers for one, from the site's domains as the caller read them. The
-// portal's site view and manage_site get both answer with it, so an
-// environment with a domain is addressed by its domain on both (#2607).
-func (s *Service) Addresses(st *site.Site, domains []site.Domain) map[string]string {
-	out := make(map[string]string, len(st.Environments))
-	for _, e := range st.Environments {
-		out[e.Name] = s.addressFrom(st, e.Name, domains)
-	}
-	return out
-}
-
-func (s *Service) addressFrom(st *site.Site, environment string, domains []site.Domain) string {
-	for _, d := range domains {
-		if d.Environment == environment {
-			return s.Origin(d.Hostname)
-		}
-	}
-	return s.PagesAddress(st, environment)
-}
-
-// PageOrigin is where an application's pages answer, "" with no pages domain.
-func (s *Service) PageOrigin(applicationName string) string {
-	domain := s.cfg().PagesDomain
-	if domain == "" {
-		return ""
-	}
-	return s.Origin(applicationName + "." + domain)
-}
-
-// Origin is the browser origin a hostname answers at.
-func (s *Service) Origin(host string) string {
-	out := s.PublicScheme + "://" + host
-	if s.PublicPort != "" {
-		out += ":" + s.PublicPort
-	}
-	return out
-}
-
-// LatestRelease is a site's newest release number, 0 for none.
-func (s *Service) LatestRelease(ctx context.Context, ref string) (int, error) {
-	st, err := s.Find(ctx, ref)
-	if err != nil {
-		return 0, err
-	}
-	rels, err := s.Store.Releases(ctx, st.ID)
-	if err != nil || len(rels) == 0 {
-		return 0, err //nolint:wrapcheck // read by identity
-	}
-	return rels[0].Number, nil
+	return s.Addressing().Address(st, environment, domains)
 }
 
 // EnvironmentOwner is the owner of the site holding the environment, for an

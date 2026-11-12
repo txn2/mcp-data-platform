@@ -273,7 +273,7 @@ func (o *outputSink) add(f site.File) error {
 func (o *outputSink) Put(name string, body []byte) error {
 	clean, err := CleanPath(name)
 	if err != nil {
-		return refused("%s", err.Error())
+		return refusedBy(err)
 	}
 	sum := sha256.Sum256(body)
 	in := InputFile{Path: clean, Body: body, sum: hex.EncodeToString(sum[:])}

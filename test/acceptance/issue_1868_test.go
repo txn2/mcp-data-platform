@@ -26,9 +26,9 @@ import (
 //
 // Wire forms: save_asset's name, content, content_type and description,
 // manage_resource's action, filename, display_name, path, description,
-// content and content_type, and s3_object's action, connection, bucket, key
-// and purpose are typed strings, so each admits one JSON form and is sent as
-// that literal. The resource PATCH takes display_name as a string.
+// content and content_type are typed strings, so each admits one JSON form
+// and is sent as that literal. The resource PATCH takes display_name as a
+// string. The stored object is removed with the store's own client.
 
 // pinned1868 is the document from the ticket: no script, an infinite pulse
 // over a box-shadow, and feGaussianBlur filters, 50 KB in the original.
@@ -103,11 +103,9 @@ func TestIssue1868_AResourceWhoseObjectIsGoneLeavesTheQueue(t *testing.T) {
 	t.Cleanup(func() { _, _ = c.rest(http.MethodDelete, "/api/v1/resources/"+id, http.NoBody) })
 	awaitResourceTile1787(t, c, id, true)
 
-	c.call("s3_object", map[string]any{
-		"action": "delete", "connection": "dev-resources",
-		"bucket": "managed-resources", "key": resourceS3Key1775(t, c, id),
-		"purpose": "Acceptance #1868: a resource whose stored object is gone must leave the tile queue.",
-	})
+	// Removed with the store's own client: the S3 tools refuse the platform's
+	// own bucket (#2616).
+	resourceStore(t).remove(resourceS3Key1775(t, c, id))
 	if status, body := c.rest(http.MethodPatch, "/api/v1/resources/"+id,
 		jsonBody(t, map[string]any{"display_name": "acc-1868-renamed-" + stamp})); status != http.StatusOK {
 		t.Fatalf("renaming the resource so a tile is owed: status %d, %v", status, body)
@@ -138,5 +136,4 @@ func TestIssue1868_AResourceWhoseObjectIsGoneLeavesTheQueue(t *testing.T) {
 	if !drawnSince1787(failedAt, updated) {
 		t.Errorf("the failure (%s) is not dated to the file as it stands (%s), so the panel would not show it", failedAt, updated)
 	}
-
 }

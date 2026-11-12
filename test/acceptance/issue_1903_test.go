@@ -3,7 +3,6 @@
 package acceptance
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"path"
@@ -16,8 +15,8 @@ import (
 // Issue #1903: objects the platform wrote and then lost track of, or wrote
 // where configuration said it should not.
 //
-// What these hold, against the dev stack's own buckets, read back with the
-// s3_list tool a person calls:
+// What these hold, against the dev stack's own buckets, read back with each
+// store's own client (the S3 tools refuse the platform's buckets, #2616):
 //
 //   - A managed resource revised after each draw, then deleted, leaves no
 //     object under its key directory; while it lives, only the current head
@@ -32,43 +31,27 @@ import (
 //
 // Wire forms: manage_resource's action, filename, display_name, path, content,
 // content_type and reference, trino_export's sql, format, name and idempotency_key,
-// save_asset's name, content and content_type, and s3_list's connection,
-// bucket and prefix are typed strings, so each admits one JSON form and is
-// sent as a literal tools/call parameter of it. manage_asset's sections is a
+// and save_asset's name, content and content_type are typed strings, so each
+// admits one JSON form and is sent as a literal tools/call parameter of it. manage_asset's sections is a
 // typed array of objects. The portal and admin content routes take the raw
 // body; the portal create route takes a JSON object.
 
 const (
 	issue1903Purpose        = "Acceptance for #1903: platform objects are removed with what names them and written under the configured prefix."
 	issue1903Prefix         = "artifacts/"
-	issue1903ResourceConn   = "dev-resources"
-	issue1903ResourceBucket = "managed-resources"
-	issue1903PortalConn     = "dev-s3"
-	issue1903PortalBucket   = "portal-assets"
+	issue1903ResourceBucket = devResourceBucket
+	issue1903PortalBucket   = devAssetBucket
 )
 
-// issue1903List lists every key under prefix through the s3_list tool.
-func issue1903List(t *testing.T, c *client, conn, bucket, prefix string) []string {
+// issue1903List lists every key under prefix in a platform bucket, with the
+// store's own client: the S3 tools refuse the platform's own buckets (#2616).
+func issue1903List(t *testing.T, _ *client, bucket, prefix string) []string {
 	t.Helper()
-	res, text, err := c.callRaw("s3_list", map[string]any{
-		"connection": conn, "bucket": bucket, "prefix": prefix, "purpose": issue1903Purpose,
-	})
-	if err != nil || res.IsError {
-		t.Fatalf("s3_list %s/%s: %v %s", bucket, prefix, err, text)
+	store := assetStore(t)
+	if bucket == issue1903ResourceBucket {
+		store = resourceStore(t)
 	}
-	var out struct {
-		Objects []struct {
-			Key string `json:"key"`
-		} `json:"objects"`
-	}
-	if err := json.Unmarshal([]byte(text), &out); err != nil {
-		t.Fatalf("s3_list result is not the expected object: %v\n%s", err, text)
-	}
-	keys := make([]string, 0, len(out.Objects))
-	for _, o := range out.Objects {
-		keys = append(keys, o.Key)
-	}
-	return keys
+	return store.keys(prefix)
 }
 
 func issue1903IsTile(key string) bool {
@@ -112,7 +95,7 @@ func TestIssue1903_ADeletedResourceLeavesNothingUnderItsKeyDirectory(t *testing.
 		t.Fatalf("DELETE resource %s: HTTP %d %v", id, status, body)
 	}
 	deleted = true
-	if left := issue1903List(t, c, issue1903ResourceConn, issue1903ResourceBucket, dir); len(left) != 0 {
+	if left := issue1903List(t, c, issue1903ResourceBucket, dir); len(left) != 0 {
 		t.Errorf("objects left under %s after the resource was deleted: %v", dir, left)
 	}
 }
@@ -123,7 +106,7 @@ func TestIssue1903_ADeletedResourceLeavesNothingUnderItsKeyDirectory(t *testing.
 func issue1903OnlyTheHeadHasTiles(t *testing.T, c *client, id string, row map[string]any) {
 	t.Helper()
 	head, _ := row["s3_key"].(string)
-	keys := issue1903List(t, c, issue1903ResourceConn, issue1903ResourceBucket, issue1903KeyDir(t, row, id))
+	keys := issue1903List(t, c, issue1903ResourceBucket, issue1903KeyDir(t, row, id))
 	headTiles := 0
 	for _, key := range keys {
 		if issue1903IsTile(key) && path.Dir(key) != path.Dir(head) {
@@ -175,7 +158,7 @@ func TestIssue1903_AReplayedKeyedExportStoresOneObject(t *testing.T) {
 	row := assetRow1787(t, c, ids[0])
 	s3Key, _ := row["s3_key"].(string)
 	var content []string
-	for _, k := range issue1903List(t, c, issue1903PortalConn, issue1903PortalBucket, path.Dir(s3Key)+"/") {
+	for _, k := range issue1903List(t, c, issue1903PortalBucket, path.Dir(s3Key)+"/") {
 		if !issue1903IsTile(k) {
 			content = append(content, k)
 		}

@@ -135,8 +135,8 @@ func TestPortal_ReleaseRoutesNameOnlyWhatTheCallerMayKnow(t *testing.T) {
 	job := decodeBody[site.Job](t, f.statusIs(t, http.StatusOK, route{http.MethodGet, siteBase + "/jobs/sjob_dev", nil}, userManager))
 	assert.Equal(t, "s3://lake/site/", job.Source)
 
-	// A public environment is anyone's to know of.
-	f.store.sites[siteID].Environment(site.EnvDev).Public = true
+	// An environment with a public domain is anyone's to know of.
+	f.store.domains["dev.example.org"] = &site.Domain{Hostname: "dev.example.org", SiteID: siteID, Environment: site.EnvDev, Public: true}
 	rels = decodeBody[ReleaseList](t, f.statusIs(t, http.StatusOK, route{http.MethodGet, siteBase + "/releases", nil}, userStranger))
 	assert.Equal(t, []string{site.EnvDev}, rels.Releases[0].ServedIn)
 	jobs = decodeBody[JobList](t, f.statusIs(t, http.StatusOK, route{http.MethodGet, siteBase + "/jobs", nil}, userStranger))

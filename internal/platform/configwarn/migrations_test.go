@@ -58,3 +58,29 @@ func TestCheckPendingMigrations_AnUnreadableDatabaseWarnsOfNothing(t *testing.T)
 		t.Errorf("warned of a rename on a database it could not read: %s", logs.String())
 	}
 }
+
+// TestCheckPendingPublic pins #2619's upgrade warning: before 000245 runs,
+// each public environment with no domain is named and counted; a failed read
+// is logged, never startup's failure.
+func TestCheckPendingPublic(t *testing.T) {
+	ctx := context.Background()
+	scrape := withMetrics(t)
+	logs := captureLog(t)
+	checkPendingPublic(ctx, func() ([]migrate.PublicLoss, error) {
+		return []migrate.PublicLoss{{Site: "d4l", Environment: "prod"}}, nil
+	})
+	out := logs.String()
+	for _, want := range []string{"code=site_public_without_domain", "site=d4l", "environment=prod", "make that domain public"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the warning does not carry %q:\n%s", want, out)
+		}
+	}
+	if !strings.Contains(scrape(), `config_validation_warnings_total{code="site_public_without_domain"} 1`) {
+		t.Error("the warning is not counted")
+	}
+	logs.Reset()
+	checkPendingPublic(ctx, func() ([]migrate.PublicLoss, error) { return nil, errors.New("db down") })
+	if out := logs.String(); !strings.Contains(out, "reading what migration 000245 makes private failed") {
+		t.Errorf("a failed read logs %q", out)
+	}
+}

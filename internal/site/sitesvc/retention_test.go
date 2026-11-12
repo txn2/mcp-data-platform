@@ -69,7 +69,7 @@ func TestSetEnvironment_WhoChangesTheReleaseLimit(t *testing.T) {
 func TestAddDomain_CreatesTheEnvironmentWithItsLimit(t *testing.T) {
 	ctx := context.Background()
 	svc, store, _, _ := fixture(t)
-	_, err := svc.AddDomain(ctx, owner, DomainRequest{Hostname: "qa.client.example", Site: "marketing", Environment: "qa", Keep: new(4)})
+	_, err := svc.AddDomain(ctx, owner, DomainRequest{Hostname: "qa.client.example", Site: "marketing", Environment: "qa", Keep: new(4), Place: &site.Place{After: "stage"}})
 	require.NoError(t, err)
 	e := store.sites[siteID].Environment("qa")
 	require.NotNil(t, e)
@@ -77,7 +77,7 @@ func TestAddDomain_CreatesTheEnvironmentWithItsLimit(t *testing.T) {
 	assert.Equal(t, 4, *e.KeepReleases)
 
 	grant(store, manager.Email, site.LevelManage)
-	_, err = svc.AddDomain(ctx, manager, DomainRequest{Hostname: "uat.client.example", Site: "marketing", Environment: "uat", Keep: new(4)})
+	_, err = svc.AddDomain(ctx, manager, DomainRequest{Hostname: "uat.client.example", Site: "marketing", Environment: "uat", Keep: new(4), Place: &site.Place{After: "stage"}})
 	require.ErrorContains(t, err, "only the owner")
 }
 
@@ -117,8 +117,9 @@ func TestPrunedReleases_AreNeverReachedAgain(t *testing.T) {
 		require.ErrorContains(t, err, "no earlier release it still keeps")
 	})
 	t.Run("a promote of one is refused", func(t *testing.T) {
-		svc, _ := setup(t)
-		_, err := svc.Promote(ctx, owner, PromoteRequest{Site: "marketing", To: "stage", Release: 2})
+		svc, store := setup(t)
+		store.sites[siteID].Environment(site.EnvDev).Release = 2
+		_, err := svc.Promote(ctx, owner, PromoteRequest{Site: "marketing", To: "stage"})
 		require.ErrorIs(t, err, site.ErrPruned)
 	})
 	t.Run("an application pin to one is refused", func(t *testing.T) {

@@ -86,7 +86,7 @@ func (l library2591) mount(prefix string) map[string]any {
 	return map[string]any{"prefix": prefix, "scope": "user", "scope_id": l.scopeID, "folder": l.folder}
 }
 
-// mediaSite is a site with a release served publicly at stage.
+// mediaSite is a site with a release served publicly at stage's domain.
 func mediaSite2591(t *testing.T) *site2604 {
 	t.Helper()
 	s := newSite2604(t, keyOwner2604, "acc2591-")
@@ -95,14 +95,18 @@ func mediaSite2591(t *testing.T) *site2604 {
 		{"path": "media/index.html", "content": "<h1>the release's own file</h1>"},
 		{"path": "404.html", "content": "<h1>not here</h1>"},
 	}})
-	s.setEnv(t, keyOwner2604, "stage", map[string]any{"public": true})
+	s.setEnv(t, keyOwner2604, "stage", map[string]any{})
 	promote2602(t, s, "stage", 1)
+	host := s.publicDomain(t, "stage")
+	settled2619(t, host, nil, func(r pageResponse) bool { return r.status == http.StatusOK && strings.Contains(r.body, "<h1>v1</h1>") })
 	return s
 }
 
+// getMedia2591 reads stage through its public domain: every pages address
+// asks for a sign-in (#2619).
 func getMedia2591(t *testing.T, s *site2604, path string, headers map[string]string) pageResponse {
 	t.Helper()
-	return onHost(t, s.host("stage"), http.MethodGet, path, headers, "")
+	return onHost(t, publicHost2619(s, "stage"), http.MethodGet, path, headers, "")
 }
 
 // TestIssue2591_ASiteServesAMountedFolderWithNoRelease is criteria 1, 2 and 3:

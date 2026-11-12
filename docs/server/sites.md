@@ -22,30 +22,44 @@ rollback, with approval where an environment requires it. A publish, an overlay
 or a patch aimed at one is refused, naming `dev` and `promote`, even for an
 administrator.
 
-Each environment is **private** or **public**:
+A new site starts with two environments: `dev`, and `prod`, which holds the
+main address. `dev` is always first and `prod` always last; an environment
+between them is placed when it is created and can be moved later, and a release
+moves one environment at a time, from `dev` to `prod` (see
+[Environments and promotion](#environments-and-promotion)).
 
-- **Private** asks for the platform's sign-in and opens only for administrators,
-  the site's owner, the people who manage the site, and whoever the environment
-  is shared with. Anything finer is the site's own business, using the identity
-  the platform hands it (see [Inside a private environment](#inside-a-private-environment)).
-- **Public** opens for anyone. The platform asks no one to sign in; a site that
-  wants a sign-in builds its own.
+Access is decided per **address** (#2619):
 
-A new environment is private unless public is asked for, and `dev` is always
-private. Only the owner or an administrator makes an environment public.
+- **Every address on the pages domain** (the main address and each
+  `<site>--<env>`) is **private**: it asks for the platform's sign-in and opens
+  only for administrators, the site's owner, the people who manage the site, and
+  whoever the environment is shared with. Anything finer is the site's own
+  business, using the identity the platform hands it (see
+  [Inside a private environment](#inside-a-private-environment)).
+- **An added domain** is private too, unless it is set **public**: then it opens
+  for anyone at that one hostname. The platform asks no one to sign in there; a
+  site that wants a sign-in builds its own.
+
+No domain is needed: an environment works at its pages addresses for people who
+sign in. Making an environment answer anyone takes two deliberate steps, adding a
+domain and setting that domain public, and only the owner or an administrator
+takes the second.
 
 ## How a site is used
 
 1. Someone whose persona holds `manage_site` creates a site. They own it. It has
-   one environment, `dev`, at the site's main address, `<site>.<pages_domain>`.
+   `dev`, at `<site>--dev.<pages_domain>`, and `prod`, at
+   `<site>--prod.<pages_domain>` and the site's main address,
+   `<site>.<pages_domain>`.
 2. The owner invites internal people to work on it (**Can manage**). They and
    their agents publish and edit `dev`.
-3. They create the environments people use (`stage`, `prod`) with **New
-   environment** or `set_environment`, and promote releases to them.
-4. They share each private environment with people and personas, and give the
-   main address to the environment people should reach there, or to none.
-5. They add domains such as `example.com` to any environment but `dev`. A
-   domain answers with its environment's access.
+3. They add the environments a release passes through on its way to `prod`
+   (`stage`, `test`) with **New environment** or `set_environment`, placed
+   between `dev` and `prod`, and promote releases one step at a time.
+4. They share each environment with people and personas, and give the main
+   address to the environment people should reach there, or to none.
+5. They add domains such as `example.com` to any environment but `dev`. A domain
+   is private until the owner or an administrator sets it public.
 6. A system administrator adds an ingress rule for each domain. Admin > Domains
    lists every address that needs one. The pages domain needs one wildcard.
 
@@ -56,9 +70,9 @@ TLS belongs to the ingress.
 
 | Address | What answers |
 |---|---|
-| `<site>.<pages_domain>` | The **main address**: the one environment the owner gives it to (`dev` on a new site), or, given to none, a "Nothing is published here" page |
-| `<site>--<env>.<pages_domain>` | That environment, whichever environment holds the main address |
-| A domain added to an environment | That environment |
+| `<site>.<pages_domain>` | The **main address**: the one environment the owner gives it to (`prod` on a new site), or, given to none, a "Nothing is published here" page. Always private |
+| `<site>--<env>.<pages_domain>` | That environment, whichever environment holds the main address. Always private |
+| A domain added to an environment | That environment: private, or public when set public |
 
 Every address on the pages domain is one label under it, so one
 `*.<pages_domain>` wildcard certificate and one wildcard ingress rule cover
@@ -70,8 +84,8 @@ No site or environment name holds `--`, and an application created since #2604
 cannot either, so `<site>--<env>` is never another site's or application's
 address. An application whose name held `--` before then keeps its address. A
 site or environment whose address could not be one DNS label is refused with
-the reason: a composed label longer than 63 characters (a new site's `dev`
-address counts, so a site name is at most 58), and a label with `--` as its 3rd
+the reason: a composed label longer than 63 characters (a new site's `dev` and
+`prod` addresses count, so a site name is at most 57), and a label with `--` as its 3rd
 and 4th characters, the form RFC 5891 reserves for an encoded international name
 (`xn--`), which certificate authorities refuse to issue for. Every
 `<site>--<env>` of a two-character site has that form, so a site name cannot be
@@ -105,13 +119,25 @@ sites:
     mode: delete                 # delete, or report: the cleanup counts and deletes nothing
     orphan_grace: 24h            # how old an object no release names must be before it goes
     every: 24h                   # how often the cleanup runs
+  tls:
+    hsts:
+      enabled: false             # send Strict-Transport-Security on https answers (#2557)
+      max_age: 31536000          # seconds a browser keeps the rule; 0 is a year
+      include_subdomains: false  # apply it to every name under each address too
 ```
 
 The file's values are the seed. Once an administrator saves **Admin > Settings >
 Sites** (`PUT /api/v1/admin/settings/sites`), the pages domain and the limits
 come from `platform_settings` and apply on every replica within a few seconds,
-with no restart. `sites.tls` and `sites.verify` no longer exist, and a
-configuration that sets them is refused at startup.
+with no restart. `sites.verify` no longer exists, and `sites.tls` holds only
+`hsts`: a configuration that sets either's other keys is refused at startup.
+
+`sites.tls.hsts` sends `Strict-Transport-Security` on every https answer at a
+page origin, a site's addresses on the pages domain and its added domains. The
+platform does not verify who owns an added domain, so each one is held to it
+alike. It is off by default: once a browser holds the rule, it will not open
+those addresses over plain http until the rule expires, whatever the setting
+says then. Nothing is sent over http.
 
 `pages_domain` is the parent of every application's page origin
 (`<application>.<pages_domain>`) and every site address (`<site>.<pages_domain>`
@@ -142,19 +168,22 @@ flowchart LR
   N -- "site--env" --> E[That environment]
   N -- "site" --> M[The environment holding the main address, or not found]
   H -- "added domain" --> V{Maps to}
-  V --> E
+  V --> E2[That environment, as the domain is set]
   V --> A
-  E --> X{Private?}
-  M --> X
-  X -- "yes" --> G{Signed in and let in}
+  E --> G{Signed in and let in}
+  M --> G
+  E2 --> X{Public domain?}
+  X -- "no" --> G
   G --> F[Its release]
-  X -- "no" --> F
+  X -- "yes" --> F
 ```
 
 A hostname routes as soon as it is added. Which release it serves, and whether
 it is private, is read again every half second per replica and at once on the
-replica that changed it, so a promote, a rollback, a change of access or a move
-of the main address takes effect immediately. File bytes are cached by content
+replica that changed it, so a promote, a rollback, a change of a domain's access
+or a move of the main address takes effect immediately. Whether a request is
+private is decided by the route its `Host` matched, an address on the pages
+domain or an added domain, and by no other header the client sends. File bytes are cached by content
 digest in memory and on disk, which never go stale. A site and an application
 cannot be created with one name; a pair from before that rule answers as the
 application.
@@ -164,12 +193,12 @@ application.
 | | Everyone with the Sites area | Shared with | Can manage | Owner | Administrator |
 |---|---|---|---|---|---|
 | See the site in the portal | Yes, and only the environments they can open | Yes | Yes | Yes | Yes |
-| Open a private environment | Only if shared with them | The environments shared | Every one | Every one | Every one |
-| Publish and edit dev, promote, roll back, add domains | No | No | Yes | Yes | Yes |
-| Share an environment, make one private, set approval | No | No | Yes | Yes | Yes |
-| Make an environment public, move the main address | No | No | No | Yes | Yes |
+| Open an environment at its private addresses | Only if shared with them | The environments shared | Every one | Every one | Every one |
+| Publish and edit dev, promote, roll back, add domains, add and place environments | No | No | Yes | Yes | Yes |
+| Share an environment, make a domain private, set approval | No | No | Yes | Yes | Yes |
+| Make a domain public, move the main address | No | No | No | Yes | Yes |
 | Add or remove people who manage, edit, change owner | No | No | No | Yes | Yes |
-| Delete the site, map a domain to an application, take approval off | No | No | No | No | Yes |
+| Delete the site, map a domain to an application, take approval off, move an environment forward past one that requires approval | No | No | No | No | Yes |
 
 A share names **who** and **which environments**:
 
@@ -184,10 +213,11 @@ A share names **who** and **which environments**:
   the persona applies on their next request. A role changed at the identity
   provider applies at their next sign-in, as everywhere on the platform.
 - **Everyone internal** is a per-environment setting (`internal_view`): it opens
-  that private environment to everyone signed in whose persona is not external.
+  that environment's private addresses to everyone signed in whose persona is not
+  external.
 
-A share naming no environments opens every private environment. A public
-environment opens for anyone, so it is not shared.
+A share naming no environments opens every environment. A share applies at every
+private address of an environment; at a public domain anyone opens it.
 
 Someone who does not manage a site sees, in the portal and in the site's API
 answers, only the environments they can open and the domains on them.
@@ -195,15 +225,95 @@ answers, only the environments they can open and the domains on them.
 The Sites area is a persona's `portal.sites` switch. Unset, it is on for a persona
 holding `manage_site`.
 
-## Making an environment public
+## Making a domain public
 
-Only the owner or an administrator makes an environment public; anyone who
-manages the site makes one private. On an environment that requires approval, an
-owner's request files a request in Approvals (purpose `site_public`) and the
-environment stays private; once it is approved, the same request makes it public.
-An approval holds for the access it was asked against: an environment made
+Public is a setting of a domain, not of an environment (#2619). `set_environment`
+with `public` is refused, naming the domain setting. A domain is added private
+unless public is asked for (`add_domain` with `public: true`), and its access
+changes later with `set_domain` (`public: true` or `false`), Make public and Make
+private on the Domains tab, or `PUT /api/v1/portal/sites/{site}/domains/{hostname}`.
+
+Only the owner or an administrator makes a domain public; anyone who manages the
+site makes one private. On an environment that requires approval, an owner's
+request files a request in Approvals (purpose `site_public`, naming the domain)
+and the domain stays private; once it is approved, the same request makes it
+public. An approval holds for the access it was asked against: a domain made
 private and then public again asks again. An administrator's own request goes
-through at once.
+through at once. Every address on the pages domain keeps asking for a sign-in
+whatever its environment's domains are set to.
+
+Caching follows the address: a public domain's answers are cacheable as public
+answers are (`immutable` on a fingerprinted name, `max-age=0, must-revalidate`
+otherwise), and every private address answers `Cache-Control: private,
+no-cache` with `Vary: Cookie`.
+
+## Environments and promotion
+
+A site's environments have a stored order, the path a release takes (#2617):
+
+- `dev` is always first and `prod` always last. Neither can be moved, and
+  neither can be deleted while the site exists.
+- A new environment is placed when it is created, with `after` naming the
+  environment it follows: `dev` or one between `dev` and `prod`. Nothing goes
+  after `prod`. With only `dev` and `prod` there is one place, and a new
+  environment goes there; with more, leaving the place out is refused, naming the
+  environments it could follow.
+- An environment between them can be moved later the same way
+  (`set_environment` with `after`, or Move on its card). Moving one
+  forward past an environment that requires approval is an administrator's:
+  otherwise a release that environment never approved could feed the next one.
+- Every list of a site's environments follows the stored order: the cards, the
+  Sites list, the Promote dialog and `manage_site get`.
+
+**Promotion goes one step.** An environment takes a release only from the
+environment immediately before it, and only the release that environment serves.
+With `dev`, `stage`, `prod`, `prod` takes only what `stage` serves. `promote`
+names the target (`to`); `from`, when given, must be the environment before it,
+and a `release`, when given, must be the one that environment serves. A refusal
+names the environment the release must come from, in the same words from the
+portal, the API and `manage_site`. Nothing is promoted to `dev`, which takes every
+publish and edit directly. Rollback is unchanged: an environment returns to a
+release it served before.
+
+**Applications.** An application release pins each site environment part at what
+the environment before it serves, and `dev`, which has nothing before it, at the
+site's newest release. Pins are read before any environment moves, so an
+application holding both `stage` and `prod` moves each one step in one release, as
+promoting each would. Application rollback is unchanged.
+
+## Response headers
+
+A release may carry a `_headers` file (#2557). Like `_redirects` it is read into
+the release rather than served, it travels with the release, so a rollback
+restores the headers that release declared, and it reads and edits like any file
+(`manage_asset` on `mcp:site:<site>/dev/_headers`). A path line starts a block, in
+the form a redirect's `from` takes (`/*` matches everything beneath), and each
+indented `Name: value` line under it is a header every answer under that path
+carries:
+
+```
+/*
+  Content-Security-Policy: default-src 'self'; img-src 'self' data:
+  Permissions-Policy: camera=(), microphone=()
+/embed/*
+  Content-Security-Policy: frame-ancestors https://partner.example
+```
+
+A release may set only `Content-Security-Policy`,
+`Content-Security-Policy-Report-Only`, `Permissions-Policy`,
+`Cross-Origin-Opener-Policy`, `Cross-Origin-Embedder-Policy`,
+`Cross-Origin-Resource-Policy` and `X-Frame-Options`. Any other header (a cookie,
+caching, CORS), a value holding a control character, or a malformed line refuses
+the publish, naming the file and line. Where two blocks match a path, the later
+one's header replaces the earlier one's of the same name.
+
+A release that declares no framing rule is served with
+`Content-Security-Policy: frame-ancestors 'self'`, so nothing on another origin
+can frame it. Declaring `frame-ancestors` in a `Content-Security-Policy`, or
+`X-Frame-Options`, replaces the default; a `Content-Security-Policy` without
+`frame-ancestors` is sent beside it, and a browser enforces both. The platform's
+own sign-in, no-access and not-found pages keep their own policy, and nothing a
+release declares reaches them.
 
 ## Signing in to a private environment
 
@@ -245,7 +355,7 @@ or do) and uses the platform's sign-in for who someone is.
 
 - `/_viewer` answers the signed-in person as JSON: `email`, `user_id`, `persona`
   and `name` (the directory's display name, empty when it has none). It never
-  carries the cookie or anything signed. On a public environment it answers 401,
+  carries the cookie or anything signed. At a public domain it answers 401,
   "nobody is signed in on this site".
 - When the environment is a part of an application (`add_part kind=site`), its
   hosts also serve that application's endpoints at `/endpoints/<name>/...`, run as
@@ -253,8 +363,8 @@ or do) and uses the platform's sign-in for who someone is.
   site and environment under the pages domain is one site to a browser, so the
   viewer is attached only to a request the browser marks as coming from this
   origin (`Sec-Fetch-Site: same-origin`, or `none` for an address the person typed);
-  a sibling site's page cannot call an environment's endpoints as its viewer. On a
-  public environment the endpoints run as nobody.
+  a sibling site's page cannot call an environment's endpoints as its viewer. At a
+  public domain the endpoints run as nobody.
 - The platform makes no decision inside the site beyond who may open the
   environment.
 
@@ -434,7 +544,7 @@ HTML, SVG, JavaScript and XML in a mount are sent as downloads, so a media folde
 cannot become a second, unreviewed site.
 
 Mounting publishes the folder: whoever mounts must manage the site and be able to
-read the folder, and its files are then public on a public environment. A file in a
+read the folder, and its files are then public at a public domain. A file in a
 mounted folder is refused deletion (`manage_resource delete`, or `DELETE
 /api/v1/resources/{id}` answering 409) unless forced (`force=true`).
 
@@ -442,12 +552,14 @@ mounted folder is refused deletion (`manage_resource delete`, or `DELETE
 
 Whoever manages a site adds a domain with `add_domain`, or Add domain on the site
 page, naming the environment it serves; an environment that does not exist yet is
-created, **private** unless the request asks for public, which only the owner or an
-administrator can, and not at once on an environment that requires approval (add
-the domain private, then make the environment public through Approvals). `dev`
-cannot have a domain: it is the working copy, not an address people rely on. A
-domain answers with its environment's access. Only an administrator maps a hostname
-to an application.
+created, placed by `after`; `requires_approval` sent with the domain applies to
+the environment whether the request creates it or it exists. The domain is **private** unless the
+request asks for public, which only the owner or an administrator can; on an
+environment that requires approval, someone who is not an administrator adds it
+private and the request to make it public goes to Approvals. `dev` cannot have a
+domain: it is the working copy, not an address people rely on. Only an
+administrator maps a hostname to an application, whose domain answers by the
+application's own rules and has no public setting.
 
 The gateway answers an added hostname before the platform's routes, so the
 portal's hostname, the OAuth and sign-in issuers' hostnames, anything under the
@@ -468,16 +580,16 @@ is left out.
 
 | Command | What it does |
 |---|---|
-| `create` | A site with `dev`, holding the main address |
-| `set_environment` | Creates an environment or changes it: `public`, `internal_view`, `requires_approval`, `keep_releases` (owner and administrators), and `main: true` to give it the main address. A new environment is private |
+| `create` | A site with `dev` and `prod`, `prod` holding the main address |
+| `set_environment` | Creates, places or changes an environment: `after` (the environment it goes after, or moves after), `internal_view`, `requires_approval`, `keep_releases` (owner and administrators), and `main: true` to give it the main address. `public` is refused: it is a setting of a domain |
 | `update` | `description`, `owner_email`, `main_environment` to move the main address (`""` gives it to none), and `media`, every mounted resource folder |
 | `publish` | A new release into `dev` (files, an archive or a folder; `base` overlays dev's release) |
-| `promote`, `rollback` | Move an environment's pointer |
+| `promote`, `rollback` | Move an environment's pointer; `promote` takes the release of the environment before `to` |
 | `grant` | `email` or `persona`, `level` (`view`; `manage` is for a person, site-wide), and `environments` the view grant opens (none is every private environment) |
 | `revoke` | `email` or `persona` |
-| `add_domain`, `remove_domain`, `domains` | Domains; `public` applies when `add_domain` creates the environment |
+| `add_domain`, `set_domain`, `remove_domain`, `domains` | Domains. `add_domain` with `public` opens the domain to anyone; `set_domain` with `hostname` and `public` changes it later. `after` places an environment `add_domain` creates, and `requires_approval` applies to the environment whether it creates it or it exists |
 | `crawl` | Copies an existing site into `dev` |
-| `get`, `list`, `releases`, `deployments` | Read; `get` answers each environment's `addresses` and `pages_addresses` |
+| `get`, `list`, `releases`, `deployments` | Read; `get` answers the environments in their order, each environment's `addresses` and `pages_addresses`, and the site's `domains` with each one's `public` |
 
 `default`, the old name of `dev`, is read as `dev` wherever an environment is named
 for one minor release, and the answer carries a `note` saying so. A reference
@@ -488,7 +600,9 @@ part `<site>/default` is added as `<site>/dev`.
 
 | Route | What it does |
 |---|---|
-| `PUT /api/v1/portal/sites/{site}/environments/{name}` | Creates or changes an environment. Body `{requires_approval?, public?, internal_view?, keep_releases?, reason?}`, a field left out left alone; `keep_releases` is a number or `"default"`. Answers `{site, status, approval?, note?}`, `status` being `done` or `awaiting_approval` |
+| `PUT /api/v1/portal/sites/{site}/environments/{name}` | Creates, places or changes an environment. Body `{requires_approval?, internal_view?, keep_releases?, before?, after?}`, a field left out left alone; `keep_releases` is a number or `"default"`, and `public` is refused. Answers `{site, status, note?}` |
+| `POST /api/v1/portal/sites/{site}/domains` | `{hostname, environment, public?, reason?, requires_approval?, before?, after?}`. Answers the domain with `status` (`done` or `awaiting_approval`) and `approval?` |
+| `PUT /api/v1/portal/sites/{site}/domains/{hostname}` | `{public, reason?}`: makes one domain public or private. Answers as above |
 | `PUT /api/v1/portal/sites/{site}/main-environment` | `{environment}`; `""` gives the main address to none. Owner and administrators |
 | `GET /api/v1/portal/sites/{site}/access` | `{owner_email, grants, personas}`: each grant's `email` or `persona`, `level` and `environments`, and every persona a share can name |
 | `PUT /api/v1/portal/sites/{site}/access` | `{email? or persona?, level, environments?, notify?}` |
@@ -501,63 +615,100 @@ its domains, otherwise its pages address), `pages_addresses` (each environment's
 address on the pages domain: the main address for the one holding it, otherwise
 `<site>--<env>`, which answers only where the deployment's ingress routes it),
 `address_note` when a two-character name leaves its environments without a pages
-address, and per environment `public` and `internal_view`. `addresses` and
-`pages_addresses` are the ones `manage_site get` answers (#2607).
+address, `domains` with each one's `public`, and per environment, in the site's
+order, `public_domains` and `internal_view`. `addresses` and `pages_addresses` are
+the ones `manage_site get` answers (#2607).
 
 ## In the portal
 
 The Sites section's Environments tab opens with **How this site works**: changes
-land in dev, promote what is ready, and each environment has its own access, with
-the addresses and what a private site can do with the signed-in person. It can be
-hidden. Each environment is a card, in a fixed order: dev first, `prod`,
-`production` or `live` last, and the rest by name between them; the order is not
-stored and cannot be changed, and Promote moves a release between any two
-environments whatever their order. A card shows its **Private** or **Public**
-badge, Requires approval, its release, its addresses and **Who can open it**, with
-Publish (dev only), Promote, Roll back, Share (private only) and Settings. The
-addresses list the one people use first: each domain, tagged **Domain**, then the
-pages address, tagged **Main address** on the environment holding it and **Pages
-address** otherwise; every address after the first is muted (#2607). An
-environment with neither says **No address**. A site with an `address_note`
-(#2611) shows it under **The environments of `<site>` have no pages address**, and
-the **New site** dialog refuses a two-character name, saying why, before it is
-sent. **Main address**, **Add domain** and **New environment** sit above the
-cards. **Share** picks people and
-personas and the environments, defaulting to the one it was opened from. Choosing
-Public asks for confirmation naming every address that becomes public, waits in
-Approvals where the environment requires it, and is refused for someone who manages
-without owning. The Access tab lists **Who manages** and **Shared with**. Someone a
-site is shared with sees only the environments open to them.
+land in dev, promote what is ready one step at a time, and every pages address
+asks for a sign-in, with only a domain set public opening to anyone. It can be
+hidden. Each environment is a card, in the site's stored order, `dev` first and
+`prod` last, each marked **Always first** or **Always last**. A card shows a
+**Private** or **Public domain** badge, Requires approval, its release, its
+addresses and **Who can open it**, with Publish (dev only), Promote, Roll back,
+Share, Move (an environment between dev and prod, when there is somewhere to move
+it) and Settings. Each address carries its tag (**Domain**, **Main address** or
+**Pages address**) and its access: every pages address **Private**, each domain
+**Private** or **Public**. The domain people use comes first and every later
+address is muted (#2607). **Who can open it** names anyone at each public domain,
+then who opens the environment everywhere else after a sign-in. An environment
+with no domain says how to open it to anyone. A site with an `address_note`
+(#2611) shows it under **The environments of `<site>` have no pages address**.
+
+**Main address**, **Add domain** and **New environment** sit above the cards. The
+**New site** dialog shows both environments and their addresses before the site
+is created, and refuses a two-character name, saying why. **New environment**
+shows the new address and the place it goes: with one place it says so, with
+more it offers each, drawn as the order it makes. **Move** offers the same places,
+marks the current one, and says what each environment takes from after the move.
+**Promote** names its one source, the environment before, and its release; with
+nothing there it says what to promote first. **Add domain** chooses **Private**
+(the default) or **Public**, which is the owner's or an administrator's; making a
+domain public asks for the domain's name to be typed, names that one domain, says
+the pages addresses keep asking for a sign-in, and waits in Approvals where the
+environment requires it. The Domains tab lists every pages address as Private and
+each domain with its access and **Make public** or **Make private**. The Access
+tab lists **Who manages** and **Shared with**. Someone a site is shared with sees
+only the environments open to them.
 
 ## Worked examples
 
 **An intranet** for people who already have platform accounts. `dev` is for the
-people who develop it; `prod`, on the main address, is for a persona.
+people who develop it; `prod`, on the main address, is for a persona. No domain is
+needed: everyone signs in.
 
 ```
-manage_site command=create name=intranet
-manage_site command=set_environment site=intranet environment=prod requires_approval=true main=true
+manage_site command=create name=intranet                       # dev and prod; prod holds the main address
+manage_site command=set_environment site=intranet environment=prod requires_approval=true
 manage_site command=grant site=intranet persona=management-team environments=["prod"]
 manage_site command=publish site=intranet files=[...]          # lands in dev
-manage_site command=promote site=intranet from=dev to=prod     # through Approvals
+manage_site command=promote site=intranet to=prod              # from dev, through Approvals
 ```
 
 `intranet--dev.<pages_domain>` opens for the owner, the people who manage the site
 and administrators; `intranet.<pages_domain>` serves `prod` to `management-team`.
 
-**A client site** with a client review stage. `dev` keeps the main address for the
-web team, `stage` is the client's, `prod` is public on the client's domain.
+**A client site** with a client review stage. `stage` is the client's, and `prod`
+answers anyone at the client's domain.
 
 ```
 manage_site command=create name=cool-site
 manage_site command=grant site=cool-site persona=web-team environments=["dev"]
-manage_site command=set_environment site=cool-site environment=stage
+manage_site command=set_environment site=cool-site environment=stage           # between dev and prod
+manage_site command=set_environment site=cool-site environment=prod requires_approval=true
 manage_site command=grant site=cool-site email=client@example.com level=view environments=["stage"]
-manage_site command=add_domain site=cool-site hostname=cool-site.example.com environment=prod requires_approval=true
-manage_site command=set_environment site=cool-site environment=prod public=true   # owner, through Approvals
-manage_site command=promote site=cool-site from=dev to=stage
-manage_site command=promote site=cool-site from=stage to=prod                    # through Approvals
+manage_site command=add_domain site=cool-site hostname=cool-site.example.com environment=prod public=true
+                                                                                 # owner: through Approvals
+manage_site command=promote site=cool-site to=stage                            # from dev
+manage_site command=promote site=cool-site to=prod                             # from stage, through Approvals
 ```
+
+`cool-site.<pages_domain>` and `cool-site--prod.<pages_domain>` still ask for a
+sign-in; only `cool-site.example.com` answers anyone.
+
+## Upgrading to v1.159.0 (migrations 000244 and 000245)
+
+- **Order (000244).** Every site's environments are stored in the order the portal
+  drew them by until now: `dev` first, `prod`, `production` and `live` last, the rest
+  by name between. Every site with no `prod` gets an empty one, last, with no
+  release; its main address stays where it was. Promotion goes one step from here
+  on, so a site that promoted `dev` straight to an environment past `stage` now
+  promotes through `stage`.
+- **Access (000245).** An environment that was public keeps answering anyone at
+  each of its domains, which become public. Its pages addresses (the main address
+  and `<site>--<env>`) answer only to someone signed in from here on.
+- **A public environment with no domain stops answering anonymously.** Before
+  000245 runs, the platform logs the `site_public_without_domain` configuration
+  warning for each one, naming the site and environment. Add a domain to it and
+  set the domain public to open it to anyone again. A deployment already past
+  000245 is not warned: nothing recorded what was public.
+- A request still waiting in Approvals to make an environment public is withdrawn,
+  with a note saying public is now a setting of each domain; ask again for a
+  domain.
+- Existing grants open every environment they opened before, now at every private
+  address of it.
 
 ## Upgrading to #2604 (migration 000239)
 

@@ -17,20 +17,16 @@ import (
 // moves its bucket's count without waiting for the next full listing; and the
 // listing counts an object no row references and a row whose object is gone.
 //
-// Wire forms: the upload is the REST route (multipart, one form); s3_object's
-// action, connection, bucket, key, content, content_type and purpose are typed
-// strings, each sent as a literal tools/call parameter of that one form.
+// Wire forms: the upload is the REST route (multipart, one form). The orphan
+// and the deleted object are made with the store's own client, since the S3
+// tools refuse the platform's own buckets (#2616); no tool parameter is sent.
 //
 // Stack: `make dev`, whose dev/start.sh sets MCP_PLATFORM_CAPACITY_INTERVAL
 // and MCP_PLATFORM_STORAGE_SCAN_INTERVAL to 30s and the orphan grace to 0s,
 // with SeaweedFS as the object store.
 
 const (
-	issue1899Purpose = "Acceptance #1899: storage capacity and integrity."
-	issue1899Bucket  = "managed-resources"
-	// issue1899Resources is the connection the dev stack keeps managed
-	// resources on: a store of its own, apart from the portal's SeaweedFS.
-	issue1899Resources = "dev-resources"
+	issue1899Bucket = devResourceBucket
 )
 
 // issue1899HNSWIndexes is every HNSW index the migrations leave in place
@@ -229,8 +225,7 @@ func TestIssue1899_AnUploadRaisesTheResourcesCountBeforeTheListing(t *testing.T)
 // TestIssue1899_TheReconcileCountsOneOrphanAndOneDangling: with one object
 // seeded under a platform prefix with no row, and one row pointing at a
 // deleted object, the reconcile reports one orphan and one dangling reference.
-// Both are made behind the platform's back through s3_object, which writes to
-// the bucket directly.
+// Both are made behind the platform's back with the store's own client.
 func TestIssue1899_TheReconcileCountsOneOrphanAndOneDangling(t *testing.T) {
 	// Two fresh listings, each up to two 30-second scans, outlast the default
 	// session deadline (#1738, #2232).
@@ -283,19 +278,16 @@ func TestIssue1899_TheListingReportsItsOwnWork(t *testing.T) {
 
 // seedOrphanAndDangling1899 makes one object under the resources prefix that no
 // row names, and one resource row whose object is then deleted, both behind
-// the platform's back through s3_object on the bucket's own connection. It
-// returns the cleanup, which the caller defers: it removes both through a
-// fresh client (a client's session outlives a long criterion only so far) and
-// fails the test when it cannot, so a later run's baseline is never another
-// run's leftovers.
+// the platform's back with the store's own client (the S3 tools refuse the
+// platform's own bucket, #2616). It returns the cleanup, which the caller
+// defers: it removes both and fails the test when it cannot, so a later run's
+// baseline is never another run's leftovers.
 func seedOrphanAndDangling1899(t *testing.T, c *client) (cleanup func()) {
 	t.Helper()
 	stamp := time.Now().UnixNano()
+	store := resourceStore(t)
 	orphanKey := fmt.Sprintf("resources/global/global/acceptance-1899-%d/orphan.txt", stamp)
-	c.call("s3_object", map[string]any{
-		"action": "put", "connection": issue1899Resources, "bucket": issue1899Bucket,
-		"key": orphanKey, "content": "no row names me", "content_type": "text/plain", "purpose": issue1899Purpose,
-	})
+	store.put(orphanKey, "text/plain", []byte("no row names me"))
 
 	id, _ := uploadResource1568(t, c, fmt.Sprintf("dangling-%d.txt", stamp), "text/plain", []byte("my object goes away"))
 	status, res := c.rest(http.MethodGet, "/api/v1/resources/"+id, http.NoBody)
@@ -303,20 +295,13 @@ func seedOrphanAndDangling1899(t *testing.T, c *client) (cleanup func()) {
 	if status != http.StatusOK || key == "" {
 		t.Fatalf("reading the resource back: %d %v", status, res)
 	}
-	c.call("s3_object", map[string]any{
-		"action": "delete", "connection": issue1899Resources, "bucket": issue1899Bucket,
-		"key": key, "purpose": issue1899Purpose,
-	})
+	store.remove(key)
 
 	return func() {
-		fresh := connect(t)
-		if _, text, err := fresh.callRaw("s3_object", map[string]any{
-			"action": "delete", "connection": issue1899Resources,
-			"bucket": issue1899Bucket, "key": orphanKey, "purpose": issue1899Purpose,
-		}); err != nil {
-			t.Errorf("removing the seeded orphan %s: %v %s", orphanKey, err, text)
+		if err := store.delete(orphanKey); err != nil {
+			t.Errorf("removing the seeded orphan %s: %v", orphanKey, err)
 		}
-		if status, body := fresh.rest(http.MethodDelete, "/api/v1/resources/"+id, http.NoBody); status != http.StatusNoContent && status != http.StatusNotFound {
+		if status, body := connect(t).rest(http.MethodDelete, "/api/v1/resources/"+id, http.NoBody); status != http.StatusNoContent && status != http.StatusNotFound {
 			t.Errorf("removing the seeded resource %s: %d %v", id, status, body)
 		}
 	}

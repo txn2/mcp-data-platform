@@ -39,6 +39,18 @@ print(json.encode({"n": res["row_count"]}))
 	assert.False(t, report.DynamicDestinations)
 }
 
+// TestValidate_AcceptsReadResource is #2616: the member a script reads a
+// managed resource's bytes with is one the module has, so a source calling it
+// validates and reports it among what it reaches.
+func TestValidate_AcceptsReadResource(t *testing.T) {
+	report := Validate(`
+r = platform.read_resource(run.params["ref"])
+print(r.sha256)
+`)
+	assert.True(t, report.OK, "%+v", report.Findings)
+	assert.Equal(t, []string{"platform.read_resource"}, report.Capabilities)
+}
+
 // TestValidate_ReportsWhereAScriptWrites is the raw material for the half of
 // the capability diff that matters most: a reviewer must be able to read every
 // place this code sends data before agreeing to it.

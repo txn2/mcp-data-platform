@@ -31,6 +31,51 @@ var writeMethods = map[string]bool{"PUT": true, "PATCH": true, "DELETE": true}
 // dmlRe reads the statement verb and target a trino_execute writes with.
 var dmlRe = regexp.MustCompile(`(?i)^\s*(INSERT\s+INTO|DELETE\s+FROM|UPDATE|MERGE\s+INTO|CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?|CREATE\s+OR\s+REPLACE\s+VIEW|CREATE\s+VIEW|DROP\s+TABLE(?:\s+IF\s+EXISTS)?|TRUNCATE\s+TABLE|ALTER\s+TABLE|CALL)\s+([^\s(]+)`)
 
+// withRe matches a statement that starts with common table expressions.
+var withRe = regexp.MustCompile(`(?i)^\s*WITH\s`)
+
+// cteDMLRe reads each data-modifying statement of a statement that starts with
+// WITH (#2615): one a common table expression runs opens with "(", and the
+// statement that follows the expressions comes after the last ")". Neither
+// position holds a verb otherwise: ON CONFLICT ... DO UPDATE and FOR UPDATE put
+// a word before it.
+var cteDMLRe = regexp.MustCompile(`(?i)[()]\s*(INSERT\s+INTO|DELETE\s+FROM|UPDATE|MERGE\s+INTO)\s+([^\s(),;]+)`)
+
+// write is one table a statement writes, with the verb it writes it by.
+type write struct{ verb, table string }
+
+// writesOf is every table a statement writes, in the order it names them: the
+// target of a statement that starts with its verb, or, for one that starts with
+// WITH, each common table expression's target and the target of the statement
+// that follows them.
+func writesOf(sql string) []write {
+	if withRe.MatchString(sql) {
+		matches := cteDMLRe.FindAllStringSubmatch(sql, -1)
+		if len(matches) == 0 {
+			return nil
+		}
+		out := make([]write, 0, len(matches))
+		for _, m := range matches {
+			out = append(out, write{verb: strings.ToUpper(strings.Fields(m[1])[0]), table: m[2]})
+		}
+		return out
+	}
+	if m := dmlRe.FindStringSubmatch(sql); m != nil {
+		return []write{{verb: strings.ToUpper(strings.Fields(m[1])[0]), table: m[2]}}
+	}
+	return nil
+}
+
+// lastWrite is the write a card names for a statement: the statement's own
+// target, which follows any its common table expressions write.
+func lastWrite(sql string) (write, bool) {
+	ws := writesOf(sql)
+	if len(ws) == 0 {
+		return write{}, false
+	}
+	return ws[len(ws)-1], true
+}
+
 // toolCall renders a platform.call: the tool, and what its argument dict names.
 func (c *card) toolCall(n *Node) {
 	tool, toolFull := c.value(c.arg("tool", 0))
@@ -132,15 +177,14 @@ func (c *card) trinoExecute(n *Node, f map[string]syntax.Expr, conn string) {
 func (c *card) writeStatement(n *Node, sqlExpr syntax.Expr, conn string) {
 	n.Role, n.Kind, n.Title = RoleWrites, KindWrite, onConn("Write", conn)
 	sql, _ := c.value(sqlExpr)
-	m := dmlRe.FindStringSubmatch(sql)
-	if m == nil {
+	w, ok := lastWrite(sql)
+	if !ok {
 		n.Subtitle = "SQL assembled at run time"
 		n.Computed = true
 		return
 	}
-	verb := strings.ToUpper(strings.Fields(m[1])[0])
-	n.Subtitle = verb + " " + m[2]
-	if strings.Contains(m[2], "{") {
+	n.Subtitle = w.verb + " " + w.table
+	if strings.Contains(w.table, "{") {
 		n.Computed = true
 	}
 }
@@ -201,6 +245,10 @@ type DataRef struct {
 	// Computed is true when the connection, or a table, is only known when
 	// the script runs: such a step's tables are never matched to a part.
 	Computed bool
+	// Write is true for a step that writes by what it is (platform.execute,
+	// a transaction that is not read-only, platform.batch), whether or not
+	// the tables it writes are known (#2615).
+	Write bool
 }
 
 // OutputRef is what an output step names: an export's or a data refresh's
@@ -271,8 +319,10 @@ func (c *card) statementRefs(e syntax.Expr) (reads, writes []string, computed bo
 		return nil, nil, true
 	}
 	sql, full := c.value(e)
-	if m := dmlRe.FindStringSubmatch(sql); m != nil {
-		writes = []string{m[2]}
+	for _, w := range writesOf(sql) {
+		if !slices.Contains(writes, w.table) {
+			writes = append(writes, w.table)
+		}
 	}
 	for _, t := range tablesIn(sql) {
 		if !slices.Contains(writes, t) {
@@ -284,8 +334,11 @@ func (c *card) statementRefs(e syntax.Expr) (reads, writes []string, computed bo
 }
 
 // txStatementExprs are the statements a transaction's function runs through
-// its tx parameter.
+// its tx parameter: each tx.query and tx.execute, and each statement of a
+// tx.batch list (#2615), written in the call or bound to a name in the
+// function.
 func txStatementExprs(body []syntax.Stmt, tx string) []syntax.Expr {
+	lists := listsBound(body)
 	var out []syntax.Expr
 	for _, stmt := range body {
 		syntax.Walk(stmt, func(node syntax.Node) bool {
@@ -297,8 +350,75 @@ func txStatementExprs(body []syntax.Stmt, tx string) []syntax.Expr {
 			if !ok || len(call.Args) == 0 {
 				return true
 			}
-			if recv, ok := dot.X.(*syntax.Ident); ok && recv.Name == tx && (dot.Name.Name == KindQuery || dot.Name.Name == memberExecute) {
+			if recv, ok := dot.X.(*syntax.Ident); !ok || recv.Name != tx {
+				return true
+			}
+			switch dot.Name.Name {
+			case KindQuery, memberExecute:
 				out = append(out, call.Args[0])
+			case memberBatch:
+				out = append(out, batchStatements(call, lists)...)
+			}
+			return true
+		})
+	}
+	return out
+}
+
+// memberBatch is the member that runs a list of statements in one round trip.
+const memberBatch = "batch"
+
+// batchStatements are the statements of a tx.batch call: its statements
+// argument as a list literal, or the list literals the name it passes is bound
+// to. Anything else is assembled at run time and names none.
+func batchStatements(call *syntax.CallExpr, lists map[string][]*syntax.ListExpr) []syntax.Expr {
+	arg := callArg(call, "statements", 0)
+	switch a := arg.(type) {
+	case *syntax.ListExpr:
+		return a.List
+	case *syntax.Ident:
+		var out []syntax.Expr
+		for _, l := range lists[a.Name] {
+			out = append(out, l.List...)
+		}
+		return out
+	}
+	return nil
+}
+
+// callArg is a call's argument by keyword, or by position among the
+// positional arguments.
+func callArg(call *syntax.CallExpr, name string, pos int) syntax.Expr {
+	i := 0
+	for _, a := range call.Args {
+		if b, ok := a.(*syntax.BinaryExpr); ok && b.Op == syntax.EQ {
+			if id, ok := b.X.(*syntax.Ident); ok && id.Name == name {
+				return b.Y
+			}
+			continue
+		}
+		if i == pos {
+			return a
+		}
+		i++
+	}
+	return nil
+}
+
+// listsBound is each list literal a function body assigns to a plain name, by
+// the name.
+func listsBound(body []syntax.Stmt) map[string][]*syntax.ListExpr {
+	out := map[string][]*syntax.ListExpr{}
+	for _, stmt := range body {
+		syntax.Walk(stmt, func(node syntax.Node) bool {
+			a, ok := node.(*syntax.AssignStmt)
+			if !ok || a.Op != syntax.EQ {
+				return true
+			}
+			id, okID := a.LHS.(*syntax.Ident)
+			l, okList := a.RHS.(*syntax.ListExpr)
+			if okID && okList {
+				out[id.Name] = append(out[id.Name], l)
 			}
 			return true
 		})

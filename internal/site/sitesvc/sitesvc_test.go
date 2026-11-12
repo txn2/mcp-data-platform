@@ -81,8 +81,7 @@ func TestCreate(t *testing.T) {
 	assert.True(t, strings.HasPrefix(got.ID, "site_"))
 	assert.Equal(t, owner.Email, got.OwnerEmail)
 	assert.Equal(t, owner.Email, got.CreatedBy)
-	require.Len(t, got.Environments, 1, "a new site has only its default environment")
-	assert.Equal(t, site.EnvDev, got.Environments[0].Name)
+	assert.Equal(t, []string{site.EnvDev, envProd}, got.Order(), "a new site starts with dev and prod")
 	assert.False(t, got.Environments[0].RequiresApproval)
 	assert.Len(t, store.sites, 2)
 
@@ -209,10 +208,10 @@ func TestSetEnvironment(t *testing.T) {
 	ctx := context.Background()
 	yes, no := true, false
 
-	got, err := svc.SetEnvironment(ctx, owner, "marketing", "qa", EnvironmentChange{RequiresApproval: &yes})
+	got, err := svc.SetEnvironment(ctx, owner, "marketing", "qa", EnvironmentChange{RequiresApproval: &yes, Place: &site.Place{After: "stage"}})
 	require.NoError(t, err)
 	assert.True(t, got.Site.Environment("qa").RequiresApproval)
-	assert.False(t, got.Site.Environment("qa").Public, "a new environment is private")
+	assert.Empty(t, got.Site.Environment("qa").PublicDomains, "a new environment answers no one who has not signed in")
 	assert.Equal(t, StatusDone, got.Status)
 	assert.Equal(t, owner.Email, store.sites[siteID].Environment("qa").UpdatedBy)
 
@@ -379,9 +378,9 @@ func TestPromote_NoApprovalNeeded(t *testing.T) {
 
 func TestPromote_ANonAdministratorWaitsOnARequest(t *testing.T) {
 	svc, store, _, approvals := fixture(t)
-	rel := released(store, 1, site.EnvDev)
+	rel := released(store, 1, "stage")
 
-	got, err := svc.Promote(context.Background(), owner, PromoteRequest{Site: "marketing", From: site.EnvDev, To: envProd, Reason: "launch"})
+	got, err := svc.Promote(context.Background(), owner, PromoteRequest{Site: "marketing", From: "stage", To: envProd, Reason: "launch"})
 	require.NoError(t, err)
 	assert.Equal(t, StatusAwaitingApproval, got.Status)
 	require.NotNil(t, got.Approval)
@@ -400,9 +399,9 @@ func TestPromote_ANonAdministratorWaitsOnARequest(t *testing.T) {
 
 func TestPromote_AnAdministratorRecordsTheirOwnApproval(t *testing.T) {
 	svc, store, _, approvals := fixture(t)
-	rel := released(store, 1, site.EnvDev)
+	rel := released(store, 1, "stage")
 
-	got, err := svc.Promote(context.Background(), admin, PromoteRequest{Site: "marketing", From: site.EnvDev, To: envProd, Reason: "hotfix"})
+	got, err := svc.Promote(context.Background(), admin, PromoteRequest{Site: "marketing", To: envProd, Reason: "hotfix"})
 	require.NoError(t, err)
 	assert.Equal(t, StatusPromoted, got.Status)
 	assert.Equal(t, 1, store.sites[siteID].Environment(envProd).Release)
@@ -414,10 +413,10 @@ func TestPromote_AnAdministratorRecordsTheirOwnApproval(t *testing.T) {
 
 func TestPromote_AnApprovedReleaseGoesThrough(t *testing.T) {
 	svc, store, _, approvals := fixture(t)
-	released(store, 1, site.EnvDev)
+	released(store, 1, "stage")
 	approvals.approved = true
 
-	got, err := svc.Promote(context.Background(), owner, PromoteRequest{Site: "marketing", From: site.EnvDev, To: envProd})
+	got, err := svc.Promote(context.Background(), owner, PromoteRequest{Site: "marketing", To: envProd, Release: 1})
 	require.NoError(t, err)
 	assert.Equal(t, StatusPromoted, got.Status)
 	assert.Equal(t, 1, store.sites[siteID].Environment(envProd).Release)
@@ -425,14 +424,43 @@ func TestPromote_AnApprovedReleaseGoesThrough(t *testing.T) {
 	assert.Empty(t, approvals.selfRecords, "no new record")
 }
 
-func TestPromote_ANamedReleaseIsTheOneMoved(t *testing.T) {
-	svc, store, _, _ := fixture(t)
+// Promotion goes one step (#2617): an environment takes a release only from
+// the one before it, and only the release that one serves, and a refusal names
+// the environment it must come from.
+func TestPromote_OneStep(t *testing.T) {
+	ctx := context.Background()
+	svc, store, _, approvals := fixture(t)
+	approvals.approved = true
 	released(store, 1, "")
 	released(store, 2, site.EnvDev)
-	got, err := svc.Promote(context.Background(), owner, PromoteRequest{Site: "marketing", To: "stage", Release: 1})
+
+	_, err := svc.Promote(ctx, owner, PromoteRequest{Site: "marketing", To: "stage", Release: 1})
+	require.EqualError(t, err, "stage takes only the release dev serves, and dev serves release 2, not 1. Promote stage from dev to serve 2.")
+	got, err := svc.Promote(ctx, owner, PromoteRequest{Site: "marketing", To: "stage"})
+	require.NoError(t, err, "from left out is the environment before")
+	assert.Equal(t, 2, got.Release)
+
+	_, err = svc.Promote(ctx, admin, PromoteRequest{Site: "marketing", From: site.EnvDev, To: envProd})
+	require.EqualError(t, err, "prod takes releases only from stage, the environment before it: promote it from stage")
+	assert.Zero(t, store.sites[siteID].Environment(envProd).Release, "prod did not move")
+	got, err = svc.Promote(ctx, admin, PromoteRequest{Site: "marketing", From: "stage", To: envProd})
 	require.NoError(t, err)
-	assert.Equal(t, 1, got.Release)
-	assert.Equal(t, 1, store.sites[siteID].Environment("stage").Release)
+	assert.Equal(t, 2, got.Release)
+
+	_, err = svc.Promote(ctx, admin, PromoteRequest{Site: "marketing", From: envProd, To: site.EnvDev})
+	require.EqualError(t, err, "dev takes every publish and edit directly, so nothing is promoted to it")
+}
+
+// The refusal of a promotion whose source serves nothing says where its
+// release comes from first.
+func TestPromote_TheEnvironmentBeforeServesNothing(t *testing.T) {
+	ctx := context.Background()
+	svc, store, _, _ := fixture(t)
+	_, err := svc.Promote(ctx, admin, PromoteRequest{Site: "marketing", To: "stage"})
+	require.EqualError(t, err, "dev serves no release yet. Publish to dev first; stage can then take it from dev.")
+	released(store, 1, site.EnvDev)
+	_, err = svc.Promote(ctx, admin, PromoteRequest{Site: "marketing", To: envProd})
+	require.EqualError(t, err, "stage serves no release yet. Promote dev's release to stage first; prod can then take it from stage.")
 }
 
 func TestPromote_Refusals(t *testing.T) {
@@ -456,10 +484,11 @@ func TestPromote_Refusals(t *testing.T) {
 		_, err := svc.Promote(ctx, owner, PromoteRequest{Site: "marketing", From: site.EnvDev, To: "qa"})
 		require.ErrorIs(t, err, site.ErrNoEnvironment)
 	})
-	t.Run("no such source", func(t *testing.T) {
+	t.Run("a source that is not the one before", func(t *testing.T) {
 		svc, _, _, _ := fixture(t)
 		_, err := svc.Promote(ctx, owner, PromoteRequest{Site: "marketing", From: "qa", To: "stage"})
-		require.ErrorIs(t, err, site.ErrNoEnvironment)
+		require.ErrorAs(t, err, &r)
+		assert.Contains(t, r.Msg, "takes releases only from dev")
 	})
 	t.Run("a source serving nothing", func(t *testing.T) {
 		svc, _, _, _ := fixture(t)
@@ -467,33 +496,41 @@ func TestPromote_Refusals(t *testing.T) {
 		require.ErrorAs(t, err, &r)
 		assert.Contains(t, r.Msg, "serves no release")
 	})
-	t.Run("a named release that does not exist", func(t *testing.T) {
-		svc, _, _, _ := fixture(t)
+	t.Run("a named release the source does not serve", func(t *testing.T) {
+		svc, store, _, _ := fixture(t)
+		released(store, 1, site.EnvDev)
 		_, err := svc.Promote(ctx, owner, PromoteRequest{Site: "marketing", To: "stage", Release: 9})
+		require.ErrorAs(t, err, &r)
+		assert.Contains(t, r.Msg, "dev serves release 1, not 9")
+	})
+	t.Run("the release the source serves is gone", func(t *testing.T) {
+		svc, store, _, _ := fixture(t)
+		store.sites[siteID].Environment(site.EnvDev).Release = 9
+		_, err := svc.Promote(ctx, owner, PromoteRequest{Site: "marketing", To: "stage"})
 		require.ErrorIs(t, err, site.ErrNoRelease)
 	})
 	t.Run("no approvals queue", func(t *testing.T) {
 		svc, store, _, _ := fixture(t)
-		released(store, 1, site.EnvDev)
+		released(store, 1, "stage")
 		svc.Approvals = nil
-		_, err := svc.Promote(ctx, admin, PromoteRequest{Site: "marketing", From: site.EnvDev, To: envProd})
+		_, err := svc.Promote(ctx, admin, PromoteRequest{Site: "marketing", From: "stage", To: envProd})
 		require.ErrorAs(t, err, &r)
 		assert.Contains(t, r.Msg, "no approvals queue")
 		assert.Zero(t, store.sites[siteID].Environment(envProd).Release)
 	})
 	t.Run("the request cannot be filed", func(t *testing.T) {
 		svc, store, _, approvals := fixture(t)
-		released(store, 1, site.EnvDev)
+		released(store, 1, "stage")
 		approvals.failSubmit = boom
-		_, err := svc.Promote(ctx, owner, PromoteRequest{Site: "marketing", From: site.EnvDev, To: envProd})
+		_, err := svc.Promote(ctx, owner, PromoteRequest{Site: "marketing", From: "stage", To: envProd})
 		require.ErrorIs(t, err, boom)
 		assert.Zero(t, store.sites[siteID].Environment(envProd).Release)
 	})
 	t.Run("the approval cannot be recorded", func(t *testing.T) {
 		svc, store, _, approvals := fixture(t)
-		released(store, 1, site.EnvDev)
+		released(store, 1, "stage")
 		approvals.failSelf = boom
-		_, err := svc.Promote(ctx, admin, PromoteRequest{Site: "marketing", From: site.EnvDev, To: envProd})
+		_, err := svc.Promote(ctx, admin, PromoteRequest{Site: "marketing", From: "stage", To: envProd})
 		require.ErrorIs(t, err, boom)
 		assert.Zero(t, store.sites[siteID].Environment(envProd).Release, "no record, no move")
 	})
@@ -598,33 +635,33 @@ func TestRollback_Refusals(t *testing.T) {
 func TestOwnAddressAndPageOrigin(t *testing.T) {
 	svc, _, _, _ := fixture(t)
 	st := &site.Site{Name: "marketing", MainEnvironment: site.EnvDev}
-	assert.Empty(t, svc.OwnAddress(st), "no pages domain, no address")
-	assert.Empty(t, svc.PageOrigin("shop"), "no pages domain, no page origin")
+	assert.Empty(t, svc.Addressing().OwnAddress(st), "no pages domain, no address")
+	assert.Empty(t, svc.Addressing().PageOrigin("shop"), "no pages domain, no page origin")
 
 	svc.Config.PagesDomain = "pages.example.net"
-	assert.Equal(t, "https://marketing.pages.example.net", svc.OwnAddress(st))
-	assert.Empty(t, svc.OwnAddress(&site.Site{Name: "marketing"}), "a main address given to no environment is no address")
-	assert.Equal(t, "https://marketing--prod.pages.example.net", svc.PagesAddress(st, "prod"))
-	assert.Equal(t, "https://marketing.pages.example.net", svc.PagesAddress(st, site.EnvDev), "the main environment answers at the main address")
-	assert.Equal(t, "https://shop.pages.example.net", svc.PageOrigin("shop"))
+	assert.Equal(t, "https://marketing.pages.example.net", svc.Addressing().OwnAddress(st))
+	assert.Empty(t, svc.Addressing().OwnAddress(&site.Site{Name: "marketing"}), "a main address given to no environment is no address")
+	assert.Equal(t, "https://marketing--prod.pages.example.net", svc.Addressing().PagesAddress(st, "prod"))
+	assert.Equal(t, "https://marketing.pages.example.net", svc.Addressing().PagesAddress(st, site.EnvDev), "the main environment answers at the main address")
+	assert.Equal(t, "https://shop.pages.example.net", svc.Addressing().PageOrigin("shop"))
 
 	svc.PublicPort = "8443"
-	assert.Equal(t, "https://marketing.pages.example.net:8443", svc.OwnAddress(st))
-	assert.Equal(t, "https://shop.pages.example.net:8443", svc.PageOrigin("shop"))
-	assert.Equal(t, "https://www.example.com:8443", svc.Origin("www.example.com"))
+	assert.Equal(t, "https://marketing.pages.example.net:8443", svc.Addressing().OwnAddress(st))
+	assert.Equal(t, "https://shop.pages.example.net:8443", svc.Addressing().PageOrigin("shop"))
+	assert.Equal(t, "https://www.example.com:8443", svc.Addressing().Origin("www.example.com"))
 }
 
 func TestCfg_TheLiveConfigurationWinsOverTheSeed(t *testing.T) {
 	svc, _, _, _ := fixture(t)
 	st := &site.Site{Name: "marketing", MainEnvironment: site.EnvDev}
 	svc.Config.PagesDomain = "seed.example.net"
-	assert.Equal(t, "https://marketing.seed.example.net", svc.OwnAddress(st))
+	assert.Equal(t, "https://marketing.seed.example.net", svc.Addressing().OwnAddress(st))
 
 	svc.Live = siteconfig.NewLive(siteconfig.Config{PagesDomain: "live.example.net"})
-	assert.Equal(t, "https://marketing.live.example.net", svc.OwnAddress(st))
+	assert.Equal(t, "https://marketing.live.example.net", svc.Addressing().OwnAddress(st))
 
 	svc.Live.Set(siteconfig.Config{PagesDomain: "saved.example.net"})
-	assert.Equal(t, "https://marketing.saved.example.net", svc.OwnAddress(st), "a saved setting is in force on the next read")
+	assert.Equal(t, "https://marketing.saved.example.net", svc.Addressing().OwnAddress(st), "a saved setting is in force on the next read")
 }
 
 func TestAddress(t *testing.T) {
@@ -646,11 +683,11 @@ func TestAddress(t *testing.T) {
 	svc.Config.PagesDomain = ""
 	store.failDomains = nil
 	assert.Empty(t, svc.Address(ctx, st, "stage"), "no domain and no pages domain is no address")
-	assert.Empty(t, svc.PagesAddresses(st)[site.EnvDev], "no pages domain, no pages address")
+	assert.Empty(t, svc.Addressing().PagesAddresses(st)[site.EnvDev], "no pages domain, no pages address")
 	svc.Config.PagesDomain = "pages.example.net"
 	assert.Equal(t, map[string]string{
 		site.EnvDev: "https://marketing.pages.example.net", "stage": "https://marketing--stage.pages.example.net", envProd: "https://marketing--prod.pages.example.net",
-	}, svc.PagesAddresses(st))
+	}, svc.Addressing().PagesAddresses(st))
 }
 
 // TestAddresses pins #2607: each environment is addressed by the first of its
@@ -669,8 +706,8 @@ func TestAddresses(t *testing.T) {
 		site.EnvDev: "https://dev.example.org",
 		"stage":     "https://marketing--stage.pages.example.net",
 		envProd:     "https://a.example.org",
-	}, svc.Addresses(st, domains), "a domain wins over the main address and over <site>--<env>")
-	assert.Equal(t, svc.PagesAddresses(st), svc.Addresses(st, nil), "with no domain, every environment's pages address")
+	}, svc.Addressing().Addresses(st, domains), "a domain wins over the main address and over <site>--<env>")
+	assert.Equal(t, svc.Addressing().PagesAddresses(st), svc.Addressing().Addresses(st, nil), "with no domain, every environment's pages address")
 }
 
 // TestPagesAddress_AReservedLabelIsNoAddress pins #2611: a two-character
@@ -679,16 +716,16 @@ func TestAddresses(t *testing.T) {
 func TestPagesAddress_AReservedLabelIsNoAddress(t *testing.T) {
 	svc, _, _, _ := fixture(t)
 	st := &site.Site{Name: "ab", MainEnvironment: site.EnvDev, Environments: []site.Environment{{Name: site.EnvDev}, {Name: envProd}}}
-	assert.Empty(t, svc.AddressNote(st), "no pages domain, nothing to explain")
+	assert.Empty(t, svc.Addressing().AddressNote(st), "no pages domain, nothing to explain")
 
 	svc.Config.PagesDomain = "pages.example.net"
-	assert.Equal(t, "https://ab.pages.example.net", svc.PagesAddress(st, site.EnvDev), "the main address is one label of two characters")
-	assert.Empty(t, svc.PagesAddress(st, envProd), "ab--prod is refused by certificate authorities")
-	assert.Equal(t, map[string]string{site.EnvDev: "https://ab.pages.example.net", envProd: ""}, svc.PagesAddresses(st))
-	assert.Equal(t, "https://ab.example.org", svc.Addresses(st, []site.Domain{{Hostname: "ab.example.org", Environment: envProd}})[envProd],
+	assert.Equal(t, "https://ab.pages.example.net", svc.Addressing().PagesAddress(st, site.EnvDev), "the main address is one label of two characters")
+	assert.Empty(t, svc.Addressing().PagesAddress(st, envProd), "ab--prod is refused by certificate authorities")
+	assert.Equal(t, map[string]string{site.EnvDev: "https://ab.pages.example.net", envProd: ""}, svc.Addressing().PagesAddresses(st))
+	assert.Equal(t, "https://ab.example.org", svc.Addressing().Addresses(st, []site.Domain{{Hostname: "ab.example.org", Environment: envProd}})[envProd],
 		"a domain is still the environment's address")
-	assert.Contains(t, svc.AddressNote(st), "an address like ab--prod.pages.example.net")
-	assert.Empty(t, svc.AddressNote(&site.Site{Name: "abc"}))
+	assert.Contains(t, svc.Addressing().AddressNote(st), "an address like ab--prod.pages.example.net")
+	assert.Empty(t, svc.Addressing().AddressNote(&site.Site{Name: "abc"}))
 }
 
 func domainFixture(t *testing.T) (*Service, *memStore) {
@@ -791,7 +828,7 @@ func TestAddDomain_Refusals(t *testing.T) {
 		svc, store := domainFixture(t)
 		boom := errors.New("down")
 		store.failSetEnv = boom
-		_, err := svc.AddDomain(ctx, admin, DomainRequest{Hostname: "www.example.org", Site: "marketing", Environment: "new"})
+		_, err := svc.AddDomain(ctx, admin, DomainRequest{Hostname: "www.example.org", Site: "marketing", Environment: "new", Place: &site.Place{After: "stage"}})
 		require.ErrorIs(t, err, boom)
 		assert.Empty(t, store.domains)
 	})
@@ -831,11 +868,12 @@ func TestAddDomain_RoutesAsSoonAsAdded(t *testing.T) {
 }
 
 func TestAddDomain_AManagerAddsAndCreatesTheEnvironment(t *testing.T) {
+	yes := true
 	svc, store := domainFixture(t)
 	grant(store, manager.Email, site.LevelManage)
 
 	got, err := svc.AddDomain(context.Background(), manager, DomainRequest{
-		Hostname: "qa.example.org", Site: "marketing", Environment: "qa", RequiresApproval: true,
+		Hostname: "qa.example.org", Site: "marketing", Environment: "qa", RequiresApproval: &yes, Place: &site.Place{After: site.EnvDev},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "qa", got.Environment)
@@ -850,6 +888,25 @@ func TestAddDomain_AnExistingEnvironmentIsLeftAlone(t *testing.T) {
 	_, err := svc.AddDomain(context.Background(), owner, DomainRequest{Hostname: "qa.example.org", Site: "marketing", Environment: envProd})
 	require.NoError(t, err)
 	assert.True(t, store.sites[siteID].Environment(envProd).RequiresApproval, "a request does not take the approval rule off")
+}
+
+// Every site holds prod, so the approval rule asked for with a domain applies
+// to an environment that exists as to one the request creates; taking it off
+// that way is an administrator's, as on set_environment.
+func TestAddDomain_RequiresApprovalAppliesToAnExistingEnvironment(t *testing.T) {
+	yes := true
+	svc, store := domainFixture(t)
+	store.sites[siteID].Environment("stage").RequiresApproval = false
+	_, err := svc.AddDomain(context.Background(), owner, DomainRequest{Hostname: "stage.example.org", Site: "marketing", Environment: "stage", RequiresApproval: &yes})
+	require.NoError(t, err)
+	assert.True(t, store.sites[siteID].Environment("stage").RequiresApproval, "the rule the request asked for")
+
+	no := false
+	_, err = svc.AddDomain(context.Background(), owner, DomainRequest{Hostname: "www.example.org", Site: "marketing", Environment: envProd, RequiresApproval: &no})
+	require.ErrorIs(t, err, site.ErrNotAllowed, "taking the rule off is an administrator's")
+	assert.True(t, store.sites[siteID].Environment(envProd).RequiresApproval)
+	_, err = svc.Store.Domain(context.Background(), "www.example.org")
+	require.ErrorIs(t, err, site.ErrNoDomain, "a refused request adds no domain")
 }
 
 func TestAddDomain_ANoCookieDomainDeploymentAcceptsItsSiblings(t *testing.T) {
@@ -1267,25 +1324,37 @@ func TestCompare(t *testing.T) {
 	}
 }
 
-func TestLatestRelease(t *testing.T) {
+// TestStepRelease is what an application release pins a site environment at
+// (#2617): the release the environment before it serves, or, for dev, the
+// site's newest release.
+func TestStepRelease(t *testing.T) {
 	svc, store, _, _ := fixture(t)
 	ctx := context.Background()
-	n, err := svc.LatestRelease(ctx, "marketing")
+	n, err := svc.StepRelease(ctx, "marketing", site.EnvDev)
 	require.NoError(t, err)
-	assert.Zero(t, n)
+	assert.Zero(t, n, "no release yet")
 
-	released(store, 1, "")
-	released(store, 2, "")
-	n, err = svc.LatestRelease(ctx, siteID)
+	released(store, 1, site.EnvDev)
+	released(store, 2, site.EnvDev)
+	store.sites[siteID].Environment("stage").Release = 1
+	n, err = svc.StepRelease(ctx, siteID, site.EnvDev)
 	require.NoError(t, err)
-	assert.Equal(t, 2, n)
+	assert.Equal(t, 2, n, "dev is pinned at the newest release")
+	n, err = svc.StepRelease(ctx, siteID, "stage")
+	require.NoError(t, err)
+	assert.Equal(t, 2, n, "stage at what dev serves")
+	n, err = svc.StepRelease(ctx, siteID, envProd)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n, "prod at what stage serves, not the newest")
 
-	_, err = svc.LatestRelease(ctx, "nope")
+	_, err = svc.StepRelease(ctx, "nope", envProd)
 	require.ErrorIs(t, err, site.ErrNotFound)
+	_, err = svc.StepRelease(ctx, "marketing", "qa")
+	require.ErrorIs(t, err, site.ErrNoEnvironment)
 
 	boom := errors.New("down")
 	store.failListing = boom
-	_, err = svc.LatestRelease(ctx, "marketing")
+	_, err = svc.StepRelease(ctx, "marketing", site.EnvDev)
 	require.ErrorIs(t, err, boom)
 }
 
@@ -1450,9 +1519,10 @@ func TestGrant_SaysNothingAboutThePersonToSomeoneWithNoRights(t *testing.T) {
 // unapproved, so only an administrator takes it off (#2559).
 func TestRemoveDomain_FromAnEnvironmentThatRequiresApprovalIsAnAdministrators(t *testing.T) {
 	ctx := context.Background()
+	yes := true
 	svc, store := domainFixture(t)
 	grant(store, manager.Email, site.LevelManage)
-	_, err := svc.AddDomain(ctx, admin, DomainRequest{Hostname: "live.example.org", Site: "marketing", Environment: "launch", RequiresApproval: true})
+	_, err := svc.AddDomain(ctx, admin, DomainRequest{Hostname: "live.example.org", Site: "marketing", Environment: "launch", RequiresApproval: &yes, Place: &site.Place{After: "stage"}})
 	require.NoError(t, err)
 	require.ErrorIs(t, svc.RemoveDomain(ctx, manager, "live.example.org"), site.ErrNotAllowed)
 	require.ErrorIs(t, svc.RemoveDomain(ctx, owner, "live.example.org"), site.ErrNotAllowed)

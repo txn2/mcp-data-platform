@@ -186,6 +186,13 @@ the three helpers are still the way to do the three things they do. A tool that
 answers with plain text rather than a structured object arrives as
 `{"text": "..."}`.
 
+A stored file's bytes come from `platform.read_resource(ref)`, named by its
+reference (`mcp:resource:<id>`) or its address (`mcp://...`): it answers with
+`bytes`, `sha256`, `content_type`, `size`, `filename` and `uri`, read as the run,
+so it reaches your library, the global one and your personas' and nothing else.
+Never read the resource bucket with `s3_object`: every S3 tool refuses the
+platform's own buckets.
+
 A run acts on what you own. It authenticates as `script:<name>` — which is what
 its own exported assets belong to — and carries your address, so a script can
 refresh or patch a dashboard you own the same way you would. An asset merely

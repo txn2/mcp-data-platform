@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"slices"
@@ -161,15 +162,25 @@ func note2602(n int) (path, body string) {
 // release names one object no other release names.
 func publishChain2602(t *testing.T, s *site2604, n int) {
 	t.Helper()
+	publishChainFrom2602(t, s, 1, n)
+}
+
+// publishChainFrom2602 publishes releases from to n of the chain, each derived
+// from the one before.
+func publishChainFrom2602(t *testing.T, s *site2604, from, n int) {
+	t.Helper()
 	c := connectAs(t, s.key)
-	notePath, noteBody := note2602(1)
-	c.call("manage_site", map[string]any{"command": "publish", "site": s.name, "note": "v1", "files": []map[string]any{
-		{"path": "index.html", "content": "<h1>v1</h1>"},
-		{"path": "about/index.html", "content": "<h1>about</h1>"},
-		{"path": "shared.css", "content": strings.Repeat("body{color:#123}\n", 200)},
-		{"path": notePath, "content": noteBody},
-	}})
-	for v := 2; v <= n; v++ {
+	if from == 1 {
+		notePath, noteBody := note2602(1)
+		c.call("manage_site", map[string]any{"command": "publish", "site": s.name, "note": "v1", "files": []map[string]any{
+			{"path": "index.html", "content": "<h1>v1</h1>"},
+			{"path": "about/index.html", "content": "<h1>about</h1>"},
+			{"path": "shared.css", "content": strings.Repeat("body{color:#123}\n", 200)},
+			{"path": notePath, "content": noteBody},
+		}})
+		from = 2
+	}
+	for v := from; v <= n; v++ {
 		prev, _ := note2602(v - 1)
 		path, body := note2602(v)
 		c.call("manage_site", map[string]any{"command": "publish", "site": s.name, "base": v - 1, "note": "v" + strconv.Itoa(v), "files": []map[string]any{
@@ -331,12 +342,17 @@ func TestIssue2602_OnlyTheOwnerOrAnAdministratorChangesTheLimit(t *testing.T) {
 // the limit.
 func TestIssue2602_ASweepKeepsEveryRetainedReleaseIntact(t *testing.T) {
 	s := newSite2604(t, keyOwner2604, "acc2602c-")
-	publishChain2602(t, s, 40)
-	for _, env := range []string{"stage", "prod"} {
-		s.setEnv(t, keyOwner2604, env, map[string]any{"public": true})
-	}
+	// stage serves 10 and prod 20, each reached one step at a time (#2617): 20
+	// goes through stage to prod, and stage is rolled back to 10.
+	s.setEnv(t, keyOwner2604, "stage", map[string]any{})
+	publishChainFrom2602(t, s, 1, 10)
 	promote2602(t, s, "stage", 10)
+	publishChainFrom2602(t, s, 11, 20)
+	promote2602(t, s, "stage", 20)
 	promote2602(t, s, "prod", 20)
+	connectAs(t, keyOwner2604).call("manage_site", map[string]any{"command": "rollback", "site": s.name, "environment": "stage", "release": 10})
+	publishChainFrom2602(t, s, 21, 40)
+	stage, prod := s.publicDomain(t, "stage"), s.publicDomain(t, "prod")
 	keep2602(t, keyOwner2604, s, "dev", 5)
 	keep2602(t, keyOwner2604, s, "stage", 1)
 	keep2602(t, keyOwner2604, s, "prod", 1)
@@ -415,15 +431,17 @@ func TestIssue2602_ASweepKeepsEveryRetainedReleaseIntact(t *testing.T) {
 		t.Error("the object every release shares was deleted")
 	}
 
-	served2518(t, s.host("stage"), "v10")
-	served2518(t, s.host("prod"), "v20")
+	served2518(t, stage, "v10")
+	served2518(t, prod, "v20")
 	expectRefused2602(t, keyOwner2604, "rolling dev back to a pruned release",
 		map[string]any{"command": "rollback", "site": s.name, "environment": "dev", "release": 30}, "limit")
 	connectAs(t, keyOwner2604).call("manage_site", map[string]any{"command": "rollback", "site": s.name, "environment": "dev", "release": 38})
 	promote2602(t, s, "stage", 38)
-	served2518(t, s.host("stage"), "v38")
+	served2518(t, stage, "v38")
+	// A pruned release cannot be promoted: promote takes only the release the
+	// environment before serves (#2617), which a sweep always keeps.
 	status, got := s.rest(t, keyAdmin2604, http.MethodPost, "/promote", map[string]any{"release": 12, "to": "stage"})
-	if status == http.StatusOK || !strings.Contains(strings.ToLower(got["_raw"].(string)), "limit") {
+	if status == http.StatusOK || !strings.Contains(got["_raw"].(string), "stage takes only the release dev serves") {
 		t.Errorf("promoting a pruned release: %d %v", status, got["_raw"])
 	}
 	// A comparison answers more people than promote does, so its refusal
@@ -478,8 +496,9 @@ func TestIssue2602_FilesStoredBeforeContentAddressingStillServe(t *testing.T) {
 			{"path": "index.html", "content": "<h1>v" + strconv.Itoa(v) + "</h1>"},
 		}})
 	}
-	s.setEnv(t, keyOwner2604, "stage", map[string]any{"public": true})
+	s.setEnv(t, keyOwner2604, "stage", map[string]any{})
 	promote2602(t, s, "stage", 4)
+	stage := s.publicDomain(t, "stage")
 	keep2602(t, keyOwner2604, s, "dev", 1)
 	keep2602(t, keyOwner2604, s, "stage", 1)
 
@@ -490,7 +509,7 @@ func TestIssue2602_FilesStoredBeforeContentAddressingStillServe(t *testing.T) {
 		t.Fatal("the object a retained release names under a pruned release's prefix was deleted")
 	}
 	r := pollUntil2518(t, func() (pageResponse, bool) {
-		r := onHost(t, s.host("stage"), http.MethodGet, "/legacy.txt", nil, "")
+		r := onHost(t, stage, http.MethodGet, "/legacy.txt", nil, "")
 		return r, r.status == http.StatusOK && r.body == legacyBody
 	})
 	if r.body != legacyBody {
@@ -508,8 +527,9 @@ func TestIssue2602_PinnedAndPendingReleasesAreKept(t *testing.T) {
 	s.setEnv(t, keyAdmin2604, "prod", map[string]any{"requires_approval": true})
 	s.setEnv(t, keyOwner2604, "stage", map[string]any{})
 
-	// An application release pins a site part at the site's newest release
-	// and points the environment at it: stage serves 3, pinned.
+	// An application release pins a site part at what the environment before
+	// it serves (#2617) and points the environment at it: stage serves 3,
+	// pinned.
 	app := "acc2602app-" + unique1579()
 	admin.call("manage_application", map[string]any{"command": "create", "name": app, "description": "pins a site environment"})
 	t.Cleanup(func() {
@@ -518,21 +538,21 @@ func TestIssue2602_PinnedAndPendingReleasesAreKept(t *testing.T) {
 	admin.call("manage_application", map[string]any{"command": "add_part", "application": app, "kind": "site", "part_id": s.name + "/stage"})
 	admin.call("manage_application", map[string]any{"command": "release", "application": app, "note": "pins stage at 3"})
 
-	c := connectAs(t, keyOwner2604)
-	for v := 4; v <= 6; v++ {
-		prev, _ := note2602(v - 1)
-		path, body := note2602(v)
-		c.call("manage_site", map[string]any{"command": "publish", "site": s.name, "base": v - 1, "note": "v" + strconv.Itoa(v), "files": []map[string]any{
-			{"path": "index.html", "content": "<h1>v" + strconv.Itoa(v) + "</h1>"}, {"path": path, "content": body}, {"path": prev, "delete": true},
-		}})
-	}
+	// stage moves to 4, then 5, which the owner asks to promote to prod, and
+	// back to 4; dev moves on to 6. A promotion takes the release the
+	// environment before serves, one step at a time (#2617).
+	publishChainFrom2602(t, s, 4, 4)
 	promote2602(t, s, "stage", 4)
-
+	publishChainFrom2602(t, s, 5, 5)
+	promote2602(t, s, "stage", 5)
 	status, got := s.rest(t, keyOwner2604, http.MethodPost, "/promote", map[string]any{"release": 5, "to": "prod", "reason": "acceptance 2602"})
 	want2559(t, "asking to promote", status, http.StatusOK, got)
 	if got["status"] != "awaiting_approval" {
 		t.Fatalf("the owner's promote to prod did not wait on Approvals: %v", got["_raw"])
 	}
+	rollback := map[string]any{"command": "rollback", "site": s.name, "environment": "stage"}
+	connectAs(t, keyOwner2604).call("manage_site", maps.Clone(rollback))
+	publishChainFrom2602(t, s, 6, 6)
 	for _, env := range []string{"dev", "stage", "prod"} {
 		keep2602(t, keyAdmin2604, s, env, 1)
 	}
@@ -541,6 +561,8 @@ func TestIssue2602_PinnedAndPendingReleasesAreKept(t *testing.T) {
 		t.Fatalf("pruned %v, want [1 2]: 3 is pinned, 4 is stage's, 5 waits on an approval, 6 is dev's", pruned)
 	}
 	approve2604(t, got)
+	rollback["release"] = 5
+	connectAs(t, keyOwner2604).call("manage_site", rollback)
 	status, got = s.rest(t, keyOwner2604, http.MethodPost, "/promote", map[string]any{"release": 5, "to": "prod", "reason": "acceptance 2602"})
 	want2559(t, "finishing the promote", status, http.StatusOK, got)
 	if got["status"] != "promoted" {
@@ -559,7 +581,7 @@ func TestIssue2602_WhatKeepsAReleaseIsTheManagersToKnow(t *testing.T) {
 	publishChain2602(t, s, 2)
 	const hidden = "quiet2602"
 	s.setEnv(t, keyOwner2604, hidden, map[string]any{})
-	promote2602(t, s, hidden, 1)
+	promote2602(t, s, hidden, 2)
 	admin := connectAs(t, keyAdmin2604)
 	app := "acc2602pin-" + unique1579()
 	admin.call("manage_application", map[string]any{"command": "create", "name": app, "description": "pins a private site environment"})
@@ -612,8 +634,9 @@ func TestIssue2602_LoweringALimitTakesEffectAtTheNextSweep(t *testing.T) {
 func TestIssue2602_OrphansPastTheGraceAreRemoved(t *testing.T) {
 	s := newSite2604(t, keyOwner2604, "acc2602g-")
 	publishChain2602(t, s, 1)
-	s.setEnv(t, keyOwner2604, "stage", map[string]any{"public": true})
+	s.setEnv(t, keyOwner2604, "stage", map[string]any{})
 	promote2602(t, s, "stage", 1)
+	stage := s.publicDomain(t, "stage")
 	siteID := siteID2602(t, s)
 	bucket := bucket2602(t)
 	orphan := objectKey2602(siteID, "left behind by a render that failed")
@@ -646,7 +669,7 @@ func TestIssue2602_OrphansPastTheGraceAreRemoved(t *testing.T) {
 	if !stored2602(t, bucket, stray) {
 		t.Error("a key outside the platform's layout was deleted")
 	}
-	served2518(t, s.host("stage"), "v1")
+	served2518(t, stage, "v1")
 }
 
 // TestIssue2602_TheDeploymentDefaultIsSavedInSettings is the deployment

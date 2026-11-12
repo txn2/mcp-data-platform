@@ -25,8 +25,13 @@ import (
 
 // EnvDev is the working copy (#2604): every publish, patch and in-place edit
 // lands here and nowhere else, and people use the environments a release is
-// promoted to. A new site starts with it, holding the main address.
+// promoted to. It is always a site's first environment.
 const EnvDev = "dev"
+
+// EnvProd is the environment a release reaches last (#2617). A new site starts
+// with it, holding the main address, and it is always a site's last
+// environment.
+const EnvProd = "prod"
 
 // EnvAlias is the name EnvDev had before #2604, accepted for one minor release.
 const EnvAlias = "default"
@@ -115,29 +120,40 @@ type Environment struct {
 	KeepDefault bool `json:"keep_releases_default"`
 	// Kept is how many releases the limit keeps for this environment now.
 	Kept int `json:"releases_kept" example:"37"`
-	// RequiresApproval makes a promotion here, and making it public, a request
-	// in the Approvals queue.
+	// RequiresApproval makes a promotion here, and making one of its domains
+	// public, a request in the Approvals queue.
 	RequiresApproval bool `json:"requires_approval"`
-	// Public answers to anyone. A private environment answers only to
-	// administrators, the owner, the people who manage the site and whoever it
-	// is shared with, after they sign in. EnvDev is never public.
-	Public bool `json:"public"`
-	// InternalView opens a private environment to everyone signed in whose
-	// persona is not external: a company intranet.
-	InternalView bool `json:"internal_view"`
-	// AccessChangedAt is when Public last changed; an approval to make the
-	// environment public is for the access it was asked against.
-	AccessChangedAt time.Time `json:"-"`
-	UpdatedBy       string    `json:"updated_by,omitempty"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	// PublicDomains are the domains added to the environment that answer
+	// anyone (#2619). Every other address it has, its addresses on the pages
+	// domain included, answers only to administrators, the owner, the people
+	// who manage the site and whoever it is shared with, after they sign in.
+	PublicDomains []string `json:"public_domains"`
+	// InternalView opens the environment's private addresses to everyone
+	// signed in whose persona is not external: a company intranet.
+	InternalView bool      `json:"internal_view"`
+	UpdatedBy    string    `json:"updated_by,omitempty"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
+
+// TakesApprovalOff reports whether setting requiresApproval removes the
+// environment's approval rule.
+func (e *Environment) TakesApprovalOff(requiresApproval *bool) bool {
+	return e.RequiresApproval && requiresApproval != nil && !*requiresApproval
+}
+
+// AnswersAnyone reports whether the environment answers someone who has not
+// signed in at any of its addresses: whether one of its domains is public.
+func (e *Environment) AnswersAnyone() bool { return len(e.PublicDomains) > 0 }
 
 // EnvironmentSettings is a change to an environment; a nil field is left
 // alone, and a new environment takes false for each.
 type EnvironmentSettings struct {
 	RequiresApproval *bool
-	Public           *bool
 	InternalView     *bool
+	// Place is where the environment goes in the site's order (#2617): a new
+	// one there, an existing one moved there. Nil leaves an existing one
+	// where it is, and puts a new one last before prod.
+	Place *Place
 	// Keep changes the release limit when set; KeepDefault, when Keep is nil,
 	// returns it to the deployment's default.
 	Keep        *int
@@ -177,6 +193,9 @@ type Store interface {
 	SetEnvironment(ctx context.Context, siteID, name string, set EnvironmentSettings, actor string) error
 	// SetMainEnvironment gives the main address to an environment, "" to none.
 	SetMainEnvironment(ctx context.Context, siteID, env string) error
+	// SetDomainPublic makes a site's domain answer anyone, or only those who
+	// sign in (#2619).
+	SetDomainPublic(ctx context.Context, hostname string, public bool) error
 	// RecordRelease writes a release and its files, numbering it next. With a
 	// move it also points the environment at the new release, in the one
 	// transaction, so a move that loses to another leaves no release behind.
