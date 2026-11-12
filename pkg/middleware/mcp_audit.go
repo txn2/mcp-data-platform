@@ -11,6 +11,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/auditredact"
+	"github.com/txn2/mcp-data-platform/internal/jsonwalk"
 	"github.com/txn2/mcp-data-platform/internal/mcptask"
 	"github.com/txn2/mcp-data-platform/internal/scriptcallsite"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
@@ -148,13 +150,13 @@ func MCPAuditMiddleware(logger AuditLogger, opts ...AuditOption) mcp.Middleware 
 			ctx, pc := ensurePlatformContext(ctx, req)
 			startTime := time.Now()
 			write := func(pc *PlatformContext, result mcp.Result, err error) {
-				logAuditEvent(ctx, logger, buildMCPAuditEvent(pc, auditCallInfo{
+				logAuditEvent(ctx, logger, redactEvent(ctx, buildMCPAuditEvent(pc, auditCallInfo{
 					Request:   req,
 					Result:    result,
 					Err:       err,
 					StartTime: startTime,
 					Duration:  time.Since(startTime),
-				}, policy))
+				}, policy)))
 			}
 
 			// A call answered with a task (#2009) is recorded when the work
@@ -172,6 +174,23 @@ func MCPAuditMiddleware(logger AuditLogger, opts ...AuditOption) mcp.Middleware 
 			return result, err
 		}
 	}
+}
+
+// redactEvent is event with the values ctx's redactor holds replaced, at any
+// depth of its parameters and in its error (#2555): an endpoint request's
+// cookie values a handler passed to a platform call. It is applied where the
+// event is built, before anything that reads an event (the call catalog,
+// lineage, the store) sees it.
+func redactEvent(ctx context.Context, event AuditEvent) AuditEvent {
+	red := auditredact.From(ctx)
+	if red == nil {
+		return event
+	}
+	if params, changed := jsonwalk.Strings(event.Parameters, red.String); changed {
+		event.Parameters, _ = params.(map[string]any)
+	}
+	event.ErrorMessage = red.String(event.ErrorMessage)
+	return event
 }
 
 // logAuditEvent hands the event to the logger. context.Background is

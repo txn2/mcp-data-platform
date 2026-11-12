@@ -11,11 +11,29 @@ test.describe("Sites", () => {
   });
 
   test("every page of the section is a page the shell knows", async ({ page }) => {
-    for (const path of ["/portal/sites", "/portal/sites/marketing", "/portal/sites/marketing/access", "/portal/sites/marketing/releases/12", "/portal/admin/domains"]) {
+    for (const path of [
+      "/portal/sites",
+      "/portal/sites/marketing",
+      "/portal/sites/marketing/access",
+      "/portal/sites/marketing/releases/12",
+      "/portal/admin/domains",
+      // #2622: the Files and Media tabs and the file editor drew the
+      // not-found card above the working page.
+      "/portal/sites/marketing/files",
+      "/portal/sites/marketing/media",
+      "/portal/sites/marketing/file/index.html",
+      "/portal/sites/marketing/newfile/about.html",
+    ]) {
       await page.goto(path);
       await expect(page.getByRole("heading", { level: 1 }).first()).not.toHaveText("Not found");
       await expect(page.getByText("There is no page at this address.")).toHaveCount(0);
     }
+  });
+
+  test("a tab the section has no page for is the not-found page alone (#2622)", async ({ page }) => {
+    await page.goto("/portal/sites/marketing/nope");
+    await expect(page.getByText("There is no page at this address.")).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Environments" })).toHaveCount(0);
   });
 
   test("lists a site's address and environments, and leaves its domains to the site's page", async ({ page }) => {

@@ -10,8 +10,9 @@ import { apiFetch } from "../client";
 // touch the asset's content, which is why the panel has to hand the author the
 // reference to paste.
 
-// RefTargetKind is what a reference points at.
-export type RefTargetKind = "resource" | "asset";
+// RefTargetKind is what a reference points at: a file, an asset, a form
+// (#2177) or an endpoint the asset's page calls (#2457).
+export type RefTargetKind = "resource" | "asset" | "form" | "endpoint";
 
 // RefTarget names one target: the kind, and the id in that kind's id space.
 // Both are needed to address a reference, because a resource id and an asset id

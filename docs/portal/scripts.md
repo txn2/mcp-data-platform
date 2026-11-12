@@ -322,6 +322,12 @@ it, any schedule fires it, and it runs under the access you hold when you save.
 Source that does not parse is refused when you save it, naming what to fix, rather than
 failing at the next run with nobody watching.
 
+A save that goes through says which of its functions already exist elsewhere (#2273): a
+function a library holds, with the library, its version and the `load(...)` line that
+replaces the copy, and a function other scripts define, by their names, with how it can
+move into a library. Nothing is refused for it, and it names only scripts you can already
+read, never their code. A save with no shared function shows no notice.
+
 **Run** and **Dry run** sit side by side above the editor, on the Source tab, because they are the same
 question asked of two texts: Run executes the saved version, a dry run executes what is
 on screen. One parameter form below the editor supplies the values for both.

@@ -465,11 +465,19 @@ func (im *importer) migrations(ctx context.Context, s *Schema) error {
 // application.
 func (im *importer) parts(ctx context.Context, bundle *Bundle) error {
 	for i := range bundle.Scripts {
-		id, err := im.script(ctx, &bundle.Scripts[i])
+		sc, err := im.script(ctx, &bundle.Scripts[i])
 		if err != nil {
 			return err
 		}
-		if err := im.add(ctx, application.KindScript, id); err != nil {
+		if err := im.add(ctx, application.KindScript, sc.ID); err != nil {
+			return err
+		}
+		// Bound once it is a part: a page endpoint belongs to an application
+		// (#2554), so binding one before the part exists is refused.
+		if err := im.endpoint(ctx, sc, bundle.Scripts[i].Endpoint); err != nil {
+			return err
+		}
+		if err := im.schedule(ctx, sc, bundle.Scripts[i].Schedule); err != nil {
 			return err
 		}
 	}
@@ -503,22 +511,17 @@ func (im *importer) add(ctx context.Context, kind, id string) error {
 }
 
 // script writes one script: a new version of the part with its name, or a new
-// script owned by the importing administrator.
-func (im *importer) script(ctx context.Context, s *Script) (string, error) {
+// script owned by the importing administrator, with its recordings and event
+// source. Its endpoint and schedule follow once it is a part.
+func (im *importer) script(ctx context.Context, s *Script) (*script.Script, error) {
 	sc, err := im.writeScript(ctx, s, im.gated[s.Name])
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if err := im.keepRecordings(ctx, sc); err != nil {
-		return "", err
+		return nil, err
 	}
-	if err := im.eventSource(ctx, sc, s); err != nil {
-		return "", err
-	}
-	if err := im.endpoint(ctx, sc, s.Endpoint); err != nil {
-		return "", err
-	}
-	return sc.ID, im.schedule(ctx, sc, s.Schedule)
+	return sc, im.eventSource(ctx, sc, s)
 }
 
 // writeScript creates the script, gives the part with its name a new
@@ -601,7 +604,12 @@ func (im *importer) endpoint(ctx context.Context, sc *script.Script, e *Endpoint
 		Endpoint: e.Name, Methods: e.Methods, Path: &path, AuthMode: e.AuthMode, Callers: e.Callers,
 		CheckedMethods: e.CheckedMethods, MaxMemoryBytes: e.MaxMemoryBytes, MaxBodyBytes: e.MaxBodyBytes,
 		AllowedOrigins: e.AllowedOrigins, RateLimit: e.RateLimit, CallerRateLimit: e.CallerRateLimit,
-		ResponseMode: e.ResponseMode, PageCDNs: e.PageCDNs,
+		ResponseMode: e.ResponseMode, PageCDNs: e.PageCDNs, PageFrameOrigins: e.PageFrameOrigins,
+		PageConnectOrigins: e.PageConnectOrigins, PageFormOrigins: e.PageFormOrigins,
+	}
+	if e.IPRateLimit > 0 {
+		limit := e.IPRateLimit
+		in.IPRateLimit = &limit
 	}
 	if e.BotCheck != "" {
 		in.BotCheck = im.mapped(e.BotCheck)

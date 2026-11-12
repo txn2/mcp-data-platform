@@ -343,7 +343,18 @@ coverage: test
 ##
 ## Use `make lint-full` to scan the entire codebase (housekeeping;
 ## not part of `make verify`).
+##
+## The lint itself is lint-run. lint runs it through scripts/verify-step.py
+## under the key verify uses (#2548): a cold run of the whole module costs
+## minutes, and on inputs that already passed (the Go files, .golangci.yml,
+## go.mod, go.sum, this recipe, the base and the linter version) it answers at
+## once and says so; on inputs that already failed with findings it prints
+## that run's findings without running. VERIFY_FULL=1 runs it regardless.
 lint:
+	@python3 scripts/verify-step.py --key lint $(MAKE) lint-run
+
+## lint-run: The patch-scoped lint itself, every time (lint skips inputs that already passed)
+lint-run:
 	@echo "Running patch-scoped lint (matches CI only-new-issues, includes uncommitted changes)..."
 	@# The cache is cleaned before the run: golangci-lint can serve a
 	@# previously FILTERED result for an unchanged package, so a warm cache
@@ -569,13 +580,15 @@ semgrep-changed:
 	@python3 scripts/semgrep-diff.py --whole-files p/golang .semgrep/
 
 ## codeql: Run CodeQL analysis (requires codeql CLI)
+## scripts/codeql-local.sh builds the database from an export of the working
+## tree with one traced `go build ./...` per module (#2548). CodeQL's autobuild
+## runs this Makefile's default goal, the whole unit suite and the lint twice,
+## for an extraction that needs a compile, and it ran in the checkout: a local
+## run removed tracked files under ui/vendor/maplibre. codeql-parity holds the
+## two builds' findings equal.
 codeql:
 	@echo "Running CodeQL analysis..."
-	@rm -rf /tmp/mcp-dp-codeql-db
-	codeql database create /tmp/mcp-dp-codeql-db --language=go --source-root=. --overwrite
-	@codeql database analyze /tmp/mcp-dp-codeql-db \
-		--format=sarif-latest --output=codeql-results.sarif \
-		codeql/go-queries:codeql-suites/go-security-and-quality.qls
+	@bash scripts/codeql-local.sh traced codeql-results.sarif
 	@# Gate logic lives in scripts/codeql-gate.py — it counts results
 	@# with sarif level=error OR security-severity >= 7.0. The
 	@# security-severity check matches what GitHub Code Scanning
@@ -585,6 +598,13 @@ codeql:
 	@# the CodeQL step in CI. Local CI parity is the whole point of
 	@# `make verify`.
 	@python3 scripts/codeql-gate.py codeql-results.sarif
+
+## codeql-parity: Run CodeQL with a traced build and with autobuild over one tree; require the same findings (#2548)
+## Slow, and run on request: the autobuild half runs `make` in the export, the
+## whole unit suite and the lint twice. Run it when scripts/codeql-local.sh, a
+## module or the CodeQL version changes.
+codeql-parity:
+	@CODEQL_PARITY=1 $(GOTEST) -count=1 -timeout 120m -run '^TestCodeQLTracedBuildFindsWhatAutobuildFinds$$' -v ./test/gates/
 
 ## sast: Run all SAST scanners (semgrep + codeql)
 sast: semgrep codeql
@@ -691,6 +711,15 @@ state-readers-check:
 ## their prose. A warning for a human, blocking for an AI agent.
 builtin-pages-check:
 	@python3 scripts/builtin-pages-check.py
+
+## portal-surface-check: Warn when the diff adds an MCP tool or a config section and changes nothing under ui/src (#2560)
+## manage_site reached v1.155.0 with no Sites page, and the API gateway's first
+## five pull requests had no way to add an api connection in the portal: no
+## step asked what a person sees. A tool or section with no portal surface by
+## design is listed in scripts/portal-surface-exempt.txt with its reason.
+## Warns for a person; blocking for an AI agent, as state-readers-check is.
+portal-surface-check:
+	@python3 scripts/portal-surface-check.py
 
 ## e2e-copy-check: Fail when an e2e spec asserts UI copy the diff removed from ui/src (#1977)
 ## The Playwright suite runs only inside verify, after the full unit run, so a
@@ -1038,12 +1067,17 @@ verify:
 	@# TestVerifyRunsTheCheapestStepFirst fails when this order and that table
 	@# disagree.
 	@#
+	@# A step that passed is skipped while its inputs (the fifth column of
+	@# that table) are unchanged, so a re-run costs the failed steps and
+	@# what the fix touched (#2548). VERIFY_FULL=1 runs every step.
+	@#
 	@# The steps that REWRITE the working tree run first, one at a time,
 	@# because everything after them reads what they produce: fmt rewrites
 	@# sources, embed-clean empties the UI embed directories, and
 	@# swagger-check regenerates internal/apidocs, which apidocs-openapi3-check
 	@# and state-readers-check read. Each is its own line, so they stay ordered
 	@# even when the outer make was given -j.
+	@python3 scripts/verify-step.py --begin
 	@python3 scripts/verify-step.py $(MAKE) tools-check
 	@python3 scripts/verify-step.py $(MAKE) fmt
 	@python3 scripts/verify-step.py $(MAKE) embed-clean
@@ -1055,27 +1089,33 @@ verify:
 	@# diff-scoped steps (security-diff, route-template-diff, migrate-check-diff,
 	@# dev-smoke-diff) skip in a tenth of a second when the diff gives them
 	@# nothing to do (#2186, #2239, #2248). lint is last: it is the costliest.
-	@python3 scripts/verify-step.py $(MAKE) acceptance-copy-check
-	@python3 scripts/verify-step.py $(MAKE) acceptance-check
-	@python3 scripts/verify-step.py $(MAKE) state-readers-check
-	@python3 scripts/verify-step.py $(MAKE) builtin-pages-check
-	@python3 scripts/verify-step.py $(MAKE) apidocs-openapi3-check
-	@python3 scripts/verify-step.py $(MAKE) e2e-copy-check
-	@python3 scripts/verify-step.py $(MAKE) security-diff
-	@python3 scripts/verify-step.py $(MAKE) route-conformance-check
-	@python3 scripts/verify-step.py $(MAKE) route-manifest-check
-	@python3 scripts/verify-step.py $(MAKE) semgrep-diff
-	@python3 scripts/verify-step.py $(MAKE) dead-code
-	@python3 scripts/verify-step.py $(MAKE) docs-build
-	@python3 scripts/verify-step.py $(MAKE) doc-check
-	@python3 scripts/verify-step.py $(MAKE) semgrep-changed
-	@python3 scripts/verify-step.py $(MAKE) frontend-lint
-	@python3 scripts/verify-step.py $(MAKE) e2e-standalone
-	@python3 scripts/verify-step.py $(MAKE) dev-smoke-diff
-	@python3 scripts/verify-step.py $(MAKE) route-template-diff
-	@python3 scripts/verify-step.py $(MAKE) migrate-check-diff
-	@python3 scripts/verify-step.py $(MAKE) vet-tags
-	@python3 scripts/verify-step.py $(MAKE) lint
+	@python3 scripts/verify-step.py --keep-going $(MAKE) acceptance-copy-check
+	@python3 scripts/verify-step.py --keep-going $(MAKE) acceptance-check
+	@python3 scripts/verify-step.py --keep-going $(MAKE) state-readers-check
+	@python3 scripts/verify-step.py --keep-going $(MAKE) builtin-pages-check
+	@python3 scripts/verify-step.py --keep-going $(MAKE) portal-surface-check
+	@python3 scripts/verify-step.py --keep-going $(MAKE) apidocs-openapi3-check
+	@python3 scripts/verify-step.py --keep-going $(MAKE) e2e-copy-check
+	@python3 scripts/verify-step.py --keep-going $(MAKE) security-diff
+	@python3 scripts/verify-step.py --keep-going $(MAKE) route-conformance-check
+	@python3 scripts/verify-step.py --keep-going $(MAKE) route-manifest-check
+	@python3 scripts/verify-step.py --keep-going $(MAKE) semgrep-diff
+	@python3 scripts/verify-step.py --keep-going $(MAKE) dead-code
+	@python3 scripts/verify-step.py --keep-going $(MAKE) docs-build
+	@python3 scripts/verify-step.py --keep-going $(MAKE) doc-check
+	@python3 scripts/verify-step.py --keep-going $(MAKE) semgrep-changed
+	@python3 scripts/verify-step.py --keep-going $(MAKE) frontend-lint
+	@python3 scripts/verify-step.py --keep-going $(MAKE) e2e-standalone
+	@python3 scripts/verify-step.py --keep-going $(MAKE) dev-smoke-diff
+	@python3 scripts/verify-step.py --keep-going $(MAKE) route-template-diff
+	@python3 scripts/verify-step.py --keep-going $(MAKE) migrate-check-diff
+	@python3 scripts/verify-step.py --keep-going $(MAKE) vet-tags
+	@python3 scripts/verify-step.py --keep-going $(MAKE) lint
+	@# A failed step above is recorded and the next one runs, so one run
+	@# reports every failing step rather than the first (#2548); this prints
+	@# each with its output and stops verify before the lanes. The steps
+	@# that rewrite the tree still stop the run at once.
+	@python3 scripts/verify-step.py --report
 	@# CodeQL is deliberately NOT here. It cannot join the concurrent phase:
 	@# its Go extractor uses autobuild, which finds this Makefile and runs the
 	@# default goal, so the step quietly regenerates swagger, runs the whole

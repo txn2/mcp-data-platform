@@ -11,6 +11,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptbehavior"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptshare"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -54,6 +55,9 @@ type sourceResponse struct {
 	Applied bool `json:"applied" example:"true"`
 	// Message states the outcome in the owner's terms.
 	Message string `json:"message" example:"Saved, and this version is what runs now."`
+	// SharedCode is each function of the saved source a library or another
+	// script already defines (#2273), never a refusal; empty when none.
+	SharedCode []scriptshare.Match `json:"shared_code"`
 }
 
 // portalSetSource saves a new version of a script's source.
@@ -115,7 +119,7 @@ func (h *Handler) portalSetSource(w http.ResponseWriter, r *http.Request, user *
 		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	h.landEdit(w, r, &before, &after, user)
+	h.landEdit(w, r, &before, &after, user, gated.SharedCode)
 }
 
 // gate is the save gate every source edit crosses, the lint and tests alone
@@ -174,6 +178,7 @@ func (h *Handler) landEdit(
 	r *http.Request,
 	before, after *script.Script,
 	user *PortalIdentity,
+	shared []scriptshare.Match,
 ) {
 	if !h.applyEdit(w, r, before, after, user) {
 		return
@@ -182,9 +187,13 @@ func (h *Handler) landEdit(
 	if err := h.gate().Keep(r.Context(), after, user.owner()); err != nil {
 		slog.Warn("failed to keep the recordings a script's tests name", "script", after.Name, "error", err)
 	}
+	if shared == nil {
+		shared = []scriptshare.Match{}
+	}
 	httpjson.WriteJSON(w, http.StatusOK, sourceResponse{
-		Applied: true,
-		Message: script.SavedMessage(after),
+		Applied:    true,
+		Message:    script.SavedMessage(after),
+		SharedCode: shared,
 	})
 }
 

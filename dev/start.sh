@@ -924,6 +924,11 @@ export MCP_PLATFORM_APPDB_TEST_SWEEP_INTERVAL="${MCP_PLATFORM_APPDB_TEST_SWEEP_I
 # wait below measures startup alone: air's first build of the same output is
 # then up to date. On a loaded CI runner the cold build took most of the
 # window and the nightly failed with a server still starting.
+# make verify's embed-clean empties the portal and tile page the server embeds;
+# a server compiled from an empty embed draws no tile (#2548). This builds them
+# when they are missing and does nothing otherwise; air runs it before each
+# rebuild too (dev/.air.toml).
+bash scripts/dev-embed.sh || fail "The portal the server embeds did not build (make frontend-build)"
 info "Compiling the server..."
 if ! go build -o ./build/air/mcp-data-platform ./cmd/mcp-data-platform > "$AIR_LOG" 2>&1; then
   tail -20 "$AIR_LOG" 2>/dev/null | sed 's/^/    /'
@@ -958,7 +963,7 @@ if [ "$DEV_REPLICAS" = 2 ]; then
   MCP_PLATFORM_DEPLOYMENT_ID="${DEV_DEPLOYMENT_ID_B:-$MCP_PLATFORM_DEPLOYMENT_ID}" \
   DEV_API_PORT="$DEV_API_PORT_B" OTEL_METRICS_ADDR=":9465" air -c dev/.air.toml \
     -tmp_dir build/air-b \
-    -build.cmd "go build -o ./build/air-b/mcp-data-platform ./cmd/mcp-data-platform" \
+    -build.cmd "bash scripts/dev-embed.sh && go build -o ./build/air-b/mcp-data-platform ./cmd/mcp-data-platform" \
     -build.bin ./build/air-b/mcp-data-platform \
     -build.full_bin "TMPDIR=$DEV_PLATFORM_TMPDIR ./build/air-b/mcp-data-platform" \
     > "$AIR_B_LOG" 2>&1 &

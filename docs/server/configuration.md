@@ -181,6 +181,7 @@ server:
   name: mcp-data-platform      # Server name reported to clients
   transport: stdio             # stdio or http
   address: ":8080"             # Listen address for HTTP transports
+  trusted_proxies: []          # e.g. ["10.42.0.0/16"]: the ingress's range
   tls:
     enabled: false
     cert_file: ""
@@ -200,6 +201,28 @@ server:
 | `tls.key_file` | string | - | Path to TLS private key |
 | `slow_request_threshold` | duration | `5s` | An inbound HTTP request slower than this is logged at WARN with its route template, method, status and duration (`slow HTTP request`); see [Observability](observability.md#inbound-requests) |
 | `state_probe_interval` | duration | `1m` | How often `dependency_up` re-pings each dependency, at most once per interval and only when `/metrics` is scraped; a signal only, `/readyz` never reads it. `mcp_platform_connections` sends nothing: it reads the outcome of the last call through each connection. See [Observability](observability.md#authentication-configuration-and-platform-state) |
+| `trusted_proxies` | array | `[]` | CIDRs of the proxies in front of the platform whose `X-Forwarded-For` it reads a client's address from: an endpoint's `ip_rate_limit` and `req["client_ip"]` (#2556), and the portal and OAuth rate limits when their own `trusted_proxies` are empty. Empty trusts none, and the peer's address is used. A range wider than /8 (IPv4) or /32 (IPv6) is refused at startup. See [The client's address](#the-clients-address) |
+
+### The client's address
+
+Behind a load balancer and an ingress, the address a request arrives from is the
+ingress's. To limit and report the real client, the chain has to carry the
+address and the platform has to trust only the hops it knows:
+
+1. The load balancer preserves the client's address (proxy protocol, or a
+   load balancer that does not rewrite the source), or the ingress sets
+   `X-Forwarded-For` and trusts only the load balancer's own range.
+2. `server.trusted_proxies` holds the ingress's range and nothing broader. The
+   platform reads `X-Forwarded-For` only when the peer is in that range, right
+   to left past the trusted hops, so a client cannot name its own address by
+   writing the header.
+3. A one-line endpoint confirms it: bind
+   `def handle(req): return {"json": {"client_ip": req["client_ip"]}}` and call
+   it from outside; it answers your own address, not the ingress's.
+
+A hostname the built-in ACME listener serves has no proxy in front and needs no
+setting. Endpoint limits count each replica on its own, so the effective limit
+across three replicas is three times the setting.
 
 !!! warning "HTTP Transport Security"
     When using HTTP transport without TLS, a warning is logged. For production deployments, always enable TLS to encrypt credentials in transit.

@@ -872,3 +872,35 @@ func TestOriginHost_IsReadFromStoredRecords(t *testing.T) {
 	assert.Empty(t, ph.pages.originHost(ctx, pageHost+"@evil.example", appShop))
 	assert.Empty(t, ph.pages.originHost(ctx, "other."+ph.pages.PagesDomain(), appShop))
 }
+
+// TestPages_HandsTheEndpointItsCookieRule is #2555 at the page origin: an
+// application's origin carries its cookies under __Host-app- over https and
+// app- over http, and a write that does not prove it came from the origin is
+// handed on with its cookies withheld.
+func TestPages_HandsTheEndpointItsCookieRule(t *testing.T) {
+	ph := newPageHarness(secure)
+	ph.get(hostShop, "/")
+	require.Len(t, ph.server.routes, 1)
+	route := ph.server.routes[0]
+	assert.Equal(t, eprun.CookiePrefixSecure, route.CookiePrefix)
+	assert.True(t, route.Secure)
+	assert.False(t, route.CookiesWithheld, "a read carries the cookies")
+
+	plain := newPageHarness()
+	plain.get(hostShop, "/")
+	assert.Equal(t, eprun.CookiePrefixPlain, plain.server.routes[0].CookiePrefix)
+
+	for name, header := range map[string]http.Header{
+		"no evidence":    {},
+		"another site":   {"Sec-Fetch-Site": {"same-site"}},
+		"another origin": {"Origin": {"https://other.pages.example.net"}},
+		"same origin":    {"Sec-Fetch-Site": {"same-origin"}},
+		"its own origin": {"Origin": {"https://" + hostShop}},
+	} {
+		ph := newPageHarness(secure)
+		ph.do(http.MethodPost, hostShop, "/cart", header)
+		require.Len(t, ph.server.routes, 1, name)
+		wantWithheld := name != "same origin" && name != "its own origin"
+		assert.Equal(t, wantWithheld, ph.server.routes[0].CookiesWithheld, name)
+	}
+}

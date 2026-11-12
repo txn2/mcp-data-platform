@@ -41,6 +41,10 @@ func TestNamed(t *testing.T) {
 			"an embedded form, after resources and assets", `<iframe src="mcp:form:contact"></iframe> mcp:asset:a1`,
 			[]string{"mcp:asset:a1", "mcp:form:contact"},
 		},
+		{
+			"an endpoint a page calls, after forms (#2457)", `fetch("mcp:endpoint:log-search") <iframe src="mcp:form:contact">`,
+			[]string{"mcp:form:contact", "mcp:endpoint:log-search"},
+		},
 		{"a bare scheme names nothing", `mcp:// and mcp:asset: alone`, nil},
 		{"end of body terminates", "mcp://a/b.png", []string{"mcp://a/b.png"}},
 		{"another scheme is not read", "acme://a/b.png", nil},

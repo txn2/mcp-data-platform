@@ -119,13 +119,15 @@ func TestAdmits(t *testing.T) {
 	assert.True(t, Binding{Callers: []string{}}.Admits(Caller{Admin: true, Persona: "admin"}), "the administrator is unrestricted")
 }
 
-func TestValidate_RefusesEachBadField(t *testing.T) {
-	good := func() Binding {
-		return Binding{
-			Name: "ok", Methods: []string{"GET"}, AuthMode: AuthAuthenticated, Callers: []string{"*"}, TimeoutSeconds: 1,
-			MaxMemoryBytes: MinMaxMemoryBytes, MaxBodyBytes: 1, RateLimit: 10, CallerRateLimit: 10,
-		}
+// good is a binding Validate accepts.
+func good() Binding {
+	return Binding{
+		Name: "ok", Methods: []string{"GET"}, AuthMode: AuthAuthenticated, Callers: []string{"*"}, TimeoutSeconds: 1,
+		MaxMemoryBytes: MinMaxMemoryBytes, MaxBodyBytes: 1, RateLimit: 10, CallerRateLimit: 10,
 	}
+}
+
+func TestValidate_RefusesEachBadField(t *testing.T) {
 	require.NoError(t, good().Validate())
 	cases := map[string]struct {
 		edit func(*Binding)
@@ -184,13 +186,106 @@ func TestMatch(t *testing.T) {
 	assert.False(t, ok, "a binding with no path answers the name alone")
 
 	b := Binding{Path: "/orders/{id}"}
-	params, ok = b.Match("/orders/a%20b/")
+	params, ok = b.Match("/orders/a b/")
 	require.True(t, ok)
 	assert.Equal(t, map[string]string{"id": "a b"}, params)
-	for _, rest := range []string{"", "/orders", "/orders/1/x", "/order/1", "orders/1", "/orders/%zz", "/orders/"} {
+	params, ok = b.Match("/orders/50%-off")
+	require.True(t, ok, "the path is decoded once, by the router: a % reaches the handler as itself")
+	assert.Equal(t, "50%-off", params["id"])
+	params, ok = b.Match("/orders/%2e%2e")
+	require.True(t, ok)
+	assert.Equal(t, "%2e%2e", params["id"], "a doubly encoded dot is never decoded into ..")
+	for _, rest := range []string{"", "/orders", "/orders/1/x", "/order/1", "orders/1", "/orders/", "/orders/..", "/orders/.", "/orders/a\\b", "/orders/a\x00b"} {
 		_, ok := b.Match(rest)
 		assert.False(t, ok, rest)
 	}
+}
+
+// TestMatch_CatchAll is #2553: a last segment {name...} takes the rest of the
+// path at any depth, including none, without a leading slash; a trailing
+// slash is the same path; and a relative step, an empty segment, a backslash
+// or a control character anywhere in it matches nothing.
+func TestMatch_CatchAll(t *testing.T) {
+	root := Binding{Path: "/{route...}"}
+	for rest, want := range map[string]string{
+		"": "", "/": "", "/cart": "cart", "/cart/": "cart", "/products/shoe": "products/shoe",
+		"/a/b/c/d": "a/b/c/d", "/robots.txt": "robots.txt", "/50%-off": "50%-off",
+	} {
+		params, ok := root.Match(rest)
+		require.True(t, ok, rest)
+		assert.Equal(t, map[string]string{"route": want}, params, rest)
+	}
+	for _, rest := range []string{
+		"/..", "/a/../b", "/./a", "/a//b", "/a\\b", "/a\x00b", "/a\x7fb", "cart",
+		"/" + strings.Repeat("a/", maxRouteSegments) + "z", "/" + strings.Repeat("x", maxRouteBytes+1),
+	} {
+		_, ok := root.Match(rest)
+		assert.False(t, ok, rest)
+	}
+
+	under := Binding{Path: "/api/{version}/{rest...}"}
+	params, ok := under.Match("/api/v2")
+	require.True(t, ok)
+	assert.Equal(t, map[string]string{"version": "v2", "rest": ""}, params)
+	params, ok = under.Match("/api/v2/orders/7")
+	require.True(t, ok)
+	assert.Equal(t, map[string]string{"version": "v2", "rest": "orders/7"}, params)
+	_, ok = under.Match("/api")
+	assert.False(t, ok, "the segments before the catch-all are required")
+	_, ok = under.Match("/other/v2/x")
+	assert.False(t, ok)
+
+	exact := Binding{Path: "/orders/{id}"}
+	_, ok = exact.Match("/orders/7/items")
+	assert.False(t, ok, "a template without a catch-all matches exactly, as before")
+}
+
+// TestValidate_CatchAllShape is #2553's refusals at endpoint_set: only the
+// last segment may be a catch-all, once, and its name is checked like a
+// parameter's.
+func TestValidate_CatchAllShape(t *testing.T) {
+	for path, want := range map[string]string{
+		"/{route...}/edit":        `path "/{route...}/edit": only the last segment may be a catch-all {name...}`,
+		"/{a...}/{b...}":          "only the last segment may be a catch-all",
+		"/{id}/{id...}":           `names the parameter "id" twice`,
+		"/{Route...}":             "a last {name...} catching the rest",
+		"/{route..}":              "a last {name...} catching the rest",
+		"/x/{route....}":          "a last {name...} catching the rest",
+		"/a/b/c/d/e/f/g/h/{r...}": "more than 8 segments",
+	} {
+		b := good()
+		b.Path = path
+		require.ErrorContains(t, b.Validate(), want, path)
+	}
+	for _, path := range []string{"/{route...}", "/api/{version}/{rest...}", "/static/{file...}"} {
+		b := good()
+		b.Path = path
+		require.NoError(t, b.Validate(), path)
+	}
+}
+
+// TestValidate_IPRateLimit is #2556's bounds: 0 is no limit, and a limit is
+// at most the endpoint's own.
+func TestValidate_IPRateLimit(t *testing.T) {
+	b := good()
+	b.IPRateLimit = 0
+	require.NoError(t, b.Validate())
+	b.IPRateLimit = b.RateLimit
+	require.NoError(t, b.Validate())
+	b.IPRateLimit = b.RateLimit + 1
+	require.ErrorContains(t, b.Validate(), "ip_rate_limit must be from 0 (no limit)")
+	b.IPRateLimit = -1
+	require.ErrorContains(t, b.Validate(), "ip_rate_limit")
+
+	var bound Binding
+	limit := 30
+	apply(&bound, Request{IPRateLimit: &limit})
+	assert.Equal(t, 30, bound.IPRateLimit)
+	apply(&bound, Request{})
+	assert.Equal(t, 30, bound.IPRateLimit, "nil keeps")
+	off := 0
+	apply(&bound, Request{IPRateLimit: &off})
+	assert.Zero(t, bound.IPRateLimit, "0 turns it off")
 }
 
 func TestAnswers(t *testing.T) {

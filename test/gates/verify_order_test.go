@@ -61,10 +61,15 @@ func stepAt(lines []string, step string) int {
 // which prints what the step cost (#2369).
 const stepRunner = "python3 scripts/verify-step.py $(MAKE) "
 
+// keepGoingRunner is the same command for a step of verify's serial preamble,
+// which records a failure and lets the next step run (#2548).
+const keepGoingRunner = "python3 scripts/verify-step.py --keep-going $(MAKE) "
+
 // timedStep is one row of scripts/verify-steps.tsv.
 type timedStep struct {
 	group, name, after string
 	seconds            float64
+	inputs             []string
 }
 
 // stepTable reads scripts/verify-steps.tsv, keeping each group's rows in order.
@@ -76,14 +81,14 @@ func stepTable(t *testing.T) map[string][]timedStep {
 			continue
 		}
 		f := strings.Split(line, "\t")
-		if len(f) != 4 {
-			t.Fatalf("scripts/verify-steps.tsv line %d has %d columns, want 4: %q", n+1, len(f), line)
+		if len(f) != 5 {
+			t.Fatalf("scripts/verify-steps.tsv line %d has %d columns, want 5: %q", n+1, len(f), line)
 		}
 		secs, err := strconv.ParseFloat(f[2], 64)
 		if err != nil {
 			t.Fatalf("scripts/verify-steps.tsv line %d: seconds %q: %v", n+1, f[2], err)
 		}
-		groups[f[0]] = append(groups[f[0]], timedStep{group: f[0], name: f[1], seconds: secs, after: f[3]})
+		groups[f[0]] = append(groups[f[0]], timedStep{group: f[0], name: f[1], seconds: secs, after: f[3], inputs: strings.Fields(f[4])})
 	}
 	return groups
 }
@@ -92,17 +97,28 @@ func stepTable(t *testing.T) map[string][]timedStep {
 // and fails on a recipe line that runs a target without it.
 func steps(t *testing.T, makefile, target string) []string {
 	t.Helper()
-	var out []string
+	ran, _ := runnerSteps(t, makefile, target)
+	return ran
+}
+
+// runnerSteps is steps, with whether each step keeps going past a failure.
+func runnerSteps(t *testing.T, makefile, target string) (ran []string, keepGoing []bool) {
+	t.Helper()
 	for _, l := range recipe(t, makefile, target) {
-		if name, ok := strings.CutPrefix(strings.TrimPrefix(l, "@"), stepRunner); ok {
-			out = append(out, name)
+		line := strings.TrimPrefix(l, "@")
+		if name, ok := strings.CutPrefix(line, stepRunner); ok {
+			ran, keepGoing = append(ran, name), append(keepGoing, false)
+			continue
+		}
+		if name, ok := strings.CutPrefix(line, keepGoingRunner); ok {
+			ran, keepGoing = append(ran, name), append(keepGoing, true)
 			continue
 		}
 		if strings.Contains(l, "--no-print-directory") && !strings.Contains(l, "-j4 verify-checks") {
 			t.Errorf("%s runs %q without %s, so its cost is not printed", target, l, stepRunner)
 		}
 	}
-	return out
+	return ran, keepGoing
 }
 
 // assertGroupOrder checks that a recipe runs exactly the table's steps for the
@@ -150,6 +166,8 @@ func TestVerifyRunsTheCheapestStepFirst(t *testing.T) {
 	}
 	assertGroupOrder(t, "verify (rewrite)", verify[:rewrite], table["rewrite"], false)
 	assertGroupOrder(t, "verify (preamble)", verify[rewrite:], table["preamble"], true)
+	assertPreambleKeepsGoing(t, makefile, rewrite)
+	assertInputsExist(t, table)
 	for _, lane := range []string{"verify-go", "verify-static", "verify-docker", "verify-ui"} {
 		assertGroupOrder(t, lane, steps(t, makefile, lane), table[lane], true)
 	}
@@ -178,6 +196,78 @@ func TestVerifyRunsTheCheapestStepFirst(t *testing.T) {
 	}
 	assertOneUnitRun(t, makefile)
 	assertStaticChecksInALane(t, makefile)
+}
+
+// assertPreambleKeepsGoing pins #2548's first ask: the steps that rewrite the
+// tree stop verify at once, every step of the serial preamble keeps going past
+// a failure, and one report after the last of them fails verify, listing each,
+// before the lanes start. The record of failures is cleared first.
+func assertPreambleKeepsGoing(t *testing.T, makefile string, rewrite int) {
+	t.Helper()
+	ran, keepGoing := runnerSteps(t, makefile, "verify")
+	for i, name := range ran {
+		if i < rewrite && keepGoing[i] {
+			t.Errorf("verify runs %s, which rewrites the tree, with --keep-going; a failure there must stop the run", name)
+		}
+		if i >= rewrite && !keepGoing[i] {
+			t.Errorf("verify runs %s without --keep-going, so a failure there hides every later step's", name)
+		}
+	}
+	lines := recipe(t, makefile, "verify")
+	begin, report, lanes := -1, -1, -1
+	lastStep, firstStep := -1, -1
+	for i, l := range lines {
+		switch line := strings.TrimPrefix(l, "@"); {
+		case line == "python3 scripts/verify-step.py --begin":
+			begin = i
+		case line == "python3 scripts/verify-step.py --report":
+			report = i
+		case strings.Contains(line, "-j4 verify-checks"):
+			lanes = i
+		case strings.HasPrefix(line, stepRunner), strings.HasPrefix(line, keepGoingRunner):
+			if firstStep < 0 {
+				firstStep = i
+			}
+			lastStep = i
+		}
+	}
+	if begin < 0 || begin > firstStep {
+		t.Error("verify does not clear the record of failed steps before its first step")
+	}
+	if report < 0 || report < lastStep || report > lanes {
+		t.Error("verify does not report the failed steps after the last serial step and before the lanes")
+	}
+}
+
+// assertInputsExist pins the inputs column (#2548): each token is one
+// scripts/verify-step.py reads, and each path names something in the tree, so
+// a renamed directory cannot quietly drop out of a step's digest.
+func assertInputsExist(t *testing.T, table map[string][]timedStep) {
+	t.Helper()
+	for _, rows := range table {
+		for _, r := range rows {
+			if len(r.inputs) == 0 {
+				t.Errorf("%s has an empty inputs column; write - for a step that always runs", r.name)
+			}
+			for _, tok := range r.inputs {
+				switch {
+				case tok == "-":
+					if len(r.inputs) != 1 {
+						t.Errorf("%s: - stands alone in the inputs column", r.name)
+					}
+				case tok == "@go", tok == "replay", tok == "tool:semgrep", tok == ".":
+				case strings.HasPrefix(tok, "out:"):
+				default:
+					if _, err := os.Stat(filepath.Join("..", "..", tok)); err != nil {
+						t.Errorf("%s reads %s, which is not in the tree: %v", r.name, tok, err)
+					}
+				}
+			}
+			if r.group == "rewrite" && !slices.Equal(r.inputs, []string{"-"}) {
+				t.Errorf("%s rewrites the tree; it must run every time", r.name)
+			}
+		}
+	}
 }
 
 // TestVerifyStepPrintsItsCost pins #2369's runner: a step's cost is printed

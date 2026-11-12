@@ -1,6 +1,6 @@
 # The order make verify runs its steps in, and what each one costs (#2369).
 #
-# Columns: group, step, seconds, after.
+# Columns: group, step, seconds, after, inputs.
 #
 #   group    rewrite: the steps that write the working tree, run first in this
 #            order because every later step reads what they produce.
@@ -11,6 +11,18 @@
 #            the figure here is its cost when it runs.
 #   after    a step this one reads the output of, so it runs after that step
 #            whatever it costs; "-" when it has none.
+#   inputs   what the step reads, besides what every step reads (the Makefile,
+#            scripts/, the Go and Node versions, the base it diffs against).
+#            A step that passed is skipped while these are unchanged (#2548);
+#            scripts/verify-step.py documents the tokens. "-" runs the step
+#            every time: it reads something outside the tree (a running stack,
+#            a database or ruleset fetched over the network, recorded
+#            acceptance runs), prints what a reader needs when it passes (a
+#            warning, a list to look at), or costs less than the digest.
+#            A Go test may read a file anywhere in the repository (a Makefile
+#            gate, a UI list held to a Go one, dev/seed.sql), so a step
+#            running a suite reads "."; a compile reads @go, and a step
+#            running one named test reads @go and the files that test opens.
 #
 # Outside the rewrite group, the steps without an "after" run cheapest first,
 # so the cheapest check that can fail fails first. TestVerifyRunsTheCheapestStepFirst
@@ -24,42 +36,43 @@
 # diff of PR #2370. test, test-realdb and release-check are their lanes'
 # totals from that day's verify less the steps measured alone; each runs after
 # a step it depends on, so its figure orders nothing.
-rewrite	tools-check	0.5	-
-rewrite	fmt	0.9	-
-rewrite	embed-clean	0.2	-
-rewrite	swagger-check	3.1	-
-preamble	acceptance-copy-check	0.1	-
-preamble	acceptance-check	0.2	-
-preamble	state-readers-check	0.2	-
-preamble	builtin-pages-check	0.2	-
-preamble	apidocs-openapi3-check	0.5	-
-preamble	e2e-copy-check	0.8	-
-preamble	security-diff	0.9	-
-preamble	route-conformance-check	1.0	-
-preamble	route-manifest-check	1.6	-
-preamble	semgrep-diff	3.5	-
-preamble	dead-code	3.7	-
-preamble	docs-build	4.2	-
-preamble	doc-check	4.3	-
-preamble	semgrep-changed	5.3	-
-preamble	frontend-lint	8.6	-
-preamble	e2e-standalone	21.0	-
-preamble	dev-smoke-diff	22.2	-
-preamble	route-template-diff	23.4	-
-preamble	migrate-check-diff	31.5	-
-preamble	vet-tags	49.8	-
-preamble	lint	387.8	-
-verify-go	bench-report-check	0.4	-
-verify-go	bench-test	1.6	-
-verify-go	schedule-lane	141.4	-
-verify-go	test	338.0	-
-verify-go	coverage-summary	2.7	test
-verify-go	patch-coverage-check	0.2	test
-verify-static	bench-lint	3.1	-
-verify-static	semgrep	9.7	-
-verify-static	security	55.6	-
-verify-docker	migrate-check-lane	31.5	-
-verify-docker	test-realdb	301.0	-
-verify-ui	schedule-lane-ui	53.7	-
-verify-ui	frontend-e2e	104.7	-
-verify-ui	release-check	169.0	frontend-e2e
+rewrite	tools-check	0.5	-	-
+rewrite	fmt	0.9	-	-
+rewrite	embed-clean	0.2	-	-
+rewrite	swagger-check	3.1	-	-
+preamble	acceptance-copy-check	0.1	-	-
+preamble	acceptance-check	0.2	-	-
+preamble	state-readers-check	0.2	-	-
+preamble	builtin-pages-check	0.2	-	-
+preamble	portal-surface-check	0.4	-	-
+preamble	apidocs-openapi3-check	0.5	-	-
+preamble	e2e-copy-check	0.8	-	-
+preamble	security-diff	0.9	-	-
+preamble	route-conformance-check	1.0	-	ui internal/apidocs
+preamble	route-manifest-check	1.6	-	ui
+preamble	semgrep-diff	3.5	-	@go .semgrep-diff tool:semgrep
+preamble	dead-code	3.7	-	-
+preamble	docs-build	4.2	-	docs mkdocs.yml
+preamble	doc-check	4.3	-	-
+preamble	semgrep-changed	5.3	-	-
+preamble	frontend-lint	8.6	-	ui
+preamble	e2e-standalone	21.0	-	.
+preamble	dev-smoke-diff	22.2	-	-
+preamble	route-template-diff	23.4	-	@go
+preamble	migrate-check-diff	31.5	-	@go dev/seed.sql
+preamble	vet-tags	49.8	-	@go
+preamble	lint	387.8	-	@go .golangci.yml replay
+verify-go	bench-report-check	0.4	-	-
+verify-go	bench-test	1.6	-	bench
+verify-go	schedule-lane	141.4	-	.
+verify-go	test	338.0	-	. out:coverage.out
+verify-go	coverage-summary	2.7	test	-
+verify-go	patch-coverage-check	0.2	test	-
+verify-static	bench-lint	3.1	-	bench .golangci.yml
+verify-static	semgrep	9.7	-	-
+verify-static	security	55.6	-	-
+verify-docker	migrate-check-lane	31.5	-	@go dev/seed.sql
+verify-docker	test-realdb	301.0	-	.
+verify-ui	schedule-lane-ui	53.7	-	ui internal/apidocs internal/platform/knowledgebuiltin/pages test/acceptance/testdata
+verify-ui	frontend-e2e	104.7	-	ui internal/apidocs test/acceptance/testdata
+verify-ui	release-check	169.0	frontend-e2e	.

@@ -490,7 +490,7 @@ func (b *builder) portalOutput(id, scriptID string, i int, out scriptflow.Output
 
 // Endpoint and form references an asset's content can make.
 var (
-	endpointRef = regexp.MustCompile(`/endpoints/([A-Za-z0-9][A-Za-z0-9_-]*)`)
+	endpointRef = regexp.MustCompile(`(?:mcp:endpoint:|/endpoints/)([A-Za-z0-9][A-Za-z0-9_-]*)`)
 	formRef     = regexp.MustCompile(`(?:mcp:form:|/forms/)([A-Za-z0-9][A-Za-z0-9_-]*)`)
 )
 

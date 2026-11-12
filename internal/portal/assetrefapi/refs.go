@@ -383,6 +383,10 @@ func (h *handler) views(
 			// A form is served by its endpoint, not through the reference: the
 			// row names it and links to its page (#2177).
 			view.DisplayName, view.ContentURL = ref.TargetID, assetrefs.FormPagePrefix+ref.TargetID
+		case assetrefs.TargetEndpoint:
+			// An endpoint answers the asset's page, not a reader opening it: the
+			// row names it and links nowhere (#2457).
+			view.DisplayName, view.ContentURL = ref.TargetID, ""
 		default:
 			view.Broken = true
 		}

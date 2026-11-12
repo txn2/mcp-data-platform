@@ -134,9 +134,11 @@ func Rewrite(content []byte, contentType, base, assetID string, refs []Ref) []by
 }
 
 // FormQuery is the query string one copy of an asset hands each form page it
-// embeds: the embed marker that lets the asset frame it (#2331) and, for a
-// signed-in reader, their viewer token (#2177). Nil or empty values hand none.
-type FormQuery func(endpoint string) url.Values
+// embeds and each endpoint it calls (kind TargetForm or TargetEndpoint): the
+// embed marker that lets the asset frame the form (#2331) or call the endpoint
+// from its sandbox (#2457), and, for a signed-in reader, their viewer token
+// (#2177). Nil or empty values hand none.
+type FormQuery func(kind TargetKind, endpoint string) url.Values
 
 // Rewrite is the package's Rewrite with each form page handed what q says; a
 // nil FormQuery hands none anything.
@@ -184,8 +186,8 @@ func replacements(base, assetID string, refs []Ref, query FormQuery) []string {
 
 	pairs := make([]string, 0, len(ordered)*2)
 	for _, ref := range ordered {
-		if ref.TargetKind == TargetForm {
-			pairs = append(pairs, ref.URI, formURL(base, ref.TargetID, query))
+		if ref.TargetKind.Endpoint() {
+			pairs = append(pairs, ref.URI, endpointURL(base, ref.TargetKind, ref.TargetID, query))
 			continue
 		}
 		pairs = append(pairs, ref.URI, URL(base, assetID, ref.RefToken))
@@ -193,14 +195,18 @@ func replacements(base, assetID string, refs []Ref, query FormQuery) []string {
 	return pairs
 }
 
-// formURL is the absolute address of a form's page, with the query this copy
-// of the asset hands it, if any.
-func formURL(base, endpoint string, query FormQuery) string {
-	u := strings.TrimRight(base, pathSep) + FormPagePrefix + url.PathEscape(endpoint)
+// endpointURL is the absolute address of a form's page or an endpoint, with
+// the query this copy of the asset hands it, if any.
+func endpointURL(base string, kind TargetKind, endpoint string, query FormQuery) string {
+	prefix := FormPagePrefix
+	if kind == TargetEndpoint {
+		prefix = EndpointPathPrefix
+	}
+	u := strings.TrimRight(base, pathSep) + prefix + url.PathEscape(endpoint)
 	if query == nil {
 		return u
 	}
-	if q := query(endpoint); len(q) > 0 {
+	if q := query(kind, endpoint); len(q) > 0 {
 		u += "?" + q.Encode()
 	}
 	return u
@@ -218,7 +224,7 @@ func downloads(content, contentType, base, assetID string, refs []Ref) string {
 	}
 	tokens := make(map[string]string, len(refs))
 	for _, ref := range refs {
-		if ref.URI != "" && ref.RefToken != "" && ref.TargetKind != TargetForm {
+		if ref.URI != "" && ref.RefToken != "" && !ref.TargetKind.Endpoint() {
 			tokens[ref.URI] = ref.RefToken
 		}
 	}

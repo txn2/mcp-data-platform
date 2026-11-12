@@ -12,6 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptshare"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -97,6 +99,40 @@ func TestPortalSetSource_AppliesToTheLiveRow(t *testing.T) {
 
 	require.NotNil(t, store.updated, "the live row was not written")
 	assert.Equal(t, editedSource, store.updated.Source)
+}
+
+// sharedLibrary answers the save gate with one library holding with_region.
+type sharedLibrary struct{}
+
+func (sharedLibrary) CodeSources(context.Context) ([]scriptshare.Source, error) {
+	return []scriptshare.Source{{ID: "lib-1", Name: "regions", Library: true, Version: 2, Code: "def with_region(items):\n" +
+		"    \"\"\"The rows that name a region.\"\"\"\n    kept = []\n    for item in items:\n" +
+		"        if item.get(\"region\"):\n            kept.append(item)\n    return kept\n"}}, nil
+}
+
+// A portal save answers shared_code as the tool does (#2273): each function a
+// library already holds, with the load line that replaces it, and [] when
+// nothing matches, never null.
+func TestPortalSetSource_AnswersTheFunctionsALibraryAlreadyHolds(t *testing.T) {
+	store := newEditStore()
+	rec := servePortalRequest(t, editDeps(store, carol), http.MethodPut, sourcePath, editedBody)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), `"shared_code":[]`)
+
+	source := "def keep(rows):\n    \"\"\"The rows that name a region.\"\"\"\n    out = []\n    for r in rows:\n" +
+		"        if r.get(\"region\"):\n            out.append(r)\n    return out\n\n" +
+		"def main():\n    \"\"\"Exports the daily rows.\"\"\"\n" +
+		"    res = platform.query(connection = \"warehouse\", sql = \"SELECT 2\")\n" +
+		"    platform.export(name = \"daily\", rows = keep(res[\"rows\"]))\n" + dailyTest
+	deps := editDeps(newEditStore(), carol)
+	deps.Gate = &scriptsave.Gate{Shared: sharedLibrary{}}
+	rec = servePortalRequest(t, deps, http.MethodPut, sourcePath, `{"source":`+strconv.Quote(source)+`}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body sourceResponse
+	decodeInto(t, rec, &body)
+	require.Len(t, body.SharedCode, 1, rec.Body.String())
+	assert.Equal(t, "keep", body.SharedCode[0].Function)
+	assert.Equal(t, `load("lib:regions@2", "with_region")`, body.SharedCode[0].Load)
 }
 
 // TestPortalSetSource_RecordsTheAuthorAndTheirRoles pins the authority ceiling:

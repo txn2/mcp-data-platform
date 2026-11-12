@@ -23,12 +23,14 @@ var bindingColumns = []string{
 	"id", "script_id", "name", "methods", "path", "auth_mode", "callers", "bot_check", "checked_methods", "timeout_seconds",
 	"max_memory_bytes", "max_body_bytes", "allowed_origins", "rate_limit", "caller_rate_limit", "enabled",
 	"created_by", "updated_by", "created_at", "updated_at", "response_mode", "page_cdns",
+	"page_frame_origins", "page_connect_origins", "page_form_origins", "ip_rate_limit",
 }
 
 func bindingRow() []driver.Value {
 	return []driver.Value{
 		"e1", "s1", "orders", "{GET,POST}", "/{id}", epbinding.AuthAuthenticated, "{persona:analyst}", "", nil, 10,
 		int64(64 << 20), 1 << 20, "{}", 600, 120, true, "a@example.com", "a@example.com", rowTime, rowTime, "api", "{}",
+		"{https://js.stripe.com}", "{}", nil, 30,
 	}
 }
 
@@ -55,7 +57,8 @@ func TestSet_StoresAndReadsBackTheIdentity(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO script_endpoints")).
 		WithArgs("s1", "orders", sqlmock.AnyArg(), "", epbinding.AuthAuthenticated, sqlmock.AnyArg(), "", sqlmock.AnyArg(),
-			10, int64(64<<20), 1<<20, sqlmock.AnyArg(), 600, 120, true, "a@example.com", "", sqlmock.AnyArg()).
+			10, int64(64<<20), 1<<20, sqlmock.AnyArg(), 600, 120, true, "a@example.com", "", sqlmock.AnyArg(),
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), 0).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_by", "created_at", "updated_at"}).
 			AddRow("e1", "first@example.com", rowTime, rowTime))
 	b := sample()
@@ -92,6 +95,9 @@ func TestGetAndGetByName(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"GET", "POST"}, b.Methods)
 	assert.Equal(t, []string{}, b.AllowedOrigins)
+	assert.Equal(t, []string{"https://js.stripe.com"}, b.PageFrameOrigins, "#2554's lists are read back")
+	assert.Equal(t, []string{}, b.PageFormOrigins, "a NULL list reads as empty")
+	assert.Equal(t, 30, b.IPRateLimit, "#2556's limit is read back")
 
 	mock.ExpectQuery(regexp.QuoteMeta("WHERE name = $1")).WithArgs("nope").WillReturnError(sql.ErrNoRows)
 	_, err = s.GetByName(context.Background(), "nope")

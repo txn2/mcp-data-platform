@@ -166,11 +166,15 @@ func baseType(contentType string) string {
 
 // Path prefixes the export treats specially.
 const (
-	refsPrefix   = "/portal/refs/"
-	vendorPrefix = "/portal/vendor/"
-	mapsPrefix   = "/portal/maps/"
-	formsPrefix  = "/forms/"
-	formScheme   = "mcp:form:"
+	refsPrefix     = "/portal/refs/"
+	vendorPrefix   = "/portal/vendor/"
+	mapsPrefix     = "/portal/maps/"
+	formsPrefix    = "/forms/"
+	formScheme     = "mcp:form:"
+	endpointScheme = "mcp:endpoint:"
+	// endpointEmbed marks an endpoint address an asset's served copy carries
+	// (#2457): the marker and the reader's token belong to the platform.
+	endpointEmbed = "endpoint_embed="
 )
 
 // platformReads names what a document reads from the platform that a file
@@ -180,6 +184,9 @@ func platformReads(doc string, origin *url.URL) []string {
 	var reasons []string
 	if strings.Contains(doc, formScheme) || strings.Contains(doc, originPath(origin, formsPrefix)) {
 		reasons = append(reasons, "it embeds a form, which submits to the platform")
+	}
+	if strings.Contains(doc, endpointScheme) || strings.Contains(doc, endpointEmbed) {
+		reasons = append(reasons, "it calls an endpoint, which answers it only from the platform")
 	}
 	if strings.Contains(doc, mapsPrefix) {
 		reasons = append(reasons, "its map tiles come from the platform's basemap archive")

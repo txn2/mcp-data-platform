@@ -251,6 +251,7 @@ export function AssetMetadataSidebar({
                 versions={versions}
                 currentVersion={asset.current_version}
                 isLoading={versionsLoading ?? false}
+                compare={{ assetId: asset.id, assetName: asset.name, contentType: asset.content_type }}
               />
             </div>
           )}

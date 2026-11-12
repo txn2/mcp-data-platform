@@ -9,7 +9,6 @@ package epbinding
 import (
 	"errors"
 	"fmt"
-	"net/http"
 	"net/url"
 	"regexp"
 	"slices"
@@ -53,16 +52,6 @@ const (
 
 // ResponseModes is every response mode.
 var ResponseModes = []string{ResponseAPI, ResponsePage}
-
-// maxPageCDNs bounds the origins a page may load from.
-const maxPageCDNs = 20
-
-// The shapes of what a page's policy names: each is written into a response
-// header, so nothing but this shape reaches it.
-var (
-	pageCDN    = regexp.MustCompile(`^https://[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?(:\d{1,5})?$`)
-	pageOrigin = regexp.MustCompile(`^https?://[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?(:\d{1,5})?$`)
-)
 
 // PathPrefix is where every endpoint is served: /endpoints/{name}/...
 const PathPrefix = "/endpoints/"
@@ -154,15 +143,24 @@ type Binding struct {
 	// PageCDNs are the https origins a page may load scripts, styles, images
 	// and fonts from besides its own.
 	PageCDNs []string `json:"page_cdns"`
+	// PageFrameOrigins, PageConnectOrigins and PageFormOrigins are the https
+	// origins a page may frame, call from its scripts and post its forms to,
+	// besides its own (#2554).
+	PageFrameOrigins   []string `json:"page_frame_origins"`
+	PageConnectOrigins []string `json:"page_connect_origins"`
+	PageFormOrigins    []string `json:"page_form_origins"`
 	// RateLimit is the endpoint's requests per minute on each replica, and
 	// CallerRateLimit one signed-in caller's.
-	RateLimit       int       `json:"rate_limit"`
-	CallerRateLimit int       `json:"caller_rate_limit"`
-	Enabled         bool      `json:"enabled"`
-	CreatedBy       string    `json:"created_by,omitempty"`
-	UpdatedBy       string    `json:"updated_by,omitempty"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	RateLimit       int `json:"rate_limit"`
+	CallerRateLimit int `json:"caller_rate_limit"`
+	// IPRateLimit is one client address's requests per minute on each
+	// replica, 0 for no such limit (#2556).
+	IPRateLimit int       `json:"ip_rate_limit"`
+	Enabled     bool      `json:"enabled"`
+	CreatedBy   string    `json:"created_by,omitempty"`
+	UpdatedBy   string    `json:"updated_by,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // URLPath is the path a request reaches the endpoint at, with the template's
@@ -242,11 +240,16 @@ type Request struct {
 	RateLimit       int
 	CallerRateLimit int
 	Enabled         *bool
-	// ResponseMode is empty to keep what the binding had; PageCDNs nil to
-	// keep them.
-	ResponseMode string
-	PageCDNs     []string
-	Actor        string
+	// ResponseMode is empty to keep what the binding had; PageCDNs and the
+	// other page lists nil to keep them.
+	ResponseMode       string
+	PageCDNs           []string
+	PageFrameOrigins   []string
+	PageConnectOrigins []string
+	PageFormOrigins    []string
+	// IPRateLimit is nil to keep what the binding had, 0 for no limit.
+	IPRateLimit *int
+	Actor       string
 }
 
 // Build is the binding req sets on sc over prev, which is nil for a script
@@ -260,6 +263,7 @@ func Build(sc *script.Script, prev *Binding, req Request, now time.Time) (*Bindi
 		ScriptID: sc.ID, Methods: []string{"GET"}, TimeoutSeconds: DefaultTimeoutSeconds,
 		MaxMemoryBytes: DefaultMaxMemoryBytes, MaxBodyBytes: DefaultMaxBodyBytes, AllowedOrigins: []string{},
 		Callers: []string{}, CheckedMethods: []string{}, ResponseMode: ResponseAPI, PageCDNs: []string{},
+		PageFrameOrigins: []string{}, PageConnectOrigins: []string{}, PageFormOrigins: []string{},
 		RateLimit: DefaultRateLimit, CallerRateLimit: DefaultCallerRateLimit, Enabled: true,
 		CreatedBy: req.Actor, CreatedAt: now,
 	}
@@ -300,11 +304,15 @@ func apply(b *Binding, req Request) {
 	if req.PageCDNs != nil {
 		b.PageCDNs = req.PageCDNs
 	}
+	applyPageOrigins(b, req)
 	setBool(&b.Enabled, req.Enabled)
 	setInt(&b.TimeoutSeconds, req.TimeoutSeconds)
 	setInt(&b.MaxBodyBytes, req.MaxBodyBytes)
 	setInt(&b.RateLimit, req.RateLimit)
 	setInt(&b.CallerRateLimit, req.CallerRateLimit)
+	if req.IPRateLimit != nil {
+		b.IPRateLimit = *req.IPRateLimit
+	}
 	if req.MaxMemoryBytes != 0 {
 		b.MaxMemoryBytes = req.MaxMemoryBytes
 	}
@@ -362,58 +370,6 @@ func (b Binding) Validate() error {
 	return nil
 }
 
-// validatePage checks what a page's content policy is built from.
-func (b Binding) validatePage() error {
-	if b.ResponseMode != "" && !slices.Contains(ResponseModes, b.ResponseMode) {
-		return fmt.Errorf("response_mode %q: one of %v", b.ResponseMode, ResponseModes)
-	}
-	if b.ResponseMode != ResponsePage {
-		if len(b.PageCDNs) > 0 {
-			return errors.New("page_cdns applies to an endpoint with response_mode page")
-		}
-		return nil
-	}
-	if !slices.Contains(b.Methods, http.MethodGet) {
-		return errors.New("a page endpoint answers GET")
-	}
-	return b.validatePageOrigins()
-}
-
-// validatePageOrigins checks the origins a page's policy names.
-func (b Binding) validatePageOrigins() error {
-	if len(b.PageCDNs) > maxPageCDNs {
-		return fmt.Errorf("page_cdns: at most %d origins", maxPageCDNs)
-	}
-	for _, cdn := range b.PageCDNs {
-		if !pageCDN.MatchString(cdn) {
-			return fmt.Errorf("page_cdns %q: an https origin, such as https://cdn.example.com, with no path or wildcard", cdn)
-		}
-	}
-	for _, origin := range b.AllowedOrigins {
-		if !pageOrigin.MatchString(origin) {
-			return fmt.Errorf("allowed_origins %q: an origin, such as https://www.example.com, with no path or wildcard", origin)
-		}
-	}
-	return nil
-}
-
-// PagePolicy is the content policy a page answer is sent under: its own
-// origin and listed CDNs, inline script only under this response's nonce, and
-// framing only by the binding's allowed origins. Every value in it passed
-// validatePage, and nonce is the base64 the serving layer generated.
-func (b Binding) PagePolicy(nonce string) string {
-	cdns := strings.Join(b.PageCDNs, " ")
-	src := func(extra string) string {
-		return strings.Join(strings.Fields("'self' "+extra+" "+cdns), " ")
-	}
-	ancestors := "'none'"
-	if len(b.AllowedOrigins) > 0 {
-		ancestors = strings.Join(b.AllowedOrigins, " ")
-	}
-	return "default-src 'none'; script-src " + src("'nonce-"+nonce+"'") + "; style-src " + src("'unsafe-inline'") +
-		"; img-src " + src("data:") + "; font-src " + src("") + "; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors " + ancestors
-}
-
 func (b Binding) validateName() error {
 	if b.Name == "" {
 		return errors.New("an endpoint needs a name: the segment of /endpoints/{name} it answers at")
@@ -448,12 +404,19 @@ func (b Binding) validatePath() error {
 	if len(segs) > maxPathSegments {
 		return fmt.Errorf("path %q has more than %d segments", b.Path, maxPathSegments)
 	}
+	if err := validateCatchAll(b.Path, segs); err != nil {
+		return err
+	}
 	seen := map[string]bool{}
 	for _, seg := range segs {
 		if len(seg) > maxSegmentLength {
 			return fmt.Errorf("path segment %q is longer than %d characters", seg, maxSegmentLength)
 		}
-		if m := paramSegment.FindStringSubmatch(seg); m != nil {
+		m := paramSegment.FindStringSubmatch(seg)
+		if m == nil {
+			m = catchAllSegment.FindStringSubmatch(seg)
+		}
+		if m != nil {
 			if seen[m[1]] {
 				return fmt.Errorf("path %q names the parameter %q twice", b.Path, m[1])
 			}
@@ -461,7 +424,7 @@ func (b Binding) validatePath() error {
 			continue
 		}
 		if !literalSegment.MatchString(seg) {
-			return fmt.Errorf("path segment %q must be letters, digits and ._~- or a whole {parameter}", seg)
+			return fmt.Errorf("path segment %q must be letters, digits and ._~-, a whole {parameter}, or a last {name...} catching the rest", seg)
 		}
 	}
 	return nil
@@ -536,6 +499,8 @@ func (b Binding) validateLimits() error {
 		return fmt.Errorf("rate_limit must be from 1 to %d requests a minute", MaxRateLimit)
 	case outside(int64(b.CallerRateLimit), 1, int64(b.RateLimit)):
 		return fmt.Errorf("caller_rate_limit must be from 1 to the endpoint's rate_limit (%d)", b.RateLimit)
+	case outside(int64(b.IPRateLimit), 0, int64(b.RateLimit)):
+		return fmt.Errorf("ip_rate_limit must be from 0 (no limit) to the endpoint's rate_limit (%d)", b.RateLimit)
 	}
 	return nil
 }
@@ -564,41 +529,6 @@ func validateOrigin(o string) error {
 		return fmt.Errorf("allowed origin %q must be a scheme and host such as https://forms.example.com", o)
 	}
 	return nil
-}
-
-// Match reports whether rest, the part of a request path after
-// /endpoints/{name}, is the binding's template, and the parameter values it
-// carries.
-func (b Binding) Match(rest string) (map[string]string, bool) {
-	rest = strings.TrimSuffix(rest, pathSep)
-	params := map[string]string{}
-	if b.Path == "" || rest == "" {
-		return params, b.Path == "" && rest == ""
-	}
-	want, got := strings.Split(b.Path[1:], pathSep), strings.Split(strings.TrimPrefix(rest, pathSep), pathSep)
-	if len(want) != len(got) || !strings.HasPrefix(rest, pathSep) {
-		return nil, false
-	}
-	for i, seg := range want {
-		if !matchSegment(seg, got[i], params) {
-			return nil, false
-		}
-	}
-	return params, true
-}
-
-// matchSegment reports whether one request path segment is the template's
-// seg, recording a parameter's value in params.
-func matchSegment(seg, got string, params map[string]string) bool {
-	value, err := url.PathUnescape(got)
-	if err != nil || value == "" {
-		return false
-	}
-	if m := paramSegment.FindStringSubmatch(seg); m != nil {
-		params[m[1]] = value
-		return true
-	}
-	return value == seg
 }
 
 // Callable refuses a source an endpoint cannot call: one that defines

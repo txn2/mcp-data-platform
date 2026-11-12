@@ -229,6 +229,27 @@ describe("ScriptSourceEditor: saving", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   });
 
+  it("says which saved functions already exist elsewhere (#2273)", () => {
+    const save = vi.fn();
+    mockSave.mockReturnValue({ mutate: save, isPending: false } as never);
+    const { rerender } = render(
+      <ScriptSourceEditor scriptId="script-001" contract={contract} source={source} draftParams={[]} />,
+    );
+    openSource();
+    fireEvent.change(screen.getByLabelText("Source text"), { target: { value: "print(2)\n" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    const onSuccess = save.mock.calls[0]![1].onSuccess as (r: unknown) => void;
+    act(() =>
+      onSuccess({
+        applied: true,
+        message: "Saved. This is the version that runs.",
+        shared_code: [{ function: "page_through", scripts: ["nightly-sync"], next: "" }],
+      }),
+    );
+    rerender(<ScriptSourceEditor scriptId="script-001" contract={contract} source={"print(2)\n"} draftParams={[]} />);
+    expect(screen.getByTestId("shared-code-notice").textContent).toContain("page_through is also in nightly-sync.");
+  });
+
   it("reports a refusal in place, in the server's words", () => {
     renderEditor();
     fireEvent.change(screen.getByLabelText("Source text"), {

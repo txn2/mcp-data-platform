@@ -83,7 +83,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	// rate limiter (#904). A malformed CIDR is a boot-time configuration error
 	// surfaced here, the genuine startup path for the portal.
 	rl := p.Config().Portal.RateLimit
-	rlResolver, err := portalRateLimitResolver(rl)
+	rlResolver, err := portalRateLimitResolver(rl, p.Config().Server.TrustedProxies)
 	if err != nil {
 		return err
 	}

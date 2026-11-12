@@ -159,6 +159,17 @@ test: add tests for persona filtering
   reported in the first minute, and prints what each step cost
   (`scripts/verify-steps.tsv` holds the order, #2369). While you work, run the
   narrow tests for what you changed instead.
+- A failing `make verify` reports every failing step before the lanes in one
+  run, each with its output, and the next run skips each step whose inputs
+  have not changed since it passed (#2548), so a re-run costs the steps that
+  failed and the ones your fix touched. `VERIFY_FULL=1 make verify` runs
+  everything. `make lint` keeps the same record: on inputs that already passed
+  it answers at once, and on inputs that already failed it prints those
+  findings without linting again.
+- `make portal-surface-check` (part of `make verify`) warns when a change adds
+  an MCP tool or a top-level config section and nothing under `ui/src`. Give
+  the feature its portal surface, or list it in
+  `scripts/portal-surface-exempt.txt` with the reason it has none (#2560).
 
 Example:
 ```go

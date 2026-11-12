@@ -3,6 +3,7 @@ import { render } from "@testing-library/react";
 import {
   JsxRenderer,
   buildCSP,
+  endpointSource,
   formSource,
   buildJsxIframeHtml,
   refSource,
@@ -288,8 +289,18 @@ describe("buildCSP: the reference route", () => {
     // form page path a frame may frame (#2177), so the frame cannot reach the
     // portal API or the admin API.
     for (const mention of csp.split(/[\s;]+/).filter((t) => t.startsWith(origin))) {
-      expect([`${origin}/portal/refs/`, `${origin}/forms/`]).toContain(mention);
+      expect([`${origin}/portal/refs/`, `${origin}/forms/`, `${origin}/endpoints/`]).toContain(mention);
     }
+  });
+
+  it("lets the page call the endpoints and frames none of them (#2457)", () => {
+    const csp = buildCSP(origin);
+    const connect = csp.match(/connect-src ([^;]*)/)?.[1] ?? "";
+    const frame = csp.match(/frame-src ([^;]*)/)?.[1] ?? "";
+    expect(connect).toContain(`${origin}/endpoints/`);
+    expect(frame).not.toContain("/endpoints/");
+    expect(endpointSource("null")).toBe("");
+    expect(buildCSP("")).not.toContain("/endpoints/");
   });
 
   it("frames the form pages and nothing else", () => {

@@ -107,6 +107,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/prompt/attachserve"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	trinoquery "github.com/txn2/mcp-data-platform/pkg/query/trino"
+	"github.com/txn2/mcp-data-platform/pkg/ratelimit"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 	searchgatepostgres "github.com/txn2/mcp-data-platform/pkg/searchgate/postgres"
@@ -1395,7 +1396,7 @@ func (p *Platform) initOAuth() error {
 		},
 		RateLimit: oauthserver.RateLimit{
 			Enabled:        p.config.OAuth.RateLimit.Enabled,
-			TrustedProxies: p.config.OAuth.RateLimit.TrustedProxies,
+			TrustedProxies: ratelimit.Proxies(p.config.OAuth.RateLimit.TrustedProxies, p.config.Server.TrustedProxies),
 			TokenRPM:       p.config.OAuth.RateLimit.Token.RequestsPerMinute,
 			TokenBurst:     p.config.OAuth.RateLimit.Token.Burst,
 			RegisterRPM:    p.config.OAuth.RateLimit.Register.RequestsPerMinute,

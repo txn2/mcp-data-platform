@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { UserPicker } from "@/components/UserPicker";
+import type { SITE_TABS } from "@/lib/portalRoutes";
 import { SiteAccessTab } from "./SiteAccess";
 import { SiteDomainsTab } from "./SiteDomains";
 import { SiteEnvironmentsTab } from "./SiteEnvironments";
@@ -20,7 +21,7 @@ import { CopySiteDialog } from "./SiteCopy";
 import { SiteReleasesTab } from "./SiteReleases";
 import { bareAddress, day, errorText } from "./siteFormat";
 
-export type SiteTab = "environments" | "files" | "media" | "releases" | "access" | "domains" | "history";
+export type SiteTab = (typeof SITE_TABS)[number];
 
 const TAB_LABELS: Record<SiteTab, string> = {
   environments: "Environments",

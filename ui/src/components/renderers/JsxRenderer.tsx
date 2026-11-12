@@ -40,6 +40,21 @@ export function formSource(origin: string): string {
   return origin.replace(/\/+$/, "") + FORM_PATH_PREFIX;
 }
 
+// The path an endpoint an asset calls answers at (#2457): where an
+// mcp:endpoint:<name> reference is rewritten to (epbinding.PathPrefix).
+export const ENDPOINT_PATH_PREFIX = "/endpoints/";
+
+/**
+ * The endpoints as a CSP source expression: the viewer's own origin and the
+ * endpoint path, so the frame's script may call an endpoint and nothing else
+ * on the platform. An endpoint answers the frame's opaque origin only with the
+ * embed marker the reference is served with.
+ */
+export function endpointSource(origin: string): string {
+  if (!origin || origin === "null") return "";
+  return origin.replace(/\/+$/, "") + ENDPOINT_PATH_PREFIX;
+}
+
 /**
  * The artifact frame's own policy, for the live frame and for the off-screen
  * frame a thumbnail is captured from alike. There is one builder because a
@@ -71,6 +86,7 @@ export function buildCSP(origin: string): string {
     "https://fonts.googleapis.com",
     "https://fonts.gstatic.com",
     ref,
+    endpointSource(origin),
   ]
     .filter(Boolean)
     .join(" ");

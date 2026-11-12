@@ -60,6 +60,16 @@ type Request struct {
 	// CSPNonce is the nonce a page's inline scripts carry, read as
 	// req["csp_nonce"]; empty on anything but a page (#2517).
 	CSPNonce string
+	// Cookies are the application's cookies, prefix taken off (#2555): empty
+	// on the platform's own address and on a cross-site write.
+	Cookies map[string]string
+	// ClientIP is the client's address as the trusted-proxy resolver reads
+	// it, req["client_ip"] (#2556).
+	ClientIP string
+	// Asset is the asset whose page called the endpoint through an
+	// mcp:endpoint reference (#2457), recorded in the request's audit row;
+	// empty for any other request.
+	Asset string
 }
 
 // Response is what the endpoint answers.
@@ -67,6 +77,9 @@ type Response struct {
 	Status int
 	Header http.Header
 	Body   []byte
+	// Cookies are the application cookies the handler set (#2555), written
+	// by the HTTP surface on an application's own address and nowhere else.
+	Cookies []Cookie
 }
 
 // credentialHeaders are the request headers a handler is not shown: they are
@@ -119,6 +132,7 @@ func requestValue(req Request) (starlark.Value, error) {
 		"method": starlark.String(req.Method), "path": starlark.String(req.Path), "params": params,
 		"query": firstValues(req.Query), "headers": headers, "body": starlark.Bytes(req.Body),
 		"json": jsonValue, "form": formValue, "caller": caller,
+		"cookies": cookiesValue(req.Cookies), "client_ip": starlark.String(req.ClientIP),
 	}
 	if req.CSPNonce != "" {
 		fields["csp_nonce"] = starlark.String(req.CSPNonce)
@@ -233,7 +247,7 @@ type returned struct {
 func (p *returned) read(item starlark.Tuple, resp *Response) error {
 	key, ok := item[0].(starlark.String)
 	if !ok {
-		return fmt.Errorf("handle(req) returned a dict with the key %s; its keys are status, headers, json and body", item[0])
+		return fmt.Errorf("handle(req) returned a dict with the key %s; its keys are status, headers, cookies, json and body", item[0])
 	}
 	var err error
 	switch string(key) {
@@ -245,8 +259,10 @@ func (p *returned) read(item starlark.Tuple, resp *Response) error {
 		p.json = item[1]
 	case "body":
 		p.body = item[1]
+	case "cookies":
+		resp.Cookies, err = cookiesFrom(item[1])
 	default:
-		err = fmt.Errorf("handle(req) returned the key %q; its keys are status, headers, json and body", key)
+		err = fmt.Errorf("handle(req) returned the key %q; its keys are status, headers, cookies, json and body", key)
 	}
 	return err
 }

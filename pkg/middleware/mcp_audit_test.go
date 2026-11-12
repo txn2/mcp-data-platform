@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/auditredact"
+
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
@@ -1051,4 +1053,37 @@ func TestBuildMCPAuditEvent_ResultFactsRecordedUnderParameters(t *testing.T) {
 	ev = buildMCPAuditEvent(pc, auditCallInfo{Request: req, Result: plain}, defaultAuditParamPolicy())
 	_, has := ev.Parameters["result"]
 	assert.False(t, has, "a result with no facts adds no key")
+}
+
+// redactorOf is a redactor replacing each of values.
+type redactorOf []string
+
+func (r redactorOf) String(s string) string {
+	for _, v := range r {
+		s = strings.ReplaceAll(s, v, "[REDACTED:cookie]")
+	}
+	return s
+}
+
+func (r redactorOf) Empty() bool { return len(r) == 0 }
+
+// TestRedactEvent is #2555: an audit row written under a request's redactor
+// holds none of its values, in a parameter at any depth or in the error, and a
+// context with no redactor, or an empty one, leaves the event as it was.
+func TestRedactEvent(t *testing.T) {
+	const sid = "sess-7f3a9c2e41d8"
+	event := AuditEvent{
+		ToolName:     "platform.query",
+		Parameters:   map[string]any{"sql": "SELECT * FROM s WHERE id = $1", "params": []any{sid, map[string]any{"cart": "x-" + sid}}},
+		ErrorMessage: "no session " + sid,
+	}
+	got := redactEvent(auditredact.With(context.Background(), redactorOf{sid}), event)
+	assert.NotContains(t, fmt.Sprint(got.Parameters), sid)
+	assert.NotContains(t, got.ErrorMessage, sid)
+	assert.Equal(t, "no session [REDACTED:cookie]", got.ErrorMessage)
+	assert.Equal(t, "SELECT * FROM s WHERE id = $1", got.Parameters["sql"])
+	assert.Contains(t, fmt.Sprint(event.Parameters), sid, "the event handed in is left as it was")
+
+	assert.Equal(t, event, redactEvent(context.Background(), event))
+	assert.Equal(t, event, redactEvent(auditredact.With(context.Background(), redactorOf{}), event))
 }

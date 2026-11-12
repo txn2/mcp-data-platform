@@ -4,11 +4,76 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
+/** PageLists are a page's origin lists as the form edits them, one origin a line. */
+export interface PageLists {
+  cdns: string;
+  frame: string;
+  connect: string;
+  form: string;
+}
+
+/** PAGE_LISTS name each list on the form and on the card (#2554), and say what it opens. */
+export const PAGE_LISTS: { key: keyof PageLists; field: keyof ScriptEndpoint; label: string; fact: string; hint: string }[] = [
+  {
+    key: "cdns",
+    field: "page_cdns",
+    label: "Other sites this page may load from",
+    fact: "Loads from",
+    hint: "Scripts, styles, images and fonts. One https origin per line, at most 20. A leading *. needs two labels after it.",
+  },
+  {
+    key: "frame",
+    field: "page_frame_origins",
+    label: "Framed sites",
+    fact: "Framed sites",
+    hint: "Sites this page may show in a frame, such as hosted card fields. One https origin per line, at most 20.",
+  },
+  {
+    key: "connect",
+    field: "page_connect_origins",
+    label: "Called sites",
+    fact: "Called sites",
+    hint: "Sites this page's scripts may call, besides its own address. One https origin per line, at most 20.",
+  },
+  {
+    key: "form",
+    field: "page_form_origins",
+    label: "Form destinations",
+    fact: "Form destinations",
+    hint: "Sites this page's forms may post to or be redirected to after a post, besides its own address. One https origin per line, at most 20.",
+  },
+];
+
+/** listOf is one of a page's lists from the binding, empty when it has none. */
+export function listOf(e: Partial<ScriptEndpoint>, field: keyof ScriptEndpoint): string[] {
+  const v = e[field];
+  return Array.isArray(v) ? (v as string[]) : [];
+}
+
 /** pageFacts are the lines a page endpoint adds to the endpoint card. */
-export function pageFacts(e: { response_mode: "api" | "page"; page_address?: string }): [string, string][] {
+export function pageFacts(e: Partial<ScriptEndpoint> & { response_mode: "api" | "page" }): [string, string][] {
   const rows: [string, string][] = [["Answers with", e.response_mode === "page" ? "A browser page" : "JSON or text"]];
-  if (e.response_mode === "page" && e.page_address) rows.push(["Page address", e.page_address]);
+  if (e.response_mode !== "page") return rows;
+  if (e.page_address) rows.push(["Page address", e.page_address]);
+  for (const l of PAGE_LISTS) rows.push([l.fact, listOf(e, l.field).join(", ") || "None"]);
   return rows;
+}
+
+/** pageListsOf is a binding's lists as the form edits them. */
+export function pageListsOf(e: Partial<ScriptEndpoint>): PageLists {
+  const lines = (field: keyof ScriptEndpoint) => listOf(e, field).join("\n");
+  return { cdns: lines("page_cdns"), frame: lines("page_frame_origins"), connect: lines("page_connect_origins"), form: lines("page_form_origins") };
+}
+
+/** pageListInput is the lists a save sends: each one on a page, none on an api endpoint. */
+export function pageListInput(mode: "api" | "page", lists: PageLists) {
+  const read = (v: string) => (mode === "page" ? v.split("\n").map((o) => o.trim()).filter(Boolean) : []);
+  return {
+    page_cdns: read(lists.cdns),
+    page_frame_origins: read(lists.frame),
+    page_connect_origins: read(lists.connect),
+    page_form_origins: read(lists.form),
+  };
 }
 
 function Field({ id, label, children }: { id: string; label: string; children: ReactNode }) {
@@ -21,19 +86,20 @@ function Field({ id, label, children }: { id: string; label: string; children: R
 }
 
 // PageFields say whether the endpoint answers with JSON or text or serves a
-// browser page (#2517, #2559), which needs its script to belong to an application.
+// browser page (#2517, #2559), which needs its script to belong to an
+// application, and on a page the sites its policy opens (#2554).
 export function PageFields({
   endpoint,
   responseMode,
-  pageCdns,
+  lists,
   onMode,
-  onCdns,
+  onList,
 }: {
   endpoint: ScriptEndpoint;
   responseMode: "api" | "page";
-  pageCdns: string;
+  lists: PageLists;
   onMode: (v: "api" | "page") => void;
-  onCdns: (v: string) => void;
+  onList: (key: keyof PageLists, v: string) => void;
 }) {
   if (endpoint.page_problem && responseMode !== "page") {
     return (
@@ -59,13 +125,20 @@ export function PageFields({
               <p className="break-all rounded border p-2 font-mono text-sm">{endpoint.page_address}</p>
             </div>
           )}
-          <Field id="endpoint-page-cdns" label="Other sites this page may load from">
-            <Textarea id="endpoint-page-cdns" rows={3} value={pageCdns} placeholder="https://cdn.jsdelivr.net" onChange={(e) => onCdns(e.target.value)} />
-            <p className="mt-1 text-xs text-muted-foreground">One https origin per line, at most 20. Everything else is blocked.</p>
-          </Field>
+          {PAGE_LISTS.map((l) => (
+            <Field key={l.key} id={`endpoint-page-${l.key}`} label={l.label}>
+              <Textarea
+                id={`endpoint-page-${l.key}`}
+                rows={2}
+                value={lists[l.key]}
+                placeholder={l.key === "cdns" ? "https://cdn.jsdelivr.net" : "https://js.stripe.com"}
+                onChange={(e) => onList(l.key, e.target.value)}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">{l.hint}</p>
+            </Field>
+          ))}
         </>
       )}
     </>
   );
 }
-

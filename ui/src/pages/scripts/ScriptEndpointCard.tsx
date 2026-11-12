@@ -13,20 +13,20 @@ import type {
 import { useBotChecks } from "@/api/admin/hooks";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuthStore } from "@/stores/auth";
-import { ACCESS_LABELS, PUBLIC_NOTE, accessLabel, callersSummary } from "./endpoints/endpointLabels";
+import { ACCESS_LABELS, PUBLIC_NOTE } from "./endpoints/endpointLabels";
 import { FormEmbed } from "./endpoints/FormEmbed";
 import { Unbound } from "./endpoints/Unbound";
-import { PageFields, pageFacts } from "./endpoints/PageFields";
+import { PageFields, type PageLists, pageListInput, pageListsOf } from "./endpoints/PageFields";
+import { EndpointFacts, withDefaults } from "./endpoints/EndpointFacts";
 import { FormPublish, approvedVersion } from "./endpoints/FormPublish";
 import { useApprovals } from "@/api/portal/hooks/approvals";
-import { FormStorageFields, formStorage } from "./endpoints/FormStorageFields";
-import { formatBytes, formatWhen } from "./runFormat";
+import { FormStorageFields } from "./endpoints/FormStorageFields";
+import { formatWhen } from "./runFormat";
 import { byName } from "@/lib/sortByName";
 
 // ScriptEndpointCard is the script's endpoint (#2171): the HTTP route at
@@ -73,11 +73,25 @@ function EndpointBody({ scriptId, endpoint }: { scriptId: string; endpoint: Scri
   const approvals = useApprovals({ scriptId, status: "approved" });
   const modes = modesFor(isAdmin, approvedVersion(approvals.data));
   const [editing, setEditing] = useState(false);
+  // warning is what the last save said beside its outcome (#2556), shown
+  // until the next edit.
+  const [warning, setWarning] = useState("");
   if (canEdit && editing) {
-    return <EndpointForm scriptId={scriptId} endpoint={endpoint} modes={modes} onDone={() => setEditing(false)} />;
+    const done = (saved?: ScriptEndpoint) => {
+      setWarning(saved?.warning ?? "");
+      setEditing(false);
+    };
+    return <EndpointForm scriptId={scriptId} endpoint={endpoint} modes={modes} onDone={done} />;
   }
   return (
     <>
+      {warning && (
+        <Alert variant="warning" role="status" data-testid="endpoint-save-warning">
+          <AlertDescription>
+            <span className="font-medium">Saved.</span> {warning}
+          </AlertDescription>
+        </Alert>
+      )}
       {endpoint.bound ? <EndpointFacts endpoint={endpoint} /> : <Unbound isAdmin={isAdmin} isForm={isForm} />}
       <BoundFormEmbed endpoint={endpoint} />
       {isForm && <FormPublish scriptId={scriptId} />}
@@ -111,94 +125,6 @@ function endpointSummary(e?: ScriptEndpoint): string | undefined {
   if (!e) return undefined;
   if (!e.bound) return "Not bound";
   return `${e.enabled ? "On" : "Off"} at /endpoints/${e.endpoint}`;
-}
-
-// DEFAULTS are a binding's values where the platform reports none: a new
-// binding's defaults, which epbinding.Build applies.
-const DEFAULTS = {
-  endpoint: "",
-  url: "",
-  methods: ["GET"],
-  path: "",
-  auth_mode: "authenticated" as EndpointAuthMode,
-  callers: [] as string[],
-  bot_check: "",
-  checked_methods: [] as string[],
-  enabled: true,
-  timeout_seconds: 10,
-  max_memory_bytes: 64 << 20,
-  max_body_bytes: 1 << 20,
-  allowed_origins: [] as string[],
-  response_mode: "api" as "api" | "page",
-  page_cdns: [] as string[],
-  rate_limit: 600,
-  caller_rate_limit: 120,
-};
-
-// withDefaults is e with every field the binding has filled.
-function withDefaults(e: ScriptEndpoint): typeof DEFAULTS & ScriptEndpoint {
-  const defined = Object.fromEntries(Object.entries(e).filter(([, v]) => v !== undefined));
-  return { ...DEFAULTS, ...defined } as typeof DEFAULTS & ScriptEndpoint;
-}
-
-// factsOf is the binding as rows of label and value.
-function factsOf(endpoint: ScriptEndpoint): [string, string][] {
-  const e = withDefaults(endpoint);
-  const perReplica = (n: number) => `${n} a minute on each replica`;
-  const rows: [string, string][] = [
-    ["Address", e.url],
-    ["Methods", e.methods.join(", ")],
-    ["Path", e.path || "—"],
-    ["Access", accessLabel(e)],
-  ];
-  if (e.auth_mode === "authenticated") rows.push(["Admits", callersSummary(e.callers)]);
-  if (e.auth_mode === "bot_check") {
-    rows.push(["Checked methods", e.checked_methods.length === 0 ? "Every method" : e.checked_methods.join(", ")]);
-  }
-  if (e.auth_mode === "public") rows.push(["Check", PUBLIC_NOTE]);
-  rows.push(
-    ["Timeout", `${e.timeout_seconds} s`],
-    ["Memory", formatBytes(e.max_memory_bytes)],
-    ["Body limit", formatBytes(e.max_body_bytes)],
-    ["Rate limit", perReplica(e.rate_limit)],
-  );
-  if (e.auth_mode === "authenticated") rows.push(["Per-caller limit", perReplica(e.caller_rate_limit)]);
-  rows.push(...pageFacts(e));
-  rows.push(["Allowed origins", e.allowed_origins.join(", ") || "None"]);
-  if (e.form) {
-    rows.push(
-      ["Submissions", formStorage(e.form.table, e.form.connection)],
-      ["Decrypt personas", e.form.decrypt_personas.join(", ") || "None"],
-    );
-  }
-  return rows;
-}
-
-
-
-function EndpointFacts({ endpoint }: { endpoint: ScriptEndpoint }) {
-  return (
-    <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-[10rem_1fr]">
-      <dt className="text-muted-foreground">Status</dt>
-      <dd>
-        <Badge variant={endpoint.enabled ? "success" : "muted"}>{endpoint.enabled ? "On" : "Off"}</Badge>
-      </dd>
-      {factsOf(endpoint).map(([label, value]) => (
-        <div key={label} className="contents">
-          <dt className="text-muted-foreground">{label}</dt>
-          <dd className="min-w-0 break-all font-medium">{value}</dd>
-        </div>
-      ))}
-      {endpoint.updated_by && (
-        <>
-          <dt className="text-muted-foreground">Changed</dt>
-          <dd className="text-muted-foreground">
-            {formatWhen(endpoint.updated_at)} by {endpoint.updated_by}
-          </dd>
-        </>
-      )}
-    </dl>
-  );
 }
 
 function EndpointActions({ scriptId, endpoint, onEdit }: { scriptId: string; endpoint: ScriptEndpoint; onEdit: () => void }) {
@@ -245,9 +171,11 @@ interface formState {
   bodyKiB: string;
   rateLimit: string;
   callerRateLimit: string;
+  // ipRateLimit is empty for no per-address limit (#2556).
+  ipRateLimit: string;
   origins: string;
   responseMode: "api" | "page";
-  pageCdns: string;
+  pageLists: PageLists;
   // connection and decryptPersonas are a form's (#2178, #2179).
   connection: string;
   decryptPersonas: string[];
@@ -269,9 +197,10 @@ function initialForm(endpoint: ScriptEndpoint): formState {
     bodyKiB: String(Math.round(e.max_body_bytes / (1 << 10))),
     rateLimit: String(e.rate_limit),
     callerRateLimit: String(e.caller_rate_limit),
+    ipRateLimit: e.ip_rate_limit > 0 ? String(e.ip_rate_limit) : "",
     origins: e.allowed_origins.join("\n"),
     responseMode: e.response_mode,
-    pageCdns: e.page_cdns.join("\n"),
+    pageLists: pageListsOf(e),
     connection: e.form?.connection ?? (e.form_connections?.length === 1 ? (e.form_connections[0] ?? "") : ""),
     decryptPersonas: e.form?.decrypt_personas ?? [],
   };
@@ -290,9 +219,10 @@ function toInput(f: formState, endpoint: ScriptEndpoint): ScriptEndpointInput {
     max_body_bytes: Number(f.bodyKiB) * (1 << 10),
     rate_limit: Number(f.rateLimit),
     caller_rate_limit: Number(f.callerRateLimit),
+    ip_rate_limit: f.ipRateLimit.trim() ? Number(f.ipRateLimit) : 0,
     allowed_origins: f.origins.split("\n").map((o) => o.trim()).filter(Boolean),
     response_mode: f.responseMode,
-    page_cdns: f.responseMode === "page" ? f.pageCdns.split("\n").map((o) => o.trim()).filter(Boolean) : [],
+    ...pageListInput(f.responseMode, f.pageLists),
   };
 }
 
@@ -343,7 +273,7 @@ function EndpointForm({
   scriptId: string;
   endpoint: ScriptEndpoint;
   modes: EndpointAuthMode[];
-  onDone: () => void;
+  onDone: (saved?: ScriptEndpoint) => void;
 }) {
   const save = useSetScriptEndpoint(scriptId);
   const [form, setForm] = useState<formState>(() => initialForm(endpoint));
@@ -355,7 +285,7 @@ function EndpointForm({
       "checkedMethods",
       form.checkedMethods.includes(m) ? form.checkedMethods.filter((x) => x !== m) : [...form.checkedMethods, m],
     );
-  const submit = () => save.mutate(toInput(form, endpoint), { onSuccess: onDone });
+  const submit = () => save.mutate(toInput(form, endpoint), { onSuccess: (saved) => onDone(saved) });
   const incomplete = formIncomplete(form, endpoint);
   return (
     <div className="space-y-4">
@@ -365,6 +295,7 @@ function EndpointForm({
         </Field>
         <Field id="endpoint-path" label="Path">
           <Input id="endpoint-path" value={form.path} placeholder="/{id}" onChange={(e) => set("path", e.target.value)} />
+          <p className="mt-1 text-xs text-muted-foreground">A last segment written {"{name...}"} matches the rest of the path, at any depth. The handler reads it as req["params"]["name"].</p>
         </Field>
         <Field id="endpoint-access" label="Access">
           <select
@@ -403,6 +334,10 @@ function EndpointForm({
             onChange={(v) => set("callerRateLimit", v)}
           />
         )}
+        <Field id="endpoint-ip-rate" label="Per-address limit (a minute)">
+          <Input id="endpoint-ip-rate" type="number" min={1} value={form.ipRateLimit} placeholder="No limit" onChange={(e) => set("ipRateLimit", e.target.value)} />
+          <p className="mt-1 text-xs text-muted-foreground">Requests from one visitor's address, on each replica. An IPv6 visitor is counted by their /64. Empty: no limit.</p>
+        </Field>
       </div>
       <ModeFields form={form} set={set} onToggle={toggleChecked} />
       {endpoint.is_form && (
@@ -414,7 +349,13 @@ function EndpointForm({
           onDecryptPersonas={(v) => set("decryptPersonas", v)}
         />
       )}
-      <PageFields endpoint={endpoint} responseMode={form.responseMode} pageCdns={form.pageCdns} onMode={(v) => set("responseMode", v)} onCdns={(v) => set("pageCdns", v)} />
+      <PageFields
+        endpoint={endpoint}
+        responseMode={form.responseMode}
+        lists={form.pageLists}
+        onMode={(v) => set("responseMode", v)}
+        onList={(key, v) => set("pageLists", { ...form.pageLists, [key]: v })}
+      />
       <Field id="endpoint-origins" label="Allowed origins">
         <Textarea
           id="endpoint-origins"
@@ -437,7 +378,7 @@ function EndpointForm({
         >
           {save.isPending ? "Saving..." : "Save"}
         </Button>
-        <Button size="sm" variant="ghost" disabled={save.isPending} onClick={onDone}>
+        <Button size="sm" variant="ghost" disabled={save.isPending} onClick={() => onDone()}>
           Cancel
         </Button>
       </div>

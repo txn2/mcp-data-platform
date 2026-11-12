@@ -30,7 +30,10 @@ func Properties() map[string]any {
 		"methods": strings(fmt.Sprintf("For endpoint_set: the HTTP methods the endpoint answers (%v; default GET). "+
 			"HEAD is answered wherever GET is.", epbinding.Methods)),
 		"path": str("For endpoint_set: the path template under /endpoints/{name}, empty for the name alone. " +
-			"\"/{id}\" takes one segment the script reads as req.params[\"id\"]."),
+			"\"/{id}\" takes one segment the script reads as req.params[\"id\"]. A last segment \"/{route...}\" takes the " +
+			"rest of the path at any depth, read as req.params[\"route\"] with no leading slash: an application's root " +
+			"endpoint bound at \"/{route...}\" answers every path of its page origin but /endpoints/, /_static/, /_viewer " +
+			"and /_auth, and routes them itself (robots.txt, a 404 page)."),
 		"auth_mode": map[string]any{
 			keyType: valString, "enum": epbinding.AuthModes,
 			keyDescription: "For endpoint_set: authenticated answers a platform API key or a browser session among " +
@@ -64,7 +67,18 @@ func Properties() map[string]any {
 				"An inline script needs nonce=\"req[\"csp_nonce\"]\". Read fetch mcp:knowledge_page:platform-pages-and-sites.",
 		},
 		"page_cdns": strings("For endpoint_set on a page: the https origins it may load scripts, styles, images and fonts " +
-			"from besides its own, such as https://cdn.jsdelivr.net."),
+			"from besides its own, such as https://cdn.jsdelivr.net. Each list here takes at most 20 origins, no path, and " +
+			"one leading *. label with two labels after it (https://*.js.stripe.com)."),
+		"page_frame_origins": strings("For endpoint_set on a page: the https origins it may show in a frame (frame-src), " +
+			"such as a payment processor's hosted card fields: https://js.stripe.com, https://*.js.stripe.com."),
+		"page_connect_origins": strings("For endpoint_set on a page: the https origins its scripts may call besides its own " +
+			"(connect-src), such as https://api.stripe.com."),
+		"page_form_origins": strings("For endpoint_set on a page: the https origins its forms may post to, or be redirected " +
+			"to after a post, besides its own (form-action)."),
+		"ip_rate_limit": integer("For endpoint_set: one client address's requests a minute on each replica, at most " +
+			"rate_limit; past it a request is answered 429. An IPv6 client is counted by its /64. 0 removes the limit. The " +
+			"handler reads the address as req[\"client_ip\"]; behind a proxy it is right only when server.trusted_proxies " +
+			"names the proxy."),
 		"rate_limit": integer(fmt.Sprintf("For endpoint_set: the endpoint's requests a minute on each replica "+
 			"(default %d); past it a request is answered 429.", epbinding.DefaultRateLimit)),
 		"connection": str("For endpoint_set on a form (a script defining form_spec and form_submit): the Trino " +

@@ -33,6 +33,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec/recstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptshare"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/toolanswer"
@@ -182,6 +183,7 @@ func New(cfg Config) *Handle {
 		h.eventRule = sourcerule.NewRule(cfg.DB, h.store.GetByID)
 	}
 	h.gate.Libraries, _ = h.store.(scriptlib.Source)
+	h.gate.Shared, _ = h.store.(scriptshare.Sources)
 	h.versions, _ = h.store.(script.VersionStore)
 	h.schedules, _ = h.store.(script.ScheduleStore)
 	h.states, _ = h.store.(script.StateStore)

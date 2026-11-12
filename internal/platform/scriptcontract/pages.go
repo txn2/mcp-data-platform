@@ -66,6 +66,13 @@ var KnowledgePages = []KnowledgePage{
 			"with manage_application that pins every part.",
 	},
 	{
+		Slug:      "platform-public-applications",
+		Reference: knowledgePageRefPrefix + "platform-public-applications",
+		Summary: "An application for visitors with no platform account: one page endpoint answering " +
+			"every path, hosted payment fields, a cart in an application cookie, single-use sign-in links, " +
+			"mail from an outbox with a scheduled re-send, per-address limits and images as a site.",
+	},
+	{
 		Slug:      "platform-reference-script",
 		Reference: knowledgePageRefPrefix + "platform-reference-script",
 		Summary: "A whole automation written as a saved one is, with the tests it is saved " +

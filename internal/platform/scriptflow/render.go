@@ -137,23 +137,22 @@ func (sc *scope) dict(e syntax.Expr) *syntax.DictExpr {
 	return nil
 }
 
-// list resolves e to a list literal: the literal itself, or a variable
-// assigned one, in the function or at module scope (#2615).
-func (sc *scope) list(e syntax.Expr) *syntax.ListExpr {
-	switch e := e.(type) {
-	case *syntax.ListExpr:
-		return e
-	case *syntax.ParenExpr:
-		return sc.list(e.X)
-	case *syntax.Ident:
-		x := sc.vars[e.Name].expr
-		if scriptconst.IsModuleName(e) {
-			x = sc.global[e.Name]
-		}
-		l, _ := x.(*syntax.ListExpr)
-		return l
+// Bound is the expression a name was last assigned, in the function or at
+// module scope (#2615, #2623), or nil when the source assigns it none; Known
+// is a local's value when the analyzer knows it. They are how a statement's
+// lookup is followed (stmtlookup).
+func (sc *scope) Bound(id *syntax.Ident) syntax.Expr {
+	if scriptconst.IsModuleName(id) {
+		return sc.global[id.Name]
 	}
-	return nil
+	return sc.vars[id.Name].expr
+}
+
+// Known is the constant string id holds in this scope, when it holds one
+// (#2623): what a lookup's candidates resolve through.
+func (sc *scope) Known(id *syntax.Ident) (string, bool) {
+	b, ok := sc.vars[id.Name]
+	return b.known, ok && b.isKnown
 }
 
 // text is a node's source text on one line.

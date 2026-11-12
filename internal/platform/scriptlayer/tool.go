@@ -11,6 +11,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptcontract"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptshare"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptshow"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -160,8 +161,9 @@ type manageScriptInput struct {
 	// lines in full, and a refused save's formatted source.
 	Verbose bool `json:"verbose,omitempty"`
 
-	// The endpoint binding commands' fields (#2171).
+	// The endpoint binding commands' fields (#2171), and list's library filter (#2273).
 	epcmd.Input
+	scriptshare.ListInput
 }
 
 // RegisterTool registers manage_script; where the deployment can execute
@@ -454,8 +456,11 @@ func manageScriptSchema() any {
 				script.MaxStateBytes),
 		},
 	}
-	maps.Copy(props, textpatchProperties())
+	// The shared content-editing grammar verbatim (#1804): pkg/textpatch owns
+	// its property set and wording, as manage_asset and manage_prompt splice it.
+	maps.Copy(props, textpatch.PropertiesMap())
 	maps.Copy(props, epcmd.Properties())
+	maps.Copy(props, scriptshare.ListProperties())
 	props["timeout_seconds"] = map[string]any{keyType: "integer", keyDescription: "For run_draft: how long the draft may run. " +
 		"Up to 60 for anyone; an administrator may ask for up to scripts.draft.max_seconds, and a draft longer " +
 		"than 60 runs in the background: run_draft answers its run_id at once and get_run reads it. " +
@@ -472,16 +477,4 @@ func manageScriptSchema() any {
 		"required":             []string{"command"},
 		"additionalProperties": false,
 	}
-}
-
-// textpatchProperties publishes the shared content-editing grammar.
-//
-// It is the grammar verbatim, not a paraphrase of it: pkg/textpatch owns the
-// property set, its wording and its strictness, and manage_script splices the
-// same fragment manage_asset and manage_prompt splice. The hand-written copy
-// this replaced declared the edit items as a bare object, so the nested keys
-// an edit carries were validated nowhere and a misspelled replacement key was
-// accepted and applied as an empty one (#1804).
-func textpatchProperties() map[string]any {
-	return textpatch.PropertiesMap()
 }

@@ -25,6 +25,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/openrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptshare"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -550,4 +551,27 @@ func orderBy(filter script.ListFilter) string {
 		direction = "DESC"
 	}
 	return fmt.Sprintf("ORDER BY %s %s, id %s", string(filter.Sort), direction, direction)
+}
+
+// CodeSources is every active script's current source, libraries and scripts
+// alike: what a save is compared with for functions another source already
+// defines (#2273). Only what the comparison reads is selected.
+func (s *Store) CodeSources(ctx context.Context) ([]scriptshare.Source, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, library, version, source_code FROM `+scriptsTable+` WHERE status = $1`, script.StatusActive)
+	if err != nil {
+		return nil, fmt.Errorf("reading script sources: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []scriptshare.Source
+	for rows.Next() {
+		var src scriptshare.Source
+		if err := rows.Scan(&src.ID, &src.Name, &src.Library, &src.Version, &src.Code); err != nil {
+			return nil, fmt.Errorf("reading script sources: %w", err)
+		}
+		out = append(out, src)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("reading script sources: %w", err)
+	}
+	return out, nil
 }

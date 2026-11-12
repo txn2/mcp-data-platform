@@ -80,13 +80,8 @@ func OpenEmbed(key []byte, endpoint, token string, now time.Time) bool {
 // readEmbed is what a marker signed with key carries, and whether it was
 // signed with key and reads.
 func readEmbed(key []byte, token string) (embedBody, bool) {
-	body, sig, ok := strings.Cut(token, ".")
-	got, err := base64.RawURLEncoding.DecodeString(sig)
-	if !ok || err != nil || !hmac.Equal(got, mac(key, body)) {
-		return embedBody{}, false
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(body)
-	if err != nil {
+	payload, ok := verified(key, token)
+	if !ok {
 		return embedBody{}, false
 	}
 	var eb embedBody
@@ -94,4 +89,16 @@ func readEmbed(key []byte, token string) (embedBody, bool) {
 		return embedBody{}, false
 	}
 	return eb, true
+}
+
+// verified is the payload of a marker signed with key, and whether its
+// signature holds.
+func verified(key []byte, token string) ([]byte, bool) {
+	body, sig, ok := strings.Cut(token, ".")
+	got, err := base64.RawURLEncoding.DecodeString(sig)
+	if !ok || err != nil || !hmac.Equal(got, mac(key, body)) {
+		return nil, false
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(body)
+	return payload, err == nil
 }

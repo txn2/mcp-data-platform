@@ -10,9 +10,10 @@
 // none to a method it does not check (#2259).
 //
 // These routes answer their own cross-origin requests from each binding's
-// allowed origins; the platform's CORS layer leaves them alone. No limit here
-// depends on the client's address, which a request behind an ingress and a
-// load balancer does not carry.
+// allowed origins; the platform's CORS layer leaves them alone. A binding's
+// ip_rate_limit counts each client address (#2556), read through the
+// trusted-proxy resolver, so a forged X-Forwarded-For escapes nothing; the
+// other limits count the endpoint and an authenticated caller.
 package ephttp
 
 import (
@@ -111,9 +112,25 @@ type Handler struct {
 	// which its public and bot_check endpoints answer without listing them;
 	// nil adds none.
 	SiteOrigins func(ctx context.Context, applicationID string) []string
+	// Clients reads a request's client address with server.trusted_proxies
+	// (#2556); nil trusts no proxy and reads the peer's address.
+	Clients *ratelimit.Resolver
 
 	endpointLimits limiters
 	callerLimits   limiters
+	ipLimits       limiters
+}
+
+// peerOnly is the resolver a handler with no Clients reads addresses with:
+// it trusts no proxy. An empty list never fails.
+var peerOnly, _ = ratelimit.NewResolver(nil)
+
+// clientIP is the request's client address.
+func (h *Handler) clientIP(r *http.Request) string {
+	if h.Clients == nil {
+		return peerOnly.ClientIP(r)
+	}
+	return h.Clients.ClientIP(r)
 }
 
 // Mount registers the routes on mux.
@@ -139,6 +156,16 @@ type PageRoute struct {
 	Caller func(r *http.Request) (*eprun.Caller, error)
 	// SignIn sends a browser with no viewer to sign in, for a page.
 	SignIn func(w http.ResponseWriter, r *http.Request)
+	// CookiePrefix is what the application's cookies are written under on
+	// this origin (#2555): eprun.CookiePrefixSecure over https,
+	// eprun.CookiePrefixPlain over http, "" where a handler reads and sets
+	// none. Secure says the origin is https.
+	CookiePrefix string
+	Secure       bool
+	// CookiesWithheld is true for a request that changes something and does
+	// not prove it came from this origin: it reaches the handler with no
+	// cookies, so a forged request from another site carries no session.
+	CookiesWithheld bool
 }
 
 type pageKey struct{}
@@ -190,14 +217,17 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, name, rest strin
 		return
 	}
 	req := eprun.Request{
-		Method: r.Method, Path: r.URL.Path, Params: params, Query: r.URL.Query(),
-		Header: r.Header.Clone(), Body: body, Caller: caller,
+		Method: r.Method, Path: r.URL.Path, Params: params, Query: handlerQuery(r),
+		Header: r.Header.Clone(), Body: body, Caller: caller, ClientIP: h.clientIP(r), Cookies: requestCookies(r, page),
+		Asset: h.embedded(r, t),
 	}
 	policy := contentPolicy
 	if page != nil && b.ResponseMode == epbinding.ResponsePage {
 		req.CSPNonce, policy = page.Nonce, b.PagePolicy(page.Nonce)
 	}
-	write(w, r, h.Runner.Serve(r.Context(), t, req), policy)
+	resp := h.Runner.Serve(r.Context(), t, req)
+	setCookies(&resp, page)
+	write(w, r, resp, policy)
 }
 
 // routed runs what comes before the caller is looked at: CORS, the preflight
@@ -205,7 +235,7 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, name, rest strin
 // the answer and reports false when the request stops here.
 func (h *Handler) routed(w http.ResponseWriter, r *http.Request, t *eprun.Target, rest string) (map[string]string, bool) {
 	b := t.Binding
-	if !cors(w, r, b, t.Form, h.siteOrigin(r, t)) {
+	if !cors(w, r, b, t.Form || h.embedded(r, t) != "", h.siteOrigin(r, t)) {
 		h.refused(b, eprefusal.ReasonOrigin)
 		return nil, false
 	}
@@ -222,6 +252,13 @@ func (h *Handler) routed(w http.ResponseWriter, r *http.Request, t *eprun.Target
 	params, ok := b.Match(rest)
 	if !ok {
 		httpjson.WriteError(w, http.StatusNotFound, "no endpoint answers at this path")
+		return nil, false
+	}
+	// One client's limit is taken before the endpoint's, so a client past its
+	// own spends none of everyone else's.
+	if b.IPRateLimit > 0 && !h.ipLimits.allow(b.Name, b.IPRateLimit, ratelimit.Bucket(h.clientIP(r))) {
+		h.refused(b, eprefusal.ReasonIPRateLimit)
+		tooMany(w, r, b.IPRateLimit)
 		return nil, false
 	}
 	if !h.endpointLimits.allow(b.Name, b.RateLimit, "") {
@@ -347,16 +384,19 @@ func (h *Handler) caller(r *http.Request, t *eprun.Target) (*eprun.Caller, error
 	}
 	caller, err := h.Authenticate(r)
 	if err == nil && caller == nil && t.Form && r.Header.Get(epform.ViewerHeader) != "" {
-		return h.viewer(r, t.Binding.Name)
+		return h.viewer(r.Header.Get(epform.ViewerHeader), t.Binding.Name)
+	}
+	if err == nil && caller == nil && h.embedded(r, t) != "" && r.URL.Query().Get(epform.EndpointViewerParam) != "" {
+		return h.viewer(r.URL.Query().Get(epform.EndpointViewerParam), t.Binding.Name)
 	}
 	return caller, err
 }
 
-// viewer is the caller a form's viewer token names (#2177): who a signed-in
-// person was when the platform served them the asset the form is embedded
-// in. A token that does not open is no caller.
-func (h *Handler) viewer(r *http.Request, endpoint string) (*eprun.Caller, error) {
-	v, err := epform.OpenViewer(h.ViewerKey, endpoint, r.Header.Get(epform.ViewerHeader), time.Now())
+// viewer is the caller a viewer token names (#2177, #2457): who a signed-in
+// person was when the platform served them the asset the form is embedded in
+// or the endpoint is called from. A token that does not open is no caller.
+func (h *Handler) viewer(token, endpoint string) (*eprun.Caller, error) {
+	v, err := epform.OpenViewer(h.ViewerKey, endpoint, token, time.Now())
 	if err != nil {
 		return nil, err //nolint:wrapcheck // answered 401 like any absent credential
 	}

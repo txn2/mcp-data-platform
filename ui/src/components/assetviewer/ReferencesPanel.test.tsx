@@ -711,3 +711,23 @@ describe("what the picker's Assets tab can reach", () => {
     });
   });
 });
+
+describe("an endpoint the asset's page calls (#2457)", () => {
+  it("is named with what a public link reaches, and links nowhere", async () => {
+    const withEndpoint = clone(EMPTY);
+    withEndpoint.data = [
+      { target_kind: "endpoint", target_id: "log-search", uri: "mcp:endpoint:log-search", position: 0, display_name: "log-search", readable: true },
+    ];
+    withEndpoint.total = 1;
+    stubApi(withEndpoint);
+    const onNavigate = vi.fn();
+    renderPanel({ onNavigate, assetPath: (id) => `/assets/${id}`, resourcePath: (id) => `/resources/${id}` });
+
+    expect(await screen.findByText("Endpoint log-search")).toBeTruthy();
+    expect(screen.getByText("mcp:endpoint:log-search")).toBeTruthy();
+    expect(screen.getByTestId("asset-ref-endpoint-note").textContent).toContain("A public link has no reader");
+    expect(screen.queryByTestId("asset-ref-thumb")).toBeNull();
+    fireEvent.click(screen.getByText("Endpoint log-search"));
+    expect(onNavigate).not.toHaveBeenCalled();
+  });
+});

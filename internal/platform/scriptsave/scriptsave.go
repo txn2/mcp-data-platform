@@ -29,6 +29,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptres"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptshare"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
 	"github.com/txn2/mcp-data-platform/internal/platform/scripttest"
 	"github.com/txn2/mcp-data-platform/internal/testreport"
@@ -68,6 +69,9 @@ type Gate struct {
 	// (#2171); a bound script's source must define handle(req). Nil checks
 	// nothing.
 	Endpoint func(ctx context.Context, scriptID string) string
+	// Shared reads the sources a save is compared with for functions a
+	// library or another script already defines (#2273); nil compares none.
+	Shared scriptshare.Sources
 }
 
 // Caller is who is saving. A run of the version they save presents their
@@ -124,6 +128,9 @@ type Result struct {
 	ChangeAgreedBy string `json:"-"`
 	// ResourcePins is the version of each file the source loads (#2113).
 	ResourcePins map[string]script.ResourcePin `json:"-"`
+	// SharedCode is each function of the saved source a library or another
+	// script already defines (#2273), [] for none; reported, never refused.
+	SharedCode []scriptshare.Match `json:"shared_code"`
 }
 
 // Apply sets the formatted source, the change the save carries and its test
@@ -158,7 +165,7 @@ func (r Result) Refused() bool { return r.Refusal != "" }
 
 // Check puts one save through every gate, stopping at the first that refuses.
 func (g *Gate) Check(ctx context.Context, req Request) Result {
-	res := Result{Differences: []scriptbehavior.Difference{}, Replayed: []string{}}
+	res := Result{Differences: []scriptbehavior.Difference{}, Replayed: []string{}, SharedCode: []scriptshare.Match{}}
 	res.Lint = scriptlint.Check(req.Source)
 	if len(res.Lint.Refused) > 0 {
 		res.Refusal = scriptlint.Detail(res.Lint.Refused)
@@ -193,6 +200,7 @@ func (g *Gate) Check(ctx context.Context, req Request) Result {
 	if s := strings.TrimSpace(req.ChangeSummary); s != "" && req.Agreed {
 		res.ChangeSummary, res.ChangeAgreedBy = s, req.Caller.Email
 	}
+	res.SharedCode = g.sharedCode(ctx, req, source)
 	return res
 }
 

@@ -154,12 +154,18 @@ func parseRedirect(line string) (Redirect, error) {
 	return rule, ValidateRedirect(rule)
 }
 
-// ValidateRedirect checks one rule.
+// ValidateRedirect checks one rule. Status 200 is a rewrite: the path is
+// answered with the file the target names, in place, which is how a
+// single-page application answers its own routes (/* /index.html 200).
 func ValidateRedirect(r Redirect) error {
 	switch r.Status {
 	case http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther, http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
+	case http.StatusOK:
+		if !localTarget(r.To) {
+			return fmt.Errorf("to %q: a rewrite (status 200) answers with a file of this site, so its target is a local path", r.To)
+		}
 	default:
-		return fmt.Errorf("status %d is not a redirect", r.Status)
+		return fmt.Errorf("status %d is not a redirect or a rewrite (200)", r.Status)
 	}
 	if !strings.HasPrefix(r.From, "/") || len(r.From) > maxRedirectLen || hasControl(r.From) {
 		return fmt.Errorf("from %q: a path starting with /", r.From)
@@ -174,7 +180,7 @@ func validateTarget(to string) error {
 	if len(to) > maxRedirectLen || hasControl(to) {
 		return fmt.Errorf("to %q: too long or holding a control character", to)
 	}
-	if strings.HasPrefix(to, "/") && !strings.HasPrefix(to, "//") && !strings.Contains(to, `\`) {
+	if localTarget(to) {
 		return nil
 	}
 	u, err := url.Parse(to)
@@ -182,6 +188,13 @@ func validateTarget(to string) error {
 		return fmt.Errorf("to %q: a local path or an http(s) URL", to)
 	}
 	return nil
+}
+
+// localTarget reports whether to is a path on this site: one leading slash,
+// never two (a protocol-relative address) and no backslash, which a browser
+// reads as a slash.
+func localTarget(to string) bool {
+	return strings.HasPrefix(to, "/") && !strings.HasPrefix(to, "//") && !strings.Contains(to, `\`)
 }
 
 // hasControl reports a control character or a space: a rule is written as

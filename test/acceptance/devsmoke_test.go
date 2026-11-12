@@ -153,8 +153,14 @@ func TestDevSmoke_SearchFindsAJustEmbeddedAsset(t *testing.T) {
 }
 
 // The renderer draws a tile for an asset just saved.
+//
+// A server compiled after make verify's embed-clean embeds no tile page and
+// starts no tile worker, so the wait below would run out saying nothing of
+// why. The viewer bundle the tile page is built from is served beside it: its
+// absence fails the check at once, naming the empty embed (#2548).
 func TestDevSmoke_TheRendererDrawsATile(t *testing.T) {
 	t.Parallel()
+	requireTilePage(t)
 	c := connect(t)
 	id := saveAsset1787(t, c, "text/html", "<h1>dev smoke "+smokeStamp()+"</h1>")
 	smokeUntil(t, "a tile for asset "+id, func() bool {
@@ -199,5 +205,24 @@ func TestDevSmoke_AnAPIConnectionReachesTheCalDAVServer(t *testing.T) {
 	})
 	if fmt.Sprint(out["status"]) != "207" {
 		t.Fatalf("PROPFIND answered %v: %v", out["status"], out)
+	}
+}
+
+// requireTilePage fails at once when the running server embeds no viewer
+// bundle, which the tile page is part of.
+func requireTilePage(t *testing.T) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, baseURL()+"/portal/view/_assets/content-viewer.css", http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("asking the server for its viewer bundle: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		t.Fatalf("the running server embeds no tile page, so it draws no tile: it was compiled from an empty " +
+			"internal/contentviewer/dist (make verify's embed-clean empties it). Restart it with make dev, which builds the embed first")
 	}
 }

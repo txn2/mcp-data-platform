@@ -21,6 +21,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/auditredact"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.starlark.net/starlark"
 
@@ -271,6 +273,10 @@ func (r *Runner) Serve(ctx context.Context, t *Target, req Request) Response {
 		return resp
 	}
 	t = run
+	// The request's cookie values reach no audit row, the request's own or a
+	// platform call the handler makes, and no kept failure (#2555).
+	red := cookieRedactor(req.Cookies)
+	ctx = auditredact.With(ctx, red)
 	var resp Response
 	var failure error
 	sessionID, err := pkgsession.GenerateScriptSessionID()
@@ -284,6 +290,7 @@ func (r *Runner) Serve(ctx context.Context, t *Target, req Request) Response {
 	default:
 		resp, failure = r.run(ctx, t, req, sessionID)
 	}
+	failure = redactFailure(red, failure)
 	o := outcome{sessionID: sessionID, status: resp.Status, failure: failure, elapsed: time.Since(started)}
 	if failure != nil {
 		r.recordFailure(ctx, t, req.Method, o)
@@ -431,6 +438,9 @@ func (r *Runner) recordAudit(ctx context.Context, t *Target, req Request, o outc
 	if req.Caller != nil {
 		params["caller"] = req.Caller.Email
 		params["caller_id"] = req.Caller.UserID
+	}
+	if req.Asset != "" {
+		params["asset"] = req.Asset
 	}
 	event := middleware.AuditEvent{
 		Timestamp: time.Now().UTC(), SessionID: o.sessionID, UserID: t.Script.Principal(), UserEmail: t.Script.OwnerEmail,
