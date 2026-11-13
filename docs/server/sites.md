@@ -283,6 +283,13 @@ promoting each would. Application rollback is unchanged.
 
 ## Response headers
 
+A `_redirects` rule with status 200 is a rewrite (#2558): the path is answered
+in place, with status 200, by the file of this site the target names, so a
+single-page application answers its own routes (`/* /index.html 200`, or
+`/products/* /index.html 200` for one section). The target is a local path; a
+file the release holds still answers itself first, and a rewrite to a file the
+release lacks answers the 404 page.
+
 A release may carry a `_headers` file (#2557). Like `_redirects` it is read into
 the release rather than served, it travels with the release, so a rollback
 restores the headers that release declared, and it reads and edits like any file
@@ -373,16 +380,31 @@ or do) and uses the platform's sign-in for who someone is.
 See the `platform-pages-and-sites` knowledge page for how to build one. What an
 operator should know:
 
-- A page origin answers only `/`, `/endpoints/...`, `/_static/...`, `/_viewer` and
-  `/_auth`. Portal, admin and MCP routes do not exist there.
+- A page origin answers `/endpoints/...`, `/_static/...`, `/_viewer` and `/_auth`,
+  and every other path with the endpoint named after the application: `/` alone
+  when its path is empty, any path when its path ends in a catch-all
+  `/{route...}` (#2553), which the handler routes itself. Portal, admin and MCP
+  routes do not exist there.
 - The portal's session never crosses. A signed-in person is handed over by a code
   good for a minute, once, bound to the browser that started the sign-in; the
   origin then keeps its own HttpOnly cookie, scoped to one application, for
   twelve hours. API keys are not honored on a page origin.
   The page origin answers on the port of `portal.public_base_url`, and the redirect back to it names the stored hostname and that port, nothing the request sent.
-- A page's content policy is built by the platform per binding. Endpoints that do
-  not opt in keep `default-src 'none'; sandbox`, and a page requested on the
-  portal's own origin stays sandboxed.
+- A page's content policy is built by the platform per binding: its own origin,
+  `page_cdns` for scripts, styles, images and fonts, and `page_frame_origins`,
+  `page_connect_origins` and `page_form_origins` for `frame-src`, `connect-src`
+  and `form-action` (#2554). Endpoints that do not opt in keep
+  `default-src 'none'; sandbox`, and a page requested on the portal's own origin
+  stays sandboxed.
+- A handler on the application's origin reads and sets application cookies
+  under the prefix `__Host-app-` (`app-` over http), which no platform cookie
+  has (#2555), and so does one a site environment that is a part of the
+  application calls at `/endpoints/<name>` on the site's own address (#2558). A request with a method other than GET or HEAD carries them only
+  when the browser says it came from that origin. Their values are replaced in
+  every audit row the request writes.
+- `req["client_ip"]` and an endpoint's `ip_rate_limit` read the client's address
+  through `server.trusted_proxies` (#2556); see
+  [The client's address](configuration.md#the-clients-address).
 
 ## Sites
 

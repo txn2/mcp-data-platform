@@ -207,6 +207,7 @@ func TestScript(t *testing.T) {
 func TestReferenceRewriteNamesThisPage(t *testing.T) {
 	assert.Equal(t, PathPrefix, assetrefs.FormPagePrefix)
 	assert.Equal(t, PathPrefix, epform.PagePrefix)
+	assert.Equal(t, epbinding.PathPrefix, assetrefs.EndpointPathPrefix, "an endpoint reference is rewritten to where endpoints answer (#2457)")
 }
 
 // previews owns one preview, fp1, opened by ann.

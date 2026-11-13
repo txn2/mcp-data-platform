@@ -15,9 +15,11 @@ import type {
   ScriptParam,
   ScriptValidation,
 } from "@/api/portal/hooks/scripts";
+import type { SharedFunction } from "@/api/portal/hooks/sharedCode";
 import { SourceEditor } from "@/components/SourceEditor";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { SharedCodeNotice } from "./SharedCodeNotice";
 import { Label } from "@/components/ui/label";
 import { CT } from "@/lib/contentType";
 import { ScriptFlowView } from "./flow/ScriptFlowView";
@@ -137,7 +139,7 @@ export function ScriptSourceEditor({
       {
         onSuccess: (res) => {
           setChange(null);
-          setResults({ ...NOTHING_YET, outcome: res.message });
+          setResults({ ...NOTHING_YET, outcome: res.message, shared: res.shared_code ?? [] });
           setSubmitted(sent);
           // The applied edit IS the live source now, so the draft is dropped
           // and the editor follows the record.
@@ -315,6 +317,8 @@ function behaviorChange(e: unknown): ScriptBehaviorDifference[] | null {
 // panel below the editor always describes one action on one text.
 interface Results {
   outcome: string | null;
+  /** shared is what the last save said already exists elsewhere (#2273). */
+  shared: SharedFunction[];
   failure: string | null;
   queued: string | null;
   report: ScriptValidation | null;
@@ -323,6 +327,7 @@ interface Results {
 
 const NOTHING_YET: Results = {
   outcome: null,
+  shared: [],
   failure: null,
   queued: null,
   report: null,
@@ -524,6 +529,7 @@ function EditorResults({
           <AlertDescription>{results.outcome}</AlertDescription>
         </Alert>
       )}
+      {results.outcome && !changed && <SharedCodeNotice shared={results.shared} />}
       {results.queued && (
         <Alert>
           <AlertDescription>{results.queued}</AlertDescription>

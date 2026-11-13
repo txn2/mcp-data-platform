@@ -423,6 +423,15 @@ func (g *Gateway) answer(w http.ResponseWriter, r *http.Request, route *site.Rou
 		return
 	}
 	if target, status, ok := matchRedirect(route.Release.Redirects, p); ok {
+		if status == http.StatusOK {
+			// A rewrite answers in place with the file the rule names, or falls
+			// through to the not-found answer when the release has none.
+			if g.rewrite(w, r, route, m, target) {
+				return
+			}
+			g.answerNotFound(w, r, route, m)
+			return
+		}
 		if r.URL.RawQuery != "" && !strings.Contains(target, "?") {
 			target += "?" + r.URL.RawQuery
 		}
@@ -437,6 +446,23 @@ func (g *Gateway) answer(w http.ResponseWriter, r *http.Request, route *site.Rou
 			return
 		}
 	}
+	g.answerNotFound(w, r, route, m)
+}
+
+// rewrite answers r with the release file target names, in place and with
+// 200, and reports whether the release holds one. The target's query string
+// is not a file's.
+func (g *Gateway) rewrite(w http.ResponseWriter, r *http.Request, route *site.Route, m *manifest, target string) bool {
+	name, _, _ := strings.Cut(target, "?")
+	f, ok := m.resolve(path.Clean(name), strings.HasSuffix(name, pathSep))
+	if ok {
+		g.serveFile(w, r, route, f, http.StatusOK)
+	}
+	return ok
+}
+
+// answerNotFound is the release's 404 page, or a plain not found.
+func (g *Gateway) answerNotFound(w http.ResponseWriter, r *http.Request, route *site.Route, m *manifest) {
 	if f, ok := m.files[notFound]; ok {
 		g.serveFile(w, r, route, f, http.StatusNotFound)
 		return

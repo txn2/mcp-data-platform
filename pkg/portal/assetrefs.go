@@ -324,32 +324,39 @@ func (h *Handler) serveRefs(r *http.Request, assetID, contentType string, data [
 			logFieldError, logsan.SanitizeForLog(err.Error()))
 		return data
 	}
-	return h.formQuery(r).Rewrite(data, contentType,
+	return h.formQuery(r, assetID).Rewrite(data, contentType,
 		assetrefs.BaseURL(r, h.deps.PublicBaseURL), assetID, refs)
 }
 
-// formQuery is what each form page an asset embeds is handed in its address:
-// the embed marker that lets the asset frame it, though the page refuses
-// sites its binding does not list (#2331), and, for the signed-in reader of r,
-// their viewer token (#2177). A form in an asset is framed with the asset's
-// sandbox and carries no session, so the viewer token is how an
-// authenticated form learns who submits it; a public read has no reader and
-// hands none. Both are signed against the hour, so the content served in one
-// hour is the same bytes and revalidates.
-func (h *Handler) formQuery(r *http.Request) assetrefs.FormQuery {
+// formQuery is what each form page an asset embeds, and each endpoint it
+// calls, is handed in its address: the embed marker that lets the asset frame
+// the form, though the page refuses sites its binding does not list (#2331),
+// or call the endpoint from its sandbox, bound to this asset (#2457); and, for
+// the signed-in reader of r, their viewer token (#2177). An asset's frame is
+// sandboxed and carries no session, so the viewer token is how an
+// authenticated form or endpoint learns who it runs for; a public read has no
+// reader and hands none. Both are signed against the hour, so the content
+// served in one hour is the same bytes and revalidates.
+func (h *Handler) formQuery(r *http.Request, assetID string) assetrefs.FormQuery {
 	if len(h.deps.FormViewerKey) == 0 {
 		return nil
 	}
 	at := time.Now().UTC().Truncate(time.Hour)
 	embedKey := epform.EmbedKey(h.deps.FormViewerKey)
 	viewer := h.formViewer(r)
-	return func(endpoint string) url.Values {
-		q := url.Values{epform.EmbedParam: {epform.SignEmbed(embedKey, endpoint, at)}}
+	return func(kind assetrefs.TargetKind, endpoint string) url.Values {
+		markerParam, viewerParam := epform.EmbedParam, epform.ViewerParam
+		marker := epform.SignEmbed(embedKey, endpoint, at)
+		if kind == assetrefs.TargetEndpoint {
+			markerParam, viewerParam = epform.EndpointEmbedParam, epform.EndpointViewerParam
+			marker = epform.SignEndpointEmbed(embedKey, endpoint, assetID, at)
+		}
+		q := url.Values{markerParam: {marker}}
 		if viewer == nil {
 			return q
 		}
 		if tok, err := epform.SignViewer(h.deps.FormViewerKey, endpoint, *viewer, at); err == nil {
-			q.Set(epform.ViewerParam, tok)
+			q.Set(viewerParam, tok)
 		}
 		return q
 	}

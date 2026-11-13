@@ -110,17 +110,17 @@ func portalBrandName(p *platform.Platform) string {
 	return p.Config().Server.Name
 }
 
-// portalRateLimitResolver builds the public viewer's trusted-proxy-aware
-// client-IP resolver from the portal rate-limit config (#904). An empty
-// trusted-proxy list yields the safe trust-none default (direct peer address;
-// X-Forwarded-For ignored). A malformed CIDR is a configuration error wrapped
-// for the boot path. It also emits the untrusted-proxy footgun warning.
-func portalRateLimitResolver(cfg platform.PortalRateLimitConfig) (*ratelimit.Resolver, error) {
-	resolver, err := ratelimit.NewResolver(cfg.TrustedProxies)
+// portalRateLimitResolver builds the public viewer's trusted-proxy-aware client-IP
+// resolver from the portal rate-limit config (#904), or server.trusted_proxies when
+// the portal names none (#2556). An empty list yields the safe trust-none default
+// (direct peer address; X-Forwarded-For ignored). A malformed CIDR is a boot-time
+// configuration error. It also emits the untrusted-proxy footgun warning.
+func portalRateLimitResolver(cfg platform.PortalRateLimitConfig, server []string) (*ratelimit.Resolver, error) {
+	resolver, err := ratelimit.NewResolver(ratelimit.Proxies(cfg.TrustedProxies, server))
 	if err != nil {
 		return nil, fmt.Errorf("portal rate limiter: %w", err)
 	}
-	warnOnUntrustedPortalRateLimit(cfg.TrustedProxies)
+	warnOnUntrustedPortalRateLimit(ratelimit.Proxies(cfg.TrustedProxies, server))
 	return resolver, nil
 }
 

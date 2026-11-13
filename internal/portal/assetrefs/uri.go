@@ -24,6 +24,24 @@ func ParseFormURI(uri string) (string, bool) {
 	return name, ok && name != ""
 }
 
+// EndpointURIPrefix starts the reference an asset calls an endpoint by:
+// mcp:endpoint:<name> (#2457). EndpointPathPrefix is where it is rewritten
+// to, internal/endpoint/epbinding's PathPrefix restated.
+const (
+	EndpointURIPrefix  = "mcp:endpoint:"
+	EndpointPathPrefix = "/endpoints/"
+)
+
+// EndpointURI is the reference an asset calls the endpoint name by.
+func EndpointURI(name string) string { return EndpointURIPrefix + name }
+
+// ParseEndpointURI is the endpoint an endpoint reference names, and whether
+// uri is one.
+func ParseEndpointURI(uri string) (string, bool) {
+	name, ok := strings.CutPrefix(uri, EndpointURIPrefix)
+	return name, ok && name != ""
+}
+
 // AssetURI is the canonical form an asset is referenced by from another
 // asset's content: mcp:asset:<id> (#1488).
 //

@@ -81,6 +81,7 @@ const (
 	slugApps          = "platform-applications"
 	slugSites         = "platform-pages-and-sites"
 	slugFromSource    = "platform-sites-from-source"
+	slugPublicApps    = "platform-public-applications"
 	// The PostgreSQL design pages (#2448).
 	slugPGWrites    = "platform-postgres-write-patterns"
 	slugPGIntegrity = "platform-postgres-integrity"
@@ -94,6 +95,14 @@ const (
 	slugPGQueries   = "platform-postgres-queries-and-values"
 	slugPGProvides  = "platform-postgres-platform-provides"
 	slugPGCaveats   = "platform-postgres-what-does-not-work"
+)
+
+// Tags several pages share.
+const (
+	tagApplications = "applications"
+	tagEndpoints    = "endpoints"
+	tagPages        = "pages"
+	tagSites        = "sites"
 )
 
 // pageMeta is the shipped metadata of one page. The title is the body file's
@@ -145,21 +154,28 @@ var pageMetas = []pageMeta{
 		file:    "applications.md",
 		slug:    slugApps,
 		summary: "Building an application on the platform end to end, a shop as the worked example: the schema first through migrations, a checkout in one transaction, identity and row-level security, endpoints and forms as the front, outbox events for side effects, scheduled maintenance, and a release with manage_application that pins it all, with rollback, export and import.",
-		tags:    []string{"applications", "application database", "endpoints", "forms", "releases"},
-		related: []string{slugAppDB, slugPGWrites, slugPGSecurity, slugPGProvides, slugWriting},
+		tags:    []string{tagApplications, "application database", tagEndpoints, "forms", "releases"},
+		related: []string{slugAppDB, slugPGWrites, slugPGSecurity, slugPGProvides, slugWriting, slugPublicApps},
+	},
+	{
+		file:    "public-applications.md",
+		slug:    slugPublicApps,
+		summary: "A public application start to finish, a shop for visitors with no platform account: one page endpoint answering every path with robots.txt, a sitemap and a 404 page, hosted payment fields and a signed processor callback, a cart in an application cookie, sign-in by a single-use emailed link, mail from an outbox through an api connection with a scheduled re-send, per-address limits and a bot check, product images as a site, and the shop's own hostname.",
+		tags:    []string{tagApplications, tagEndpoints, tagPages, tagSites, "public"},
+		related: []string{slugApps, slugSites, slugAppDB},
 	},
 	{
 		file:    "pages-and-sites.md",
 		slug:    slugSites,
 		summary: "Browser pages and static sites the platform serves on hostnames of their own: response_mode page and its content policy and nonce, an application's own origin and how a viewer signs in to it, and sites with environments, releases, promote and rollback, hostnames, TLS and moving a site off a CMS with crawl.",
-		tags:    []string{"pages", "sites", "applications", "endpoints", "hosting"},
-		related: []string{slugApps, slugWriting, slugFromSource},
+		tags:    []string{tagPages, tagSites, tagApplications, tagEndpoints, "hosting"},
+		related: []string{slugApps, slugWriting, slugFromSource, slugPublicApps},
 	},
 	{
 		file:    "sites-from-source.md",
 		slug:    slugFromSource,
 		summary: "Bringing an existing site in from its source rather than crawling it: list its content types, listings and dynamic features, extract the layout and records, load the source tree from an archive or a bucket prefix, load media into a mounted folder, write the redirect map, and prove every URL before cutover.",
-		tags:    []string{"sites", "migration", "media", "hosting"},
+		tags:    []string{tagSites, "migration", "media", "hosting"},
 		related: []string{slugSites, slugApps},
 	},
 	{

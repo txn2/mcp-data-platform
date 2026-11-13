@@ -1,0 +1,10 @@
+# Tools and top-level config sections with no portal surface by design (#2560).
+#
+# make portal-surface-check warns when a change registers a tool or adds a
+# top-level section to the platform config and changes nothing under ui/src.
+# One listed here is not reported. Each line is
+#
+#   tool|config <name> <the reason a person has nothing to see or do>
+#
+# and an entry naming a tool or section the platform no longer has fails.
+tool platform_info Hands an agent its session id and the platform's workflow rules as a session starts: instructions to the model, not something a person acts on.

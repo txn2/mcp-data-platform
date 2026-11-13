@@ -93,14 +93,23 @@ const (
 	// form_spec and form_submit (#2177), named by mcp:form:<endpoint>. The
 	// reference is rewritten to the form's page, which an asset frames.
 	TargetForm TargetKind = "form"
+	// TargetEndpoint is an endpoint an asset's page calls with fetch
+	// (#2457), named by mcp:endpoint:<name>. The reference is rewritten to
+	// the endpoint's address, carrying the marker that lets the asset's
+	// sandboxed frame call it and, for a signed-in reader, their viewer token.
+	TargetEndpoint TargetKind = "endpoint"
 )
 
 // Valid reports whether k is a kind the platform can resolve. A row read back
 // with anything else is data from a future version and is refused rather than
 // guessed at.
 func (k TargetKind) Valid() bool {
-	return k == TargetResource || k == TargetAsset || k == TargetForm
+	return k == TargetResource || k == TargetAsset || k == TargetForm || k == TargetEndpoint
 }
+
+// Endpoint reports whether k is served by an endpoint rather than through
+// the reference route: a form's page or an endpoint's address.
+func (k TargetKind) Endpoint() bool { return k == TargetForm || k == TargetEndpoint }
 
 // Ref links an asset to something its content names (#1474,
 // #1488): the logo the report shows, the photograph the page embeds, the data

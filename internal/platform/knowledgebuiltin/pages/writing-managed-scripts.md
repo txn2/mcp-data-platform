@@ -62,6 +62,23 @@ link to the person to open in their browser. Its owner then publishes it with
 `endpoint_set` `auth_mode=authenticated`; serving it to people who are not
 signed in takes a version an administrator approved (`manage_approval`).
 
+## Reuse a library before writing a helper
+
+Before writing a helper that pages through an API, works out a date window or
+shapes a response, list the deployment's libraries (`manage_script command=list
+library=true`) and read the ones that sound right. A library is a source with no
+`main()` and no `handle()`, and a script loads it at a pinned version:
+`load("lib:date-windows@3", "last_week")`.
+
+A save that goes through answers `shared_code`: each function in the source
+that a library or another script already defines, with comments, layout and
+local names set aside. `[]` means none. For a library match it names the
+library, its version and the load line that replaces the copy. For a match in
+other scripts only, it names them: tell the person, and offer to move the
+function into a library, save the library first, and then pin the scripts to
+it. Another script changes only with its owner's agreement. Nothing is refused
+for sharing code.
+
 ## The dialect is deliberately smaller than Python
 
 Starlark looks like Python but has no `import`, no `try/except`, no `while`, no

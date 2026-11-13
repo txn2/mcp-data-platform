@@ -1290,7 +1290,7 @@ func TestPortalRateLimitResolver(t *testing.T) {
 	t.Run("valid trusted proxies", func(t *testing.T) {
 		r, err := portalRateLimitResolver(platform.PortalRateLimitConfig{
 			TrustedProxies: []string{"10.0.0.0/8"},
-		})
+		}, nil)
 		if err != nil {
 			t.Fatalf("portalRateLimitResolver() = %v, want nil", err)
 		}
@@ -1300,7 +1300,7 @@ func TestPortalRateLimitResolver(t *testing.T) {
 	})
 
 	t.Run("empty trusts none", func(t *testing.T) {
-		r, err := portalRateLimitResolver(platform.PortalRateLimitConfig{})
+		r, err := portalRateLimitResolver(platform.PortalRateLimitConfig{}, nil)
 		if err != nil {
 			t.Fatalf("portalRateLimitResolver() = %v, want nil", err)
 		}
@@ -1312,12 +1312,30 @@ func TestPortalRateLimitResolver(t *testing.T) {
 	t.Run("malformed CIDR errors", func(t *testing.T) {
 		_, err := portalRateLimitResolver(platform.PortalRateLimitConfig{
 			TrustedProxies: []string{"not-a-cidr"},
-		})
+		}, nil)
 		if err == nil {
 			t.Fatal("portalRateLimitResolver() malformed CIDR = nil, want error")
 		}
 		if !strings.Contains(err.Error(), "portal rate limiter") {
 			t.Errorf("error %q missing 'portal rate limiter' context", err.Error())
+		}
+	})
+
+	// #2556: with no proxies of its own the portal trusts server.trusted_proxies.
+	t.Run("server.trusted_proxies when the portal names none", func(t *testing.T) {
+		r, err := portalRateLimitResolver(platform.PortalRateLimitConfig{}, []string{"10.0.0.0/8"})
+		if err != nil {
+			t.Fatalf("portalRateLimitResolver() = %v, want nil", err)
+		}
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
+		req.RemoteAddr = "10.1.2.3:443"
+		req.Header.Set("X-Forwarded-For", "203.0.113.9")
+		if got := r.ClientIP(req); got != "203.0.113.9" {
+			t.Errorf("ClientIP() = %q, want the forwarded client behind a server-trusted proxy", got)
+		}
+		_, err = portalRateLimitResolver(platform.PortalRateLimitConfig{TrustedProxies: []string{"bad"}}, []string{"10.0.0.0/8"})
+		if err == nil {
+			t.Error("the portal's own list is read first, and a malformed one still refuses")
 		}
 	})
 }

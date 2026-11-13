@@ -70,7 +70,7 @@ A binding holds:
 |---|---|---|
 | `endpoint` | (required) | The name, `/endpoints/{name}`; lowercase letters, digits, hyphens and underscores, unique across the deployment |
 | `methods` | `GET` | The HTTP methods answered; HEAD is answered wherever GET is |
-| `path` | empty | The template under the name: `/{id}` takes one segment the handler reads as `req["params"]["id"]` |
+| `path` | empty | The template under the name: `/{id}` takes one segment the handler reads as `req["params"]["id"]`; a last segment `/{route...}` takes the rest of the path at any depth, including none (see [Catch-all paths](#catch-all-paths)) |
 | `auth_mode` | (required) | `authenticated`, `public` or `bot_check` (see [Access modes](#access-modes)) |
 | `callers` | none | On an `authenticated` endpoint, who it admits besides the administrator: `*`, `persona:<name>`, `api_key:<name>`. Empty admits no one else |
 | `bot_check` | (required on `bot_check`) | The name of the [bot check](#bot-checks) a `bot_check` endpoint requires |
@@ -81,6 +81,9 @@ A binding holds:
 | `allowed_origins` | none | Browser origins a cross-origin request may come from |
 | `rate_limit` | 600 | The endpoint's requests a minute on each replica |
 | `caller_rate_limit` | 120 | One authenticated caller's requests a minute on each replica |
+| `ip_rate_limit` | 0 (none) | One client address's requests a minute on each replica, at most `rate_limit`; an IPv6 client is counted by its /64 (see [The client's address](#the-clients-address)) |
+| `response_mode` | `api` | `page` serves a working browser page on the application's own origin ([Sites and pages](../server/sites.md)) |
+| `page_cdns`, `page_frame_origins`, `page_connect_origins`, `page_form_origins` | none | On a page: the https origins it may load from, frame, call from its script and post its forms to besides its own; at most 20 each, one leading `*.` label with two labels after it |
 
 A script can be bound only when it defines `handle(req)`, and a save of a bound
 script whose source no longer defines it is refused, naming the endpoint. A
@@ -114,9 +117,12 @@ def handle(req):
 | `json` | The body parsed when its content type is JSON, else None. A body that says it is JSON and is not is answered 400 before the script runs |
 | `form` | Each field's first value when the body is `application/x-www-form-urlencoded`, else None |
 | `caller` | On an `authenticated` endpoint, `{"user_id", "email", "auth_type"}` of the session or API key; None on a `public` or `bot_check` one. It never comes from the request body |
+| `cookies` | The application's cookies by name on its own address ([Application cookies](#application-cookies)); empty on the platform's address and on a cross-site write |
+| `client_ip` | The address the request came from, read through `server.trusted_proxies` ([The client's address](#the-clients-address)) |
 
 The handler returns a dict: `status` (200 to 599, default 200), `headers` (names
-to strings) and one of `json` (any value) or `body` (a string or bytes). A
+to strings), `cookies` (a list, on an application's own address) and one of
+`json` (any value) or `body` (a string or bytes). A
 handler may not set `Set-Cookie`, `Content-Length`, `Transfer-Encoding`,
 `Connection`, `Content-Security-Policy`, `X-Content-Type-Options`,
 `X-Frame-Options` or any `Access-Control-*` header. Every answer carries
@@ -132,6 +138,88 @@ it stays sandboxed like any other. See [Sites and pages](../server/sites.md).
 
 `platform.export` and `platform.publish_data` fail in a handler: a request
 answers with what `handle` returns.
+
+### Catch-all paths
+
+A path template's last segment may be a catch-all, `{name...}` (#2553). It
+matches the rest of the path at any depth, including none, and the handler
+reads it as `req["params"]["name"]` with no leading slash: with
+`path: "/{route...}"`, `/endpoints/shop` is `""`, `/endpoints/shop/products/shoe`
+is `"products/shoe"`, and a trailing slash is the same path. The handler routes
+it and chooses each status. A segment that is empty, `.` or `..`, or holds a
+backslash or a control character, matches nothing and answers 404, so `route` is
+always a clean relative path no longer than 2048 bytes and 64 segments. Only the
+last segment may be a catch-all, and it counts as one segment against the
+template's eight; `endpoint_set` refuses one anywhere else, naming the path. On
+an application's page origin, the endpoint named after the application bound at
+`/{route...}` answers every path but `/endpoints/`, `/_static/`, `/_viewer` and
+`/_auth`, so `/robots.txt` can answer `text/plain` and an unknown path its own
+404 page.
+
+A path reaches the handler decoded once, by the router: `%25` is `%`, and a
+doubly encoded dot is never read as `..`.
+
+### Application cookies
+
+On an application's own address (its page origin or a verified hostname), and
+on the address of a site environment that is a part of the application (#2558),
+a handler reads the application's cookies as `req["cookies"]` and sets them by
+returning `"cookies"`, a list of `{"name", "value", "max_age", "same_site"}`
+(#2555). The platform writes each under a fixed prefix, `__Host-app-` over https
+and `app-` over http, and strips it on the way in, so a handler only ever sees
+and sets cookies with that prefix: the platform's `page_viewer`, `page_state` and
+a portal session are out of its reach under any casing. Every cookie is
+`HttpOnly` and `Path=/`, `Secure` over https, and never has a `Domain`.
+`same_site` is `Lax` by default or `Strict`, never `None`. `max_age` is seconds,
+at most 400 days; `0` deletes the cookie and leaving it out makes a session
+cookie. A name is 1 to 32 letters, digits, `_` and `-`; a value is at most 1024
+bytes of cookie characters (no spaces, quotes, commas, semicolons or
+backslashes, so a handler encodes JSON as base64). A response sets at most 10
+cookies, a request carries at most 20 (the first in name order), and anything
+past a bound fails the request naming it. A response that sets a cookie is
+`Cache-Control: private`.
+
+A request with a method other than GET or HEAD reaches the handler with no
+cookies unless the browser says it came from this origin, so a form on another
+site acts with no session. It is not refused: a payment processor's server
+calls the same endpoint. On the platform's own address a handler reads none and
+any it returns are not set.
+
+A cookie value is never written to the request's audit row or a kept failure,
+and each platform call the handler makes is audited with the request's cookie
+values replaced by `[REDACTED:cookie]`. A value of fewer than six characters is
+left as written. A value minted during a request (a new session id) is written
+as any argument is in the calls of that request; generate it in the statement
+that stores it (`gen_random_uuid()`) so it is never an argument.
+
+### The client's address
+
+`req["client_ip"]` is the address the request came from, read through the
+platform's trusted-proxy resolver (#2556): `X-Forwarded-For` is read only from a
+peer in `server.trusted_proxies`, right to left past the trusted hops, so a
+forged leftmost entry moves nothing. With no trusted proxy it is the peer's
+address. `ip_rate_limit` limits each address to that many requests a minute on
+each replica, an IPv6 client by its /64; a request past it is answered 429 with
+`Retry-After`, counted under the refusal reason `ip_rate_limit`, before the
+endpoint's own `rate_limit` is spent. `endpoint_set` warns when `ip_rate_limit`
+is set and `server.trusted_proxies` is empty, since behind a proxy every client
+then shares one address. The address is not written to an audit row, a log or a
+metric label. Static files and `/_static/` are not limited.
+
+A deployment behind a load balancer and an ingress needs the address carried to
+the platform: the load balancer preserves the client's address (or the ingress
+sets `X-Forwarded-For` and trusts only the balancer), and `server.trusted_proxies`
+holds the ingress's range and nothing broader (a range wider than /8, or /32 for
+IPv6, is refused at startup). A one-line endpoint confirms it:
+
+```python
+def handle(req):
+    """Shows the address the platform sees."""
+    return {"json": {"client_ip": req["client_ip"]}}
+```
+
+A hostname the built-in ACME listener serves has no proxy in front and needs no
+setting.
 
 A draft (`run_draft`) runs `main()`, so a handler is drafted with a `main()`
 that calls it with a request built by hand, which is also how its recording
@@ -474,6 +562,41 @@ token. A form's page answers the opaque origin its requests carry, never with
 credentials. Proof of work answers a bot check inside an asset; Turnstile and
 hCaptcha may need the form opened at its own address.
 
+### Calling an endpoint from an asset
+
+An HTML or JSX asset calls an endpoint by declaring `mcp:endpoint:<name>` in its
+references and fetching it (#2457):
+
+```html
+<script>
+  const endpoint = new URL("mcp:endpoint:log-search");
+  endpoint.pathname += "/runs";
+  endpoint.searchParams.set("user", "ann@example.com");
+  fetch(endpoint).then((r) => r.json()).then(render);
+</script>
+```
+
+Every viewing surface rewrites the reference to the endpoint's address with two
+query parameters: `endpoint_embed`, a marker the platform signs, bound to the
+endpoint and the asset and good for 12 hours, which lets the asset's sandboxed
+frame (origin `null`) call it, never with credentials; and, for a signed-in
+reader, `endpoint_viewer`, their viewer token, which an `authenticated` endpoint
+takes as its caller, so the handler sees the reader in `req["caller"]`. Build
+sub-paths and add parameters with the URL API, which keeps both. Neither reaches
+the handler's `req["query"]`, and the request's audit row records the asset it
+came from. Without a valid marker a request from the opaque origin is refused
+as before. A public share has no reader, so an authenticated endpoint answers it
+401 and a public one answers it. Only the endpoint's owner or an administrator
+may declare an authenticated endpoint, because the asset's own script can read
+the token. The check is made when the reference is declared; a later save of the
+asset's content keeps it, so whoever may edit the asset decides what its script
+sends that endpoint as each reader. Edit access to an asset that calls an
+authenticated endpoint or embeds an authenticated form is the trust given to a
+developer of that endpoint or form. Like `form_viewer`, the viewer token is in the address, so an
+ingress's request log holds it; it calls that one endpoint, as that reader, for
+12 hours. A standalone download of an asset that calls an endpoint is refused,
+naming the endpoint, since the file has no platform to call.
+
 An asset's tile and its PDF show a card naming the form where the form sits,
 in the reader's color scheme, rather than the form itself (#2431). Drawing them
 never loads the form's page, so it runs none of the form's script and counts no
@@ -686,9 +809,13 @@ def handle(req):
 - `claims` is a dict carried in the token, up to 4 KiB encoded, and `ttl` the
   seconds it lives, at most 30 days.
 - A run's recording keeps a mint's answer and a verify's `token` argument as
-  `[recorded token]` (#2361), so no recording holds a token that would be
-  accepted. A test replays a verify by its other arguments, whatever token
-  the script hands it.
+  `[recorded token]` (#2361), and every later call of the run that carries a
+  token it minted (the body of a mail holding a sign-in link, a statement's
+  parameter) has it replaced the same way in its arguments and its answer
+  (#2558), so no recording holds a token that would be accepted. A test
+  replays a verify by its other arguments, whatever token the script hands
+  it, and a call carrying the token matches because the replayed mint answers
+  `[recorded token]`.
 - `secret` names a stored secret (Admin > Secrets) whose `allow_connections`
   lists `script_token`. When its `allow_personas` names personas, one of them
   must be the persona the version's author roles resolve to; a script whose
@@ -730,14 +857,14 @@ cross-origin caller of an `authenticated` endpoint calls with an API key.
 | 404 | No enabled endpoint has the name, or the path does not match the template |
 | 405 | The endpoint does not answer the method (`Allow` lists the ones it does) |
 | 413 | The body is past `max_body_bytes`; the script does not run |
-| 429 | Past `rate_limit` or the caller's `caller_rate_limit`, with `Retry-After` |
+| 429 | Past `rate_limit`, the caller's `caller_rate_limit` or the address's `ip_rate_limit`, with `Retry-After` |
 | 503 | The script is disabled, deprecated or superseded; the handler held more than `max_memory_bytes`; the replica is already running 32 handlers (with `Retry-After`); or the bot check could not be made |
 | 504 | The handler ran past `timeout_seconds` |
 | 500 | The handler failed, or returned something that is not a response |
 
 The rate limits count requests on each replica: three replicas let up to three
-times `rate_limit` through between them. No limit depends on the client's
-address, which a request behind an ingress and a load balancer does not carry.
+times `rate_limit` through between them. `ip_rate_limit` counts each client
+address, read as [The client's address](#the-clients-address) says.
 
 A request that fails is kept for seven days with its status, error and duration,
 and is listed on the script's page and by `endpoint_list`. The caller is told
@@ -782,7 +909,7 @@ that defines no `handle(req)`.
 The answered requests are read from each request's audit row. A request
 refused before its handler ran writes no audit row, so the refusals are
 counted on their own (`script_endpoint_refusals`, migration `000207`) by
-reason: `bot_check`, `rate_limit`, `caller_rate_limit`, `body_limit`,
+reason: `bot_check`, `rate_limit`, `caller_rate_limit`, `ip_rate_limit`, `body_limit`,
 `credential` (none, or one refused), `caller` (an authenticated caller its
 callers list does not name) and `origin` (a cross-origin preflight
 from an origin the binding does not list). Each replica counts in memory and

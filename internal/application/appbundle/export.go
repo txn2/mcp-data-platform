@@ -355,7 +355,8 @@ func (b *Bundler) endpointOf(ctx context.Context, scriptID string, names collect
 		BotCheck: bd.BotCheck, CheckedMethods: orEmpty(bd.CheckedMethods), TimeoutSeconds: bd.TimeoutSeconds,
 		MaxMemoryBytes: bd.MaxMemoryBytes, MaxBodyBytes: bd.MaxBodyBytes, AllowedOrigins: orEmpty(bd.AllowedOrigins),
 		RateLimit: bd.RateLimit, CallerRateLimit: bd.CallerRateLimit, Enabled: bd.Enabled,
-		ResponseMode: bd.ResponseMode, PageCDNs: bd.PageCDNs,
+		ResponseMode: bd.ResponseMode, PageCDNs: bd.PageCDNs, PageFrameOrigins: bd.PageFrameOrigins,
+		PageConnectOrigins: bd.PageConnectOrigins, PageFormOrigins: bd.PageFormOrigins, IPRateLimit: bd.IPRateLimit,
 	}
 	names.checks.add(bd.BotCheck)
 	if b.FormConnection != nil {

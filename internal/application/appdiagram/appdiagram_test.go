@@ -94,7 +94,7 @@ func shop() (*fake, Input) {
 			"store":      {"Storefront", ""},
 		},
 		content: map[string]string{
-			"store":      `<div data-form="mcp:form:signup"></div><script>fetch("/endpoints/shop-api/")</script><a href="/endpoints/elsewhere/x">`,
+			"store":      `<div data-form="mcp:form:signup"></div><script>fetch("/endpoints/shop-api/"); fetch("mcp:endpoint:shop-api")</script><a href="/endpoints/elsewhere/x">`,
 			"dash-asset": `<script id="data"></script>`,
 		},
 		appdb: map[string]bool{"orders": true},
@@ -233,7 +233,7 @@ func TestBuild_WritesTheAnalyzerMissed(t *testing.T) {
 	assert.Empty(t, unwrittenFindings(d), "every table read is written by a part")
 
 	f.filled = nil
-	f.sources[intake][2] = "SPEC = {\"a\": [\"x\"]}\n\ndef main():\n    \"\"\"Files.\"\"\"\n    platform.execute(SPEC[run.params[\"k\"]][0], connection = \"orders\")\n"
+	f.sources[intake][2] = "def main():\n    \"\"\"Files.\"\"\"\n    platform.execute(run.params[\"sql\"], connection = \"orders\")\n"
 	f.sources[api][1] = "def handle(req):\n    \"\"\"Answers.\"\"\"\n    return platform.query(\"SELECT * FROM shop.products\", connection = \"orders\")\n"
 	d = Build(context.Background(), f, in)
 	found := unwrittenFindings(d)
@@ -243,11 +243,58 @@ func TestBuild_WritesTheAnalyzerMissed(t *testing.T) {
 		assert.Contains(t, fd.Message, "intake writes a table named only when it runs")
 	}
 
-	f.sources[intake][2] = "def main():\n    \"\"\"Files.\"\"\"\n    platform.execute(SPEC[0], connection = \"elsewhere\")\n\nSPEC = [\"x\"]\n"
+	f.sources[intake][2] = "def main():\n    \"\"\"Files.\"\"\"\n    platform.execute(run.params[\"sql\"], connection = \"elsewhere\")\n"
 	d = Build(context.Background(), f, in)
 	found = unwrittenFindings(d)
 	require.NotEmpty(t, found, "a run-time write on another connection cannot be the schema's writer")
 	assert.Contains(t, found[0].Message, "written by no part")
+}
+
+// TestBuild_LookupsAndComprehensionsAreWrites is #2623: a refresh script that
+// picks each cache table's upsert out of a dict of constant lists, and a save
+// that hands tx.batch a comprehension over a constant from the function its
+// transaction's function is nested in, are the writers of those tables. No
+// unwritten_table finding is reported for them, and each gets a writes link.
+// A lookup with one candidate built when the script runs still is a write to
+// a table named only when it runs.
+func TestBuild_LookupsAndComprehensionsAreWrites(t *testing.T) {
+	f, in := shop()
+	f.sources[intake][2] = `UPSERT_COMPANIES = "INSERT INTO shop.company (code) SELECT code FROM x ON CONFLICT (code) DO UPDATE SET code = excluded.code"
+UPSERT_SITES = "INSERT INTO shop.site (code) SELECT code FROM x ON CONFLICT (code) DO UPDATE SET code = excluded.code"
+INSERT_DOCUMENT = "WITH added AS (INSERT INTO shop.document (b) SELECT $1 RETURNING id) INSERT INTO shop.invoice (d) SELECT id FROM added"
+
+def save(documents):
+    """Saves."""
+    statements = [{"sql": INSERT_DOCUMENT, "params": d} for d in documents]
+
+    def write(tx):
+        if statements:
+            tx.batch(statements)
+
+    return platform.transaction("orders", write, on_error = "return")
+
+def main():
+    """Refreshes."""
+    spec = {"companies": ["q", UPSERT_COMPANIES], "sites": ["q", UPSERT_SITES]}[run.params["kind"]]
+    platform.execute(spec[1], connection = "orders", params = {})
+    save(run.params["docs"])
+    platform.execute("INSERT INTO shop.signups (email) VALUES (1)", connection = "orders")
+`
+	f.sources[api][1] = "def handle(req):\n    \"\"\"Answers.\"\"\"\n    return platform.query(\"SELECT * FROM shop.company JOIN shop.site ON true JOIN shop.invoice ON true JOIN shop.document ON true JOIN shop.products ON true\", connection = \"orders\")\n"
+	f.filled = []string{"products"}
+	d := Build(context.Background(), f, in)
+	for _, table := range []string{"company", "site", "document", "invoice"} {
+		assert.True(t, hasLink(d, "script:"+intake, "table:orders/shop."+table, LinkWrites), "shop.%s is written", table)
+	}
+	assert.Empty(t, unwrittenFindings(d), "every table read is written by a part")
+
+	f.sources[intake][2] = "def main():\n    \"\"\"Refreshes.\"\"\"\n    spec = {\"a\": [\"INSERT INTO shop.company (code) VALUES (1)\"], \"b\": [\"INSERT INTO shop.t_\" + run.params[\"k\"] + \" VALUES (1)\"]}[run.params[\"k\"]]\n    platform.execute(spec[0], connection = \"orders\")\n"
+	d = Build(context.Background(), f, in)
+	found := unwrittenFindings(d)
+	require.NotEmpty(t, found)
+	for _, fd := range found {
+		assert.Contains(t, fd.Message, "intake writes a table named only when it runs", "a candidate built when it runs")
+	}
 }
 
 // TestBuild_AnAssetTheCallerCannotOpen is drawn unnamed and not read.
@@ -310,4 +357,14 @@ func TestBuild_WithoutASchemaOrReadableParts(t *testing.T) {
 	assert.Empty(t, d.Links)
 	assert.NotNil(t, d.Findings)
 	assert.True(t, strings.HasPrefix(d.Nodes[0].ID, "script:"))
+}
+
+// TestBuild_AnEndpointReferenceIsACall is #2457: an asset that calls an
+// endpoint by mcp:endpoint:<name> is drawn calling it, as one that fetches
+// /endpoints/<name> is.
+func TestBuild_AnEndpointReferenceIsACall(t *testing.T) {
+	f, in := shop()
+	f.content["store"] = `<script>const EP = "mcp:endpoint:shop-api";</script>`
+	d := Build(context.Background(), f, in)
+	assert.True(t, hasLink(d, "asset:store", "script:"+api, LinkCalls))
 }

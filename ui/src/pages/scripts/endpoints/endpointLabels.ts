@@ -41,6 +41,7 @@ export function callersSummary(callers: string[]): string {
 export const REFUSAL_LABELS: Record<string, string> = {
   bot_check: "Bot check",
   rate_limit: "Endpoint rate limit",
+  ip_rate_limit: "Per-address limit",
   caller_rate_limit: "Caller rate limit",
   body_limit: "Body limit",
   credential: "Credential",

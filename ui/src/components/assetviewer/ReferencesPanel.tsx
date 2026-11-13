@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, ExternalLink, FileText, Image, Paperclip, Plus, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, ExternalLink, FileText, Image, Paperclip, Plus, X } from "lucide-react";
 import {
   useAssetRefs,
   useRemoveAssetRef,
@@ -247,6 +247,8 @@ function RefRow({
         <div className="min-w-0 flex-1">
           {refItem.broken ? (
             <BrokenLabel refItem={refItem} />
+          ) : refItem.target_kind === "endpoint" ? (
+            <EndpointLabel refItem={refItem} />
           ) : (
             <TargetLabel
               refItem={refItem}
@@ -355,6 +357,23 @@ function TargetLabel({
         <p className="truncate text-sm font-medium">{name}</p>
       )}
       <TargetDetail refItem={refItem} />
+    </>
+  );
+}
+
+// EndpointLabel names an endpoint the asset's page calls (#2457). It links
+// nowhere: the endpoint answers the page, not a reader opening it.
+function EndpointLabel({ refItem }: { refItem: AssetRef }) {
+  return (
+    <>
+      <p className="flex items-center gap-2 truncate text-sm font-medium">
+        <ArrowRight aria-hidden="true" className="size-4 shrink-0 text-primary" />
+        <span className="truncate">Endpoint {refItem.display_name || refItem.target_id}</span>
+      </p>
+      <p className="mt-1 text-xs text-muted-foreground" data-testid="asset-ref-endpoint-note">
+        The page calls it as each signed-in reader. A public link has no reader, so an endpoint that answers
+        signed-in callers answers it as nobody.
+      </p>
     </>
   );
 }

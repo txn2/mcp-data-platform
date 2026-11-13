@@ -2442,6 +2442,8 @@ definitions:
         description: FormConnection is the connection a form's submissions table is
           on.
         type: string
+      ip_rate_limit:
+        type: integer
       max_body_bytes:
         type: integer
       max_memory_bytes:
@@ -2453,6 +2455,22 @@ definitions:
       name:
         type: string
       page_cdns:
+        items:
+          type: string
+        type: array
+      page_connect_origins:
+        items:
+          type: string
+        type: array
+      page_form_origins:
+        items:
+          type: string
+        type: array
+      page_frame_origins:
+        description: |-
+          PageFrameOrigins, PageConnectOrigins and PageFormOrigins are a page's
+          frame, connect and form origins (#2554), and IPRateLimit one client
+          address's requests a minute (#2556).
         items:
           type: string
         type: array
@@ -4659,6 +4677,11 @@ definitions:
         type: array
       endpoint:
         type: string
+      ip_rate_limit:
+        description: |-
+          IPRateLimit is one client address's requests a minute (#2556); nil
+          keeps it, 0 removes it.
+        type: integer
       max_body_bytes:
         type: integer
       max_memory_bytes:
@@ -4668,6 +4691,21 @@ definitions:
           type: string
         type: array
       page_cdns:
+        items:
+          type: string
+        type: array
+      page_connect_origins:
+        items:
+          type: string
+        type: array
+      page_form_origins:
+        items:
+          type: string
+        type: array
+      page_frame_origins:
+        description: |-
+          PageFrameOrigins, PageConnectOrigins and PageFormOrigins are what a
+          page may frame, call and post to besides its own origin (#2554).
         items:
           type: string
         type: array
@@ -14490,6 +14528,13 @@ definitions:
         description: Message states the outcome in the owner's terms.
         example: Saved, and this version is what runs now.
         type: string
+      shared_code:
+        description: |-
+          SharedCode is each function of the saved source a library or another
+          script already defines (#2273), never a refusal; empty when none.
+        items:
+          $ref: '#/definitions/scriptshare.Match'
+        type: array
     type: object
   scripthttp.validateResponse:
     properties:
@@ -14665,6 +14710,32 @@ definitions:
       tool:
         description: Tool is the tool name the script passed.
         type: string
+    type: object
+  scriptshare.Match:
+    properties:
+      function:
+        description: Function is the function's name in the saved source.
+        type: string
+      library:
+        description: |-
+          Library, Version and LibraryFunction name the library holding the same
+          function and its name there, and Load is the line that replaces the copy.
+        type: string
+      library_function:
+        type: string
+      load:
+        type: string
+      next:
+        description: Next is what to do about it.
+        type: string
+      scripts:
+        description: Scripts are the other scripts that define it, when no library
+          does.
+        items:
+          type: string
+        type: array
+      version:
+        type: integer
     type: object
   scripttest.Coverage:
     properties:

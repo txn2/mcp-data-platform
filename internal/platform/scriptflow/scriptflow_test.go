@@ -819,7 +819,7 @@ platform.batch("shop", run.params["stmts"])
 	}
 	require.Len(t, tx, 5)
 	assert.Equal(t, RoleWrites, tx[0].Role)
-	assert.Equal(t, []string{"INSERT orders", "batch of statements", "read items"}, tx[0].Detail)
+	assert.Equal(t, []string{"INSERT orders", "INSERT items", "read items"}, tx[0].Detail, "a batch's statements are listed (#2623)")
 	assert.Equal(t, RoleReads, tx[1].Role, "a read_only transaction reads")
 	assert.Equal(t, []string{"read orders", "read", "SQL assembled at run time"}, tx[1].Detail)
 	assert.True(t, tx[2].Computed, "a lambda's statements are not read")

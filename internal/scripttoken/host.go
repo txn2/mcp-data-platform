@@ -47,6 +47,9 @@ type Host struct {
 	Live Caller
 	// Record records a run's call and its answer, nil when nothing records.
 	Record func(tool string, args, out map[string]any, err error)
+	// Minted is told each token a run's mint issued, nil when nothing keeps
+	// them: the run's recording replaces it in every later call (#2558).
+	Minted func(token string)
 }
 
 // Mint is platform.mint_token(claims, ttl, secret, endpoints=None,
@@ -147,6 +150,9 @@ func (h Host) call(tool string, args map[string]any) (map[string]any, error) {
 		return nil, errors.New("this deployment issues no tokens here")
 	}
 	out, err := h.Live.CallTool(h.Ctx, tool, args)
+	if tok, ok := out[keyToken].(string); ok && tool == CapabilityMint && tok != "" && h.Minted != nil {
+		h.Minted(tok)
+	}
 	if h.Record != nil {
 		h.Record(tool, recordedArgs(tool, args), recordedAnswer(tool, out), err)
 	}

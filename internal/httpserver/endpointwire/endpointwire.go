@@ -21,9 +21,11 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/endpoint/eprun"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/savegatewire"
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	"github.com/txn2/mcp-data-platform/pkg/ratelimit"
 )
 
 // Mount registers the routes. A deployment with no database has no
@@ -62,7 +64,13 @@ func Mount(mux *http.ServeMux, p *platform.Platform, adminAuth func() func(http.
 	if p.BrowserSessionFlow() != nil {
 		signIn = epformpage.LoginURL
 	}
-	mountOver(mux, e, identity{auth: Authenticator(portal.NewAuthenticator(p.Authenticator(), opts...), personas), signIn: signIn}, settings, author)
+	clients, err := ratelimit.NewResolver(p.Config().Server.TrustedProxies)
+	if err != nil {
+		slog.Error("endpoints: server.trusted_proxies does not parse; reading the peer's address", "error", logsan.SanitizeForLog(err.Error()))
+		clients, _ = ratelimit.NewResolver(nil)
+	}
+	e.Commands.NoTrustedProxies = len(p.Config().Server.TrustedProxies) == 0
+	mountOver(mux, e, identity{auth: Authenticator(portal.NewAuthenticator(p.Authenticator(), opts...), personas), signIn: signIn, clients: clients}, settings, author)
 	mountPreviews(mux, p, e)
 	if settings != nil && p.DB() != nil {
 		scripts := scriptstore.New(p.DB())
@@ -91,13 +99,15 @@ func mountPreviews(mux *http.ServeMux, p *platform.Platform, e *epwire.Endpoints
 type identity struct {
 	auth   func(r *http.Request) (*eprun.Caller, error)
 	signIn func(string) string
+	// clients reads a request's client address with server.trusted_proxies (#2556).
+	clients *ratelimit.Resolver
 }
 
 // mountOver registers the routes over the assembled feature; the settings
 // routes only when settings, the admin API's authentication, is not nil.
 func mountOver(mux *http.ServeMux, e *epwire.Endpoints, id identity, settings func(http.Handler) http.Handler, author func(*http.Request) string) {
 	viewerKey := epform.ViewerKey(e.Runner.FormKey)
-	h := &ephttp.Handler{Runner: e.Runner, Checker: e.Checker, Authenticate: id.auth, ViewerKey: viewerKey}
+	h := &ephttp.Handler{Runner: e.Runner, Checker: e.Checker, Authenticate: id.auth, ViewerKey: viewerKey, Clients: id.clients}
 	if e.Refusals != nil {
 		h.Refused = e.Refusals.Refused
 	}

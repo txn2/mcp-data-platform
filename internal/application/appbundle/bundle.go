@@ -118,6 +118,13 @@ type Endpoint struct {
 	// ResponseMode and PageCDNs make the endpoint a browser page (#2517).
 	ResponseMode string   `json:"response_mode,omitempty"`
 	PageCDNs     []string `json:"page_cdns,omitempty"`
+	// PageFrameOrigins, PageConnectOrigins and PageFormOrigins are a page's
+	// frame, connect and form origins (#2554), and IPRateLimit one client
+	// address's requests a minute (#2556).
+	PageFrameOrigins   []string `json:"page_frame_origins,omitempty"`
+	PageConnectOrigins []string `json:"page_connect_origins,omitempty"`
+	PageFormOrigins    []string `json:"page_form_origins,omitempty"`
+	IPRateLimit        int      `json:"ip_rate_limit,omitempty"`
 	// FormConnection is the connection a form's submissions table is on.
 	FormConnection string `json:"form_connection,omitempty"`
 }

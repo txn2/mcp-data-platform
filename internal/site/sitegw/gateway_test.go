@@ -840,3 +840,42 @@ func TestResolve(t *testing.T) {
 		})
 	}
 }
+
+// A rewrite (status 200) answers a single-page application's routes with its
+// index in place (#2558): the address stays, a file the release holds still
+// answers itself, a rule may name another file by its splat, and a rewrite to
+// a file the release lacks is the release's 404 page, never a redirect.
+func TestServeSite_ARewriteAnswersInPlace(t *testing.T) {
+	h := newHarness(Deps{})
+	h.mapHost(h.addRelease(1, []site.Redirect{
+		{From: "/docs/*", To: "/docs/:splat.html?ignored=1", Status: http.StatusOK},
+		{From: "/gone/*", To: "/nothing.html", Status: http.StatusOK},
+		{From: "/*", To: "/index.html", Status: http.StatusOK},
+	},
+		testFile{path: indexFile, body: "spa shell", contentType: ctHTML},
+		testFile{path: "robots.txt", body: "User-agent: *", contentType: "text/plain"},
+		testFile{path: "docs/intro.html", body: "intro page", contentType: ctHTML},
+		testFile{path: notFound, body: "custom missing", contentType: ctHTML},
+	))
+
+	route := h.get(testSiteHost, "/products/tee?ref=ad")
+	assert.Equal(t, http.StatusOK, route.Code)
+	assert.Equal(t, "spa shell", route.Body.String())
+	assert.Empty(t, route.Header().Get(headerLoc), "a rewrite is not a redirect")
+
+	assert.Equal(t, "User-agent: *", h.get(testSiteHost, "/robots.txt").Body.String(), "a file the release holds answers itself")
+	assert.Equal(t, "intro page", h.get(testSiteHost, "/docs/intro").Body.String(), "a rewrite names another file by its splat")
+
+	missing := h.get(testSiteHost, "/gone/anything")
+	assert.Equal(t, http.StatusNotFound, missing.Code)
+	assert.Equal(t, "custom missing", missing.Body.String())
+}
+
+func TestServeSite_ARewriteToAMissingFileWithNoNotFoundPageIsPlain(t *testing.T) {
+	h := newHarness(Deps{})
+	h.mapHost(h.addRelease(1, []site.Redirect{{From: "/*", To: "/app.html", Status: http.StatusOK}},
+		testFile{path: indexFile, body: "home", contentType: ctHTML}))
+	rec := h.get(testSiteHost, "/route")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, "not found\n", rec.Body.String())
+}

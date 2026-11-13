@@ -79,6 +79,14 @@ type Input struct {
 	// ResponseMode and PageCDNs make the endpoint a browser page (#2517).
 	ResponseMode string   `json:"response_mode,omitempty"`
 	PageCDNs     []string `json:"page_cdns,omitempty"`
+	// PageFrameOrigins, PageConnectOrigins and PageFormOrigins are what a
+	// page may frame, call and post to besides its own origin (#2554).
+	PageFrameOrigins   []string `json:"page_frame_origins,omitempty"`
+	PageConnectOrigins []string `json:"page_connect_origins,omitempty"`
+	PageFormOrigins    []string `json:"page_form_origins,omitempty"`
+	// IPRateLimit is one client address's requests a minute (#2556); nil
+	// keeps it, 0 removes it.
+	IPRateLimit *int `json:"ip_rate_limit,omitempty"`
 	// Connection and DecryptPersonas are a form's (#2178, #2179): the Trino
 	// connection its source's table is created on, and the personas a script
 	// run may decrypt its sensitive fields as (nil keeps them).
@@ -132,10 +140,20 @@ type Handler struct {
 	PageAllowed func(ctx context.Context, scriptID string) error
 	// PageAddress is where a script's page answers, "" when it has none.
 	PageAddress func(ctx context.Context, scriptID string) string
+	// NoTrustedProxies is true when the deployment trusts no proxy for a
+	// client's address (server.trusted_proxies), which a binding setting
+	// ip_rate_limit is warned of (#2556).
+	NoTrustedProxies bool
 
 	// forms makes a form's webhook source (SetForms); nil makes none.
 	forms atomic.Pointer[FormSources]
 }
+
+// NoTrustedProxiesWarning is what a binding with an ip_rate_limit is told on
+// a deployment that trusts no proxy for a client's address (#2556).
+const NoTrustedProxiesWarning = "This deployment trusts no proxy for a visitor's address (server.trusted_proxies is empty). " +
+	"Behind a load balancer or an ingress, every visitor then shares one address and one per-address limit. " +
+	"An administrator sets server.trusted_proxies to the ingress's address range."
 
 // Approvals is the part of the Approvals queue (internal/approval) a binding
 // reads: the version approved for form_public, and an administrator's
@@ -207,6 +225,8 @@ func (h *Handler) set(ctx context.Context, req Request) (map[string]any, error) 
 		TimeoutSeconds: req.TimeoutSeconds, MaxMemoryBytes: in.MaxMemoryBytes, MaxBodyBytes: in.MaxBodyBytes,
 		AllowedOrigins: in.AllowedOrigins, RateLimit: in.RateLimit, CallerRateLimit: in.CallerRateLimit,
 		Actor: req.Actor, ResponseMode: in.ResponseMode, PageCDNs: in.PageCDNs,
+		PageFrameOrigins: in.PageFrameOrigins, PageConnectOrigins: in.PageConnectOrigins, PageFormOrigins: in.PageFormOrigins,
+		IPRateLimit: in.IPRateLimit,
 	}, time.Now())
 	if err != nil {
 		return nil, err //nolint:wrapcheck // the binding's own refusal is what the caller reads
@@ -233,6 +253,9 @@ func (h *Handler) set(ctx context.Context, req Request) (map[string]any, error) 
 	}
 	out := h.fields(sc.Name, b)
 	out["message"] = fmt.Sprintf("%s now answers %s at %s.", sc.Name, strings.Join(b.Methods, ", "), out["url"])
+	if b.IPRateLimit > 0 && h.NoTrustedProxies {
+		out["warning"] = NoTrustedProxiesWarning
+	}
 	if err := h.formSource(ctx, req, b, out); err != nil {
 		return nil, err
 	}
@@ -409,6 +432,8 @@ func (h *Handler) fields(scriptName string, b *epbinding.Binding) map[string]any
 		"max_body_bytes": b.MaxBodyBytes, "allowed_origins": b.AllowedOrigins,
 		"rate_limit": b.RateLimit, "caller_rate_limit": b.CallerRateLimit,
 		"response_mode": b.ResponseMode, "page_cdns": b.PageCDNs,
+		"page_frame_origins": b.PageFrameOrigins, "page_connect_origins": b.PageConnectOrigins,
+		"page_form_origins": b.PageFormOrigins, "ip_rate_limit": b.IPRateLimit,
 		"updated_by": b.UpdatedBy, "updated_at": b.UpdatedAt,
 	}
 }

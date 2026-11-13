@@ -5,7 +5,9 @@ application database, its API and pages as endpoints and forms, its side
 effects as events, its user interface as portal assets, and its upkeep as
 scheduled scripts. `manage_application` names all of it as one record and
 releases it as a pinned set. This page builds one end to end, a small shop,
-with platform tools alone.
+with platform tools alone. Its customers are platform users; a shop for the
+public, whose visitors have no account, is
+mcp:knowledge_page:platform-public-applications.
 
 ```mermaid
 flowchart LR

@@ -226,3 +226,20 @@ func TestNotPublished_SaysNothingAboutTheSite(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, head.Code)
 	assert.Empty(t, head.Body.String())
 }
+
+// A site calling its application's endpoints keeps the application's cookies
+// (#2555): the same prefix as the application's own address, and a write that
+// does not prove it came from the site's own address is handed on with its
+// cookies withheld.
+func TestSiteEndpoint_HandsTheEndpointTheApplicationsCookieRule(t *testing.T) {
+	sr := newSiteRoutes(t)
+	sr.call(publicEnvHost, "/endpoints/cart", http.Header{"Sec-Fetch-Site": {"same-origin"}})
+	require.Len(t, sr.server.routes, 1)
+	route := sr.server.routes[0]
+	assert.Equal(t, eprun.CookiePrefixPlain, route.CookiePrefix, "the harness serves plain http")
+	assert.False(t, route.CookiesWithheld, "a write from the site's own address carries its cookies")
+
+	sr.call(publicEnvHost, "/endpoints/cart", http.Header{"Origin": {"https://elsewhere.example"}})
+	require.Len(t, sr.server.routes, 2)
+	assert.True(t, sr.server.routes[1].CookiesWithheld, "a cross-origin write carries none")
+}

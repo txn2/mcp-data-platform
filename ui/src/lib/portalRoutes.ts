@@ -18,6 +18,22 @@ import { SETTINGS_SECTIONS } from "@/pages/settings/settingsSections";
 /** ADMIN_PREFIX is the segment that makes a route the administrator's. */
 const ADMIN_PREFIX = "/admin";
 
+/** SITE_TABS are a site's tabs (#2559, #2590), in the order its page shows them. */
+export const SITE_TABS = ["environments", "files", "media", "releases", "access", "domains", "history"] as const;
+
+/**
+ * SITE_ROUTES are the Sites section's detail addresses: a site with one of its
+ * tabs, one release, and one of dev's files opened to edit or to create
+ * (#2590). The section matches with these same patterns (SiteRoutes), so every
+ * page it renders is one the shell knows, and a tab it has no page for is not
+ * found rather than shown as Environments (#2622).
+ */
+export const SITE_ROUTES = {
+  site: new RegExp(`^/sites/([^/]+)(?:/(${SITE_TABS.join("|")}))?$`),
+  release: /^\/sites\/([^/]+)\/releases\/(\d+)$/,
+  file: /^\/sites\/([^/]+)\/(file|newfile)\/(.+)$/,
+} as const;
+
 // KNOWN_ROUTES are the paths the shell renders a page for exactly. A section
 // with a detail view lists its index here and its detail pattern below.
 const KNOWN_ROUTES: readonly string[] = [
@@ -74,9 +90,8 @@ const KNOWN_ROUTES: readonly string[] = [
 // a page that loads and reports "no such record" is a better answer to a
 // mistyped id than a not-found page that never asked.
 const KNOWN_PATTERNS: readonly RegExp[] = [
-  // A site, one of its tabs, and one release (#2559).
-  /^\/sites\/[^/]+(\/(environments|releases|access|domains|history))?$/,
-  /^\/sites\/[^/]+\/releases\/\d+$/,
+  // A site, one of its tabs, one release and one file (#2559, #2622).
+  ...Object.values(SITE_ROUTES),
   /^\/assets\/.+$/,
   /^\/shared\/assets\/.+$/,
   /^\/activity\/sessions\/.+$/,

@@ -56,7 +56,10 @@ list. Three forms go in it, and they are not interchangeable:
   the page the asset is opened at, and stores each accepted submission in the
   form's webhook source. Anyone may embed a public or bot_check form; an
   authenticated one only its owner or an administrator. One asset may embed
-  several.
+  several. Whoever may edit an asset that embeds an authenticated form, or
+  calls an authenticated endpoint, decides what its script sends as each
+  reader: give edit access to it as you would to that form's or endpoint's
+  developer.
 
 The list is the whole declaration. Omitting it leaves the asset's references
 alone, sending a list replaces them, and sending an empty list removes them

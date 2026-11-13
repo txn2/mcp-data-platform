@@ -31,8 +31,11 @@ const (
 	ReasonBotCheck        = "bot_check"
 	ReasonRateLimit       = "rate_limit"
 	ReasonCallerRateLimit = "caller_rate_limit"
-	ReasonBodyLimit       = "body_limit"
-	ReasonCredential      = "credential"
+	// ReasonIPRateLimit is a client address over the endpoint's per-address
+	// limit (#2556).
+	ReasonIPRateLimit = "ip_rate_limit"
+	ReasonBodyLimit   = "body_limit"
+	ReasonCredential  = "credential"
 	// ReasonCaller is an authenticated caller the endpoint's callers list
 	// does not name (#2259).
 	ReasonCaller = "caller"
@@ -43,7 +46,7 @@ const (
 // constraint names the same set, and a count under a reason it does not name
 // fails the whole batch it was added in, so a new reason goes into both.
 var Reasons = []string{
-	ReasonBotCheck, ReasonRateLimit, ReasonCallerRateLimit, ReasonBodyLimit, ReasonCredential, ReasonCaller, ReasonOrigin,
+	ReasonBotCheck, ReasonRateLimit, ReasonCallerRateLimit, ReasonIPRateLimit, ReasonBodyLimit, ReasonCredential, ReasonCaller, ReasonOrigin,
 }
 
 // Retention is how long the counts are kept.

@@ -36679,6 +36679,9 @@ const docTemplate = `{
                     "description": "FormConnection is the connection a form's submissions table is on.",
                     "type": "string"
                 },
+                "ip_rate_limit": {
+                    "type": "integer"
+                },
                 "max_body_bytes": {
                     "type": "integer"
                 },
@@ -36695,6 +36698,25 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "page_cdns": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "page_connect_origins": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "page_form_origins": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "page_frame_origins": {
+                    "description": "PageFrameOrigins, PageConnectOrigins and PageFormOrigins are a page's\nframe, connect and form origins (#2554), and IPRateLimit one client\naddress's requests a minute (#2556).",
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -39549,6 +39571,10 @@ const docTemplate = `{
                 "endpoint": {
                     "type": "string"
                 },
+                "ip_rate_limit": {
+                    "description": "IPRateLimit is one client address's requests a minute (#2556); nil\nkeeps it, 0 removes it.",
+                    "type": "integer"
+                },
                 "max_body_bytes": {
                     "type": "integer"
                 },
@@ -39562,6 +39588,25 @@ const docTemplate = `{
                     }
                 },
                 "page_cdns": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "page_connect_origins": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "page_form_origins": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "page_frame_origins": {
+                    "description": "PageFrameOrigins, PageConnectOrigins and PageFormOrigins are what a\npage may frame, call and post to besides its own origin (#2554).",
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -51715,6 +51760,13 @@ const docTemplate = `{
                     "description": "Message states the outcome in the owner's terms.",
                     "type": "string",
                     "example": "Saved, and this version is what runs now."
+                },
+                "shared_code": {
+                    "description": "SharedCode is each function of the saved source a library or another\nscript already defines (#2273), never a refusal; empty when none.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scriptshare.Match"
+                    }
                 }
             }
         },
@@ -51923,6 +51975,39 @@ const docTemplate = `{
                 "tool": {
                     "description": "Tool is the tool name the script passed.",
                     "type": "string"
+                }
+            }
+        },
+        "scriptshare.Match": {
+            "type": "object",
+            "properties": {
+                "function": {
+                    "description": "Function is the function's name in the saved source.",
+                    "type": "string"
+                },
+                "library": {
+                    "description": "Library, Version and LibraryFunction name the library holding the same\nfunction and its name there, and Load is the line that replaces the copy.",
+                    "type": "string"
+                },
+                "library_function": {
+                    "type": "string"
+                },
+                "load": {
+                    "type": "string"
+                },
+                "next": {
+                    "description": "Next is what to do about it.",
+                    "type": "string"
+                },
+                "scripts": {
+                    "description": "Scripts are the other scripts that define it, when no library does.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "version": {
+                    "type": "integer"
                 }
             }
         },

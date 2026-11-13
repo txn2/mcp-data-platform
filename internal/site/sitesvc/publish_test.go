@@ -148,7 +148,7 @@ func TestPublish_Refusals(t *testing.T) {
 		{"no files", nil, "holds no files"},
 		{"only junk", []InputFile{page(".DS_Store")}, "holds no files"},
 		{"only a redirect map", []InputFile{{Path: "_redirects", Body: []byte("/a /b\n")}}, "holds no files"},
-		{"a bad redirect map", []InputFile{page("a.html"), {Path: "_redirects", Body: []byte("/a /b 200\n")}}, "line 1"},
+		{"a bad redirect map", []InputFile{page("a.html"), {Path: "_redirects", Body: []byte("/a /b 404\n")}}, "line 1"},
 		{"a header a release cannot set", []InputFile{page("a.html"), {Path: "_headers", Body: []byte("/*\n  Set-Cookie: s=1\n")}}, "the _headers file, line 2: a release cannot set Set-Cookie"},
 		{"a header value with a control character", []InputFile{page("a.html"), {Path: "_headers", Body: []byte("/*\n  X-Frame-Options: DENY\x00\n")}}, "the _headers file, line 2: the value of X-Frame-Options holds a control character"},
 	}

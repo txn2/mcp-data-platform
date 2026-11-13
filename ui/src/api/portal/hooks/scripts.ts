@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { LibraryUse, ScriptVersion } from "@/api/admin/types";
 import { ApiError, apiFetch } from "../client";
+import type { SharedFunction } from "./sharedCode";
 import { scriptsKey } from "./scriptKeys";
 import { RUN_POLL_MS, hasRunInFlight } from "./scriptRuns";
 
@@ -434,17 +435,16 @@ export function useScriptContract(scriptID: string | null) {
   });
 }
 
-// ScriptSourceOutcome is the saved edit: the live script now carries this
-// source, and it is the version a run executes.
+// ScriptSourceOutcome is the saved edit, the version a run executes, and what it shares.
 export interface ScriptSourceOutcome {
   applied: boolean;
   message: string;
+  shared_code?: SharedFunction[]; // each saved function that exists elsewhere (#2273)
 }
 
-// ScriptSourceSave is one save of a script's code. change_summary and
-// user_agreed carry a change in what the automation does (#1942): a save whose
-// replay of the script's recent runs, or whose reach, differs from the saved
-// version is refused with 409 and the differences until it carries both.
+// ScriptSourceSave is one save of a script's code. change_summary and user_agreed carry a
+// change in what the automation does (#1942): a save whose replay of the recent runs, or
+// whose reach, differs from the saved version is refused with 409 until it carries both.
 export interface ScriptSourceSave {
   source: string;
   change_summary?: string;

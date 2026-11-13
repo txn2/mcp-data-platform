@@ -310,6 +310,7 @@ internal/endpoint/eppreview -> internal/wirejson
 internal/endpoint/eppreview -> pkg/script
 internal/endpoint/eprefusal -> internal/bgloop
 internal/endpoint/eprefusal -> internal/logsan
+internal/endpoint/eprun -> internal/auditredact
 internal/endpoint/eprun -> internal/endpoint/epbinding
 internal/endpoint/eprun -> internal/endpoint/epcollect
 internal/endpoint/eprun -> internal/endpoint/epform
@@ -619,9 +620,11 @@ internal/httpserver/endpointwire -> internal/endpoint/eppreview
 internal/httpserver/endpointwire -> internal/endpoint/eprun
 internal/httpserver/endpointwire -> internal/endpoint/epwire
 internal/httpserver/endpointwire -> internal/httpserver/savegatewire
+internal/httpserver/endpointwire -> internal/logsan
 internal/httpserver/endpointwire -> internal/platform/scriptstore
 internal/httpserver/endpointwire -> pkg/platform
 internal/httpserver/endpointwire -> pkg/portal
+internal/httpserver/endpointwire -> pkg/ratelimit
 internal/httpserver/exportwire -> internal/httpserver/pdfhttp
 internal/httpserver/exportwire -> internal/httpserver/standalonehttp
 internal/httpserver/exportwire -> pkg/platform
@@ -778,6 +781,7 @@ internal/httpserver/scripthttp -> internal/platform/scriptlib
 internal/httpserver/scripthttp -> internal/platform/scriptlint
 internal/httpserver/scripthttp -> internal/platform/scriptrun
 internal/httpserver/scripthttp -> internal/platform/scriptsave
+internal/httpserver/scripthttp -> internal/platform/scriptshare
 internal/httpserver/scripthttp -> internal/platform/scripttest
 internal/httpserver/scripthttp -> internal/producedview
 internal/httpserver/scripthttp -> internal/runstate
@@ -1513,6 +1517,7 @@ internal/platform/scriptexec -> pkg/toolkit
 internal/platform/scriptfail -> internal/platform/scriptguard
 internal/platform/scriptfail -> internal/platform/scriptsession
 internal/platform/scriptflow -> internal/platform/scriptdialect
+internal/platform/scriptflow -> internal/platform/scriptflow/stmtlookup
 internal/platform/scriptflow -> internal/platform/scriptlib
 internal/platform/scriptflow -> internal/platform/scriptrun
 internal/platform/scriptflow -> internal/scriptconst
@@ -1556,6 +1561,7 @@ internal/platform/scriptlayer -> internal/platform/scriptrec/recstore
 internal/platform/scriptlayer -> internal/platform/scriptres
 internal/platform/scriptlayer -> internal/platform/scriptrun
 internal/platform/scriptlayer -> internal/platform/scriptsave
+internal/platform/scriptlayer -> internal/platform/scriptshare
 internal/platform/scriptlayer -> internal/platform/scriptshow
 internal/platform/scriptlayer -> internal/platform/scriptsrc
 internal/platform/scriptlayer -> internal/platform/scriptstmt
@@ -1646,12 +1652,14 @@ internal/platform/scriptrun -> internal/toolwrite
 internal/platform/scriptrun -> internal/upstreamretry
 internal/platform/scriptrun -> pkg/script
 internal/platform/scriptsave -> internal/endpoint/epbinding
+internal/platform/scriptsave -> internal/logsan
 internal/platform/scriptsave -> internal/platform/scriptbehavior
 internal/platform/scriptsave -> internal/platform/scriptlib
 internal/platform/scriptsave -> internal/platform/scriptlint
 internal/platform/scriptsave -> internal/platform/scriptrec
 internal/platform/scriptsave -> internal/platform/scriptres
 internal/platform/scriptsave -> internal/platform/scriptrun
+internal/platform/scriptsave -> internal/platform/scriptshare
 internal/platform/scriptsave -> internal/platform/scriptsrc
 internal/platform/scriptsave -> internal/platform/scripttest
 internal/platform/scriptsave -> internal/testreport
@@ -1667,6 +1675,7 @@ internal/platform/scriptsession -> internal/producedby
 internal/platform/scriptsession -> internal/scriptcallsite
 internal/platform/scriptsession -> pkg/middleware
 internal/platform/scriptsession -> pkg/toolkits/postgres
+internal/platform/scriptshare -> internal/platform/scriptdialect
 internal/platform/scriptshow -> internal/wirejson
 internal/platform/scriptshow -> pkg/toolkit
 internal/platform/scriptsql -> internal/platform/starlarkconv
@@ -1679,6 +1688,7 @@ internal/platform/scriptstore -> internal/openrun
 internal/platform/scriptstore -> internal/platform/scriptindex
 internal/platform/scriptstore -> internal/platform/scriptlib
 internal/platform/scriptstore -> internal/platform/scriptrun
+internal/platform/scriptstore -> internal/platform/scriptshare
 internal/platform/scriptstore -> internal/runstate
 internal/platform/scriptstore -> internal/testreport
 internal/platform/scriptstore -> pkg/indexjobs
@@ -1996,6 +2006,7 @@ internal/producedview -> pkg/resource
 internal/producedview -> pkg/script
 internal/scriptdate -> pkg/script
 internal/scriptdest -> pkg/script
+internal/scripttoken -> internal/jsonwalk
 internal/scripttoken -> internal/platform/starlarkconv
 internal/scriptxml -> internal/xmltree
 internal/secretstore -> internal/secretref
@@ -2339,7 +2350,9 @@ pkg/knowledge/federation -> pkg/toolkits/graphql
 pkg/memory -> internal/bgloop
 pkg/memory -> pkg/catalog
 pkg/memory -> pkg/semantic
+pkg/middleware -> internal/auditredact
 pkg/middleware -> internal/bgloop
+pkg/middleware -> internal/jsonwalk
 pkg/middleware -> internal/logsan
 pkg/middleware -> internal/mcpobs
 pkg/middleware -> internal/mcptask
@@ -2516,6 +2529,7 @@ pkg/platform -> pkg/prompt
 pkg/platform -> pkg/prompt/attachserve
 pkg/platform -> pkg/query
 pkg/platform -> pkg/query/trino
+pkg/platform -> pkg/ratelimit
 pkg/platform -> pkg/registry
 pkg/platform -> pkg/resource
 pkg/platform -> pkg/script

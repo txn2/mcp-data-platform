@@ -25,6 +25,7 @@ func Gate(p *platform.Platform) *scriptsave.Gate {
 		MaxMemoryBytes: p.Config().Scripts.Worker.ProcessRunMemoryBudget(),
 		Contracts:      toolanswer.Live{Kits: p.ToolkitRegistry(), Extra: notifylayer.AnswerContracts()},
 		Libraries:      scriptstore.New(p.DB()),
+		Shared:         scriptstore.New(p.DB()),
 		Resources:      scriptsrc.New(p.ResourceStore(), p.ResourceS3Client(), p.Config().Resources.Managed.S3Bucket, p.Config().Resources.Managed.URIScheme),
 		CannotServe:    scriptsave.PassthroughConnections{Kits: p.ToolkitRegistry()}.CannotServe,
 	}

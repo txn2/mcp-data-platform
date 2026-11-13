@@ -2,6 +2,8 @@ package scriptdraft
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -350,6 +352,57 @@ func TestRun_TokensAreBoundToTheScriptUnderTheDrafter(t *testing.T) {
 
 	var none *Runner
 	assert.Nil(t, none.WithTokens(issuer))
+}
+
+// A token a draft mints and hands on to another call is kept out of the
+// recording everywhere (#2558): in the call's arguments and in its answer,
+// as in the mint's answer and the verify's argument (#2361).
+func TestRun_ARecordingHoldsNoTokenTheDraftHandedOn(t *testing.T) {
+	var sent string
+	s := server(t)
+	mcp.AddTool(s, &mcp.Tool{Name: "echo", Description: "says the text back", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}},
+		func(_ context.Context, _ *mcp.CallToolRequest, in struct {
+			Text string `json:"text"`
+		},
+		) (*mcp.CallToolResult, any, error) {
+			sent = in.Text
+			return nil, map[string]any{"said": in.Text}, nil
+		})
+	issuer := &scripttoken.Issuer{
+		Keys:      func(context.Context, string, string, bool) (string, error) { return "k", nil },
+		Authority: func(roles []string) (string, bool) { return strings.Join(roles, "+"), false },
+	}
+	src := `def main():
+    """Mails a link carrying a token, then checks the token."""
+    tok = platform.mint_token({"n": 1}, 60, secret = "s")
+    platform.call("echo", {"text": "Open https://x/signin/" + tok + " soon"})
+    print(platform.verify_token(tok, secret = "s")["ok"])
+`
+	st := &recordings{}
+	outcome, err := New(s, nil).WithTokens(issuer).WithRecordings(st).Run(context.Background(), Request{
+		Source: src, Name: "tok", Script: &script.Script{ID: "s1", Name: "tok"}, Identity: jane,
+	})
+	require.NoError(t, err)
+	require.False(t, outcome.Failed(), "%v", outcome.Err)
+	require.Len(t, st.saved, 1)
+	token := strings.TrimSuffix(strings.TrimPrefix(sent, "Open https://x/signin/"), " soon")
+	require.NotEmpty(t, token)
+	require.NotEqual(t, sent, token)
+
+	rec, err := scriptrec.Decode(st.saved[0].Data)
+	require.NoError(t, err)
+	raw, err := json.Marshal(rec)
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), token, "the recording holds the token the draft handed on")
+	var echoed *scriptrec.Call
+	for i := range rec.Calls {
+		if rec.Calls[i].Tool == "echo" {
+			echoed = &rec.Calls[i]
+		}
+	}
+	require.NotNil(t, echoed)
+	assert.Equal(t, "Open https://x/signin/"+scripttoken.RecordedToken+" soon", echoed.Args["text"])
+	assert.Contains(t, fmt.Sprint(echoed.Out), scripttoken.RecordedToken)
 }
 
 // TestRun_CallsAHandlerInPlaceOfMain is a form's preview (#2494): the draft

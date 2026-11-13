@@ -415,9 +415,37 @@ func (d *Declarer) readable(ctx context.Context, uri string, author Author) (Dec
 	if endpoint, ok := ParseFormURI(uri); ok {
 		return d.embeddableForm(ctx, uri, endpoint, author)
 	}
+	if endpoint, ok := ParseEndpointURI(uri); ok {
+		return d.callableEndpoint(ctx, uri, endpoint, author)
+	}
 	return Declared{}, fmt.Errorf(
-		"cannot reference %q: a reference names a managed resource by its %s:// URI, "+
-			"an asset by its mcp:asset:<id> reference or a form by mcp:form:<endpoint>: %w", uri, d.resourceScheme(), ErrRefused)
+		"cannot reference %q: a reference names a managed resource by its %s:// URI, an asset by its mcp:asset:<id> "+
+			"reference, a form by mcp:form:<endpoint> or an endpoint by mcp:endpoint:<name>: %w", uri, d.resourceScheme(), ErrRefused)
+}
+
+// callableEndpoint resolves an mcp:endpoint:<name> reference to the endpoint
+// it names (#2457), under the rule an embedded form has: a public or
+// bot_check endpoint may be called from anyone's asset, since anyone may call
+// it already, and an authenticated one only from an asset its script's owner
+// or an administrator declares, because the asset is served to each signed-in
+// reader with a viewer token that calls it as them, and the asset's own script
+// can read that token.
+func (d *Declarer) callableEndpoint(ctx context.Context, uri, endpoint string, author Author) (Declared, error) {
+	if d.forms == nil {
+		return Declared{}, fmt.Errorf("cannot reference %q: this deployment has no endpoints: %w", uri, ErrRefused)
+	}
+	f, err := d.forms.Form(ctx, endpoint)
+	if errors.Is(err, ErrNoForm) {
+		return Declared{}, fmt.Errorf("no endpoint answers at %q: %w", uri, ErrRefused)
+	}
+	if err != nil {
+		return Declared{}, fmt.Errorf("resolving endpoint reference %q: %w", uri, err)
+	}
+	if f.Authenticated && !author.Claims.IsAdmin && !strings.EqualFold(author.Claims.Email, f.OwnerEmail) {
+		return Declared{}, fmt.Errorf("the endpoint at %q answers signed-in callers, and only its owner or an administrator "+
+			"may call it from an asset: %w", uri, ErrRefused)
+	}
+	return Declared{Kind: TargetEndpoint, TargetID: endpoint, URI: uri}, nil
 }
 
 // embeddableForm resolves an mcp:form:<endpoint> reference to the form it

@@ -250,7 +250,21 @@ func (p *Pages) endpoint(w http.ResponseWriter, r *http.Request, a *application.
 		Application: a.ID, Name: name, Rest: rest, Nonce: base64.RawStdEncoding.EncodeToString(raw[:]),
 		Caller: func(req *http.Request) (*eprun.Caller, error) { return p.caller(req, a.Name) },
 		SignIn: func(rw http.ResponseWriter, req *http.Request) { p.signIn(rw, req, a.Name) },
+		// The application's own cookies (#2555), withheld from a request that
+		// changes something and does not prove it came from this origin:
+		// sibling page origins are one site, so SameSite cannot tell them apart.
+		CookiePrefix: p.cookiePrefix(), Secure: p.Secure,
+		CookiesWithheld: r.Method != http.MethodGet && r.Method != http.MethodHead && !sameOrigin(r),
 	})
+}
+
+// cookiePrefix is what an application's cookies are written under on its
+// origins: __Host- over https, which no sibling origin can set.
+func (p *Pages) cookiePrefix() string {
+	if p.Secure {
+		return eprun.CookiePrefixSecure
+	}
+	return eprun.CookiePrefixPlain
 }
 
 // caller is who the origin's cookie names, nil for nobody. A request that
@@ -517,6 +531,12 @@ func (p *Pages) siteEndpoint(w http.ResponseWriter, r *http.Request, appName str
 		SignIn: func(rw http.ResponseWriter, _ *http.Request) {
 			httpjson.WriteError(rw, http.StatusUnauthorized, "this endpoint needs a signed-in person, and this site is public; make the environment private to sign people in")
 		},
+		// The application's own cookies (#2555) on the site's address too, so a
+		// site calling its application's JSON endpoints keeps a session: the
+		// same prefix and the same refusal of a cross-origin write as on the
+		// application's page origin.
+		CookiePrefix: p.cookiePrefix(), Secure: p.Secure,
+		CookiesWithheld: r.Method != http.MethodGet && r.Method != http.MethodHead && !sameOrigin(r),
 	})
 }
 

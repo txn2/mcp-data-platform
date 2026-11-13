@@ -22,17 +22,28 @@ must be a part of an application, and the deployment needs `sites.pages_domain`.
 
 ```
 manage_script command=endpoint_set endpoint=shop response_mode=page
-  methods=["GET"] path="/" auth_mode=public page_cdns=["https://cdn.jsdelivr.net"]
+  methods=["GET"] path="/{route...}" auth_mode=public page_cdns=["https://cdn.jsdelivr.net"]
 ```
 
 The application answers at `https://<application>.<pages_domain>/`:
 
 | Path | What answers |
 |---|---|
-| `/` and paths under it | the page endpoint named after the application |
+| `/` | the page endpoint named after the application |
+| any other path | that endpoint too, when its path ends in a catch-all `{route...}`; otherwise 404 |
 | `/endpoints/<name>/...` | any endpoint of this application |
 | `/_static/<asset name>` | an asset part, at the version the release pins |
 | `/_viewer` | who is signed in on this origin, as JSON |
+
+A path template's last segment may be a catch-all, `{name...}`: it matches the
+rest of the path at any depth, including none, and the handler reads it as
+`req["params"]["name"]`, with no leading slash (`/products/shoe` is
+`"products/shoe"`, `/` is `""`). The handler routes it and chooses each status,
+so `robots.txt` can answer `text/plain` and an unknown path its own 404 page. A
+segment that is empty, `.` or `..`, or holds a backslash or a control character,
+matches nothing, so `route` is always a clean relative path. Only the last
+segment may be a catch-all. `/endpoints/`, `/_static/`, `/_viewer` and `/_auth`
+keep their meaning whatever the root endpoint catches.
 
 A page's content policy allows its own origin and the listed CDNs. An inline
 script runs only with this response's nonce, which the handler reads as
@@ -47,10 +58,70 @@ def handle(req):
 
 A script with no nonce does not run, and the browser's console says so. Move it
 to an asset and load it from `/_static/app.js`, or give it the nonce. Inline
-style is allowed. Requests go only to the page's own origin (`connect-src
-'self'`), so a page calls its application's endpoints at `/endpoints/<name>`.
+style is allowed. Requests go to the page's own origin (`connect-src 'self'`),
+so a page calls its application's endpoints at `/endpoints/<name>`.
 
-The same endpoint on the portal's own origin stays sandboxed and runs nothing.
+Three more lists open the policy for a page that needs another site, such as a
+payment processor's hosted card fields. Each takes https origins with no path,
+at most 20, and one leading `*.` label with two labels after it
+(`https://*.js.stripe.com`, never `https://*` or `https://*.com`); `page_cdns`
+takes the same shapes:
+
+| Field | Adds to | For |
+|---|---|---|
+| `page_frame_origins` | `frame-src` | a site the page shows in a frame (`https://js.stripe.com`) |
+| `page_connect_origins` | `connect-src 'self'` | a site the page's script calls (`https://api.stripe.com`) |
+| `page_form_origins` | `form-action 'self'` | a site a form posts to, or is redirected to after a post |
+
+A page that sets none answers the policy it always did. The same endpoint on
+the portal's own origin stays sandboxed and runs nothing.
+
+### Application cookies
+
+A handler on the application's own address reads its cookies as
+`req["cookies"]` and sets them by returning `"cookies"`:
+
+```python
+def handle(req):
+    """Remembers the visitor's theme."""
+    chosen = req["query"].get("theme")
+    theme = chosen if chosen in ("light", "dark") else req["cookies"].get("theme", "light")
+    return {"json": {"theme": theme}, "cookies": [{"name": "theme", "value": theme, "max_age": 31536000}]}
+```
+
+Each is written as `__Host-app-<name>` over https (`app-<name>` over http),
+`HttpOnly`, `Path=/`, `Secure` over https and with no `Domain`, so the platform's
+own cookies are never among them. `same_site` is `Lax` by default or `Strict`,
+never `None`. `max_age` is seconds, at most 400 days; `0` deletes the cookie and
+leaving it out makes a session cookie. A name is 1 to 32 letters, digits, `_`
+and `-`; a value is at most 1024 bytes with no spaces, quotes, commas,
+semicolons or backslashes (encode JSON as base64); a response sets at most 10
+and a request carries at most 20, the first in name order. A response that sets
+a cookie is `Cache-Control: private`.
+
+The same cookies reach the application's endpoints when a site environment
+that is a part of the application calls them at `/endpoints/<name>` on the
+site's own address, so a static site or a single-page application calling its
+application's JSON endpoints keeps a session too (#2558).
+
+A request other than GET or HEAD reaches the handler with no cookies unless the
+browser says it came from this origin, so a form on another site cannot act
+with a visitor's session. It is not refused: a payment processor's server calls
+the same endpoint. On the portal's own address a handler reads and sets none.
+A cookie value never reaches an audit row (the request's own, and each platform
+call the handler makes with it is written with `[REDACTED:cookie]`) or a kept
+failure. A value minted during a request, before it is a cookie, is written as
+any argument is.
+
+### The client's address
+
+`req["client_ip"]` is the address the request came from, and `ip_rate_limit`
+limits each address to that many requests a minute on each replica; an IPv6
+client is counted by its /64. Behind a load balancer or an ingress the address
+is right only when `server.trusted_proxies` names the proxy's range: the
+platform reads `X-Forwarded-For` from a trusted proxy alone, so a forged header
+moves nothing. `endpoint_set` warns when the limit is set and no proxy is
+trusted. The address is not written to an audit row or a log.
 
 ### Who is viewing
 
@@ -308,7 +379,7 @@ manage_site command=promote site=cool-site to=prod
 
 | File | Meaning |
 |---|---|
-| `_redirects` | The redirect map, not served: `from to [status]`, with `/old/*` and `:splat` |
+| `_redirects` | The redirect map, not served: `from to [status]`, with `/old/*` and `:splat`. Status 200 is a rewrite: the path is answered in place, with status 200, by the file of this site the target names, which is how a single-page application answers its routes (`/* /index.html 200`); a file the release holds still answers itself, and a rewrite to a file the release lacks is the 404 page |
 | `_headers` | The headers each path is served with, not served: a path line (`/*`), then indented `Name: value` lines. Only `Content-Security-Policy`, `Content-Security-Policy-Report-Only`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`, `Cross-Origin-Embedder-Policy`, `Cross-Origin-Resource-Policy` and `X-Frame-Options`; anything else refuses the publish naming the line. A release declaring no framing rule is served with `frame-ancestors 'self'` |
 | `404.html` | Served with status 404 for a path nothing answers |
 | `index.html` in a folder | The folder's address |

@@ -85,16 +85,22 @@ func TestIssue2615_ACTEInTxBatchIsAWrite(t *testing.T) {
 }
 
 // TestIssue2615_AStatementChosenWhenItRunsMayBeTheWriter: with the only writer
-// platform.execute of a dict lookup, no finding says the tables are written by
-// no part; each names the script that writes a table chosen when it runs.
+// platform.execute of a statement built when it runs (a dict lookup whose
+// candidate names its table from a parameter), no finding says the tables are
+// written by no part; each names the script that writes a table chosen when it
+// runs. A lookup whose every candidate is a constant is a known write since
+// #2623 (issue_2623_test.go).
 func TestIssue2615_AStatementChosenWhenItRunsMayBeTheWriter(t *testing.T) {
 	admin := connectFor(t, 5*time.Minute)
 	app, schema := shop2615(t, admin, "computed")
-	writer := "STATEMENTS = {\"invoice\": [\"INSERT INTO " + schema + ".inv (d) VALUES (1)\"]}\n\n" +
-		"def main():\n    \"\"\"Runs the statement its kind names.\"\"\"\n" +
-		"    platform.execute(STATEMENTS[run.params[\"kind\"]][0], connection = \"orders\")\n"
-	params := []any{map[string]any{"name": "kind", "type": "string", "required": true, "description": "Which statement to run."}}
-	name := part2539(t, admin, app, "2615-chosen", writer, nil, params)
+	writer := "def main():\n    \"\"\"Runs the statement its kind names, on the table the run names.\"\"\"\n" +
+		"    statements = {\"invoice\": [\"INSERT INTO " + schema + ".\" + run.params[\"table\"] + \" (d) VALUES (1)\"]}\n" +
+		"    platform.execute(statements[run.params[\"kind\"]][0], connection = \"orders\")\n"
+	params := []any{
+		map[string]any{"name": "kind", "type": "string", "required": true, "description": "Which statement to run."},
+		map[string]any{"name": "table", "type": "string", "required": true, "description": "The table it fills."},
+	}
+	name := part2539(t, admin, app, "2615-chosen", writer, map[string]any{"kind": "invoice", "table": "inv"}, params)
 
 	found := findings2615(t, admin, app)
 	if len(found) == 0 {

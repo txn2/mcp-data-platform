@@ -4,7 +4,7 @@
 # ending in / covers everything under it; test files never count as a change.
 #
 # <page file> <path> [<path> ...]
-writing-managed-scripts.md internal/platform/scriptrun/ internal/platform/scriptlayer/ internal/platform/scriptdialect/ internal/platform/scriptlint/ internal/platform/scriptsave/ internal/platform/scriptdraft/ internal/platform/scriptexec/ internal/platform/scriptsql/ pkg/script/
+writing-managed-scripts.md internal/platform/scriptrun/ internal/platform/scriptlayer/ internal/platform/scriptdialect/ internal/platform/scriptlint/ internal/platform/scriptsave/ internal/platform/scriptdraft/ internal/platform/scriptexec/ internal/platform/scriptsql/ pkg/script/ internal/platform/scriptshare/
 managed-script-dialect.md internal/platform/scriptcontract/ internal/platform/scriptdialect/
 reference-script.md internal/platform/scriptexamples/ internal/platform/scripttest/ internal/platform/scriptrec/ internal/platform/scriptbehavior/
 script-outputs-and-export-identity.md internal/platform/scriptout/ internal/scriptdest/ internal/platform/exportlibrary/ internal/platform/tooloutput/
@@ -30,5 +30,6 @@ postgres-queries-and-values.md pkg/toolkits/postgres/values.go internal/pgtext/
 postgres-platform-provides.md pkg/toolkits/postgres/outbox.go pkg/script/schedule.go internal/endpoint/
 postgres-what-does-not-work.md pkg/toolkits/postgres/run.go pkg/toolkits/postgres/pool.go internal/platform/scripttx/
 applications.md internal/application/ internal/platform/scriptexamples/ internal/endpoint/epform/
-pages-and-sites.md internal/site/ internal/endpoint/epbinding/ internal/endpoint/ephttp/
+pages-and-sites.md internal/site/ internal/endpoint/epbinding/ internal/endpoint/ephttp/ internal/endpoint/eprun/cookies.go
+public-applications.md internal/endpoint/eprun/cookies.go internal/endpoint/epbinding/route.go internal/endpoint/epbinding/pageorigins.go internal/endpoint/ephttp/ internal/scripttoken/ internal/site/sitegw/gateway.go
 sites-from-source.md internal/site/sitewire/ internal/site/sitesvc/jobs.go internal/site/sitegw/media.go internal/unarchive/

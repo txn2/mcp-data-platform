@@ -264,8 +264,9 @@ func TestPropertiesCoverTheInput(t *testing.T) {
 		"endpoint", "methods", "path", "auth_mode", "callers", "bot_check", "checked_methods", "max_memory_bytes",
 		"max_body_bytes", "allowed_origins", "rate_limit", "caller_rate_limit", "connection", "decrypt_personas",
 		"preview_version", "response_mode", "page_cdns",
+		"page_frame_origins", "page_connect_origins", "page_form_origins", "ip_rate_limit",
 	} {
 		assert.Contains(t, props, name)
 	}
-	assert.Len(t, props, 17)
+	assert.Len(t, props, 21)
 }

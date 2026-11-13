@@ -107,6 +107,18 @@ func (*world) Delete(context.Context, string) error                            {
 func (*world) RemovePart(context.Context, string, string, string) error        { return nil }
 func (*world) Releases(context.Context, string) ([]application.Release, error) { return nil, nil }
 
+// isPart reports whether script id is a part of any application.
+func (w *world) isPart(id string) bool {
+	for _, a := range w.apps {
+		for _, p := range a.Parts {
+			if p.Kind == application.KindScript && p.ID == id {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (w *world) AddPart(_ context.Context, id string, p application.Part) error {
 	w.apps[id].Parts = append(w.apps[id].Parts, p)
 	return nil
@@ -354,6 +366,11 @@ func bundler(w *world) *Bundler {
 		Scripts: sc, Assets: as, AssetVersions: as, Bucket: "portal", Prefix: "p",
 		Endpoints: func(_ context.Context, req epcmd.Request) (map[string]any, error) {
 			w.endpoints = append(w.endpoints, req)
+			// As the real binding refuses (#2554): a page belongs to an
+			// application, so its script must be a part before it is bound.
+			if req.Input.ResponseMode == epbinding.ResponsePage && !w.isPart(req.Script.ID) {
+				return nil, errors.New("a page belongs to an application, and this script is a part of none")
+			}
 			return map[string]any{}, nil
 		},
 		HasSchemaConnection: func(name string) bool { return name == "orders-prod" },
@@ -395,7 +412,11 @@ func source(t *testing.T) *world {
 		"    key = \"{{secret:stripe-key}}\"\n    return {\"status\": 200}\n"
 	w.scripts[apiID] = &script.Script{ID: apiID, Name: "shop-api", Version: 2, OwnerEmail: "jane@example.com", EventSource: "orders-hook"}
 	w.versions[apiID] = []script.Version{{ScriptID: apiID, Version: 1, Source: src, DisplayName: "Shop API"}, {Version: 2, Source: "def handle(req):\n    return 2\n"}}
-	w.bindings[apiID] = &epbinding.Binding{Name: "shop", Methods: []string{"GET"}, Path: "/", AuthMode: "public", BotCheck: "pow", Enabled: true}
+	w.bindings[apiID] = &epbinding.Binding{
+		Name: "shop", Methods: []string{"GET"}, Path: "/", AuthMode: "public", BotCheck: "pow", Enabled: true,
+		ResponseMode: epbinding.ResponsePage, PageFrameOrigins: []string{"https://js.stripe.com"},
+		PageConnectOrigins: []string{"https://api.stripe.com"}, PageFormOrigins: []string{"https://pay.example.test"}, IPRateLimit: 30,
+	}
 	w.schedules[apiID] = &script.Schedule{ScriptID: apiID, CronSpec: "0 3 * * *", Timezone: "UTC", Enabled: true}
 	w.assets["as1"] = &portaldomain.Asset{ID: "as1", Name: "storefront", ContentType: "text/html", S3Bucket: "portal", CurrentVersion: 2}
 	w.assetVers["as1"] = []portaldomain.AssetVersion{{AssetID: "as1", Version: 1, S3Key: "v1", ContentType: "text/html"}}
@@ -435,6 +456,10 @@ func TestExport_WritesTheReleaseAndNamesWhatItUses(t *testing.T) {
 	assert.Equal(t, 1, bundle.Scripts[0].Version, "the pinned version, not the newest")
 	assert.Equal(t, "shop", bundle.Scripts[0].Endpoint.Name)
 	assert.Equal(t, "warehouse", bundle.Scripts[0].Endpoint.FormConnection)
+	assert.Equal(t, []string{"https://js.stripe.com"}, bundle.Scripts[0].Endpoint.PageFrameOrigins, "#2554's lists are exported")
+	assert.Equal(t, []string{"https://api.stripe.com"}, bundle.Scripts[0].Endpoint.PageConnectOrigins)
+	assert.Equal(t, []string{"https://pay.example.test"}, bundle.Scripts[0].Endpoint.PageFormOrigins)
+	assert.Equal(t, 30, bundle.Scripts[0].Endpoint.IPRateLimit, "#2556's limit is exported")
 	assert.Equal(t, "0 3 * * *", bundle.Scripts[0].Schedule.CronSpec)
 	require.Len(t, bundle.Assets, 1)
 	assert.Equal(t, []byte("<h1>shop</h1>"), bundle.Assets[0].Content)
@@ -526,6 +551,11 @@ func TestImport_CreatesTheApplicationAtTheRelease(t *testing.T) {
 	require.Len(t, w.endpoints, 1)
 	assert.Equal(t, "shop", w.endpoints[0].Input.Endpoint)
 	assert.Equal(t, "warehouse", w.endpoints[0].Input.Connection)
+	assert.Equal(t, []string{"https://js.stripe.com"}, w.endpoints[0].Input.PageFrameOrigins, "#2554's lists are imported")
+	assert.Equal(t, []string{"https://api.stripe.com"}, w.endpoints[0].Input.PageConnectOrigins)
+	assert.Equal(t, []string{"https://pay.example.test"}, w.endpoints[0].Input.PageFormOrigins)
+	require.NotNil(t, w.endpoints[0].Input.IPRateLimit)
+	assert.Equal(t, 30, *w.endpoints[0].Input.IPRateLimit, "#2556's limit is imported")
 	assert.NotNil(t, w.schedules[created.ID])
 	require.Len(t, w.assets, 1)
 
@@ -763,6 +793,25 @@ func TestImport_CarriesTheRecordingsAScriptsTestsReplay(t *testing.T) {
 	nr.Reader, nr.Recordings = reader{string(src.landed)}, nil
 	_, err = nr.Import(adminCtx(), admin, "mcp:resource:r1", fullMap)
 	require.ErrorContains(t, err, "keeps no recordings")
+}
+
+// unsaved is a recording store that cannot store.
+type unsaved struct{ recs }
+
+func (unsaved) Save(context.Context, scriptrec.Stored) error { return errors.New("disk full") }
+
+// A carried recording that cannot be stored refuses the import naming it, and
+// no part of the application is created past it.
+func TestImport_ARecordingThatCannotBeStoredRefuses(t *testing.T) {
+	src := testedWorld(t)
+	_, err := bundler(src).Export(context.Background(), admin, "shop", 1)
+	require.NoError(t, err)
+	w := newWorld()
+	b := bundler(w)
+	b.Reader, b.Recordings = reader{string(src.landed)}, unsaved{recs{w}}
+	_, err = b.Import(adminCtx(), admin, "mcp:resource:r1", fullMap)
+	require.ErrorContains(t, err, "storing recording dpx_1")
+	assert.Empty(t, w.endpoints, "nothing is bound past the refusal")
 }
 
 // An export whose script's tests replay a recording this deployment does not

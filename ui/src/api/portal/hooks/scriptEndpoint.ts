@@ -55,12 +55,21 @@ export interface ScriptEndpoint {
   allowed_origins?: string[];
   response_mode?: "api" | "page";
   page_cdns?: string[];
+  /** The sites a page may frame, call and post its forms to (#2554). */
+  page_frame_origins?: string[];
+  page_connect_origins?: string[];
+  page_form_origins?: string[];
   /** Where the page answers; absent for a script in no application. */
   page_address?: string;
   /** Why the script cannot be a page, when it cannot. */
   page_problem?: string;
   rate_limit?: number;
   caller_rate_limit?: number;
+  /** ip_rate_limit is each client address's limit a minute, 0 for none (#2556). */
+  ip_rate_limit?: number;
+  /** warning is what a save says beside its outcome: that the deployment
+   * trusts no proxy for a client's address (#2556). */
+  warning?: string;
   updated_by?: string;
   updated_at?: string;
   failures?: EndpointFailure[];
@@ -105,8 +114,13 @@ export interface ScriptEndpointInput {
   response_mode?: "api" | "page";
   /** The https origins a page may load from besides its own. */
   page_cdns?: string[];
+  page_frame_origins?: string[];
+  page_connect_origins?: string[];
+  page_form_origins?: string[];
   rate_limit?: number;
   caller_rate_limit?: number;
+  /** ip_rate_limit is each client address's limit a minute; 0 removes it. */
+  ip_rate_limit?: number;
   /** connection is where a form's source is made, named once (#2178). */
   connection?: string;
   /** decrypt_personas replaces the personas a form's sensitive fields may be

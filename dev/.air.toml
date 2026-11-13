@@ -17,7 +17,10 @@ tmp_dir = "build/air"
   # same path in dev/.dev-ports.env as DEV_PLATFORM_TMPDIR so the acceptance
   # suite can state the condition it is running under.
   full_bin = "TMPDIR=/nonexistent/mcp-data-platform-has-no-temp-directory ./build/air/mcp-data-platform"
-  cmd = "go build -o ./build/air/mcp-data-platform ./cmd/mcp-data-platform"
+  # scripts/dev-embed.sh builds the embedded portal and tile page when make
+  # verify's embed-clean has emptied them, so a rebuild after a verify still
+  # draws tiles (#2548); otherwise it returns at once.
+  cmd = "bash scripts/dev-embed.sh && go build -o ./build/air/mcp-data-platform ./cmd/mcp-data-platform"
   delay = 500
   exclude_dir = ["ui", "build", "dist", "node_modules", "dev", "test", "apps", "docs", ".git", "internal/apidocs", "internal/ui/dist", "internal/contentviewer/dist"]
   exclude_regex = ["_test\\.go$"]

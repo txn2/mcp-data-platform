@@ -8,6 +8,7 @@ import (
 
 	"go.starlark.net/syntax"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptflow/stmtlookup"
 	"github.com/txn2/mcp-data-platform/internal/scriptconst"
 	"github.com/txn2/mcp-data-platform/internal/sqltables"
 )
@@ -369,7 +370,7 @@ func (c *card) transaction(n *Node) {
 	}
 	tx, _ := def.Params[0].(*syntax.Ident)
 	n.Detail = c.txStatements(def.Body, nameOf(tx, tx != nil))
-	n.Data = c.dataRef(c.arg(argConnection, 0), txStatementExprs(def.Body, nameOf(tx, tx != nil))...)
+	n.Data = c.dataRef(c.arg(argConnection, 0), txStatementExprs(def.Body, nameOf(tx, tx != nil), c.s.scope)...)
 	n.Data.Write = n.Role == RoleWrites
 	if len(n.Detail) == 0 {
 		n.Detail = []string{"no statement through tx"}
@@ -380,18 +381,18 @@ func (c *card) transaction(n *Node) {
 func (c *card) batch(n *Node) {
 	conn, full := c.value(c.arg(argConnection, 0))
 	n.Role, n.Kind, n.Title, n.Computed = RoleWrites, KindTransaction, onConn("Batch", conn), !full
-	list := c.s.scope.list(c.arg("statements", 1))
-	if list == nil {
+	stmts, ok := stmtlookup.Statements(c.s.scope, c.arg("statements", 1), nil)
+	if !ok {
 		n.Detail, n.Computed = []string{"statements assembled at run time"}, true
 		n.Data = c.dataRef(c.arg(argConnection, 0), nil)
 		n.Data.Write = true
 		return
 	}
-	for _, e := range list.List {
+	for _, e := range stmts {
 		n.Detail = append(n.Detail, c.statementLine(memberExecute, e))
 	}
 	n.Detail = shortList(n.Detail, maxDetail)
-	n.Data = c.dataRef(c.arg(argConnection, 0), list.List...)
+	n.Data = c.dataRef(c.arg(argConnection, 0), stmts...)
 	n.Data.Write = true
 }
 
@@ -399,6 +400,7 @@ func (c *card) batch(n *Node) {
 // tx parameter, one line each.
 func (c *card) txStatements(body []syntax.Stmt, tx string) []string {
 	var out []string
+	bound := stmtlookup.ListsBound(body)
 	for _, stmt := range body {
 		syntax.Walk(stmt, func(node syntax.Node) bool {
 			call, ok := node.(*syntax.CallExpr)
@@ -415,8 +417,14 @@ func (c *card) txStatements(body []syntax.Stmt, tx string) []string {
 			switch dot.Name.Name {
 			case "query", memberExecute:
 				out = append(out, c.statementLine(dot.Name.Name, call.Args[0]))
-			case "batch":
-				out = append(out, "batch of statements")
+			case memberBatch:
+				stmts, ok := stmtlookup.Statements(c.s.scope, callArg(call, "statements", 0), bound)
+				if !ok {
+					out = append(out, "batch of statements")
+				}
+				for _, e := range stmts {
+					out = append(out, c.statementLine(memberExecute, e))
+				}
 			}
 			return true
 		})
@@ -429,6 +437,9 @@ func (c *card) txStatements(body []syntax.Stmt, tx string) []string {
 func (c *card) statementLine(member string, e syntax.Expr) string {
 	if d, ok := e.(*syntax.DictExpr); ok {
 		e = dictFields(d)[argSQL]
+	}
+	if verb, tables, ok := c.lookupWrites(e); ok {
+		return verb + " " + strings.Join(tables, ", ")
 	}
 	sql, full := c.value(e)
 	if w, ok := lastWrite(sql); ok {

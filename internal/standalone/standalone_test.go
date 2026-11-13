@@ -184,9 +184,11 @@ func TestBuild_DeclaredReferencesAreInlinedAndDataIsRefused(t *testing.T) {
 // TestBuild_FormsAndTheBasemapArchiveAreRefused before anything is fetched.
 func TestBuild_FormsAndTheBasemapArchiveAreRefused(t *testing.T) {
 	cases := map[string]string{
-		"a form reference":    `<div>mcp:form:signup</div>`,
-		"a rewritten form":    `<iframe src="http://platform.example/forms/signup?embed=x"></iframe>`,
-		"the basemap archive": `<script>const REGION = "/portal/maps/us.pmtiles";</script>`,
+		"a form reference":              `<div>mcp:form:signup</div>`,
+		"a rewritten form":              `<iframe src="http://platform.example/forms/signup?embed=x"></iframe>`,
+		"the basemap archive":           `<script>const REGION = "/portal/maps/us.pmtiles";</script>`,
+		"an endpoint reference (#2457)": `<script>fetch("mcp:endpoint:log-search")</script>`,
+		"a rewritten endpoint (#2457)":  `<script>fetch("http://platform.example/endpoints/log-search?endpoint_embed=m")</script>`,
 	}
 	for name, doc := range cases {
 		t.Run(name, func(t *testing.T) {

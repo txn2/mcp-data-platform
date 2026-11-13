@@ -64,6 +64,8 @@ func (oneScript) GetVersion(_ context.Context, id string, version int) (*script.
 type pageRunner struct {
 	real *eprun.Runner
 	fake *runner
+	// cookies are what each answer sets (#2555).
+	cookies []eprun.Cookie
 }
 
 func (p *pageRunner) Resolve(ctx context.Context, name string) (*eprun.Target, error) {
@@ -71,7 +73,9 @@ func (p *pageRunner) Resolve(ctx context.Context, name string) (*eprun.Target, e
 }
 
 func (p *pageRunner) Serve(ctx context.Context, t *eprun.Target, req eprun.Request) eprun.Response {
-	return p.fake.Serve(ctx, t, req)
+	resp := p.fake.Serve(ctx, t, req)
+	resp.Cookies = p.cookies
+	return resp
 }
 
 type pageFixture struct {

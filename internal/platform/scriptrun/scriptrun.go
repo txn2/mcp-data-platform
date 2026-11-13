@@ -750,8 +750,9 @@ const (
 //
 // Its keys are PredeclaredNames, which TestPredeclaredMatchesNames pins.
 func predeclared(host *hostState) starlark.StringDict {
+	minted := scripttoken.Recorded(&host.opts.OnCall)
 	clock := host.clock()
-	tokens := scripttoken.Host{Ctx: host.ctx, Testing: host.opts.Test != nil, Replay: host.opts.Caller, Live: host.opts.Tokens, Record: host.opts.OnCall}
+	tokens := scripttoken.Host{Ctx: host.ctx, Testing: host.opts.Test != nil, Replay: host.opts.Caller, Live: host.opts.Tokens, Record: host.opts.OnCall, Minted: minted.Add}
 	env := starlark.StringDict{
 		"platform": &starlarkstruct.Module{
 			Name: "platform",

@@ -41,6 +41,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/webhook/whconfig"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
+	"github.com/txn2/mcp-data-platform/pkg/ratelimit"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 	apigatewaycatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 )
@@ -485,6 +486,9 @@ type ServerConfig struct {
 	// gauge re-probe, at most once per interval and only when scraped (#1898).
 	// Defaults to 1m.
 	StateProbeInterval time.Duration `yaml:"state_probe_interval"`
+	// TrustedProxies are the CIDRs whose X-Forwarded-For an endpoint reads a
+	// client's address from (#2556); portal and OAuth limits use them when theirs are empty.
+	TrustedProxies []string `yaml:"trusted_proxies"`
 }
 
 // ShutdownConfig configures graceful shutdown timing.
@@ -2063,7 +2067,7 @@ func (c *Config) Validate() error {
 	_, runBudget := c.Scripts.Worker.RunMemoryBudget(0)
 	_, thumbs := c.Thumbnails.Tuning()
 	_, thumbSources := c.Thumbnails.SourceLimits()
-	for _, err := range []error{admission, runBudget, thumbs, thumbSources, dbobs.CheckPoolSize(c.Database.MaxOpenConns), c.Scripts.SQL.Validate(), c.Scripts.Draft.Validate(), c.Webhooks.Validate(), c.Resources.Index.Validate(), c.Tools.ResultBudget.Validate(), c.Portal.AssetRefs.Validate(), c.Portal.Embeds.Validate(), c.Sites.Check(c.Portal.PublicBaseURL, c.Auth.BrowserSession.Domain)} {
+	for _, err := range []error{admission, runBudget, thumbs, thumbSources, dbobs.CheckPoolSize(c.Database.MaxOpenConns), c.Scripts.SQL.Validate(), c.Scripts.Draft.Validate(), c.Webhooks.Validate(), c.Resources.Index.Validate(), c.Tools.ResultBudget.Validate(), c.Portal.AssetRefs.Validate(), c.Portal.Embeds.Validate(), c.Sites.Check(c.Portal.PublicBaseURL, c.Auth.BrowserSession.Domain), ratelimit.CheckTrustedProxies("server.trusted_proxies", c.Server.TrustedProxies)} {
 		if err != nil {
 			errs = append(errs, err.Error())
 		}

@@ -68,7 +68,7 @@ def main():
     platform.transaction("appdb", tidy)
     pending = ["INSERT INTO s.audit VALUES (1)"]
     platform.batch("appdb", pending)
-    platform.execute(STATEMENTS[run.params["k"]][0], connection = "appdb")
+    platform.execute(run.params["sql"], connection = "appdb")
     platform.batch("appdb", run.params["stmts"])
     platform.query("WITH recent AS (SELECT * FROM s.invoice) SELECT * FROM recent", connection = "appdb")
 `)
@@ -86,6 +86,110 @@ def main():
 	assert.True(t, refs[4].Write)
 	assert.Equal(t, DataRef{Connection: "appdb", Reads: []string{"s.invoice"}, Writes: []string{}}, refs[5],
 		"a read-only common table expression writes nothing")
+}
+
+// TestDataRefs_ComprehensionsAndLookups is #2623: the two shapes an
+// application's scripts wrote its tables with and the analyzer read as no
+// write. A tx.batch list built by a comprehension over a module constant,
+// bound in the function the transaction's function is nested in, and a
+// statement picked by a lookup into a dict of constant lists are each read as
+// the statements they can run. A lookup with one candidate assembled at run
+// time is still a write to a table named only when it runs.
+func TestDataRefs_ComprehensionsAndLookups(t *testing.T) {
+	refs := DataRefs(`
+INSERT_DOCUMENT = """
+    WITH added AS (
+        INSERT INTO app.document (body) SELECT $1 ON CONFLICT (content_hash) DO NOTHING RETURNING id
+    )
+    INSERT INTO app.invoice (document_id) SELECT id FROM added
+"""
+INSERT_EMAIL = "INSERT INTO app.email (subject) VALUES ($1)"
+UPSERT_COMPANIES = "INSERT INTO app.company (code) SELECT code FROM x ON CONFLICT (code) DO UPDATE SET code = excluded.code"
+UPSERT_SITES = "INSERT INTO app.site (code) SELECT code FROM x ON CONFLICT (code) DO UPDATE SET code = excluded.code"
+UPSERT_SUPPLIERS = "INSERT INTO app.supplier (code) SELECT code FROM x ON CONFLICT (code) DO UPDATE SET code = excluded.code"
+CONNECTION = "appdb"
+
+def save(documents, email):
+    """Saves the documents with the email they came in."""
+    statements = [{"sql": INSERT_DOCUMENT, "params": d} for d in documents]
+
+    def write(tx):
+        tx.execute(INSERT_EMAIL, params = email)
+        if statements:
+            tx.batch(statements)
+
+    return platform.transaction(CONNECTION, write, on_error = "return")
+
+def refresh(kind, rows):
+    """Refreshes one cache table."""
+    spec = {
+        "companies": ["q", "pkg", "company", UPSERT_COMPANIES],
+        "sites": ["q", "pkg", "site", UPSERT_SITES],
+        "suppliers": ["q", "pkg", "supplier", UPSERT_SUPPLIERS],
+    }[kind]
+    platform.execute(spec[3], connection = CONNECTION, params = {"rows": rows})
+
+def custom(kind):
+    """One candidate is built when it runs."""
+    spec = {"a": [UPSERT_SITES], "b": ["INSERT INTO app.t_" + kind + " VALUES (1)"]}[kind]
+    platform.execute(spec[0], connection = CONNECTION)
+
+def pending(rows):
+    """A top-level batch of a comprehension."""
+    platform.batch(CONNECTION, [UPSERT_SITES for r in rows])
+
+def main():
+    """Runs."""
+    save(run.params["docs"], run.params["email"])
+    refresh(run.params["kind"], [])
+    custom(run.params["kind"])
+    pending([])
+`)
+	require.Len(t, refs, 4)
+	assert.Equal(t, DataRef{Connection: "appdb", Reads: []string{}, Writes: []string{"app.email", "app.document", "app.invoice"}, Write: true}, refs[0],
+		"a tx.batch of a comprehension bound in the enclosing function")
+	assert.Equal(t, DataRef{Connection: "appdb", Reads: []string{"x"}, Writes: []string{"app.company", "app.site", "app.supplier"}, Write: true}, refs[1],
+		"a statement picked by a lookup is every statement it can pick")
+	assert.True(t, refs[2].Computed, "one candidate is assembled at run time")
+	assert.True(t, refs[2].Write)
+	assert.Equal(t, []string{"app.site"}, refs[3].Writes, "a top-level batch of a comprehension")
+}
+
+// TestCandidates is what a lookup can evaluate to: a constant key picks one
+// value, a computed key every value, through names, nested lookups, tuples,
+// negative indexes and a local whose value is known; and what it cannot say.
+func TestCandidates(t *testing.T) {
+	g := Derive(`
+A = "INSERT INTO s.a VALUES (1)"
+B = "INSERT INTO s.b VALUES (1)"
+PAIRS = {"x": (A, B), "y": (B, A)}
+
+def main():
+    """Runs."""
+    k = "y"
+    platform.execute(PAIRS["x"][-1], connection = "c")
+    platform.execute(PAIRS[run.params["p"]][0], connection = "c")
+    platform.execute(PAIRS[k][0], connection = "c")
+    platform.execute(PAIRS["z"][0], connection = "c")
+    platform.execute([A, B][5], connection = "c")
+    platform.execute(run.params["m"][0], connection = "c")
+    platform.execute(("UPDATE s.u SET n = 1"), connection = "c")
+`)
+	var subtitles []string
+	for _, n := range g.Nodes {
+		if n.Kind == KindWrite {
+			subtitles = append(subtitles, n.Subtitle)
+		}
+	}
+	assert.Equal(t, []string{
+		"INSERT s.b",
+		"INSERT s.a, s.b",
+		"INSERT s.b",
+		"SQL assembled at run time",
+		"SQL assembled at run time",
+		"SQL assembled at run time",
+		"UPDATE s.u",
+	}, subtitles)
 }
 
 // TestWritesOf is the tables a statement writes, by its verb, and the

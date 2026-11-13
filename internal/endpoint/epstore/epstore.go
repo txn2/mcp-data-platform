@@ -36,7 +36,8 @@ const checkConstraint = "script_endpoints_bot_check_fkey"
 // order.
 const columns = `id, script_id, name, methods, path, auth_mode, callers, COALESCE(bot_check, ''), checked_methods,
 	timeout_seconds, max_memory_bytes, max_body_bytes, allowed_origins, rate_limit, caller_rate_limit, enabled,
-	created_by, updated_by, created_at, updated_at, response_mode, page_cdns`
+	created_by, updated_by, created_at, updated_at, response_mode, page_cdns,
+	page_frame_origins, page_connect_origins, page_form_origins, ip_rate_limit`
 
 const selectBinding = "SELECT " + columns + " FROM script_endpoints"
 
@@ -56,11 +57,12 @@ func scan(r rowScanner) (*epbinding.Binding, error) {
 	b := &epbinding.Binding{}
 	err := r.Scan(&b.ID, &b.ScriptID, &b.Name, pq.Array(&b.Methods), &b.Path, &b.AuthMode, pq.Array(&b.Callers),
 		&b.BotCheck, pq.Array(&b.CheckedMethods), &b.TimeoutSeconds, &b.MaxMemoryBytes, &b.MaxBodyBytes, pq.Array(&b.AllowedOrigins), &b.RateLimit,
-		&b.CallerRateLimit, &b.Enabled, &b.CreatedBy, &b.UpdatedBy, &b.CreatedAt, &b.UpdatedAt, &b.ResponseMode, pq.Array(&b.PageCDNs))
+		&b.CallerRateLimit, &b.Enabled, &b.CreatedBy, &b.UpdatedBy, &b.CreatedAt, &b.UpdatedAt, &b.ResponseMode, pq.Array(&b.PageCDNs),
+		pq.Array(&b.PageFrameOrigins), pq.Array(&b.PageConnectOrigins), pq.Array(&b.PageFormOrigins), &b.IPRateLimit)
 	if err != nil {
 		return nil, err //nolint:wrapcheck // each caller says what it was reading
 	}
-	for _, list := range []*[]string{&b.AllowedOrigins, &b.Callers, &b.CheckedMethods, &b.PageCDNs} {
+	for _, list := range []*[]string{&b.AllowedOrigins, &b.Callers, &b.CheckedMethods, &b.PageCDNs, &b.PageFrameOrigins, &b.PageConnectOrigins, &b.PageFormOrigins} {
 		if *list == nil {
 			*list = []string{}
 		}
@@ -74,8 +76,10 @@ func (s *Store) Set(ctx context.Context, b *epbinding.Binding) error {
 	row := s.db.QueryRowContext(ctx, `
 		INSERT INTO script_endpoints (script_id, name, methods, path, auth_mode, callers, bot_check, checked_methods,
 		                              timeout_seconds, max_memory_bytes, max_body_bytes, allowed_origins, rate_limit,
-		                              caller_rate_limit, enabled, created_by, updated_by, response_mode, page_cdns)
-		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9, $10, $11, $12, $13, $14, $15, $16, $16, COALESCE(NULLIF($17, ''), 'api'), $18)
+		                              caller_rate_limit, enabled, created_by, updated_by, response_mode, page_cdns,
+		                              page_frame_origins, page_connect_origins, page_form_origins, ip_rate_limit)
+		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9, $10, $11, $12, $13, $14, $15, $16, $16, COALESCE(NULLIF($17, ''), 'api'), $18,
+		        $19, $20, $21, $22)
 		ON CONFLICT (script_id) DO UPDATE
 		   SET name = EXCLUDED.name, methods = EXCLUDED.methods, path = EXCLUDED.path,
 		       auth_mode = EXCLUDED.auth_mode, callers = EXCLUDED.callers, bot_check = EXCLUDED.bot_check,
@@ -84,11 +88,14 @@ func (s *Store) Set(ctx context.Context, b *epbinding.Binding) error {
 		       max_body_bytes = EXCLUDED.max_body_bytes, allowed_origins = EXCLUDED.allowed_origins,
 		       rate_limit = EXCLUDED.rate_limit, caller_rate_limit = EXCLUDED.caller_rate_limit,
 		       enabled = EXCLUDED.enabled, updated_by = EXCLUDED.updated_by, updated_at = NOW(),
-		       response_mode = EXCLUDED.response_mode, page_cdns = EXCLUDED.page_cdns
+		       response_mode = EXCLUDED.response_mode, page_cdns = EXCLUDED.page_cdns,
+		       page_frame_origins = EXCLUDED.page_frame_origins, page_connect_origins = EXCLUDED.page_connect_origins,
+		       page_form_origins = EXCLUDED.page_form_origins, ip_rate_limit = EXCLUDED.ip_rate_limit
 		RETURNING id, created_by, created_at, updated_at`,
 		b.ScriptID, b.Name, pq.Array(b.Methods), b.Path, b.AuthMode, pq.Array(nonNil(b.Callers)), b.BotCheck,
 		pq.Array(nonNil(b.CheckedMethods)), b.TimeoutSeconds, b.MaxMemoryBytes, b.MaxBodyBytes,
-		pq.Array(nonNil(b.AllowedOrigins)), b.RateLimit, b.CallerRateLimit, b.Enabled, b.UpdatedBy, b.ResponseMode, pq.Array(nonNil(b.PageCDNs)))
+		pq.Array(nonNil(b.AllowedOrigins)), b.RateLimit, b.CallerRateLimit, b.Enabled, b.UpdatedBy, b.ResponseMode, pq.Array(nonNil(b.PageCDNs)),
+		pq.Array(nonNil(b.PageFrameOrigins)), pq.Array(nonNil(b.PageConnectOrigins)), pq.Array(nonNil(b.PageFormOrigins)), b.IPRateLimit)
 	err := row.Scan(&b.ID, &b.CreatedBy, &b.CreatedAt, &b.UpdatedAt)
 	var pqErr *pq.Error
 	switch {

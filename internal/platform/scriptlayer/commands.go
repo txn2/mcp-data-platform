@@ -391,7 +391,7 @@ func scriptFields(sc *script.Script) map[string]any {
 func (h *Handle) handleList(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
 	filter := script.ListFilter{
 		Status: input.Status, Search: input.Search, Limit: input.Limit,
-		Category: derefOr(input.Category), Tags: input.Tags,
+		Category: derefOr(input.Category), Tags: input.Tags, Library: input.Library,
 	}
 	scripts, err := h.store.List(ctx, filter)
 	if err != nil {
@@ -493,6 +493,7 @@ func addTestNotes(out map[string]any, res scriptsave.Result) {
 // the stored source is the formatted one.
 func addGateNotes(out map[string]any, sent string, gated scriptsave.Result) {
 	res := gated.Lint
+	out["shared_code"] = gated.SharedCode // #2273: [] when no function is shared
 	if len(res.Warnings) > 0 {
 		// Saved, with what the lint warns about: a warning never refuses a save.
 		out["warnings"] = res.Warnings

@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"go.starlark.net/syntax"
+
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptflow/stmtlookup"
 )
 
 // Tools whose calls the diagram reads further than the generic card.
@@ -176,6 +178,10 @@ func (c *card) trinoExecute(n *Node, f map[string]syntax.Expr, conn string) {
 // the table it writes, read from the SQL.
 func (c *card) writeStatement(n *Node, sqlExpr syntax.Expr, conn string) {
 	n.Role, n.Kind, n.Title = RoleWrites, KindWrite, onConn("Write", conn)
+	if verb, tables, ok := c.lookupWrites(sqlExpr); ok {
+		n.Subtitle = verb + " " + strings.Join(tables, ", ")
+		return
+	}
 	sql, _ := c.value(sqlExpr)
 	w, ok := lastWrite(sql)
 	if !ok {
@@ -309,8 +315,38 @@ func (c *card) dataRef(connExpr syntax.Expr, statements ...syntax.Expr) *DataRef
 	return ref
 }
 
+// lookupWrites is the tables a statement picked by a lookup writes (#2623):
+// when every statement the lookup can pick is one the source holds whole
+// that writes, the verb they share ("writes" when they differ) and each
+// table. ok is false for anything else, which is read as one statement.
+func (c *card) lookupWrites(e syntax.Expr) (verb string, tables []string, ok bool) {
+	if e == nil {
+		return "", nil, false
+	}
+	exprs, ok := stmtlookup.Candidates(c.s.scope, e)
+	if !ok || (len(exprs) == 1 && exprs[0] == e) {
+		return "", nil, false
+	}
+	for _, x := range exprs {
+		sql, full := c.value(x)
+		w, wrote := lastWrite(sql)
+		if !full || !wrote {
+			return "", nil, false
+		}
+		switch {
+		case verb == "":
+			verb = w.verb
+		case verb != w.verb:
+			verb = "writes"
+		}
+		tables = union(tables, []string{w.table})
+	}
+	return verb, tables, true
+}
+
 // statementRefs is what one statement reads and writes. A statement given as
-// a dict is read by its sql.
+// a dict is read by its sql; one picked by a lookup into literals is every
+// statement the lookup can pick (#2623), and computed when any of them is.
 func (c *card) statementRefs(e syntax.Expr) (reads, writes []string, computed bool) {
 	if d, ok := e.(*syntax.DictExpr); ok {
 		e = dictFields(d)[argSQL]
@@ -318,6 +354,19 @@ func (c *card) statementRefs(e syntax.Expr) (reads, writes []string, computed bo
 	if e == nil {
 		return nil, nil, true
 	}
+	exprs, ok := stmtlookup.Candidates(c.s.scope, e)
+	if !ok {
+		exprs = []syntax.Expr{e}
+	}
+	for _, x := range exprs {
+		r, w, comp := c.oneStatementRefs(x)
+		reads, writes, computed = union(reads, r), union(writes, w), computed || comp
+	}
+	return reads, writes, computed
+}
+
+// oneStatementRefs is what one statement the source writes reads and writes.
+func (c *card) oneStatementRefs(e syntax.Expr) (reads, writes []string, computed bool) {
 	sql, full := c.value(e)
 	for _, w := range writesOf(sql) {
 		if !slices.Contains(writes, w.table) {
@@ -335,29 +384,22 @@ func (c *card) statementRefs(e syntax.Expr) (reads, writes []string, computed bo
 
 // txStatementExprs are the statements a transaction's function runs through
 // its tx parameter: each tx.query and tx.execute, and each statement of a
-// tx.batch list (#2615), written in the call or bound to a name in the
-// function.
-func txStatementExprs(body []syntax.Stmt, tx string) []syntax.Expr {
-	lists := listsBound(body)
+// tx.batch list (#2615): a list or a list comprehension (#2623), written in
+// the call, bound to a name in the function, or bound in the scope the
+// transaction is started from (sc), which is the function a nested one closes
+// over.
+func txStatementExprs(body []syntax.Stmt, tx string, sc *scope) []syntax.Expr {
+	lists := stmtlookup.ListsBound(body)
 	var out []syntax.Expr
 	for _, stmt := range body {
 		syntax.Walk(stmt, func(node syntax.Node) bool {
-			call, ok := node.(*syntax.CallExpr)
-			if !ok {
-				return true
-			}
-			dot, ok := call.Fn.(*syntax.DotExpr)
-			if !ok || len(call.Args) == 0 {
-				return true
-			}
-			if recv, ok := dot.X.(*syntax.Ident); !ok || recv.Name != tx {
-				return true
-			}
-			switch dot.Name.Name {
+			call, member := txCall(node, tx)
+			switch member {
 			case KindQuery, memberExecute:
 				out = append(out, call.Args[0])
 			case memberBatch:
-				out = append(out, batchStatements(call, lists)...)
+				stmts, _ := stmtlookup.Statements(sc, callArg(call, "statements", 0), lists)
+				out = append(out, stmts...)
 			}
 			return true
 		})
@@ -365,26 +407,25 @@ func txStatementExprs(body []syntax.Stmt, tx string) []syntax.Expr {
 	return out
 }
 
+// txCall is node as a call of a member of the transaction parameter tx, with
+// at least one argument, and the member it calls; "" when it is not one.
+func txCall(node syntax.Node, tx string) (call *syntax.CallExpr, member string) {
+	call, ok := node.(*syntax.CallExpr)
+	if !ok || len(call.Args) == 0 {
+		return nil, ""
+	}
+	dot, ok := call.Fn.(*syntax.DotExpr)
+	if !ok {
+		return nil, ""
+	}
+	if recv, ok := dot.X.(*syntax.Ident); !ok || recv.Name != tx {
+		return nil, ""
+	}
+	return call, dot.Name.Name
+}
+
 // memberBatch is the member that runs a list of statements in one round trip.
 const memberBatch = "batch"
-
-// batchStatements are the statements of a tx.batch call: its statements
-// argument as a list literal, or the list literals the name it passes is bound
-// to. Anything else is assembled at run time and names none.
-func batchStatements(call *syntax.CallExpr, lists map[string][]*syntax.ListExpr) []syntax.Expr {
-	arg := callArg(call, "statements", 0)
-	switch a := arg.(type) {
-	case *syntax.ListExpr:
-		return a.List
-	case *syntax.Ident:
-		var out []syntax.Expr
-		for _, l := range lists[a.Name] {
-			out = append(out, l.List...)
-		}
-		return out
-	}
-	return nil
-}
 
 // callArg is a call's argument by keyword, or by position among the
 // positional arguments.
@@ -403,27 +444,6 @@ func callArg(call *syntax.CallExpr, name string, pos int) syntax.Expr {
 		i++
 	}
 	return nil
-}
-
-// listsBound is each list literal a function body assigns to a plain name, by
-// the name.
-func listsBound(body []syntax.Stmt) map[string][]*syntax.ListExpr {
-	out := map[string][]*syntax.ListExpr{}
-	for _, stmt := range body {
-		syntax.Walk(stmt, func(node syntax.Node) bool {
-			a, ok := node.(*syntax.AssignStmt)
-			if !ok || a.Op != syntax.EQ {
-				return true
-			}
-			id, okID := a.LHS.(*syntax.Ident)
-			l, okList := a.RHS.(*syntax.ListExpr)
-			if okID && okList {
-				out[id.Name] = append(out[id.Name], l)
-			}
-			return true
-		})
-	}
-	return out
 }
 
 // union is a with each of b it lacks.
