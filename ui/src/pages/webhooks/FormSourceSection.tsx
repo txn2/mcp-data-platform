@@ -11,7 +11,7 @@ export function FormSourceSection({ form }: { form: WebhookFormBinding }) {
     <SectionCard title="Form">
       <p className="text-sm text-muted-foreground">
         Each submission the form accepts is stored here as one event. Nothing is posted to this source; the form&apos;s
-        binding (manage_script endpoint_set, or the automation&apos;s Endpoint section) is where it is changed.
+        endpoint handler (manage_script handler_set kind=endpoint, or the automation&apos;s Handlers section) is where it is changed.
       </p>
       <dl className="mt-3 grid gap-3 text-xs sm:grid-cols-3">
         <div>

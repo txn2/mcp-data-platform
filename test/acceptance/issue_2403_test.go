@@ -21,7 +21,7 @@ import (
 // Wire forms: the admin connection route takes one JSON object whose
 // persona_roles and persona_role_passwords are JSON objects of strings (the
 // schema admits no other form); manage_script takes command, name and source
-// as strings and endpoint_set's methods and callers as JSON arrays of
+// as strings and handler_set kind=endpoint's methods and callers as JSON arrays of
 // strings; an endpoint request carries its API key in Authorization: Bearer.
 
 // roles2403 creates two login roles and a schema whose table only the first

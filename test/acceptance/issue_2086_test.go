@@ -78,9 +78,9 @@ func TestIssue2086_AnAdminsSavedScriptReachesTheAdminAPI(t *testing.T) {
 
 	got := c.call("manage_script", map[string]any{"command": "get", "name": name})
 	scriptID, _ := got["id"].(string)
-	c.call("manage_script", map[string]any{"command": "schedule_set", "name": name, "cron": "* * * * *", "timezone": "UTC"})
+	c.scheduleSet(name, "* * * * *", "UTC", nil)
 	t.Cleanup(func() {
-		_, _, _ = c.callRaw("manage_script", map[string]any{"command": "schedule_disable", "name": name})
+		c.schedulesOff(name)
 	})
 	fireNow1986(t, scriptID)
 	run := awaitRun1986(t, c, name, "a finished scheduled run", func(r map[string]any) bool {

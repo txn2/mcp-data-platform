@@ -47,35 +47,36 @@ func TestIssue2314_TheListingCarriesEachScriptsEndpointAndNarrowsByIt(t *testing
 	}
 	bindEndpoint(t, admin, on, "", map[string]any{"endpoint": on, "path": "/{id}", "auth_mode": "public"})
 	bindEndpoint(t, admin, off, "", map[string]any{"endpoint": off, "auth_mode": "authenticated", "callers": []string{"*"}})
-	admin.call("manage_script", map[string]any{"command": "endpoint_disable", "name": off})
+	admin.endpointEnable(off, false)
 
 	all := issue2314Rows(t, admin, "search="+tag)
 	if len(all) != 3 {
 		t.Fatalf("the listing of %s*: %d rows, want 3", tag, len(all))
 	}
-	onEndpoint, _ := all[on]["endpoint"].(map[string]any)
-	if onEndpoint["name"] != on || onEndpoint["path"] != "/endpoints/"+on+"/{id}" || onEndpoint["auth_mode"] != "public" || onEndpoint["enabled"] != true {
-		t.Fatalf("the bound script's endpoint: %v", all[on]["endpoint"])
+	onEndpoints := listOf(all[on], "endpoints")
+	if len(onEndpoints) != 1 || onEndpoints[0]["name"] != on || onEndpoints[0]["path"] != "/endpoints/"+on+"/{id}" ||
+		onEndpoints[0]["auth_mode"] != "public" || onEndpoints[0]["enabled"] != true {
+		t.Fatalf("the bound script's endpoint: %v", all[on]["endpoints"])
 	}
-	offEndpoint, _ := all[off]["endpoint"].(map[string]any)
-	if offEndpoint["enabled"] != false || offEndpoint["auth_mode"] != "authenticated" {
-		t.Fatalf("the turned-off binding: %v", all[off]["endpoint"])
+	offEndpoints := listOf(all[off], "endpoints")
+	if len(offEndpoints) != 1 || offEndpoints[0]["enabled"] != false || offEndpoints[0]["auth_mode"] != "authenticated" {
+		t.Fatalf("the turned-off binding: %v", all[off]["endpoints"])
 	}
-	if _, present := all[unbound]["endpoint"]; present {
-		t.Fatalf("a script bound to no endpoint carries one: %v", all[unbound]["endpoint"])
+	if held := listOf(all[unbound], "endpoints"); len(held) != 0 {
+		t.Fatalf("a script bound to no endpoint carries one: %v", held)
 	}
 
-	bound := issue2314Rows(t, admin, "search="+tag+"&endpoint=bound")
+	bound := issue2314Rows(t, admin, "search="+tag+"&type=endpoint")
 	if len(bound) != 2 || bound[on] == nil || bound[off] == nil {
-		t.Fatalf("endpoint=bound: %v", keys2314(bound))
+		t.Fatalf("type=endpoint: %v", keys2314(bound))
 	}
-	notBound := issue2314Rows(t, admin, "search="+tag+"&endpoint=unbound")
+	notBound := issue2314Rows(t, admin, "search="+tag+"&type=none")
 	if len(notBound) != 1 || notBound[unbound] == nil {
-		t.Fatalf("endpoint=unbound: %v", keys2314(notBound))
+		t.Fatalf("type=none: %v", keys2314(notBound))
 	}
-	status, out := admin.rest(http.MethodGet, "/api/v1/portal/scripts?endpoint=yes", nil)
-	if status != http.StatusBadRequest || !strings.Contains(fmt.Sprint(out["detail"]), `unknown endpoint "yes"`) {
-		t.Fatalf("endpoint=yes: want 400, got %d %v", status, out)
+	status, out := admin.rest(http.MethodGet, "/api/v1/portal/scripts?type=yes", nil)
+	if status != http.StatusBadRequest || !strings.Contains(fmt.Sprint(out["detail"]), `unknown type "yes"`) {
+		t.Fatalf("type=yes: want 400, got %d %v", status, out)
 	}
 }
 

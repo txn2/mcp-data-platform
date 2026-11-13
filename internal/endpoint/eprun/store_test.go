@@ -112,7 +112,7 @@ func TestStore_ASubmissionNotStoredIs503(t *testing.T) {
 	resp, _ = submitForm(t, f, "application/json", body)
 	assert.Equal(t, http.StatusServiceUnavailable, resp.Status, "a form with no source is not confirmed")
 	require.Len(t, f.bindings.failures, 3, "each is kept for the owner")
-	assert.Contains(t, f.bindings.failures[2].Error, "bind it again")
+	assert.Contains(t, f.bindings.failures[2].Error, "set its endpoint handler again with manage_script handler_set kind=endpoint")
 }
 
 const sensitiveForm = `

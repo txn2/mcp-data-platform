@@ -66,16 +66,14 @@ test.describe("Portal script pages", () => {
     await expect(
       page.getByRole("heading", { name: "Daily Sales Report" }),
     ).toBeVisible();
-    // Both scoped to the details: the schedule editor below states the same
+    // Both scoped to the details: the schedule handler below states the same
     // schedule and names the same parameter, because that is the box its
     // binding goes in.
     await expect(page.getByRole("cell", { name: "report_date" })).toBeVisible();
     // In words, as every surface states a cadence (#1407): the expression is
-    // read and written in the schedule editor, and nowhere else.
+    // read and written in the schedule handler, and nowhere else.
     await expect(
-      page.getByText("Every weekday at 7:00 AM, America/Los_Angeles", {
-        exact: true,
-      }),
+      page.getByRole("definition").filter({ hasText: "Every weekday at 7:00 AM, America/Los_Angeles" }),
     ).toBeVisible();
     await expect(page.getByText("0 7 * * 1-5", { exact: true })).toHaveCount(0);
 
@@ -87,11 +85,9 @@ test.describe("Portal script pages", () => {
       // What each version does differently, as agreed with the person it
       // runs for (#1943): the mock's v2 carries a summary.
       "What changed",
-      "Schedule",
-      // The webhook source it runs for (#2332), beside its schedule.
-      "Events",
-      // Its endpoint (#2171): what an HTTP request to /endpoints/{name} runs.
-      "Endpoint",
+      // What starts it (#2435): its schedules, endpoints and webhook sources,
+      // in one section.
+      "Handlers",
       "About",
       "Run history",
       "Files written (4)",
@@ -104,10 +100,17 @@ test.describe("Portal script pages", () => {
       "Delete",
     ]);
 
-    // The bindings every fire passes are inside the folded schedule section.
-    await page.getByRole("button", { name: /^Schedule/ }).click();
+    // What starts it, each handler a row: its schedule and the webhook
+    // source it runs for (#2434).
+    const handlers = page.getByTestId("handler-row");
+    await expect(handlers).toHaveCount(2);
+    await expect(handlers.nth(0)).toContainText("Every weekday at 7:00 AM, America/Los_Angeles");
+    await expect(handlers.nth(1)).toContainText("Each event of shop-orders");
+
+    // The bindings every fire passes are inside the schedule's row.
+    await openHandler(page, "sched-001");
     await expect(
-      page.locator("#script-param-schedule-report_date"),
+      page.locator("#script-param-schedule-sched-001-report_date"),
     ).toHaveValue("${fire_date}");
 
     // The code opens as the work it does (#1906): the export is a card on the
@@ -175,13 +178,13 @@ test.describe("Portal script pages", () => {
       .filter({ hasText: "Daily Sales Report" })
       .click();
 
-    // The section is folded, and says what the script does without being
-    // opened (#1407). The builder is behind the reveal.
-    await expect(
-      page.getByText("Runs: Every weekday at 7:00 AM, America/Los_Angeles"),
-    ).toBeVisible();
+    // The schedule's row says what it does and that it is on without being
+    // opened (#1407, #2435). The builder is behind the reveal.
+    const row = page.locator('[data-testid="handler-row"][data-handler="sched-001"]');
+    await expect(row).toContainText("Every weekday at 7:00 AM, America/Los_Angeles");
+    await expect(row).toContainText("On");
     await expect(page.getByLabel("Time", { exact: true })).toHaveCount(0);
-    await page.getByRole("button", { name: /^Schedule/ }).click();
+    await openHandler(page, "sched-001");
 
     // The schedule in force, as choices rather than as an expression, and the
     // binding every fire passes.
@@ -193,7 +196,7 @@ test.describe("Portal script pages", () => {
     // share, and these bindings — so a control is named by the form it belongs
     // to rather than by the parameter alone, which matches both.
     await expect(
-      page.locator("#script-param-schedule-report_date"),
+      page.locator("#script-param-schedule-sched-001-report_date"),
     ).toHaveValue("${fire_date}");
 
     // Moving the report an hour earlier is a change to the time, not to a cron
@@ -210,8 +213,9 @@ test.describe("Portal script pages", () => {
 
     await page.getByRole("button", { name: "Pause" }).click();
     await expect(page.getByText(/paused, and firing nothing/)).toBeVisible();
-    // The folded header would say the same thing: what it does is nothing.
+    // The row says the same thing: the schedule is off.
     await expect(page.getByRole("button", { name: "Resume" })).toBeVisible();
+    await expect(row.locator("> button")).toContainText("Off");
   });
 
   // Running one is the other mutation the owner performs here (#1363), and it
@@ -323,17 +327,18 @@ test.describe("Portal script pages", () => {
     // do.
     await page.getByRole("row").filter({ hasText: "My Margin Check" }).click();
 
-    await expect(page.getByText("Not scheduled")).toBeVisible();
-    await page.getByRole("button", { name: /^Schedule/ }).click();
-    await expect(page.getByText(/runs only when someone asks/)).toBeVisible();
+    await expect(page.getByText(/Nothing starts this script but someone running it/)).toBeVisible();
+    await page.getByRole("button", { name: "Add handler" }).click();
+    await page.getByRole("menuitem", { name: /Schedule/ }).click();
 
     await page.getByRole("button", { name: "Daily" }).click();
     await page.getByLabel("Time", { exact: true }).fill("05:00");
     // No parameter to bind: this script declares none. The `cutoff` field the
     // case used to fill belongs to Dormant Accounts, which is somebody else's
     // to schedule (#1795).
-    await page.getByRole("button", { name: "Set schedule" }).click();
-    await expect(page.getByText(/Every day at 5:00 AM/).first()).toBeVisible();
+    await page.getByRole("button", { name: "Add schedule" }).click();
+    await expect(page.getByTestId("handler-row")).toContainText(/Every day at 5:00 AM/);
+    await expect(page.getByText(/Nothing starts this script/)).toHaveCount(0);
   });
 
   // The health line replaces three tiles (#1795). Only the failed count is a
@@ -580,6 +585,12 @@ test.describe("Portal script pages", () => {
     await expect(page.getByText("My Margin Check")).toBeVisible();
   });
 });
+
+// openHandler opens one handler's row in the script's Handlers section onto
+// its kind's controls (#2435).
+async function openHandler(page: import("@playwright/test").Page, id: string) {
+  await page.locator(`[data-testid="handler-row"][data-handler="${id}"] > button`).click();
+}
 
 // openSource switches the code card to its Source tab. Flow is the tab a
 // script page opens on (#1906); the editor and everything done to the code are

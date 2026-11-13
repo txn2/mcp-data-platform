@@ -1,12 +1,14 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiError, apiFetch } from "../client";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiFetch } from "../client";
 import { scriptsKey } from "./scriptKeys";
 
-// A script's endpoint (#2171): the HTTP route at /endpoints/{name} that runs
-// its handle(req) on each request, and the requests that failed. The owner
-// and an administrator read it; an administrator binds any script, changes
-// its binding, or turns it on and off, and the owner does the same for a
-// script that is a form (#2494).
+// A script's endpoint handlers (#2171, #2441): each an HTTP route at
+// /endpoints/{name} that runs its handle(req) on each request, with the
+// requests that failed. The owner and an administrator read them; an
+// administrator adds any, changes one, or turns it on and off, and the owner
+// does the same on a script that is a form (#2494). A script may answer
+// several endpoints; they are read with the script's other handlers
+// (scriptHandlers.ts).
 
 // EndpointAuthMode is who an endpoint answers (#2259): a platform API key or a
 // browser session among its callers, anyone with no check, or anyone who
@@ -34,6 +36,8 @@ export interface EndpointFailure {
 }
 
 export interface ScriptEndpoint {
+  /** handler is the endpoint handler's id, absent for one not added yet. */
+  handler?: string;
   name: string;
   bound: boolean;
   endpoint?: string;
@@ -128,44 +132,28 @@ export interface ScriptEndpointInput {
   decrypt_personas?: string[];
 }
 
-export const endpointKey = (scriptID: string | null) => [...scriptsKey, scriptID, "endpoint"];
-
-// useScriptEndpoint reads a script's binding. A deployment that cannot bind
-// scripts answers 404, which reads here as null rather than as a failure.
-export function useScriptEndpoint(scriptID: string | null, owned: boolean) {
-  return useQuery({
-    queryKey: endpointKey(scriptID),
-    queryFn: async () => {
-      try {
-        return await apiFetch<ScriptEndpoint>(`/scripts/${scriptID}/endpoint`);
-      } catch (e) {
-        if (e instanceof ApiError && e.status === 404) return null;
-        throw e;
-      }
-    },
-    enabled: !!scriptID && owned,
-  });
-}
-
-// useSetScriptEndpoint binds the script, or changes its binding.
-export function useSetScriptEndpoint(scriptID: string) {
+// useSetScriptEndpoint adds an endpoint handler to the script, or changes the
+// one handlerID names.
+export function useSetScriptEndpoint(scriptID: string, handlerID?: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: ScriptEndpointInput) =>
-      apiFetch<ScriptEndpoint>(`/scripts/${scriptID}/endpoint`, {
-        method: "PUT",
-        body: JSON.stringify(input),
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: endpointKey(scriptID) }),
+      handlerID
+        ? apiFetch<ScriptEndpoint>(`/handlers/${handlerID}`, { method: "PUT", body: JSON.stringify(input) })
+        : apiFetch<ScriptEndpoint>(`/scripts/${scriptID}/handlers`, {
+            method: "POST",
+            body: JSON.stringify({ kind: "endpoint", ...input }),
+          }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: scriptsKey }),
   });
 }
 
-// useSetScriptEndpointEnabled turns the endpoint on or off.
-export function useSetScriptEndpointEnabled(scriptID: string) {
+// useSetScriptEndpointEnabled turns one endpoint handler on or off.
+export function useSetScriptEndpointEnabled(handlerID: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (enabled: boolean) =>
-      apiFetch(`/scripts/${scriptID}/endpoint/${enabled ? "enable" : "disable"}`, { method: "POST" }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: endpointKey(scriptID) }),
+      apiFetch(`/handlers/${handlerID}/${enabled ? "enable" : "disable"}`, { method: "POST" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: scriptsKey }),
   });
 }

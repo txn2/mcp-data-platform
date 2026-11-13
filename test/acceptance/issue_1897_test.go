@@ -76,9 +76,7 @@ func TestIssue1897_AStoppedSchedulerShowsItsDueSchedulesAging(t *testing.T) {
 	}
 	name := "acceptance-1897-sched-" + unique1551()
 	issue1897Script(t, c, name, "def main():\n    \"\"\"Does nothing; the schedule is what is measured.\"\"\"\n    print(\"tick\")\n")
-	c.call("manage_script", map[string]any{
-		"command": "schedule_set", "name": name, "cron": "* * * * *", "timezone": "UTC",
-	})
+	c.scheduleSet(name, "* * * * *", "UTC", nil)
 	backdateSchedule1897(t, name)
 
 	age := map[string]string{"loop": "script_scheduler"}
@@ -182,9 +180,7 @@ func TestIssue1897_AScriptRunIsOneTrace(t *testing.T) {
 	c := connect(t)
 	name := "acceptance-1897-trace-" + unique1551()
 	issue1897Script(t, c, name, issue1897TwoToolScript)
-	c.call("manage_script", map[string]any{
-		"command": "schedule_set", "name": name, "cron": "0 0 1 1 *", "timezone": "UTC",
-	})
+	c.scheduleSet(name, "0 0 1 1 *", "UTC", nil)
 	backdateSchedule1897(t, name)
 	runID := scheduledRun1897(t, name)
 

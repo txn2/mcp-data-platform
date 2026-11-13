@@ -33,7 +33,7 @@ const ownDeletePath = "/api/v1/portal/scripts/script_1"
 // consequence — what went with it, and what did not.
 func TestPortalDeleteScript_OwnerRemovesTheirOwnScript(t *testing.T) {
 	store := portalStore()
-	store.deleteCascade = script.Removed{Schedule: true, Runs: true, State: true}
+	store.deleteCascade = script.Removed{Handlers: true, Runs: true, State: true}
 	log := &recordingAudit{}
 
 	rec := servePortalRequest(t, ownerDeps(store, owner, log), http.MethodDelete, ownDeletePath, "")

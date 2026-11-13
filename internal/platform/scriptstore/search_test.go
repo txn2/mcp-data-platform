@@ -116,8 +116,11 @@ func TestContract_ComposesTheWholeDocument(t *testing.T) {
 				id: "script_1", name: "daily-sales", owner: "jane@example.com",
 				paramsJSON: []byte(`[{"name":"report_date","type":"date","required":true}]`),
 			})...))
+	evening := scheduleRow(rowTime)
+	evening[0], evening[2] = "sched_2", "0 19 * * *"
 	mock.ExpectQuery(regexp.QuoteMeta("FROM script_schedules WHERE script_id = $1")).
-		WillReturnRows(sqlmock.NewRows(scheduleSelectColumns).AddRow(scheduleRow(rowTime)...))
+		WithArgs("script_1", defaultScheduleListLimit).
+		WillReturnRows(sqlmock.NewRows(scheduleSelectColumns).AddRow(scheduleRow(rowTime)...).AddRow(evening...))
 	mock.ExpectQuery(regexp.QuoteMeta("ORDER BY finished_at DESC NULLS LAST LIMIT 1")).
 		WithArgs("script_1", script.RunStatusSucceeded).
 		WillReturnRows(sqlmock.NewRows(runSelectColumns).
@@ -134,7 +137,9 @@ func TestContract_ComposesTheWholeDocument(t *testing.T) {
 	assert.Equal(t, "report_date", got.Params[0].Name, "the live record's contract binds the next run")
 	assert.Equal(t, 1, got.Version, "the version a run executes is the latest saved one")
 	assert.Empty(t, got.Refusal, "an enabled, active script admits a run")
-	require.NotNil(t, got.Schedule)
+	require.Len(t, got.Schedules, 2, "every schedule handler the script holds is in its contract (#2434)")
+	assert.Equal(t, "0 7 * * 1-5", got.Schedules[0].CronSpec)
+	assert.Equal(t, "0 19 * * *", got.Schedules[1].CronSpec)
 	require.NotNil(t, got.LastRun)
 	require.Len(t, got.LastRun.Outputs, 1)
 	assert.Equal(t, script.OutputKindAsset, got.LastRun.Outputs[0].Kind)
@@ -179,7 +184,8 @@ func TestContract_ToleratesNoScheduleAndNoRun(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, got)
-	assert.Nil(t, got.Schedule)
+	require.NotNil(t, got.Schedules, "no schedule is an empty list, never null")
+	assert.Empty(t, got.Schedules)
 	assert.Nil(t, got.LastRun)
 	require.NotNil(t, got.State, "the contract always says what the script does with state")
 	assert.Zero(t, got.State.Revision, "no state row is revision 0")

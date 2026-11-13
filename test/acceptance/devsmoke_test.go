@@ -20,7 +20,7 @@ import (
 // criteria in a 45-minute run.
 //
 // Each check runs in parallel with the others and waits at most smokeWait for
-// work the platform does in the background (an embedding, a tile).
+// work the platform does in the background (a tile).
 
 const smokeWait = 45 * time.Second
 
@@ -121,8 +121,10 @@ func TestDevSmoke_APersonSignsInThroughKeycloak(t *testing.T) {
 	}
 }
 
-// An asset just saved is embedded (Ollama) and found by search on its words.
-func TestDevSmoke_SearchFindsAJustEmbeddedAsset(t *testing.T) {
+// An asset just saved is found by search on the words of its name: lexically
+// on the plain stack, which runs with no embedder (#2637), and with vectors
+// beside that in the embeddings environment.
+func TestDevSmoke_SearchFindsAJustSavedAsset(t *testing.T) {
 	t.Parallel()
 	c := connect(t)
 	words := smokeWord()
@@ -130,7 +132,7 @@ func TestDevSmoke_SearchFindsAJustEmbeddedAsset(t *testing.T) {
 		"name":         words,
 		"content":      "# " + words + "\n\nA document the dev smoke searches for.",
 		"content_type": "text/markdown",
-		"description":  "Dev smoke: a document the embedding service indexes.",
+		"description":  "Dev smoke: a document search finds by its name.",
 	})
 	id, _ := saved["asset_id"].(string)
 	if id == "" {
@@ -142,7 +144,7 @@ func TestDevSmoke_SearchFindsAJustEmbeddedAsset(t *testing.T) {
 	smokeUntil(t, "search finds "+reference, func() bool {
 		last = c.call("search", map[string]any{
 			"intent": words, "sources": []any{"assets"}, "limit": 25,
-			"purpose": "Dev smoke: the embedding service indexed the asset.",
+			"purpose": "Dev smoke: search found the asset.",
 		})
 		if searchHolds1551(last, reference) {
 			return true

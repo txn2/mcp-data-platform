@@ -1,5 +1,5 @@
 ---
-description: "Automations in the portal: work that runs on a schedule or on request, built as managed scripts. The list, one script's page, its schedule, source, versions, runs, and state."
+description: "Automations in the portal: work that runs on a schedule, an endpoint, a webhook event or on request, built as managed scripts. The list, one script's page, its handlers, source, versions, runs, and state."
 ---
 
 # Automations
@@ -36,20 +36,25 @@ administrator can move a script to another owner, which is how one arrives in Mi
 you did not write.
 
 Each row states what is worth knowing at a glance: what the automation is called, its
-kind (**Script**, for every automation today), its schedule and next fire, and how its most
-recent run ended. A script that will execute
+kind (**Script**, for every automation today), a badge for each type of
+[handler](../scripts/handlers.md) that starts it (**Endpoint**, **Form**, **Schedule**,
+**Webhook**), its schedule and next fire, and how its most recent run ended. A script that will execute
 nothing carries a badge beside its name — **disabled**, or its lifecycle status — because
 that is the exception you scan a list for; the version a run executes is true of every
 healthy script and is stated on the script's own page. Opening a row opens the script, the
 way every other list in the portal opens a record. A script with no schedule runs on
 demand; a paused schedule says so rather than showing a next fire that will not happen.
+A script with several schedules shows its first and how many more it has.
 
 A row states its category once, beside the name. Tags are not on the row: a tag is how a
 script is *found*, which is what the filter bar is for, and repeating every script's tags
 down the table buried the two facts a row exists to report.
 
 One filter bar sits above the table: the scope tabs, a search box, and a facet each for
-author, category, tag and status. The search matches what a script is called and what it
+author, category, tag, status and type. **Filter by type** narrows to the scripts
+holding a handler of that type (Endpoint, Form, Schedule or Webhook), or None for the
+scripts nothing starts but someone running them; a script with a form and a schedule is
+listed under both. The search matches what a script is called and what it
 says about itself. Every axis is applied by the server, so each covers every script you
 can see rather than only the ones already on screen.
 
@@ -89,7 +94,8 @@ repeatedly.
 ## When your automations fire
 
 The **Schedules** tab draws when every scheduled script fires: one row per
-script, a mark at each fire, on the viewer's own clock. Schedules that fire
+schedule, so a script with two schedules has two rows, a mark at each fire, on the
+viewer's own clock. Schedules that fire
 more than once a day are drawn across today, daily-to-weekly ones across this
 week, and rarer ones across three months. A paused schedule is drawn muted.
 Rows in every section are in script-name order, ignoring case. The author,
@@ -116,20 +122,20 @@ listing that fills its cap says so, and each script's own page carries its full 
 
 ## One script
 
-Opening a script shows its **Details**: who owns it, which version runs, the schedule it
+Opening a script shows its **Details**: who owns it, which version runs, the schedules it
 fires on, when it fires next, and the parameters a run binds against. These are the same
 facts an agent gets when it resolves a reference to the script, so the page and your
 agent describe the script identically.
 
-The page is ordered the way a script is debugged. Details first, then the schedule, then
+The page is ordered the way a script is debugged. Details first, then its handlers, then
 what the script says about itself, then the code — and the run history directly under the
 code, so an error in the history is answered by the text above it.
 
-The schedule is folded, and says what the script runs without being opened: "Runs: Every
-weekday at 7:00 AM, America/Los_Angeles", or "Not scheduled". Open it to change the
-cadence; pausing and resuming are on the header either way. **About** starts open, because
-what a script is for is what you came to read, and folds away when the document is long
-enough to be in the way.
+Each handler is one row of the **Handlers** section, saying what it answers to without
+being opened: a schedule in words ("Every weekday at 7:00 AM, America/Los_Angeles"), an
+endpoint's path, or the webhook source whose events start it, with **On** or **Off**
+(see [Handlers](#handlers)). **About** starts open, because what a script is for is what
+you came to read, and folds away when the document is long enough to be in the way.
 
 ![Script detail](../images/screenshots/light/user-script-detail-light.webp#only-light)![Script detail](../images/screenshots/dark/user-script-detail-dark.webp#only-dark)
 
@@ -137,12 +143,32 @@ When a run would be refused — the script disabled or retired — the page carr
 platform's own reason for the refusal rather than leaving you to work it out from the
 status.
 
-## The schedule
+## Handlers
 
-Below the details, on a script you own, is when it runs — folded, with what it does now in
-the header. Open it and pick how often — hourly, daily,
+Below the details, on a script you own, is **Handlers**: what starts the script besides
+someone running it (#2435). Each handler is a row with its type badge (**Endpoint**,
+**Form**, **Schedule** or **Webhook**), what it answers to, and **On** or **Off**; opening
+a row shows that kind's controls and **Delete**. **Add handler** offers each kind, and a
+kind you may not add is shown with the reason, such as an endpoint on a script that is not
+a form, which is an administrator's. A webhook handler you add names the source made for
+a form you own, unless you are an administrator, who may name any source. A script may
+hold several handlers of each kind, at most 20 of a kind. With none, the section says
+that nothing starts the script but someone running it.
+
+- A **schedule** runs the script on a cadence, described below.
+- An **endpoint** answers HTTP requests at `/endpoints/<name>`; a form's endpoint serves
+  the form, and adding one to a form offers **Preview form** and **Request public access**
+  first. See [Endpoints](../scripts/endpoints.md).
+- A **webhook** handler runs the script once for each event a webhook source stores, and
+  says how its event runs stand: how many wait, and how many events were skipped in the
+  last seven days because as many runs as the deployment allows were already waiting. See
+  [Running one for each event](../scripts/running.md#running-one-for-each-event-a-webhook-source-stores).
+
+### A schedule
+
+Add a schedule, or open one, and pick how often — hourly, daily,
 weekdays, chosen days of the week, or a day of the month — set the time and the timezone
-it is read in, bind the value every fire passes, and pause or resume the whole thing.
+it is read in, bind the value every fire passes, and pause or resume it.
 
 You do not have to know cron. The page states what it will save in words ("Every weekday
 at 7:00 AM, America/Los_Angeles") and shows the expression it produces underneath, and
@@ -159,9 +185,9 @@ fires rather than to the day you typed it — that is what makes a scheduled run
 reproducible, because the run records the date it was computing for.
 
 Pausing is its own control rather than a schedule you have to clear and retype. A paused
-schedule resumes on the fire it was parked on, and there is no way to delete one: the
-schedule is part of the explanation of the runs it produced. Fires that came due while
-the platform was not running them are counted and stated rather than caught up on, so a
+schedule resumes on the fire it was parked on. A schedule that has produced runs cannot be
+deleted, because it is part of the explanation of those runs: pause it instead. Fires
+that came due while the platform was not running them are counted and stated rather than caught up on, so a
 gap in a script's schedule is visible instead of turning into a burst of stale reports.
 
 ![Paused schedule](../images/screenshots/light/user-script-schedule-paused-light.webp#only-light)![Paused schedule](../images/screenshots/dark/user-script-schedule-paused-dark.webp#only-dark)
@@ -455,8 +481,8 @@ asset's version history is the history of what the dashboard has been showing. A
 delivered to a bucket names where it was written and is not a link: those bytes left the
 platform, and nothing here will serve them back.
 
-The schedule controls of a script belong to its owner and to administrators. A script
-you do not own shows its details (its schedule and next run among them), what it says
+The handler controls of a script belong to its owner and to administrators. A script
+you do not own shows its details (its schedules and next run among them), what it says
 about itself, its source and versions, and its run history: how each run went, when, how
 long it took, and why one failed, with whether the next is expected to pass (#1994). What a
 run was given, printed and wrote stays with the owner, administrators and whoever
@@ -519,8 +545,8 @@ running and handing over a script all happen here, and removing one used to be
 the single thing that sent you back to an agent to ask for it.
 
 The confirmation says what goes rather than asking whether you are sure. Every
-saved version of the code, including the one a run executes; the schedule, named
-in words, so nothing fires it again; the whole run history; and the state the
+saved version of the code, including the one a run executes; its handlers, each
+schedule named in words, so nothing starts it again; the whole run history; and the state the
 script carried from one run to the next. A scheduled script's run history is its
 refresh history — if a report has been running for months, that record is part of
 what you are removing, and you should be deciding that rather than discovering

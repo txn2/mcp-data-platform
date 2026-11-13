@@ -22,7 +22,7 @@ import (
 // keeps no file; and the form's owner opens each file from the submissions
 // view.
 //
-// Wire forms: manage_script create and endpoint_set take their arguments as
+// Wire forms: manage_script create and handler_set kind=endpoint take their arguments as
 // literal tools/call params; the form GET is a plain GET; a submission with
 // files is multipart/form-data, the one form a file field takes, its values
 // as text parts and each file as a part with a filename; the submissions

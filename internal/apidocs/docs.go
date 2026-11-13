@@ -6993,6 +6993,88 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/handlers": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns one page of every script's handlers (Admin \u003e Handlers): each one's id, kind, type (endpoint, form, schedule or webhook), script, owner, target (an endpoint's name, a schedule's cadence, a webhook handler's source), whether it is on, who created it and when. type narrows to handlers of any of the types named and may be repeated; search narrows to handlers whose script name or target contains it; owner to one person's scripts; enabled to handlers that are on or off. total counts every match.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "List every handler",
+                "parameters": [
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "Narrow to these handler types",
+                        "name": "type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Narrow to handlers whose script name or target contains this",
+                        "name": "search",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Narrow to one owner's scripts, by email",
+                        "name": "owner",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Narrow to handlers that are on or off",
+                        "name": "enabled",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size (default and most 500)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Rows to skip",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlerhttp.HandlerList"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/index-jobs": {
             "get": {
                 "security": [
@@ -10235,252 +10317,6 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/scripthttp.adminRunListResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    }
-                }
-            }
-        },
-        "/admin/scripts/schedules": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns every managed-script schedule with its cadence, its bound parameters, its next fire, and how many fires it has missed.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Scripts"
-                ],
-                "summary": "List script schedules",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/scripthttp.scheduleListResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    }
-                }
-            }
-        },
-        "/admin/scripts/{id}/schedule": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns the cadence a script runs on, the parameters every fire binds, when it fires next, and how many fires it has missed.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Scripts"
-                ],
-                "summary": "Get a script's schedule",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Script ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/script.Schedule"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    }
-                }
-            },
-            "put": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Creates or replaces the cadence a script runs on. The parameters are validated against the script's contract. A schedule grants no authority: every fire executes the latest saved version, authorized against the roles captured at that save.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Scripts"
-                ],
-                "summary": "Set a script's schedule",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Script ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Cadence",
-                        "name": "schedule",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/scripthttp.scheduleRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/script.Schedule"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    }
-                }
-            }
-        },
-        "/admin/scripts/{id}/schedule/disable": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Stops a schedule firing, keeping the row that explains the runs it produced. There is deliberately no way to delete a schedule.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Scripts"
-                ],
-                "summary": "Disable a script's schedule",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Script ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/script.Schedule"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    }
-                }
-            }
-        },
-        "/admin/scripts/{id}/schedule/enable": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Resumes a paused schedule without touching its cadence. The next fire is the one it was parked on, which the misfire policy then collapses to a single run — the same treatment downtime gets.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Scripts"
-                ],
-                "summary": "Enable a script's schedule",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Script ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/script.Schedule"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
@@ -21232,6 +21068,330 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/handlers/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns one handler as its kind describes it: an endpoint's settings, address, recent failed requests and, for a form, where its submissions are stored; a schedule's cadence, args, next fire and missed fires; a webhook handler's source. Restricted to the script's owner and to administrators.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Get a handler",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Handler ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Changes one handler's settings, by the rules adding one follows. An endpoint's field left out keeps its value; a schedule takes its whole cadence (cron, timezone, args); a webhook handler's source does not change, and saving one leaves it on or off as it was (enable turns it on). Answers the handler as GET /portal/handlers/{id} does.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Change a handler",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Handler ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The handler's settings",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handlerhttp.SetRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Deletes one handler. An endpoint answers nothing at its address from then on, and its failed and refused requests go with it; a form's webhook source and the submissions stored in it stay. A schedule that produced runs is refused (403): its runs name it, so it is disabled instead. Restricted to the script's owner and to administrators, by the rules adding one follows.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Delete a handler",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Handler ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/handlers/{id}/disable": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Turns one handler off: an endpoint answers nothing, a schedule fires nothing, a webhook source's events start no run. Answers the handler as GET /portal/handlers/{id} does.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Turn a handler off",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Handler ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/handlers/{id}/enable": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Turns one handler on. A schedule turned on is due for the fire it was parked on. A form served to callers with no session needs an approved version before anyone but an administrator turns it on. Answers the handler as GET /portal/handlers/{id} does.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Turn a handler on",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Handler ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/knowledge-pages": {
             "get": {
                 "security": [
@@ -24764,7 +24924,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns the managed scripts the caller may see, each with its cadence and the state of its most recent run. A script's definition, its cadence and its runs' status are readable by everyone signed in; what a run was given and printed is its owner's and an administrator's. No row carries the script's source, for any caller: read it from GET /portal/scripts/{id}. A row the caller does not own carries no action, no fire-time parameters, and a last run without its requester or progress. scope=all lists every script and is the default; scope=mine narrows to the caller's own; scope=granted lists the scripts granted to the caller's persona, roles or API key, each with its parameter contract, which is the catalog an application builds from. Administrators see every script either way. The category, tag, search, owner, status, enabled and kind parameters narrow the listing; kind=script lists the scripts that run and kind=library the libraries other scripts load (#1941), and any other kind is refused; endpoint=bound lists the scripts bound to an endpoint and endpoint=unbound the rest, and each row bound to one carries its endpoint (name, address, access mode, whether it is on); tag may be repeated, and a script matching any of the named tags is returned. sort and dir order it in the store, ahead of the page cap, so an ordering is over every matching script rather than over the page. total counts every script the predicate matches, so it exceeds the rows returned when the listing was capped.",
+                "description": "Returns the managed scripts the caller may see, each with its cadence and the state of its most recent run. A script's definition, its cadence and its runs' status are readable by everyone signed in; what a run was given and printed is its owner's and an administrator's. No row carries the script's source, for any caller: read it from GET /portal/scripts/{id}. A row the caller does not own carries no action, no fire-time parameters, and a last run without its requester or progress. scope=all lists every script and is the default; scope=mine narrows to the caller's own; scope=granted lists the scripts granted to the caller's persona, roles or API key, each with its parameter contract, which is the catalog an application builds from. Administrators see every script either way. The category, tag, search, owner, status, enabled and kind parameters narrow the listing; kind=script lists the scripts that run and kind=library the libraries other scripts load (#1941), and any other kind is refused; type narrows to the scripts holding a handler of any of the types named (endpoint, form, schedule, webhook) and type=none to the scripts holding none, and may be repeated (endpoint= was removed and is refused); each row carries its handler types, its schedules and its endpoints (name, address, access mode, whether it is on); tag may be repeated, and a script matching any of the named tags is returned. sort and dir order it in the store, ahead of the page cap, so an ordering is over every matching script rather than over the page. total counts every script the predicate matches, so it exceeds the rows returned when the listing was capped.",
                 "produces": [
                     "application/json"
                 ],
@@ -24835,13 +24995,13 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
-                        "enum": [
-                            "bound",
-                            "unbound"
-                        ],
-                        "type": "string",
-                        "description": "Narrow to the scripts bound to an endpoint or to the ones that are not; any other value is refused",
-                        "name": "endpoint",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "Narrow to the scripts holding a handler of any of these types, or none",
+                        "name": "type",
                         "in": "query"
                     },
                     {
@@ -25157,7 +25317,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Removes a managed script and everything that belongs to it: its saved versions, its schedule, its run history, and the state it carried between runs. Restricted to the script's owner and to administrators, and answered as not-found for anybody else, so the refusal cannot be used to learn that a script exists. The assets and resources the script wrote are NOT removed, and the records naming it as their producer remain. It is the same removal manage_script command=delete performs, through the same store. A library another script's current source loads is not removed: the answer is 409, naming the scripts (#1941).",
+                "description": "Removes a managed script and everything that belongs to it: its saved versions, its handlers, its run history, and the state it carried between runs. Restricted to the script's owner and to administrators, and answered as not-found for anybody else, so the refusal cannot be used to learn that a script exists. The assets and resources the script wrote are NOT removed, and the records naming it as their producer remain. It is the same removal manage_script command=delete performs, through the same store. A library another script's current source loads is not removed: the answer is 409, naming the scripts (#1941).",
                 "produces": [
                     "application/json"
                 ],
@@ -25335,313 +25495,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/portal/scripts/{id}/endpoint": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns whether the script is bound to an endpoint and, when it is, the binding: its name, address, methods, path template, access mode (authenticated, public or bot_check), the callers an authenticated endpoint admits, the bot check a bot_check endpoint names and the methods it checks, limits and allowed origins, with the requests that failed in the last seven days (status, error and how long each took), newest first. A form (is_form) reports where its submissions are stored (form: source, table, connection, decrypt_personas) or, before its source is made, the connections it could be made on (form_connections), and a bound form its hosted page (page_url, #2331), which a site frames when allowed_origins lists it. Restricted to the script's owner and to administrators.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Scripts"
-                ],
-                "summary": "Get a script's endpoint",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Script ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    }
-                }
-            },
-            "put": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Binds the script to /endpoints/{endpoint}, or changes its binding. A field left out keeps what the binding had, or takes the default on a new one. The script must define handle(req), or form_spec(req) and form_submit(req, values) (a form); binding a form makes the webhook source its accepted submissions are stored in, on connection (the Trino connection whose scratch catalog holds webhook_form_\u003cendpoint\u003e, defaulting to the only one, named once), with decrypt_personas the personas a script may decrypt its sensitive fields as. auth_mode is authenticated (a platform API key or a browser session among callers: \"*\", \"persona:\u003cname\u003e\" or \"api_key:\u003cname\u003e\", empty admitting no one but the administrator, who is always admitted), public (anyone, with no check) or bot_check (anyone who passes the bot check bot_check names, one configured under Admin \u003e Settings \u003e Bot checks, on the methods in checked_methods, empty for every method); a binding naming a check that does not exist is refused, and so is signed_in. An administrator binds any script; the script's owner binds it only when it is a form, and a form served to callers with no session (public or bot_check) needs a version approved first, which an administrator's binding records for the version it serves. Anyone else is refused.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Scripts"
-                ],
-                "summary": "Bind a script to an endpoint",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Script ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "The binding",
-                        "name": "binding",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/bindinghttp.bindingRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    }
-                }
-            }
-        },
-        "/portal/scripts/{id}/endpoint/disable": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Turns the endpoint off: it answers 404 until it is turned on, and its binding is kept. An administrator, or the owner of a script that is a form.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Scripts"
-                ],
-                "summary": "Turn a script's endpoint off",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Script ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    }
-                }
-            }
-        },
-        "/portal/scripts/{id}/endpoint/enable": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Turns the endpoint on: it answers requests again. An administrator, or the owner of a script that is a form.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Scripts"
-                ],
-                "summary": "Turn a script's endpoint on",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Script ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    }
-                }
-            }
-        },
-        "/portal/scripts/{id}/event-source": {
-            "put": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Each event the named source stores enqueues one run of the script with trigger event, carrying the event as run.event (id, type, key, received_at, source, payload); the run executes through the run queue under the script's saved author roles, as a scheduled run does. An empty source runs it for none. An administrator may name any source; the owner only the source of a form they own (403 otherwise). Restricted to the script's owner and to administrators.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Scripts"
-                ],
-                "summary": "Set the webhook source a script runs for",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Script ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "The source",
-                        "name": "source",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/eventshttp.sourceRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/eventshttp.sourceResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    }
-                }
-            }
-        },
         "/portal/scripts/{id}/events": {
             "get": {
                 "security": [
@@ -25652,7 +25505,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "The script's pending event runs, the events skipped in the last seven days because max_queued event runs were already waiting (each recorded as a run with status skipped_backlog), the newest of each, and the bound (scripts.events.max_queued). Restricted to the script's owner and to administrators.",
+                "description": "The script's pending event runs, the events skipped in the last seven days because max_queued event runs of the webhook handler were already waiting (each recorded as a run with status skipped_backlog), the newest of each, and the bound per webhook handler (scripts.events.max_queued). Restricted to the script's owner and to administrators.",
                 "produces": [
                     "application/json"
                 ],
@@ -26025,6 +25878,145 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/scripts/{id}/handlers": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns what starts the script: each of its handlers (an endpoint, a form, a schedule or a webhook source) as its kind describes it, with its id, kind, type, settings and whether it is on; an endpoint's recent failed requests and, for a form, where its submissions are stored; a schedule's next fire and missed fires. add says, for each kind, whether the caller may add one and why not; endpoint says where a page would answer and, on a form, the connections its submissions could be stored on; sources are the webhook sources the caller may run the script for. Restricted to the script's owner and to administrators.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "List a script's handlers",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlerhttp.ScriptHandlers"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Adds what starts the script: kind endpoint (the endpoint settings manage_script's handler_set takes: endpoint, methods, path, auth_mode, callers, bot_check, limits, origins, response_mode; a form adds connection and decrypt_personas), schedule (cron, timezone, args) or webhook (event_source). An endpoint named like one the script already has changes that one; a name another script holds is refused, naming its handler. A schedule with the cadence and args of one the script already has is refused, naming it. A script holds at most max_per_kind handlers of a kind. The script's owner adds schedules and webhook handlers (a webhook only for the source of a form they own) and the endpoint of their own form; an administrator adds any. Answers the handler as GET /portal/handlers/{id} does.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Add a handler to a script",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The handler",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handlerhttp.SetRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -26649,242 +26641,6 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/postshttp.postsResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    }
-                }
-            }
-        },
-        "/portal/scripts/{id}/schedule": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns the cadence a script runs on and when it fires next, for everyone signed in. Its owner and administrators also get the parameters every fire binds, how many fires it has missed, and who last changed it.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Scripts"
-                ],
-                "summary": "Get a script's schedule",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Script ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/script.Schedule"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    }
-                }
-            },
-            "put": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Creates or replaces the cadence a script the caller owns runs on, with the parameters every fire binds. A schedule grants no authority: every fire executes the latest saved version, authorized against the roles captured at that save. Restricted to the script's owner and to administrators.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Scripts"
-                ],
-                "summary": "Set a script's schedule",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Script ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Cadence",
-                        "name": "schedule",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/scripthttp.scheduleRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/script.Schedule"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    }
-                }
-            }
-        },
-        "/portal/scripts/{id}/schedule/disable": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Stops a schedule on a script the caller owns from firing, keeping the row that explains the runs it produced. There is deliberately no way to delete a schedule. Restricted to the script's owner and to administrators.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Scripts"
-                ],
-                "summary": "Disable a script's schedule",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Script ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/script.Schedule"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    }
-                }
-            }
-        },
-        "/portal/scripts/{id}/schedule/enable": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Resumes a paused schedule on a script the caller owns, without touching its cadence. The next fire is the one it was parked on. Restricted to the script's owner and to administrators.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Scripts"
-                ],
-                "summary": "Enable a script's schedule",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Script ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/script.Schedule"
                         }
                     },
                     "401": {
@@ -36737,6 +36493,29 @@ const docTemplate = `{
                 }
             }
         },
+        "appbundle.Handlers": {
+            "type": "object",
+            "properties": {
+                "endpoints": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/appbundle.Endpoint"
+                    }
+                },
+                "schedules": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/appbundle.Schedule"
+                    }
+                },
+                "webhooks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/appbundle.Webhook"
+                    }
+                }
+            }
+        },
         "appbundle.Imported": {
             "type": "object",
             "properties": {
@@ -36880,10 +36659,19 @@ const docTemplate = `{
                     "$ref": "#/definitions/appbundle.Endpoint"
                 },
                 "event_source": {
+                    "description": "EventSource, Endpoint and Schedule are a version 1 bundle's one of\neach, which import reads as handlers.",
                     "type": "string"
                 },
                 "exclusive": {
                     "type": "string"
+                },
+                "handlers": {
+                    "description": "Handlers are what start the script: its endpoints, schedules and\nwebhook sources (format version 2). A tool-call handler governs a\ndeployment's people rather than an application, and is never exported.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/appbundle.Handlers"
+                        }
+                    ]
                 },
                 "name": {
                     "type": "string"
@@ -36915,6 +36703,17 @@ const docTemplate = `{
                 },
                 "version": {
                     "type": "integer"
+                }
+            }
+        },
+        "appbundle.Webhook": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "source": {
+                    "type": "string"
                 }
             }
         },
@@ -38640,9 +38439,11 @@ const docTemplate = `{
                     "description": "Description is the script's or asset's own description.",
                     "type": "string"
                 },
-                "event_source": {
-                    "description": "EventSource is the webhook source a script runs for, empty for none.",
-                    "type": "string"
+                "event_sources": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "id": {
                     "type": "string",
@@ -38667,8 +38468,12 @@ const docTemplate = `{
                     "description": "RequestsLastDay is how many requests a webhook source accepted in the\nlast 24 hours; told to administrators, who manage sources.",
                     "type": "integer"
                 },
-                "schedule": {
-                    "$ref": "#/definitions/appsvc.PartSchedule"
+                "schedules": {
+                    "description": "Schedules are a script's schedule handlers and EventSources the\nwebhook sources it runs for (#2434); empty for none.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/appsvc.PartSchedule"
+                    }
                 },
                 "state": {
                     "type": "string",
@@ -39527,109 +39332,6 @@ const docTemplate = `{
                 "TypeTokenDeletedRevoked",
                 "TypeTokenDeletedAdmin"
             ]
-        },
-        "bindinghttp.bindingRequest": {
-            "type": "object",
-            "properties": {
-                "allowed_origins": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "auth_mode": {
-                    "type": "string"
-                },
-                "bot_check": {
-                    "type": "string"
-                },
-                "caller_rate_limit": {
-                    "type": "integer"
-                },
-                "callers": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "checked_methods": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "connection": {
-                    "description": "Connection and DecryptPersonas are a form's (#2178, #2179): the Trino\nconnection its source's table is created on, and the personas a script\nrun may decrypt its sensitive fields as (nil keeps them).",
-                    "type": "string"
-                },
-                "decrypt_personas": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "endpoint": {
-                    "type": "string"
-                },
-                "ip_rate_limit": {
-                    "description": "IPRateLimit is one client address's requests a minute (#2556); nil\nkeeps it, 0 removes it.",
-                    "type": "integer"
-                },
-                "max_body_bytes": {
-                    "type": "integer"
-                },
-                "max_memory_bytes": {
-                    "type": "integer"
-                },
-                "methods": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "page_cdns": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "page_connect_origins": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "page_form_origins": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "page_frame_origins": {
-                    "description": "PageFrameOrigins, PageConnectOrigins and PageFormOrigins are what a\npage may frame, call and post to besides its own origin (#2554).",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "path": {
-                    "type": "string"
-                },
-                "preview_version": {
-                    "description": "PreviewVersion is the saved version form_preview renders, 0 for the\nlatest (#2494).",
-                    "type": "integer"
-                },
-                "rate_limit": {
-                    "type": "integer"
-                },
-                "response_mode": {
-                    "description": "ResponseMode and PageCDNs make the endpoint a browser page (#2517).",
-                    "type": "string"
-                },
-                "timeout_seconds": {
-                    "type": "integer"
-                }
-            }
         },
         "botcheck.Input": {
             "type": "object",
@@ -42406,29 +42108,6 @@ const docTemplate = `{
                 }
             }
         },
-        "eventshttp.sourceRequest": {
-            "type": "object",
-            "properties": {
-                "source": {
-                    "description": "Source is the webhook source's name; empty runs the script for none.",
-                    "type": "string",
-                    "example": "form-contact"
-                }
-            }
-        },
-        "eventshttp.sourceResponse": {
-            "type": "object",
-            "properties": {
-                "message": {
-                    "type": "string",
-                    "example": "Saved. Each event source form-contact stores runs this script."
-                },
-                "source": {
-                    "type": "string",
-                    "example": "form-contact"
-                }
-            }
-        },
         "eventshttp.summaryResponse": {
             "type": "object",
             "properties": {
@@ -42439,7 +42118,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "max_queued": {
-                    "description": "MaxQueued is how many pending event runs the script may hold.",
+                    "description": "MaxQueued is how many pending event runs each of the script's webhook\nhandlers may hold.",
                     "type": "integer",
                     "example": 100
                 },
@@ -42844,6 +42523,10 @@ const docTemplate = `{
                 "rhythm": {
                     "type": "string",
                     "example": "minutes"
+                },
+                "schedule_id": {
+                    "description": "ScheduleID is the schedule handler the row lays out: a script holding\nseveral schedules has a row for each (#2434).",
+                    "type": "string"
                 },
                 "script_id": {
                     "type": "string"
@@ -43665,6 +43348,185 @@ const docTemplate = `{
                 },
                 "source": {
                     "type": "string"
+                }
+            }
+        },
+        "handlerhttp.HandlerList": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scripthandler.Handler"
+                    }
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 3
+                }
+            }
+        },
+        "handlerhttp.ScriptHandlers": {
+            "type": "object",
+            "properties": {
+                "add": {
+                    "description": "Add is each kind as adding one offers it to the caller.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scripthandler.Offer"
+                    }
+                },
+                "endpoint": {
+                    "description": "Endpoint is what adding an endpoint offers: where its page would\nanswer and, for a form, the connections its submissions could be\nstored on.",
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "handlers": {
+                    "description": "Handlers are the script's handlers, each as its kind describes it,\nwith its id, kind and type (the kind, or form).",
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                },
+                "max_per_kind": {
+                    "description": "MaxPerKind is how many handlers of one kind a script may hold.",
+                    "type": "integer",
+                    "example": 20
+                },
+                "sources": {
+                    "description": "Sources are the webhook sources the caller may run the script for.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "handlerhttp.SetRequest": {
+            "type": "object",
+            "properties": {
+                "allowed_origins": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "args": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "auth_mode": {
+                    "type": "string"
+                },
+                "bot_check": {
+                    "type": "string"
+                },
+                "caller_rate_limit": {
+                    "type": "integer"
+                },
+                "callers": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "checked_methods": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "connection": {
+                    "description": "Connection and DecryptPersonas are a form's (#2178, #2179): the Trino\nconnection its source's table is created on, and the personas a script\nrun may decrypt its sensitive fields as (nil keeps them).",
+                    "type": "string"
+                },
+                "cron": {
+                    "description": "Cron, Timezone and Args are a schedule's.",
+                    "type": "string",
+                    "example": "0 7 * * 1-5"
+                },
+                "decrypt_personas": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "endpoint": {
+                    "type": "string"
+                },
+                "event_source": {
+                    "description": "EventSource is a webhook handler's source.",
+                    "type": "string",
+                    "example": "form-contact"
+                },
+                "ip_rate_limit": {
+                    "description": "IPRateLimit is one client address's requests a minute (#2556); nil\nkeeps it, 0 removes it.",
+                    "type": "integer"
+                },
+                "kind": {
+                    "description": "Kind is endpoint, schedule or webhook; a change reads it from the\nhandler and may leave it out.",
+                    "type": "string",
+                    "example": "schedule"
+                },
+                "max_body_bytes": {
+                    "type": "integer"
+                },
+                "max_memory_bytes": {
+                    "type": "integer"
+                },
+                "methods": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "page_cdns": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "page_connect_origins": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "page_form_origins": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "page_frame_origins": {
+                    "description": "PageFrameOrigins, PageConnectOrigins and PageFormOrigins are what a\npage may frame, call and post to besides its own origin (#2554).",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "path": {
+                    "type": "string"
+                },
+                "preview_version": {
+                    "description": "PreviewVersion is the saved version form_preview renders, 0 for the\nlatest (#2494).",
+                    "type": "integer"
+                },
+                "rate_limit": {
+                    "type": "integer"
+                },
+                "response_mode": {
+                    "description": "ResponseMode and PageCDNs make the endpoint a browser page (#2517).",
+                    "type": "string"
+                },
+                "timeout_seconds": {
+                    "description": "TimeoutSeconds is how long one request to an endpoint may run.",
+                    "type": "integer"
+                },
+                "timezone": {
+                    "type": "string",
+                    "example": "America/Los_Angeles"
                 }
             }
         },
@@ -49505,10 +49367,6 @@ const docTemplate = `{
                     "type": "boolean",
                     "example": true
                 },
-                "event_source": {
-                    "description": "EventSource is the webhook source the script runs for (#2332), empty\nwhen it runs for none.",
-                    "type": "string"
-                },
                 "exclusive": {
                     "description": "Exclusive is whether the script's runs may overlap: off, refuse or\nqueue (#1986, #2209).",
                     "allOf": [
@@ -49563,13 +49421,12 @@ const docTemplate = `{
                     "description": "RunsWithheld is true on a contract composed for a reader who neither\nowns the script nor administers the platform: its last run and its\nsaved state are left out (ForReader).",
                     "type": "boolean"
                 },
-                "schedule": {
-                    "description": "Schedule is the cadence this script fires on, nil when it has none.",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/script.ContractSchedule"
-                        }
-                    ]
+                "schedules": {
+                    "description": "Schedules are the cadences this script fires on, each a schedule\nhandler of its own (#2434); empty when it has none.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/script.ContractSchedule"
+                    }
                 },
                 "state": {
                     "description": "State says whether this script carries anything from one run to the next\n(#1537), and where that state stands. Nil only on a contract composed\nwithout a state read.",
@@ -50146,10 +50003,6 @@ const docTemplate = `{
                 "enabled": {
                     "type": "boolean",
                     "example": true
-                },
-                "event_source": {
-                    "description": "EventSource is the webhook source the script runs for (#2332): each\nevent it stores enqueues one run with trigger event. Empty runs for\nnone. Set by the owner or an administrator, as a schedule is.",
-                    "type": "string"
                 },
                 "exclusive": {
                     "description": "Exclusive is the owner's setting for runs of the script overlapping,\nwhatever started them (#1986, #2209). Under refuse the script has at\nmost one open (pending or running) run: a scheduled fire while a run is\nopen is skipped, and run_script or a portal run is refused naming the\nopen run. Under queue a second run is accepted and waits, pending, until\nno other run of the script is running. Under off runs may overlap and\nthe state check is the only guard.",
@@ -50826,6 +50679,58 @@ const docTemplate = `{
                 }
             }
         },
+        "scripthandler.Handler": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "owner_email": {
+                    "type": "string"
+                },
+                "script_id": {
+                    "type": "string"
+                },
+                "script_name": {
+                    "type": "string"
+                },
+                "target": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "scripthandler.Offer": {
+            "type": "object",
+            "properties": {
+                "allowed": {
+                    "type": "boolean"
+                },
+                "contract": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                }
+            }
+        },
         "scripthttp.adminRun": {
             "type": "object",
             "properties": {
@@ -50977,7 +50882,7 @@ const docTemplate = `{
                 "message": {
                     "description": "Message states what went and what did not. It names only what the\nremoval actually took, which is a narrower statement than the\nconfirmation makes before the fact: the dialog warns from the script's\ncontract, this reports what the delete's own transaction found.",
                     "type": "string",
-                    "example": "daily-sales-report is gone, with its saved versions, its schedule, its run history and the state it carried. The assets and resources it wrote remain, and they still record that it wrote them."
+                    "example": "daily-sales-report is gone, with its saved versions, its handlers, its run history and the state it carried. The assets and resources it wrote remain, and they still record that it wrote them."
                 },
                 "name": {
                     "type": "string",
@@ -51463,18 +51368,24 @@ const docTemplate = `{
         "scripthttp.portalScriptRow": {
             "type": "object",
             "properties": {
-                "endpoint": {
-                    "description": "Endpoint is the endpoint the script is bound to (#2259), absent when it\nis bound to none.",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/scriptlist.Endpoint"
-                        }
-                    ]
+                "endpoints": {
+                    "description": "Endpoints are the endpoints the script answers (#2259, #2441), empty\nwhen it answers none.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scriptlist.Endpoint"
+                    }
                 },
                 "granted": {
                     "description": "Granted marks a script this caller may run because it was granted to\nthem rather than because they own it (#1846), on a scope=granted\nlisting.",
                     "type": "boolean",
                     "example": true
+                },
+                "handler_types": {
+                    "description": "HandlerTypes are the types of the script's handlers (#2435): endpoint,\nform, schedule, webhook, once each; empty when it has none.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "last_run": {
                     "description": "LastRun is the most recent run of this script, absent when it has never\nrun and when the caller does not own it — a run is owner-and-admin\nreading, and so is the fact that one failed.",
@@ -51489,13 +51400,12 @@ const docTemplate = `{
                     "type": "boolean",
                     "example": true
                 },
-                "schedule": {
-                    "description": "Schedule is the script's cadence, absent when it has none. On a row this\ncaller does not own it carries the cadence alone (see reportableSchedule).",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/script.Schedule"
-                        }
-                    ]
+                "schedules": {
+                    "description": "Schedules are the script's schedule handlers, empty when it has none.\nOn a row this caller does not own each carries the cadence alone (see\nreportableSchedule).",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/script.Schedule"
+                    }
                 },
                 "script": {
                     "$ref": "#/definitions/script.Script"
@@ -51677,45 +51587,6 @@ const docTemplate = `{
                 "version": {
                     "type": "integer",
                     "example": 3
-                }
-            }
-        },
-        "scripthttp.scheduleListResponse": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/script.Schedule"
-                    }
-                },
-                "total": {
-                    "type": "integer",
-                    "example": 2
-                }
-            }
-        },
-        "scripthttp.scheduleRequest": {
-            "type": "object",
-            "properties": {
-                "cron": {
-                    "description": "Cron is a standard five-field expression or a descriptor (@daily).",
-                    "type": "string",
-                    "example": "0 7 * * 1-5"
-                },
-                "enabled": {
-                    "description": "Enabled turns the schedule on or off; omitted leaves an existing\nschedule's state alone and starts a new one enabled.",
-                    "type": "boolean"
-                },
-                "params": {
-                    "description": "Params are the values every fire binds, with ${fire_date} left as\nwritten: it expands at the fire, so the run records the date it computed.",
-                    "type": "object",
-                    "additionalProperties": {}
-                },
-                "timezone": {
-                    "description": "Timezone is the IANA zone the expression is read in; empty means UTC.",
-                    "type": "string",
-                    "example": "America/Los_Angeles"
                 }
             }
         },

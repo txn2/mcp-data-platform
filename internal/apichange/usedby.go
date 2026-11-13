@@ -172,8 +172,8 @@ func (u Usage) Callers(ctx context.Context, connections []string, idx OperationI
 	return out.byOp, nil
 }
 
-// scriptsSQL is every script with its saved source and the endpoint bound to
-// it, if any.
+// scriptsSQL is every script with its saved source, once for each endpoint
+// it answers (#2441), or once with no endpoint.
 const scriptsSQL = `SELECT s.id::text, s.name, s.source_code, COALESCE(e.name, '')
 	FROM scripts s LEFT JOIN script_endpoints e ON e.script_id = s.id
 	ORDER BY s.name`
@@ -221,7 +221,7 @@ func addSourceCalls(out *collected, reach map[string]bool, idx OperationIndex, s
 }
 
 // runCallersSQL is the operations runs of each script called on the named
-// connections, with the endpoint bound to the script.
+// connections, once for each endpoint the script answers.
 const runCallersSQL = `SELECT c.operation, c.connection, s.id::text, s.name, COALESCE(e.name, ''), c.last_seen_at
 	FROM api_operation_callers c
 	JOIN scripts s ON s.id::text = c.script_id

@@ -1,8 +1,9 @@
 import { BookOpen, ChevronRight } from "lucide-react";
+import { HandlerTypeBadges } from "./HandlerTypeBadge";
 import type { PortalScriptRow } from "@/api/portal/hooks/scripts";
 import { scheduleLine, scheduleState } from "./cadence";
 import { agoText, endpointTail } from "./listingFormat";
-import { InertBadge, KIND_TEXT, RunDot, runMoment } from "./ScriptRow";
+import { InertBadge, KIND_TEXT, RunDot, runMoment, unscheduledText } from "./ScriptRow";
 import { runStatusLabel } from "./runFormat";
 
 // ScriptPhoneList is the Automations listing on a phone, or wherever no table
@@ -54,7 +55,12 @@ function PhoneRow({ row, onOpen }: { row: PortalScriptRow; onOpen: () => void })
           <InertBadge row={row} />
         </span>
         <span className="truncate text-xs text-foreground/80">{whatItDoes(row)}</span>
-        <span className="truncate text-xs text-muted-foreground">{whoAndHow(row)}</span>
+        {/* The handler types (#2435) lead the third line, so the name keeps
+            the whole first line at a phone's width. */}
+        <span className="flex min-w-0 items-center gap-1.5">
+          <HandlerTypeBadges types={row.handler_types} className="shrink-0 flex-nowrap" />
+          <span className="min-w-0 truncate text-xs text-muted-foreground">{whoAndHow(row)}</span>
+        </span>
       </span>
       <ChevronRight className="mt-1 size-4 shrink-0 text-muted-foreground" aria-hidden />
     </button>
@@ -64,17 +70,25 @@ function PhoneRow({ row, onOpen }: { row: PortalScriptRow; onOpen: () => void })
 /** whatItDoes is a row's cadence and next fire, its endpoint, or what a library is for. */
 export function whatItDoes(row: PortalScriptRow): string {
   if (row.script.library) return "Loaded by other automations";
-  if (row.schedule) {
-    const line = scheduleLine(row.schedule.cron_spec, row.schedule.timezone);
-    const state = scheduleState(row.schedule);
-    if (state.kind === "paused") return `${line} · paused`;
-    if (state.kind === "due") return `${line} · next ${agoOrDate(state.at)}`;
-    return line;
+  const schedules = row.schedules ?? [];
+  if (schedules.length > 0) return schedulesText(schedules);
+  const endpoint = row.endpoints?.[0];
+  if (endpoint) {
+    return `Endpoint ${endpointTail(endpoint.path)}${endpoint.enabled ? "" : " · Off"}`;
   }
-  if (row.endpoint) {
-    return `Endpoint ${endpointTail(row.endpoint.path)}${row.endpoint.enabled ? "" : " · Off"}`;
-  }
-  return "On demand";
+  return unscheduledText(row);
+}
+
+// schedulesText is the first schedule's cadence and what it does next, and
+// how many more schedules the script holds (#2434).
+function schedulesText(schedules: NonNullable<PortalScriptRow["schedules"]>): string {
+  const [first] = schedules;
+  const line = scheduleLine(first!.cron_spec, first!.timezone);
+  const state = scheduleState(first!);
+  const more = schedules.length > 1 ? ` · +${schedules.length - 1} more` : "";
+  if (state.kind === "paused") return `${line} · paused${more}`;
+  if (state.kind === "due") return `${line} · next ${agoOrDate(state.at)}${more}`;
+  return `${line}${more}`;
 }
 
 /** A next fire as the listing's short date. */

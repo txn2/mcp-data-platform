@@ -20,6 +20,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/application"
 	"github.com/txn2/mcp-data-platform/internal/application/appdiagram"
 	"github.com/txn2/mcp-data-platform/internal/application/appschema"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptevents"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -63,6 +64,9 @@ type Service struct {
 	Schedules Schedules
 	Activity  SourceActivity
 	Lister    CandidateLister
+	// Webhooks reads the webhook sources each script runs for (#2434); nil
+	// reads none.
+	Webhooks Webhooks
 	// Roles and Sealer create an application's run role when its schema is
 	// added and keep its password sealed (#2539); without both no schema is
 	// added. Reach lists the application database connections an actor may
@@ -78,6 +82,11 @@ type Service struct {
 	// Sites reads a site part and points its environment at a release
 	// (#2518); nil adds no site.
 	Sites Sites
+}
+
+// Webhooks reads webhook handlers (scriptevents.PostgresStore).
+type Webhooks interface {
+	Handlers(ctx context.Context, filter scriptevents.HandlerFilter) ([]scriptevents.Handler, error)
 }
 
 // Sites is what an application does with its site parts.

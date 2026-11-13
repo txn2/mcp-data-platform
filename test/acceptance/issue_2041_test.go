@@ -94,9 +94,9 @@ func TestIssue2041_OneFailureEmailThenOneRecoveredEmail(t *testing.T) {
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 	got := c.call("manage_script", map[string]any{"command": "get", "name": name})
 	scriptID, _ := got["id"].(string)
-	c.call("manage_script", map[string]any{"command": "schedule_set", "name": name, "cron": "0 3 * * *", "timezone": "UTC"})
+	c.scheduleSet(name, "0 3 * * *", "UTC", nil)
 	t.Cleanup(func() {
-		_, _, _ = c.callRaw("manage_script", map[string]any{"command": "schedule_disable", "name": name})
+		c.schedulesOff(name)
 	})
 
 	seen := map[string]bool{}
@@ -158,9 +158,9 @@ func TestIssue2041_OneFailureThenSuccessIsExactlyTwoEmails(t *testing.T) {
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 	got := c.call("manage_script", map[string]any{"command": "get", "name": name})
 	scriptID, _ := got["id"].(string)
-	c.call("manage_script", map[string]any{"command": "schedule_set", "name": name, "cron": "0 3 * * *", "timezone": "UTC"})
+	c.scheduleSet(name, "0 3 * * *", "UTC", nil)
 	t.Cleanup(func() {
-		_, _, _ = c.callRaw("manage_script", map[string]any{"command": "schedule_disable", "name": name})
+		c.schedulesOff(name)
 	})
 
 	seen := map[string]bool{}

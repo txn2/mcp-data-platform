@@ -10,7 +10,7 @@ import (
 
 // TestDeleteMessage_NamesOnlyWhatTheScriptHad is the criterion the whole
 // composition exists for: the account of a delete states what actually went,
-// so a script that was never scheduled and carried no state is not reported as
+// so a script that held no handler and carried no state is not reported as
 // having lost either.
 func TestDeleteMessage_NamesOnlyWhatTheScriptHad(t *testing.T) {
 	tests := []struct {
@@ -20,8 +20,9 @@ func TestDeleteMessage_NamesOnlyWhatTheScriptHad(t *testing.T) {
 	}{
 		{
 			name:    "everything",
-			removed: script.Removed{Schedule: true, Runs: true, State: true},
-			want:    "daily is gone, with its saved versions, its schedule, its run history and the state it carried.",
+			removed: script.Removed{Handlers: true, Runs: true, State: true},
+			want: "daily is gone, with its saved versions, its handlers (its endpoints, schedules and webhook sources), " +
+				"its run history and the state it carried.",
 		},
 		{
 			name:    "nothing but its own history",
@@ -29,14 +30,14 @@ func TestDeleteMessage_NamesOnlyWhatTheScriptHad(t *testing.T) {
 			want:    "daily is gone, with its saved versions.",
 		},
 		{
-			name:    "ran but was never scheduled",
+			name:    "ran but held no handler",
 			removed: script.Removed{Runs: true},
 			want:    "daily is gone, with its saved versions and its run history.",
 		},
 		{
-			name:    "scheduled and carried state, never ran",
-			removed: script.Removed{Schedule: true, State: true},
-			want:    "daily is gone, with its saved versions, its schedule and the state it carried.",
+			name:    "held handlers and carried state, never ran",
+			removed: script.Removed{Handlers: true, State: true},
+			want:    "daily is gone, with its saved versions, its handlers (its endpoints, schedules and webhook sources) and the state it carried.",
 		},
 	}
 	for _, tt := range tests {
@@ -54,6 +55,7 @@ func TestDeleteMessage_NamesOnlyWhatTheScriptHad(t *testing.T) {
 // clauses are absent, not merely reordered.
 func TestDeleteMessage_DoesNotNameWhatWasNotThere(t *testing.T) {
 	got := script.DeleteMessage("daily", script.Removed{})
+	assert.NotContains(t, got, "handlers")
 	assert.NotContains(t, got, "schedule")
 	assert.NotContains(t, got, "run history")
 	assert.NotContains(t, got, "state it carried")

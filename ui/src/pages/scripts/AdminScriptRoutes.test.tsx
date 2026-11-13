@@ -6,7 +6,7 @@ import { AdminScriptRoutes } from "./AdminScriptRoutes";
 // Both pages are stubbed: what is under test is which page an address opens and
 // what it is told, not what either page renders.
 vi.mock("./AdminScriptsPage", () => ({
-  AdminScriptsPage: () => <div data-testid="listing" />,
+  AdminScriptsPage: ({ tab }: { tab?: string }) => <div data-testid="listing" data-tab={tab ?? ""} />,
 }));
 
 vi.mock("./ScriptDetailPage", () => ({
@@ -36,6 +36,14 @@ describe("AdminScriptRoutes", () => {
   it("opens the listing at the section index", () => {
     render(<AdminScriptRoutes route="/admin/automations" onNavigate={onNavigate} />);
     expect(screen.getByTestId("listing")).toBeInTheDocument();
+  });
+
+  // #2435: Handlers is a tab with an address of its own, matched before an
+  // automation's address, which "handlers" would otherwise read as.
+  it("opens the listing on its Handlers tab at that tab's address", () => {
+    render(<AdminScriptRoutes route="/admin/automations/handlers" onNavigate={onNavigate} />);
+    expect(screen.getByTestId("listing")).toHaveAttribute("data-tab", "handlers");
+    expect(screen.queryByTestId("detail")).not.toBeInTheDocument();
   });
 
   it("opens one script on the same page its owner opens", () => {

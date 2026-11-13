@@ -33,18 +33,23 @@ const FailureRetention = 7 * 24 * time.Hour
 
 // Store keeps bindings and the failed requests they answered.
 type Store interface {
-	// Set creates or replaces sc's binding, keyed by its script; a name
-	// another script's binding has is ErrNameTaken.
+	// Set creates a binding when its ID is empty and replaces the one with its
+	// ID otherwise, which must be one of its script's; a name another binding
+	// has is ErrNameTaken. A script may hold several bindings (#2441).
 	Set(ctx context.Context, b *Binding) error
-	// Get is a script's binding, ErrNotFound when it has none.
-	Get(ctx context.Context, scriptID string) (*Binding, error)
+	// GetByID is one binding, ErrNotFound when none has the id.
+	GetByID(ctx context.Context, id string) (*Binding, error)
+	// ByScript is a script's bindings by name, empty when it has none.
+	ByScript(ctx context.Context, scriptID string) ([]Binding, error)
 	// GetByName is the binding a name serves, ErrNotFound when none does.
 	GetByName(ctx context.Context, name string) (*Binding, error)
 	// List is one page of the bindings filter matches, by name, and how
 	// many it matches in all.
 	List(ctx context.Context, filter Filter) (page []Binding, total int, err error)
-	// SetEnabled turns a script's binding on or off.
-	SetEnabled(ctx context.Context, scriptID string, enabled bool, actor string) error
+	// Enable turns one binding on or off.
+	Enable(ctx context.Context, id string, enabled bool, actor string) error
+	// Delete removes one binding with its failed and refused requests.
+	Delete(ctx context.Context, id string) error
 	// RecordFailure keeps one failed request.
 	RecordFailure(ctx context.Context, f Failure) error
 	// Failures is an endpoint's most recent failed requests, newest first.

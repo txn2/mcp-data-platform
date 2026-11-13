@@ -15,7 +15,7 @@ import (
 // bot_check), the callers an authenticated endpoint admits, and named bot
 // checks an endpoint picks from.
 //
-// Wire forms: manage_script endpoint_set takes auth_mode and bot_check as
+// Wire forms: manage_script handler_set kind=endpoint takes auth_mode and bot_check as
 // strings and callers and checked_methods as JSON arrays of strings, sent as
 // the literal tools/call params; PUT /api/v1/portal/scripts/{id}/endpoint
 // takes one JSON object with the same fields; PUT /api/v1/admin/bot-checks/
@@ -76,7 +76,7 @@ func issue2259Refused(t *testing.T, admin *client, name, reason string, want flo
 	}
 }
 
-// TestIssue2259_TheThreeModesOnBothSurfacesAndSignedInIsRefused: endpoint_set
+// TestIssue2259_TheThreeModesOnBothSurfacesAndSignedInIsRefused: handler_set kind=endpoint
 // and the portal route take authenticated, public and bot_check, refuse
 // signed_in, and refuse a bot_check binding naming a check that does not
 // exist.
@@ -94,7 +94,7 @@ func TestIssue2259_TheThreeModesOnBothSurfacesAndSignedInIsRefused(t *testing.T)
 		args["endpoint"] = viaTool
 		listed := bindEndpoint(t, admin, viaTool, "", args)
 		if listed["auth_mode"] != args["auth_mode"] {
-			t.Fatalf("endpoint_set %v listed back %v", args, listed)
+			t.Fatalf("handler_set kind=endpoint %v listed back %v", args, listed)
 		}
 		if args["auth_mode"] == "bot_check" && (listed["bot_check"] != check || fmt.Sprint(listed["checked_methods"]) != "[POST]") {
 			t.Fatalf("the bot_check binding listed back: %v", listed)
@@ -107,16 +107,16 @@ func TestIssue2259_TheThreeModesOnBothSurfacesAndSignedInIsRefused(t *testing.T)
 	// before the binding is read.
 	if out, refusal := endpointSet(t, admin, viaTool, "", map[string]any{"endpoint": viaTool, "auth_mode": "signed_in"}); out != nil ||
 		!strings.Contains(refusal, "signed_in does not equal any of: [authenticated public bot_check]") {
-		t.Fatalf("endpoint_set signed_in: want refused, got %v %q", out, refusal)
+		t.Fatalf("handler_set signed_in: want refused, got %v %q", out, refusal)
 	}
 	if out, refusal := endpointSet(t, admin, viaTool, "", map[string]any{"endpoint": viaTool, "auth_mode": "bot_check", "bot_check": "acc-2259-no-such-check"}); out != nil ||
 		!strings.Contains(refusal, `no bot check is named "acc-2259-no-such-check"`) {
-		t.Fatalf("endpoint_set naming a check that does not exist: want refused, got %v %q", out, refusal)
+		t.Fatalf("handler_set naming a check that does not exist: want refused, got %v %q", out, refusal)
 	}
 
 	put := func(body map[string]any) (int, map[string]any) {
 		body["endpoint"] = viaPortal
-		return admin.rest(http.MethodPut, "/api/v1/portal/scripts/"+portalID+"/endpoint", jsonBody(t, body))
+		return admin.portalEndpointSet(portalID, body)
 	}
 	for _, body := range []map[string]any{
 		{"auth_mode": "authenticated", "callers": []string{"*"}},
@@ -124,7 +124,7 @@ func TestIssue2259_TheThreeModesOnBothSurfacesAndSignedInIsRefused(t *testing.T)
 		{"auth_mode": "bot_check", "bot_check": check},
 	} {
 		mode := body["auth_mode"]
-		if status, out := put(body); status != http.StatusOK || out["auth_mode"] != mode {
+		if status, out := put(body); !succeeded(status) || out["auth_mode"] != mode {
 			t.Fatalf("the portal PUT %v: %d %v", body, status, out)
 		}
 	}

@@ -884,12 +884,12 @@ export const mockScriptContracts: Record<string, ScriptContract> = {
       },
     ],
     version: 2,
-    schedule: {
+    schedules: [{
       cron_spec: "0 7 * * 1-5",
       timezone: "America/Los_Angeles",
       enabled: true,
       next_run_at: hoursAhead(22),
-    },
+    }],
     last_successful_run: {
       run_id: "run-001",
       version: 2,
@@ -966,7 +966,7 @@ export const mockScriptContracts: Record<string, ScriptContract> = {
     enabled: true,
     params: [],
     version: 5,
-    schedule: { cron_spec: "*/30 * * * *", timezone: "UTC", enabled: false },
+    schedules: [{ cron_spec: "*/30 * * * *", timezone: "UTC", enabled: false }],
     last_successful_run: {
       run_id: "run-101",
       version: 5,

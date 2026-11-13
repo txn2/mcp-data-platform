@@ -43,6 +43,13 @@ interface Props {
   saved: { cron: string; timezone: string } | null;
   onCadenceChange: (cadence: Cadence) => void;
   onTimezoneChange: (timezone: string) => void;
+  /**
+   * idPrefix distinguishes this builder's controls from another builder's on
+   * the same page: a script holds several schedules (#2434), so a page can
+   * show a schedule being added beside one being edited, and with shared ids
+   * clicking the second builder's label would move focus into the first.
+   */
+  idPrefix?: string;
 }
 
 export function ScheduleBuilder({
@@ -52,6 +59,7 @@ export function ScheduleBuilder({
   saved,
   onCadenceChange,
   onTimezoneChange,
+  idPrefix = "script",
 }: Props) {
   return (
     <div className="space-y-4">
@@ -67,8 +75,8 @@ export function ScheduleBuilder({
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <CadenceDetail cadence={cadence} busy={busy} onChange={onCadenceChange} />
-        <TimezoneField timezone={timezone} busy={busy} onChange={onTimezoneChange} />
+        <CadenceDetail cadence={cadence} busy={busy} onChange={onCadenceChange} idPrefix={idPrefix} />
+        <TimezoneField timezone={timezone} busy={busy} onChange={onTimezoneChange} idPrefix={idPrefix} />
       </div>
 
       <Readback cadence={cadence} timezone={timezone} saved={saved} />
@@ -117,16 +125,18 @@ function CadenceDetail({
   cadence,
   busy,
   onChange,
+  idPrefix,
 }: {
   cadence: Cadence;
   busy: boolean;
   onChange: (c: Cadence) => void;
+  idPrefix: string;
 }) {
   switch (cadence.kind) {
     case "hourly":
       return (
         <NumberField
-          id="script-minute"
+          id={`${idPrefix}-minute`}
           label="Minutes past the hour"
           hint="0 is on the hour."
           value={cadence.minute}
@@ -138,7 +148,7 @@ function CadenceDetail({
       );
     case "daily":
     case "weekdays":
-      return <TimeField cadence={cadence} busy={busy} onChange={onChange} />;
+      return <TimeField cadence={cadence} busy={busy} onChange={onChange} idPrefix={idPrefix} />;
     case "weekly":
       return (
         <div className="space-y-4">
@@ -147,14 +157,14 @@ function CadenceDetail({
             busy={busy}
             onChange={(days) => onChange({ ...cadence, days })}
           />
-          <TimeField cadence={cadence} busy={busy} onChange={onChange} />
+          <TimeField cadence={cadence} busy={busy} onChange={onChange} idPrefix={idPrefix} />
         </div>
       );
     case "monthly":
       return (
         <div className="space-y-4">
           <NumberField
-            id="script-day-of-month"
+            id={`${idPrefix}-day-of-month`}
             label="Day of the month"
             hint="1 to 31."
             value={cadence.day}
@@ -163,15 +173,15 @@ function CadenceDetail({
             busy={busy}
             onChange={(day) => onChange({ ...cadence, day })}
           />
-          <TimeField cadence={cadence} busy={busy} onChange={onChange} />
+          <TimeField cadence={cadence} busy={busy} onChange={onChange} idPrefix={idPrefix} />
         </div>
       );
     case "custom":
       return (
         <div className="space-y-1.5">
-          <Label htmlFor="script-cron">Cron expression</Label>
+          <Label htmlFor={`${idPrefix}-cron`}>Cron expression</Label>
           <Input
-            id="script-cron"
+            id={`${idPrefix}-cron`}
             value={cadence.spec}
             placeholder="0 7 * * 1-5"
             disabled={busy}
@@ -192,16 +202,18 @@ function TimeField({
   cadence,
   busy,
   onChange,
+  idPrefix,
 }: {
   cadence: Extract<Cadence, { hour: number; minute: number }>;
   busy: boolean;
   onChange: (c: Cadence) => void;
+  idPrefix: string;
 }) {
   return (
     <div className="space-y-1.5">
-      <Label htmlFor="script-time">Time</Label>
+      <Label htmlFor={`${idPrefix}-time`}>Time</Label>
       <Input
-        id="script-time"
+        id={`${idPrefix}-time`}
         type="time"
         value={`${two(cadence.hour)}:${two(cadence.minute)}`}
         disabled={busy}
@@ -329,17 +341,19 @@ function TimezoneField({
   timezone,
   busy,
   onChange,
+  idPrefix,
 }: {
   timezone: string;
   busy: boolean;
   onChange: (timezone: string) => void;
+  idPrefix: string;
 }) {
   const zones = zoneOptions(timezone);
   return (
     <div className="space-y-1.5">
-      <Label htmlFor="script-timezone">Timezone</Label>
+      <Label htmlFor={`${idPrefix}-timezone`}>Timezone</Label>
       <select
-        id="script-timezone"
+        id={`${idPrefix}-timezone`}
         value={timezone || "UTC"}
         disabled={busy}
         onChange={(e) => onChange(e.target.value)}

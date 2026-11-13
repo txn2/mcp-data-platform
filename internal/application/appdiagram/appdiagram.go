@@ -161,8 +161,11 @@ type Binding struct {
 type Reader interface {
 	Script(ctx context.Context, id string) (*script.Script, error)
 	ScriptVersion(ctx context.Context, id string, version int) (*script.Version, error)
-	Schedule(ctx context.Context, scriptID string) (*script.Schedule, error)
-	Binding(ctx context.Context, scriptID string) (*Binding, error)
+	// Schedules, Bindings and EventSources are a script's handlers (#2441):
+	// its schedules, its endpoints and the webhook sources it runs for.
+	Schedules(ctx context.Context, scriptID string) ([]script.Schedule, error)
+	Bindings(ctx context.Context, scriptID string) ([]Binding, error)
+	EventSources(ctx context.Context, scriptID string) []string
 	// AssetName is an asset's name and the output identity a script writes
 	// it under; ok false for an asset the caller cannot open.
 	Asset(ctx context.Context, id string) (name, identity string, ok bool)
@@ -263,13 +266,17 @@ func (b *builder) scriptNode(p Part) {
 			n.Kind = NodeLibrary
 			b.libs[sc.Name] = p.ID
 		}
-		if sched, err := b.r.Schedule(b.ctx, p.ID); err == nil && sched != nil {
-			n.Detail = append(n.Detail, "schedule "+sched.CronSpec+" "+sched.Timezone)
+		if schedules, err := b.r.Schedules(b.ctx, p.ID); err == nil {
+			for _, sched := range schedules {
+				n.Detail = append(n.Detail, "schedule "+sched.CronSpec+" "+sched.Timezone)
+			}
 		}
 	}
-	if bd, err := b.r.Binding(b.ctx, p.ID); err == nil && bd != nil {
-		n.Detail = append(n.Detail, "endpoint /endpoints/"+bd.Name+bd.Path)
-		b.scripts[bd.Name] = id
+	if bindings, err := b.r.Bindings(b.ctx, p.ID); err == nil {
+		for _, bd := range bindings {
+			n.Detail = append(n.Detail, "endpoint /endpoints/"+bd.Name+bd.Path)
+			b.scripts[bd.Name] = id
+		}
 	}
 	b.node(n)
 }
@@ -313,9 +320,9 @@ func (b *builder) script(p Part) {
 	if err != nil || sc == nil {
 		return
 	}
-	if sc.EventSource != "" {
-		b.outsideSource(sc.EventSource)
-		b.link(Link{From: "source:" + sc.EventSource, To: id, Kind: LinkEvent})
+	for _, source := range b.r.EventSources(b.ctx, p.ID) {
+		b.outsideSource(source)
+		b.link(Link{From: "source:" + source, To: id, Kind: LinkEvent})
 	}
 	v, err := b.r.ScriptVersion(b.ctx, p.ID, p.Version)
 	if err != nil || v == nil {

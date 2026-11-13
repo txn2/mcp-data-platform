@@ -24,7 +24,7 @@ type FormRunner interface {
 	SetCollector(c *epcollect.Collector)
 }
 
-// FormCommands is the endpoint commands, whose endpoint_set makes a form's
+// FormCommands is the endpoint kind, whose handler_set makes a form's
 // source through what they are handed.
 type FormCommands interface {
 	SetForms(f epcmd.FormSources)
@@ -53,7 +53,7 @@ type FormDeps struct {
 }
 
 // AttachForms makes forms store their submissions in webhook sources
-// (#2178): endpoint_set makes each form's source through the source service,
+// (#2178): handler_set makes each form's source through the source service,
 // and the runner stores each accepted submission through this replica's
 // receiver, sealing sensitive fields first and saving its files as managed
 // resources (#2333); platform.decrypt opens them for a run the form's

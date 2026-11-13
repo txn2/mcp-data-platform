@@ -51,7 +51,7 @@ func TestSet_AFormGetsItsSource(t *testing.T) {
 	h.SetForms(f)
 	req := setReq(Input{Endpoint: "contact", AuthMode: "public", Methods: []string{"GET", "POST"}, Connection: "scratch", DecryptPersonas: []string{"support"}})
 	req.Script = contact
-	out, err := h.Run(context.Background(), req)
+	out, err := h.Set(context.Background(), req)
 	require.NoError(t, err)
 	require.Len(t, f.got, 1)
 	assert.Equal(t, epsource.SourceRequest{
@@ -62,7 +62,7 @@ func TestSet_AFormGetsItsSource(t *testing.T) {
 	assert.Equal(t, "webhook_form_contact", res.Table)
 	assert.Contains(t, out["message"], "stored as a row of webhook_form_contact on connection scratch")
 
-	_, err = h.Run(context.Background(), setReq(Input{Endpoint: "lookup", AuthMode: "public"}))
+	_, err = h.Set(context.Background(), setReq(Input{Endpoint: "lookup", AuthMode: "public"}))
 	require.NoError(t, err)
 	assert.Len(t, f.got, 1, "a script that is not a form gets no source")
 }
@@ -72,7 +72,7 @@ func TestSet_AFormWhoseSourceCannotBeMade(t *testing.T) {
 	h.SetForms(&forms{err: errors.New("name the connection")})
 	req := setReq(Input{Endpoint: "contact", AuthMode: "public"})
 	req.Script = contact
-	_, err := h.Run(context.Background(), req)
+	_, err := h.Set(context.Background(), req)
 	require.ErrorContains(t, err, "is bound at https://data.example.com/endpoints/contact")
 	require.ErrorContains(t, err, "name the connection")
 }
@@ -81,31 +81,33 @@ func TestSet_NoFormSourcesBindsAsBefore(t *testing.T) {
 	h := handler(newStore())
 	req := setReq(Input{Endpoint: "contact", AuthMode: "public"})
 	req.Script = contact
-	out, err := h.Run(context.Background(), req)
+	out, err := h.Set(context.Background(), req)
 	require.NoError(t, err)
 	assert.NotContains(t, out, "form")
 }
 
-// #2178: reading a form's binding says where its submissions are stored, or
-// which connections its source could be made on.
-func TestOne_DescribesAForm(t *testing.T) {
+// #2178: adding an endpoint to a form says which connections its source
+// could be made on; reading a form's endpoint handler says where its
+// submissions are stored.
+func TestDescribe_AForm(t *testing.T) {
 	s := newStore()
 	h := handler(s)
 	f := &forms{}
 	h.SetForms(f)
-	out, err := h.Run(context.Background(), Request{Command: CmdList, Script: contact})
+	ctx := context.Background()
+	out, err := h.Choices(ctx, contact)
 	require.NoError(t, err)
-	assert.Equal(t, false, out["bound"])
 	assert.Equal(t, true, out["is_form"])
 	assert.Equal(t, []string{"lake", "scratch"}, out["form_connections"])
 	assert.NotContains(t, out, "page_url", "an unbound form has no page")
 
 	req := setReq(Input{Endpoint: "contact", AuthMode: "public"})
 	req.Script = contact
-	_, err = h.Run(context.Background(), req)
+	_, err = h.Set(ctx, req)
 	require.NoError(t, err)
+	b := s.only(t, "s9")
 	f.found = true
-	out, err = h.Run(context.Background(), Request{Command: CmdList, Script: contact})
+	out, err = h.Describe(ctx, contact, &b)
 	require.NoError(t, err)
 	res, ok := out["form"].(epsource.SourceResult)
 	require.True(t, ok)
@@ -114,16 +116,20 @@ func TestOne_DescribesAForm(t *testing.T) {
 	assert.Equal(t, "https://data.example.com/forms/contact", out["page_url"], "#2331: the hosted page a site frames")
 
 	f.findErr = errors.New("db down")
-	_, err = h.Run(context.Background(), Request{Command: CmdList, Script: contact})
+	_, err = h.Describe(ctx, contact, &b)
+	require.ErrorIs(t, err, ErrStore)
+	_, err = h.Choices(ctx, contact)
 	require.ErrorIs(t, err, ErrStore)
 
-	out, err = h.Run(context.Background(), Request{Command: CmdList, Script: lookup})
+	out, err = h.Choices(ctx, lookup)
 	require.NoError(t, err)
 	assert.NotContains(t, out, "is_form", "a script that is not a form says nothing")
 
-	_, err = h.Run(context.Background(), setReq(Input{Endpoint: "lookup", AuthMode: "public"}))
+	_, err = h.Set(ctx, setReq(Input{Endpoint: "lookup", AuthMode: "public"}))
 	require.NoError(t, err)
-	out, err = h.Run(context.Background(), Request{Command: CmdList, Script: lookup})
+	l := s.only(t, "s1")
+	out, err = h.Describe(ctx, lookup, &l)
 	require.NoError(t, err)
 	assert.NotContains(t, out, "page_url", "a bound endpoint that is not a form has no page")
+	assert.NotContains(t, out, "is_form")
 }

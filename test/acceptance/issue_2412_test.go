@@ -283,7 +283,7 @@ func TestIssue2412_ExportedAndImportedTheEndpointAnswersFromTheSecondDeployments
 	targetPSQL(t, "SELECT 1") // the target answers
 	got := endpointRequest(t, second.base, http.MethodGet, "/endpoints/"+src.endpoint+"/", bearer(second.admin.apiKey), "")
 	if got.status != http.StatusOK || !strings.Contains(got.body, `"db":"`+second.db+`"`) {
-		_, failures, _ := second.admin.callRaw("manage_script", map[string]any{"command": "endpoint_list", "name": src.endpoint})
+		_, failures, _ := second.admin.callRaw("manage_script", map[string]any{"command": "handler_list", "name": src.endpoint, "kind": "endpoint"})
 		t.Fatalf("the imported endpoint did not answer from the second deployment's database %s: %d %s\nthe binding's failures: %s",
 			second.db, got.status, got.body, failures)
 	}

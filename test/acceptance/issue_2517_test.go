@@ -15,7 +15,7 @@ import (
 //
 // Wire forms: manage_application takes command, name, application, kind and
 // part_id as strings; manage_script takes command, name and source as strings;
-// endpoint_set takes endpoint, path, auth_mode and response_mode as strings and
+// handler_set kind=endpoint takes endpoint, path, auth_mode and response_mode as strings and
 // methods, callers and page_cdns as lists of strings; save_asset takes name,
 // content and content_type as strings. A page is an HTTP GET naming the page
 // origin in Host; a call from its script is a GET or a POST with a JSON object

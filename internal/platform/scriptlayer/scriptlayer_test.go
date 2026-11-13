@@ -31,7 +31,8 @@ type memStore struct {
 	scripts  map[string]*script.Script
 	versions map[string][]script.Version
 	// schedules is the schedule half of the store, implemented in
-	// schedules_test.go; scheduleErr makes it fail on demand.
+	// schedules_test.go and keyed by schedule id (a script holds several,
+	// #2434); scheduleErr makes it fail on demand.
 	schedules   map[string]*script.Schedule
 	scheduleErr error
 	// scheduleReadErr fails only the read-back, so a write that landed can be
@@ -202,12 +203,17 @@ func (m *memStore) Delete(_ context.Context, id string) (script.Removed, error) 
 	if _, ok := m.scripts[id]; !ok {
 		return script.Removed{}, fmt.Errorf("delete script %s: %w", id, script.ErrNotFound)
 	}
-	_, hadSchedule := m.schedules[id]
+	hadSchedule := false
+	for sid, sched := range m.schedules {
+		if sched.ScriptID == id {
+			hadSchedule = true
+			delete(m.schedules, sid)
+		}
+	}
 	_, hadState := m.states[id]
-	rm := script.Removed{Schedule: hadSchedule, Runs: m.hasRuns[id], State: hadState}
+	rm := script.Removed{Handlers: hadSchedule, Runs: m.hasRuns[id], State: hadState}
 	delete(m.scripts, id)
 	delete(m.versions, id)
-	delete(m.schedules, id)
 	delete(m.states, id)
 	return rm, nil
 }
@@ -680,7 +686,7 @@ func TestDelete_ReportsWhatWentAndWhatStayed(t *testing.T) {
 	h, store := newHandle()
 	createDaily(t, h)
 	id := onlyScriptID(t, store)
-	store.schedules[id] = &script.Schedule{ScriptID: id, CronSpec: "0 * * * *", Enabled: true}
+	store.schedules["sched_1"] = &script.Schedule{ID: "sched_1", ScriptID: id, CronSpec: "0 * * * *", Enabled: true}
 	store.states[id] = &script.State{ScriptID: id, Value: map[string]any{"cursor": 1}, Revision: 1}
 	store.hasRuns[id] = true
 
@@ -689,7 +695,7 @@ func TestDelete_ReportsWhatWentAndWhatStayed(t *testing.T) {
 	require.False(t, res.IsError, resultText(res))
 	message, _ := resultFields(t, res)["message"].(string)
 	assert.Equal(t, script.DeleteMessage("daily", script.Removed{
-		Schedule: true, Runs: true, State: true,
+		Handlers: true, Runs: true, State: true,
 	}), message)
 	assert.Contains(t, message, "remain",
 		"an agent relaying the delete has to be able to say what survived it")
@@ -835,7 +841,8 @@ func listedNames(t *testing.T, fields map[string]any) []string {
 // who names its owner, and what it did and does -- its runs, its state, a run
 // of it, an edit -- stays with the owner and an administrator.
 func TestRead_AnotherPersonsDefinitionIsReadable(t *testing.T) {
-	h, _ := newHandle()
+	h, store := newHandle()
+	withHandlers(h, store, nil, nil)
 	bob := callerCtx("bob@example.com", "data-engineer")
 	call(t, h, bob, manageScriptInput{Command: cmdCreate, Name: "bobs-report", Source: tested(inMain("print(1)\n"))})
 	call(t, h, bob, manageScriptInput{Command: cmdUpdate, Name: "bobs-report", Source: tested(inMain("print(2)\n"))})
@@ -867,7 +874,7 @@ func TestRead_AnotherPersonsDefinitionIsReadable(t *testing.T) {
 
 	// A run's reads are held the same way, where a deployment keeps runs
 	// (TestRunReads_AreTheOwnersAndTheAdmins).
-	for _, command := range []string{cmdState, cmdUpdate, cmdDelete, cmdScheduleSet} {
+	for _, command := range []string{cmdState, cmdUpdate, cmdDelete, cmdHandlerSet, cmdHandlerList} {
 		in := named
 		in.Command, in.DisplayName = command, "x"
 		res := call(t, h, authorCtx(), in)

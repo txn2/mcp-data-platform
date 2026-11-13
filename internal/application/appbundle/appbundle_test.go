@@ -18,7 +18,8 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/application/appschema"
 	"github.com/txn2/mcp-data-platform/internal/application/appsvc"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
-	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epsource"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptevents"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
@@ -42,11 +43,15 @@ type world struct {
 	assetVers  map[string][]portaldomain.AssetVersion
 	blobs      map[string][]byte
 	migrations []postgreskit.Migration
-	bindings   map[string]*epbinding.Binding
-	schedules  map[string]*script.Schedule
-	endpoints  []epcmd.Request
-	landed     []byte
-	authors    []script.Author
+	// The handler tables (handlers_world_test.go), each keyed by handler id.
+	bindings    map[string]*epbinding.Binding
+	schedules   map[string]*script.Schedule
+	webhooks    map[string]*scriptevents.Handler
+	formSources []epsource.SourceRequest
+	faults      handlerFaults
+	seq         int
+	landed      []byte
+	authors     []script.Author
 }
 
 func newWorld() *world {
@@ -55,7 +60,7 @@ func newWorld() *world {
 		scripts: map[string]*script.Script{}, versions: map[string][]script.Version{},
 		assets: map[string]*portaldomain.Asset{}, assetVers: map[string][]portaldomain.AssetVersion{},
 		blobs: map[string][]byte{}, bindings: map[string]*epbinding.Binding{}, schedules: map[string]*script.Schedule{},
-		recordings: map[string]*scriptrec.Stored{}, kept: map[string][]string{},
+		webhooks: map[string]*scriptevents.Handler{}, recordings: map[string]*scriptrec.Stored{}, kept: map[string][]string{},
 	}
 }
 
@@ -214,18 +219,6 @@ func (s scripts) Update(_ context.Context, sc *script.Script) error {
 	return nil
 }
 
-func (s scripts) GetSchedule(_ context.Context, id string) (*script.Schedule, error) {
-	if sc, ok := s.w.schedules[id]; ok {
-		return sc, nil
-	}
-	return nil, script.ErrScheduleNotFound
-}
-
-func (s scripts) SetSchedule(_ context.Context, sc *script.Schedule) error {
-	s.w.schedules[sc.ScriptID] = sc
-	return nil
-}
-
 // assets
 
 type assets struct{ w *world }
@@ -284,15 +277,6 @@ func (m migs) List(context.Context, string, string) ([]postgreskit.Migration, er
 func (m migs) Put(_ context.Context, x postgreskit.Migration) (bool, error) {
 	m.w.migrations = append(m.w.migrations, x)
 	return false, nil
-}
-
-type bindings struct{ w *world }
-
-func (b bindings) Get(_ context.Context, id string) (*epbinding.Binding, error) {
-	if x, ok := b.w.bindings[id]; ok {
-		return x, nil
-	}
-	return nil, epbinding.ErrNotFound
 }
 
 type sources struct{}
@@ -360,19 +344,11 @@ func bundler(w *world) *Bundler {
 		},
 	}
 	return New(Deps{
-		Service: svc, Migrations: migs{w}, Bindings: bindings{w}, Schedules: sc,
+		Service: svc, Migrations: migs{w}, Bindings: hbindings{w}, Schedules: hschedules{w}, Webhooks: hwebhooks{w},
 		FormConnection: func(context.Context, string) (string, error) { return "warehouse", nil },
 		Blobs:          blobs{w}, Lander: lander{w}, Claims: func(context.Context) resource.Claims { return resource.Claims{} },
 		Scripts: sc, Assets: as, AssetVersions: as, Bucket: "portal", Prefix: "p",
-		Endpoints: func(_ context.Context, req epcmd.Request) (map[string]any, error) {
-			w.endpoints = append(w.endpoints, req)
-			// As the real binding refuses (#2554): a page belongs to an
-			// application, so its script must be a part before it is bound.
-			if req.Input.ResponseMode == epbinding.ResponsePage && !w.isPart(req.Script.ID) {
-				return nil, errors.New("a page belongs to an application, and this script is a part of none")
-			}
-			return map[string]any{}, nil
-		},
+		Handlers:            w.handlerService(),
 		HasSchemaConnection: func(name string) bool { return name == "orders-prod" },
 		SaveGate:            &gate{w: w}, Recordings: recs{w},
 	})
@@ -410,14 +386,23 @@ func source(t *testing.T) *world {
 	}
 	src := "def handle(req):\n    rows = platform.query(connection=\"orders\", sql=\"SELECT 1\")\n" +
 		"    key = \"{{secret:stripe-key}}\"\n    return {\"status\": 200}\n"
-	w.scripts[apiID] = &script.Script{ID: apiID, Name: "shop-api", Version: 2, OwnerEmail: "jane@example.com", EventSource: "orders-hook"}
+	w.scripts[apiID] = &script.Script{ID: apiID, Name: "shop-api", Version: 2, OwnerEmail: "jane@example.com"}
 	w.versions[apiID] = []script.Version{{ScriptID: apiID, Version: 1, Source: src, DisplayName: "Shop API"}, {Version: 2, Source: "def handle(req):\n    return 2\n"}}
-	w.bindings[apiID] = &epbinding.Binding{
-		Name: "shop", Methods: []string{"GET"}, Path: "/", AuthMode: "public", BotCheck: "pow", Enabled: true,
-		ResponseMode: epbinding.ResponsePage, PageFrameOrigins: []string{"https://js.stripe.com"},
+	// Two endpoints, two schedules and a webhook source: a script holds
+	// several of each (#2441, #2434).
+	w.bindings["ep_shop"] = &epbinding.Binding{
+		ID: "ep_shop", ScriptID: apiID, Name: "shop", Methods: []string{"GET"}, Path: "/", AuthMode: epbinding.AuthBotCheck,
+		BotCheck: "pow", Enabled: true, ResponseMode: epbinding.ResponsePage, PageFrameOrigins: []string{"https://js.stripe.com"},
 		PageConnectOrigins: []string{"https://api.stripe.com"}, PageFormOrigins: []string{"https://pay.example.test"}, IPRateLimit: 30,
+		TimeoutSeconds: 10, RateLimit: 600, CallerRateLimit: 60,
 	}
-	w.schedules[apiID] = &script.Schedule{ScriptID: apiID, CronSpec: "0 3 * * *", Timezone: "UTC", Enabled: true}
+	w.bindings["ep_admin"] = &epbinding.Binding{
+		ID: "ep_admin", ScriptID: apiID, Name: "shop-admin", Methods: []string{"POST"}, AuthMode: epbinding.AuthAuthenticated,
+		Callers: []string{"persona:admin"}, Enabled: false, TimeoutSeconds: 10, RateLimit: 600, CallerRateLimit: 60,
+	}
+	w.schedules["sched_night"] = &script.Schedule{ID: "sched_night", ScriptID: apiID, CronSpec: "0 3 * * *", Timezone: "UTC", Enabled: true}
+	w.schedules["sched_noon"] = &script.Schedule{ID: "sched_noon", ScriptID: apiID, CronSpec: "0 12 * * *", Timezone: "UTC", Enabled: false}
+	w.webhooks["wh_orders"] = &scriptevents.Handler{ID: "wh_orders", ScriptID: apiID, Source: "orders-hook", Enabled: true}
 	w.assets["as1"] = &portaldomain.Asset{ID: "as1", Name: "storefront", ContentType: "text/html", S3Bucket: "portal", CurrentVersion: 2}
 	w.assetVers["as1"] = []portaldomain.AssetVersion{{AssetID: "as1", Version: 1, S3Key: "v1", ContentType: "text/html"}}
 	w.blobs["portal/v1"] = []byte("<h1>shop</h1>")
@@ -452,15 +437,31 @@ func TestExport_WritesTheReleaseAndNamesWhatItUses(t *testing.T) {
 
 	var bundle Bundle
 	require.NoError(t, json.Unmarshal(w.landed, &bundle))
+	assert.Equal(t, FormatVersion, bundle.FormatVersion)
+	assert.Equal(t, 2, bundle.FormatVersion, "an export writes the handler format (#2441)")
 	require.Len(t, bundle.Scripts, 1)
 	assert.Equal(t, 1, bundle.Scripts[0].Version, "the pinned version, not the newest")
-	assert.Equal(t, "shop", bundle.Scripts[0].Endpoint.Name)
-	assert.Equal(t, "warehouse", bundle.Scripts[0].Endpoint.FormConnection)
-	assert.Equal(t, []string{"https://js.stripe.com"}, bundle.Scripts[0].Endpoint.PageFrameOrigins, "#2554's lists are exported")
-	assert.Equal(t, []string{"https://api.stripe.com"}, bundle.Scripts[0].Endpoint.PageConnectOrigins)
-	assert.Equal(t, []string{"https://pay.example.test"}, bundle.Scripts[0].Endpoint.PageFormOrigins)
-	assert.Equal(t, 30, bundle.Scripts[0].Endpoint.IPRateLimit, "#2556's limit is exported")
-	assert.Equal(t, "0 3 * * *", bundle.Scripts[0].Schedule.CronSpec)
+	assert.Nil(t, bundle.Scripts[0].Endpoint, "a version 2 bundle carries handlers, not version 1's single endpoint")
+	assert.Nil(t, bundle.Scripts[0].Schedule)
+	assert.Empty(t, bundle.Scripts[0].EventSource)
+	h := bundle.Scripts[0].Handlers
+	require.NotNil(t, h)
+	require.Len(t, h.Endpoints, 2, "every endpoint the script holds")
+	shop := h.Endpoints[0]
+	assert.Equal(t, "shop", shop.Name)
+	assert.Equal(t, "warehouse", shop.FormConnection)
+	assert.Equal(t, []string{"https://js.stripe.com"}, shop.PageFrameOrigins, "#2554's lists are exported")
+	assert.Equal(t, []string{"https://api.stripe.com"}, shop.PageConnectOrigins)
+	assert.Equal(t, []string{"https://pay.example.test"}, shop.PageFormOrigins)
+	assert.Equal(t, 30, shop.IPRateLimit, "#2556's limit is exported")
+	assert.Equal(t, "shop-admin", h.Endpoints[1].Name)
+	assert.False(t, h.Endpoints[1].Enabled)
+	assert.Equal(t, []string{"persona:admin"}, h.Endpoints[1].Callers)
+	assert.Equal(t, []Schedule{
+		{CronSpec: "0 12 * * *", Timezone: "UTC", Enabled: false},
+		{CronSpec: "0 3 * * *", Timezone: "UTC", Enabled: true},
+	}, h.Schedules, "every schedule the script holds")
+	assert.Equal(t, []Webhook{{Source: "orders-hook", Enabled: true}}, h.Webhooks)
 	require.Len(t, bundle.Assets, 1)
 	assert.Equal(t, []byte("<h1>shop</h1>"), bundle.Assets[0].Content)
 	assert.Equal(t, []string{"orders-hook"}, bundle.Sources)
@@ -547,16 +548,25 @@ func TestImport_CreatesTheApplicationAtTheRelease(t *testing.T) {
 	require.Len(t, w.authors, 1)
 	assert.Equal(t, []string{"admin"}, w.authors[0].Roles, "its runs present the importing administrator's own roles")
 	assert.Equal(t, "u-admin", w.authors[0].Subject)
-	assert.Equal(t, "orders-hook", created.EventSource)
-	require.Len(t, w.endpoints, 1)
-	assert.Equal(t, "shop", w.endpoints[0].Input.Endpoint)
-	assert.Equal(t, "warehouse", w.endpoints[0].Input.Connection)
-	assert.Equal(t, []string{"https://js.stripe.com"}, w.endpoints[0].Input.PageFrameOrigins, "#2554's lists are imported")
-	assert.Equal(t, []string{"https://api.stripe.com"}, w.endpoints[0].Input.PageConnectOrigins)
-	assert.Equal(t, []string{"https://pay.example.test"}, w.endpoints[0].Input.PageFormOrigins)
-	require.NotNil(t, w.endpoints[0].Input.IPRateLimit)
-	assert.Equal(t, 30, *w.endpoints[0].Input.IPRateLimit, "#2556's limit is imported")
-	assert.NotNil(t, w.schedules[created.ID])
+	endpoints, schedules, webhooks := w.held("shop-api")
+	require.Len(t, endpoints, 2, "every endpoint of the bundle is a handler of the imported script")
+	shop := endpoints[0]
+	assert.Equal(t, "shop", shop.Name)
+	assert.Equal(t, created.ID, shop.ScriptID)
+	assert.Equal(t, []string{"https://js.stripe.com"}, shop.PageFrameOrigins, "#2554's lists are imported")
+	assert.Equal(t, []string{"https://api.stripe.com"}, shop.PageConnectOrigins)
+	assert.Equal(t, []string{"https://pay.example.test"}, shop.PageFormOrigins)
+	assert.Equal(t, 30, shop.IPRateLimit, "#2556's limit is imported")
+	assert.True(t, shop.Enabled)
+	assert.Equal(t, "shop-admin", endpoints[1].Name)
+	assert.False(t, endpoints[1].Enabled, "a handler off in the bundle is imported off")
+	require.Len(t, schedules, 2)
+	assert.Equal(t, "0 12 * * *", schedules[0].CronSpec)
+	assert.False(t, schedules[0].Enabled)
+	assert.Equal(t, "0 3 * * *", schedules[1].CronSpec)
+	assert.True(t, schedules[1].Enabled)
+	require.Len(t, webhooks, 1)
+	assert.Equal(t, "orders-hook", webhooks[0].Source, "the webhook source is mapped")
 	require.Len(t, w.assets, 1)
 
 	// A later import of the same release finds every part unchanged.
@@ -567,6 +577,11 @@ func TestImport_CreatesTheApplicationAtTheRelease(t *testing.T) {
 	assert.False(t, im.Created)
 	assert.Equal(t, partUnchanged, im.Scripts["shop-api"])
 	assert.Equal(t, partUnchanged, im.Assets["storefront"])
+	again, againSchedules, againWebhooks := w.held("shop-api")
+	assert.Len(t, again, 2, "an endpoint the script holds by name is changed in place, not added")
+	assert.Len(t, againSchedules, 2, "a schedule it holds with the cadence and args is matched, not added")
+	assert.Len(t, againWebhooks, 1)
+	assert.False(t, again[1].Enabled, "and keeps the bundle's state")
 }
 
 func TestImport_Refusals(t *testing.T) {
@@ -673,7 +688,7 @@ func TestImportAndExport_RefuseWhatADeploymentCannotHold(t *testing.T) {
 		want  string
 	}{
 		"no migrations": {func(b *Bundler) { b.Migrations = nil }, "keeps no migrations"},
-		"no endpoints":  {func(b *Bundler) { b.Endpoints = nil }, "cannot bind endpoints"},
+		"no handlers":   {func(b *Bundler) { b.Handlers = nil }, "cannot keep handlers, which script shop-api has"},
 		"no assets":     {func(b *Bundler) { b.Blobs = nil }, "no asset storage"},
 	}
 	for name, tc := range cases {
@@ -699,14 +714,19 @@ func TestImportAndExport_RefuseWhatADeploymentCannotHold(t *testing.T) {
 	_, err = b.Export(ctx, admin, "shop", 0)
 	require.ErrorContains(t, err, "no asset storage")
 	b = bundler(w)
-	b.Bindings, b.Schedules = nil, nil
+	b.Bindings, b.Schedules, b.Webhooks = nil, nil, nil
 	_, err = b.Export(ctx, admin, "shop", 0)
 	require.NoError(t, err, "a deployment with no endpoints or schedules exports scripts without them")
+	var bare Bundle
+	require.NoError(t, json.Unmarshal(w.landed, &bare))
+	assert.Equal(t, &Handlers{Endpoints: []Endpoint{}, Schedules: []Schedule{}, Webhooks: []Webhook{}}, bare.Scripts[0].Handlers,
+		"no handlers is [] of each, never null")
 }
 
-// testedSource is a script whose test replays dpx_1, which calls the
-// connection the import maps.
-const testedSource = "def main():\n    \"\"\"Reads one row.\"\"\"\n" +
+// testedSource is an endpoint script whose test replays dpx_1, which calls
+// the connection the import maps.
+const testedSource = "def handle(req):\n    \"\"\"Answers.\"\"\"\n    return {\"status\": 200}\n\n" +
+	"def main():\n    \"\"\"Reads one row.\"\"\"\n" +
 	"    platform.query(\"SELECT 1\", connection = \"orders\")\n\n" +
 	"def test_main():\n    \"\"\"Replays a run.\"\"\"\n    out = testing.replay(\"dpx_1\")\n    assert.eq(out.result, None)\n"
 
@@ -811,7 +831,7 @@ func TestImport_ARecordingThatCannotBeStoredRefuses(t *testing.T) {
 	b.Reader, b.Recordings = reader{string(src.landed)}, unsaved{recs{w}}
 	_, err = b.Import(adminCtx(), admin, "mcp:resource:r1", fullMap)
 	require.ErrorContains(t, err, "storing recording dpx_1")
-	assert.Empty(t, w.endpoints, "nothing is bound past the refusal")
+	assert.Empty(t, w.bindings, "nothing is bound past the refusal")
 }
 
 // An export whose script's tests replay a recording this deployment does not

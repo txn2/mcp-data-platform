@@ -9,6 +9,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/application"
 	"github.com/txn2/mcp-data-platform/internal/application/appdiagram"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptevents"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -26,10 +27,17 @@ func libraryShop(t *testing.T) (*Service, *fakeScripts) {
 		libScript: "def fmt(x):\n    \"\"\"Formats.\"\"\"\n    return x\n",
 	}
 	svc.Diagrams = DiagramDeps{
-		Binding:      func(context.Context, string) (*appdiagram.Binding, error) { return nil, nil }, //nolint:nilnil // no binding
+		Bindings: func(_ context.Context, id string) ([]appdiagram.Binding, error) {
+			if id == scriptA {
+				return []appdiagram.Binding{{Name: "shop-api", Path: "/"}, {Name: "shop-orders", Path: "/{id}"}}, nil
+			}
+			return nil, nil
+		},
 		AssetContent: func(context.Context, string, int) string { return `fetch("/endpoints/x")` },
 		SchemaWrites: func(context.Context, string, string) []string { return nil },
 	}
+	svc.Schedules = fakeSchedules{scriptA: {{CronSpec: "0 6 * * *", Timezone: "UTC"}, {CronSpec: "0 18 * * *", Timezone: "UTC"}}}
+	svc.Webhooks = fakeWebhooks{byScript: map[string][]scriptevents.Handler{scriptA: {{Source: "orders-hook", Enabled: true}, {Source: "esp", Enabled: true}}}}
 	ctx := context.Background()
 	_, err := svc.Create(ctx, jane, application.Application{Name: "shop"})
 	require.NoError(t, err)
@@ -53,6 +61,15 @@ func TestDiagram_VersionsAndCompare(t *testing.T) {
 	assert.Empty(t, d.Findings)
 	assert.Contains(t, edges(d), "script:"+scriptA+" loads script:"+libScript)
 	assert.Contains(t, edges(d), "asset:as1 calls endpoint:x", "an administrator's diagram reads the asset")
+	// Every handler of a script is drawn (#2441, #2434).
+	card := detailOf(d, "script:"+scriptA)
+	for _, want := range []string{
+		"schedule 0 6 * * * UTC", "schedule 0 18 * * * UTC", "endpoint /endpoints/shop-api/", "endpoint /endpoints/shop-orders/{id}",
+	} {
+		assert.Contains(t, card, want)
+	}
+	assert.Contains(t, edges(d), "source:orders-hook event script:"+scriptA)
+	assert.Contains(t, edges(d), "source:esp event script:"+scriptA)
 
 	// A newer library version: latest pins it at 2 while the script loads 1.
 	scripts.scripts[libScript].Version = 2
@@ -114,6 +131,15 @@ func TestFindings_InGetAndAtRelease(t *testing.T) {
 	introduced := svc.FindingsIntroduced(ctx, scriptA, 2)
 	require.Len(t, introduced, 1, "loading the library at 1 again is new at version 3")
 	assert.Contains(t, introduced[0], "application shop: script shop-api loads library helpers at version 1")
+}
+
+func detailOf(d *appdiagram.Diagram, id string) []string {
+	for _, n := range d.Nodes {
+		if n.ID == id {
+			return n.Detail
+		}
+	}
+	return nil
 }
 
 func edges(d *appdiagram.Diagram) []string {

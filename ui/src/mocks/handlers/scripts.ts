@@ -3,7 +3,7 @@ import { MOCK_CALLER_EMAIL } from "../data/audit";
 import { producedByScript, type MockProducedItem } from "../data/producers";
 import type { ScriptVersion } from "@/api/admin/types";
 import type { ScriptGrant, ScriptSchedule } from "@/api/portal/hooks/scripts";
-import type { ScriptEndpoint, ScriptEndpointInput } from "@/api/portal/hooks/scriptEndpoint";
+import { handlerStore } from "../data/handlerStore";
 import { buildMockScheduleTimeline } from "../data/scheduleTimeline";
 import { mockRunFlows, mockScriptFlows } from "../data/scriptFlows";
 import { mockScriptTiles } from "../data/scriptTiles";
@@ -14,7 +14,6 @@ import {
   mockScriptContracts,
   mockScriptRunDetails,
   mockScriptRuns,
-  mockScriptSchedules,
   mockScriptStates,
   mockScriptVersionDetails,
   mockScriptVersions,
@@ -71,64 +70,19 @@ function descriptionNotice(description: string): string | undefined {
     "description to what this script does, takes and produces"
   );
 }
-// Schedules are mutable for the same reason: a cadence set on this surface has
-// to be the cadence the page reads back.
-const schedules = JSON.parse(JSON.stringify(mockScriptSchedules)) as Record<
-  string,
-  ScriptSchedule
->;
-
 // States are mutable for the same reason: a reset on this surface has to be
 // what the page reads back, at the revision the reset moved it to (#1537).
 // Run grants per script (#1846); none until a test or a person grants one.
 const grants: Record<string, ScriptGrant[]> = {};
 
-// endpoints is each script's endpoint binding (#2171), by script id: one bound
-// script, with a failed request, so the card shows both.
-const endpoints: Record<string, ScriptEndpoint> = {
-  "script-002": {
-    name: "dormant-accounts",
-    bound: true,
-    endpoint: "dormant-accounts",
-    url: "https://data.example.com/endpoints/dormant-accounts/{region}",
-    methods: ["GET"],
-    path: "/{region}",
-    auth_mode: "authenticated",
-    callers: ["persona:analyst"],
-    checked_methods: [],
-    enabled: true,
-    timeout_seconds: 10,
-    max_memory_bytes: 64 << 20,
-    max_body_bytes: 1 << 20,
-    allowed_origins: ["https://crm.example.com"],
-    rate_limit: 600,
-    caller_rate_limit: 120,
-    updated_by: "admin@example.com",
-    updated_at: "2026-10-16T15:20:00Z",
-    failures: [
-      {
-        id: "epf-1",
-        version: 4,
-        method: "GET",
-        status: 504,
-        error: "halted: script exceeded its time limit: Traceback (most recent call last):\n  dormant-accounts:6:20: in handle\nError in platform.query: context deadline exceeded",
-        duration_ms: 10004,
-        created_at: "2026-10-17T09:41:00Z",
-      },
-    ],
-  },
-};
-
-// listedEndpoint is a script's endpoint as the listing carries it (#2259).
-function listedEndpoint(scriptID: string) {
-  const e = endpoints[scriptID];
-  if (!e?.bound || !e.endpoint) return undefined;
-  return {
-    name: e.endpoint,
-    path: `/endpoints/${e.endpoint}${e.path ?? ""}`,
+// listedEndpoints are a script's endpoints as the listing carries them (#2259).
+function listedEndpoints(scriptID: string) {
+  return handlerStore.endpoints(scriptID).map((e) => ({
+    name: e.endpoint ?? "",
+    path: `/endpoints/${e.endpoint ?? ""}${e.path ?? ""}`,
     auth_mode: e.auth_mode ?? "authenticated",
     enabled: e.enabled ?? true,
-  };
+  }));
 }
 
 const states = JSON.parse(
@@ -166,25 +120,20 @@ function emptyDemoRequested(surface: string): boolean {
   return new URLSearchParams(window.location.search).get("empty") === surface;
 }
 
-// setScheduleEnabled is the pause path both routes share. A script with no
-// schedule has nothing to pause, which is a 404 on the server too.
-function setScheduleEnabled(scriptID: string, enabled: boolean) {
-  const schedule = schedules[scriptID];
-  if (!schedule) {
-    return HttpResponse.json(
-      { detail: "this script has no schedule" },
-      { status: 404 },
-    );
-  }
-  schedule.enabled = enabled;
-  return HttpResponse.json(reportable(schedule));
+// contractSchedules are a script's cadences as its contract states them: the
+// next fire only for one not paused (pkg/script contractSchedule).
+function contractSchedules(scriptID: string) {
+  return handlerStore.schedules(scriptID).map((sc) => ({
+    cron_spec: sc.cron_spec,
+    timezone: sc.timezone,
+    enabled: sc.enabled,
+    ...(sc.enabled && sc.next_run_at ? { next_run_at: sc.next_run_at } : {}),
+  }));
 }
 
-// scheduleOf is a script's cadence as the listing may report it, absent when
-// the script runs on demand.
-function scheduleOf(scriptID: string): ScriptSchedule | undefined {
-  const schedule = schedules[scriptID];
-  return schedule ? reportable(schedule) : undefined;
+// schedulesOf is a script's cadences as the listing may report them.
+function schedulesOf(scriptID: string): ScriptSchedule[] {
+  return handlerStore.schedules(scriptID).map(reportable);
 }
 
 // reportable drops the one field the server withholds from a paused schedule.
@@ -289,12 +238,16 @@ export const scriptHandlers = [
     // kind= narrows to the libraries or to the scripts that run (#1941), on
     // the server; absent lists both.
     const kind = query.get("kind");
-    // endpoint= narrows to the scripts bound to an endpoint or the rest
-    // (#2259), on the server.
-    const endpoint = query.get("endpoint");
+    // type= narrows to the scripts holding a handler of the type, or none
+    // (#2435), on the server.
+    const type = query.get("type");
     const matched = scripts
       .filter((script) => !kind || (kind === "library") === Boolean(script.library))
-      .filter((script) => !endpoint || (endpoint === "bound") === Boolean(endpoints[script.id]?.bound))
+      .filter((script) => {
+        if (!type) return true;
+        const types: string[] = handlerStore.types(script.id);
+        return type === "none" ? types.length === 0 : types.includes(type);
+      })
       .filter((script) => !category || script.category === category)
       .filter(
         (script) =>
@@ -329,16 +282,17 @@ export const scriptHandlers = [
         // The mutable map, not the fixture: a cadence saved or paused in this
         // session has to be what the listing shows next, and a paused schedule
         // withholds its next fire here exactly as it does on its own route.
-        schedule: scheduleOf(script.id),
+        schedules: schedulesOf(script.id),
         last_run: owned || !runs[0] ? runs[0] : { ...runs[0], requested_by: undefined, progress: undefined },
         owned,
-        endpoint: listedEndpoint(script.id),
+        endpoints: listedEndpoints(script.id),
+        handler_types: handlerStore.types(script.id),
       };
     });
     return HttpResponse.json({
       data,
       total: data.length,
-      scheduled: data.filter((row) => row.schedule).length,
+      scheduled: data.filter((row) => row.schedules.length > 0).length,
       failing: data.filter((row) => row.last_run?.status === "failed").length,
     });
   }),
@@ -375,7 +329,7 @@ export const scriptHandlers = [
   // around the instant the fixtures are written for.
   http.get(`${PORTAL_BASE}/scripts/fires`, ({ request }) => {
     const tz = new URL(request.url).searchParams.get("tz") || "UTC";
-    const visible = emptyDemoRequested("scripts") ? [] : Object.values(schedules);
+    const visible = emptyDemoRequested("scripts") ? [] : handlerStore.allSchedules();
     const labels = new Map(
       scripts.map((script) => [
         script.id,
@@ -402,7 +356,10 @@ export const scriptHandlers = [
     // the version a run executes.
     const live = (versions[id] ?? [])[0];
     return HttpResponse.json({
-      contract,
+      // The schedules are the script's schedule handlers as they stand, so a
+      // schedule added, paused or deleted on the page is what Details states
+      // next, as on the server (#2434). A library has none.
+      contract: { ...contract, schedules: contractSchedules(id) },
       owned: true,
       source: live?.source ?? "",
       draft_params: contract.params,
@@ -431,25 +388,7 @@ export const scriptHandlers = [
     },
   ),
 
-  // The webhook source a script runs for (#2332), and how its event runs
-  // stand. The contract moves, which is what the page reads the source from.
-  http.put(
-    `${PORTAL_BASE}/scripts/:id/event-source`,
-    async ({ params, request }) => {
-      const id = String(params.id);
-      const body = (await request.json()) as { source?: string };
-      const contract = contracts[id];
-      if (!contract) {
-        return HttpResponse.json({ detail: "script not found" }, { status: 404 });
-      }
-      const source = body.source ?? "";
-      contract.event_source = source || undefined;
-      return HttpResponse.json({
-        source,
-        message: source ? `Saved. Each event source ${source} stores runs this script.` : "Saved. This script runs for no webhook source.",
-      });
-    },
-  ),
+  // How a script's event runs stand (#2332).
   http.get(`${PORTAL_BASE}/scripts/:id/events`, ({ params }) => {
     if (!contracts[String(params.id)]) {
       return HttpResponse.json({ detail: "script not found" }, { status: 404 });
@@ -670,7 +609,7 @@ export const scriptHandlers = [
       // The server names only what the script actually had (script.
       // DeleteMessage, #1593). This fixture's scripts all carry the full set.
       message:
-        `${removed!.name} is gone, with its saved versions, its schedule, its run history ` +
+        `${removed!.name} is gone, with its saved versions, its handlers, its run history ` +
         "and the state it carried. The assets and resources it wrote remain, and they still " +
         "record that it wrote them.",
     });
@@ -972,71 +911,6 @@ export const scriptHandlers = [
     return HttpResponse.redirect(new URL(url, request.url).href, 302);
   }),
 
-  // The owner's cadence controls (#1307). They mutate the fixture in place, so
-  // saving a cadence and then pausing it behaves as it does against the server
-  // within one mock-server session.
-  http.get(`${PORTAL_BASE}/scripts/:id/schedule`, ({ params }) => {
-    const schedule = schedules[String(params.id)];
-    if (!schedule) {
-      return HttpResponse.json(
-        { detail: "this script has no schedule" },
-        { status: 404 },
-      );
-    }
-    return HttpResponse.json(reportable(schedule));
-  }),
-
-  http.put(
-    `${PORTAL_BASE}/scripts/:id/schedule`,
-    async ({ params, request }) => {
-      const id = String(params.id);
-      const body = (await request.json()) as {
-        cron?: string;
-        timezone?: string;
-        params?: Record<string, unknown>;
-      };
-      // The server refuses a cadence it cannot parse before anything is stored,
-      // and naming what to fix is the whole of that answer.
-      if (!body.cron?.trim()) {
-        return HttpResponse.json(
-          {
-            detail:
-              'a schedule needs a cron expression, for example "0 7 * * 1-5" for 07:00 on weekdays',
-          },
-          { status: 400 },
-        );
-      }
-      const previous = schedules[id];
-      schedules[id] = {
-        id: previous?.id ?? `sched-${id}`,
-        script_id: id,
-        cron_spec: body.cron.trim(),
-        timezone: body.timezone?.trim() || "UTC",
-        params: body.params,
-        // Replacing a cadence keeps the paused state: editing a parked
-        // automation must not quietly restart it.
-        enabled: previous?.enabled ?? true,
-        // The next fire is recomputed from now whether or not the schedule is
-        // enabled, as the server does: the old cadence's next fire is not a fire
-        // this schedule has any more. A paused schedule simply does not report it.
-        next_run_at: new Date(Date.now() + 22 * 3_600_000).toISOString(),
-        last_fire_at: previous?.last_fire_at,
-        missed_fires: previous?.missed_fires ?? 0,
-      };
-      return HttpResponse.json(reportable(schedules[id]));
-    },
-  ),
-
-  // Pausing and resuming are two routes rather than one with the state in the
-  // path, exactly as the server registers them.
-  http.post(`${PORTAL_BASE}/scripts/:id/schedule/enable`, ({ params }) =>
-    setScheduleEnabled(String(params.id), true),
-  ),
-
-  http.post(`${PORTAL_BASE}/scripts/:id/schedule/disable`, ({ params }) =>
-    setScheduleEnabled(String(params.id), false),
-  ),
-
   // The state a script carries between runs, and the owner's reset of it
   // (#1537), mirroring internal/httpserver/scripthttp/portalstate.go.
   http.get(`${PORTAL_BASE}/scripts/:id/state`, ({ params }) =>
@@ -1071,50 +945,6 @@ export const scriptHandlers = [
       {},
       "State cleared. The next run starts from {}; a run already in flight that read the previous revision fails at its write.",
     ),
-  ),
-
-  // A script's endpoint (#2171), mirroring
-  // internal/httpserver/scripthttp/bindinghttp: the owner reads, an
-  // administrator binds and turns it on and off.
-  http.get(`${PORTAL_BASE}/scripts/:id/endpoint`, ({ params }) => {
-    const id = String(params.id);
-    const sc = mockScripts.find((x) => x.id === id);
-    return HttpResponse.json(endpoints[id] ?? { name: sc?.name ?? id, bound: false });
-  }),
-
-  http.put(`${PORTAL_BASE}/scripts/:id/endpoint`, async ({ params, request }) => {
-    const id = String(params.id);
-    const body = (await request.json()) as ScriptEndpointInput;
-    const name = (body.endpoint ?? endpoints[id]?.endpoint ?? "").trim();
-    if (!/^[a-z0-9][a-z0-9_-]*$/.test(name)) {
-      return HttpResponse.json({ detail: `endpoint name "${name}" must be lowercase letters, digits, hyphens and underscores` }, { status: 400 });
-    }
-    const sc = mockScripts.find((x) => x.id === id);
-    const prev = endpoints[id];
-    endpoints[id] = {
-      name: sc?.name ?? id,
-      bound: true,
-      enabled: prev?.enabled ?? true,
-      failures: prev?.failures ?? [],
-      ...prev,
-      ...body,
-      endpoint: name,
-      url: `https://data.example.com/endpoints/${name}${body.path ?? prev?.path ?? ""}`,
-      updated_by: "admin@example.com",
-      updated_at: new Date().toISOString(),
-    };
-    return HttpResponse.json(endpoints[id]);
-  }),
-
-  ...(["enable", "disable"] as const).map((action) =>
-    http.post(`${PORTAL_BASE}/scripts/:id/endpoint/${action}`, ({ params }) => {
-      const e = endpoints[String(params.id)];
-      if (!e) {
-        return HttpResponse.json({ detail: "this script is not bound to an endpoint" }, { status: 400 });
-      }
-      e.enabled = action === "enable";
-      return HttpResponse.json({ name: e.name, enabled: e.enabled });
-    }),
   ),
 
   // Who other than the owner may run a script (#1846), mirroring

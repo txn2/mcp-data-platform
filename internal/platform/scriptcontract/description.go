@@ -19,6 +19,8 @@ const ManageScriptDescription = "Build and change automations. The unit of an au
 	"the script would reach and what a save would say, running nothing but the tests. A save runs the " +
 	"tests, and a version that changes what the automation does needs change_summary and user_agreed. " +
 	"A saved script runs: run_script executes its latest saved version as the script's own principal, " +
-	"presenting the roles you held when you saved it, and a schedule fires it the same way. " +
+	"presenting the roles you held when you saved it, and its handlers start it the same way: handler_set " +
+	"adds a schedule, an endpoint or a webhook source (kind), a script may hold several of each, and " +
+	"handler_list, handler_get, handler_enable, handler_disable and handler_delete act on them by their id. " +
 	"command=versions reads the history of who wrote each version, which is not the same question as " +
 	"who owns the script now."

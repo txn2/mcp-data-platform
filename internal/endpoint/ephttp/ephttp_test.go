@@ -493,3 +493,53 @@ func TestPublicForm_PassesOnASignedInCaller(t *testing.T) {
 	f.runner.forms = nil
 	assert.Equal(t, "", fields(t, f.do("GET", "/endpoints/open/1", bearer("ann-key"), ""))["caller"], "not a form: never asked")
 }
+
+// #2628: on the platform's own address a path with an empty or dot segment
+// reaches the endpoint's router and is answered 404 with the handler never
+// run, as on a page origin, instead of a ServeMux redirecting it to the
+// cleaned path. A clean path, a trailing slash included, goes to the mux.
+func TestRaw_AnUncleanPathIsTheRoutersNotARedirect(t *testing.T) {
+	f := newFixture()
+	f.runner.bindings["site"] = &epbinding.Binding{
+		ID: "site", Name: "site", Methods: []string{"GET"}, Path: "/{route...}", AuthMode: epbinding.AuthPublic,
+		Enabled: true, MaxBodyBytes: 64, RateLimit: 600,
+	}
+	handler, _ := f.mux.Handler(httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/endpoints/site", nil))
+	h, ok := handler.(*Handler)
+	require.True(t, ok)
+	raw := h.Raw(f.mux)
+	serve := func(path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
+		req.URL.Path = path
+		rec := httptest.NewRecorder()
+		raw.ServeHTTP(rec, req)
+		return rec
+	}
+	for _, path := range []string{
+		"/endpoints/site/a//b", "/endpoints/site/a/./b", "/endpoints/site/a/../b", "/endpoints/site//",
+		"/endpoints//site/a", "/endpoints/", "/endpoints/site/a//",
+	} {
+		before := len(f.runner.served)
+		rec := serve(path)
+		assert.Equal(t, http.StatusNotFound, rec.Code, path)
+		assert.Empty(t, rec.Header().Get("Location"), path)
+		assert.Contains(t, rec.Body.String(), "no endpoint answers at this path", path)
+		assert.Len(t, f.runner.served, before, "%s: the handler never runs", path)
+	}
+	rec := serve("/endpoints/site/a/b")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, map[string]any{"route": "a/b"}, fields(t, rec)["params"])
+	rec = serve("/endpoints/site/a/")
+	require.Equal(t, http.StatusOK, rec.Code, "a trailing slash is clean")
+	rec = serve("/other//path")
+	assert.Equal(t, http.StatusTemporaryRedirect, rec.Code, "a path outside /endpoints/ is the mux's")
+}
+
+func TestUnclean(t *testing.T) {
+	for p, want := range map[string]bool{
+		"": true, "a": false, "a/": false, "a/b": false, "a//b": true, "a/./b": true, "a/..": true,
+		"/a": true, "a/b/": false, "a/b//": true, "..": true, ".x/y": false,
+	} {
+		assert.Equal(t, want, unclean(p), p)
+	}
+}

@@ -1317,8 +1317,11 @@ func TestIntegration_AScriptCannotAuthorOrScheduleAScript(t *testing.T) {
 		{"patch", `{"command": "patch", "name": "daily", "edits": [{"find": "a", "replace": "b"}]}`},
 		{"update", `{"command": "update", "name": "daily", "source": "print(2)"}`},
 		{"delete", `{"command": "delete", "name": "daily"}`},
-		{"schedule_set", `{"command": "schedule_set", "name": "daily", "cron": "* * * * *"}`},
-		{"schedule_enable", `{"command": "schedule_enable", "name": "daily"}`},
+		{"handler_set", `{"command": "handler_set", "name": "daily", "kind": "schedule", "cron": "* * * * *"}`},
+		{"handler_set endpoint", `{"command": "handler_set", "name": "daily", "kind": "endpoint", "endpoint": "spawned"}`},
+		{"handler_enable", `{"command": "handler_enable", "handler": "sched_1"}`},
+		{"handler_disable", `{"command": "handler_disable", "handler": "sched_1"}`},
+		{"handler_delete", `{"command": "handler_delete", "handler": "sched_1"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := executionServer(t, "warehouse")

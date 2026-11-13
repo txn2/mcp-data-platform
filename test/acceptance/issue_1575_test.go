@@ -261,19 +261,15 @@ func TestIssue1575_TheScheduleAndTheRunsGoWithIt(t *testing.T) {
 	name := "acceptance-1575-sched-" + unique1575()
 	id := createScript1575(t, owner, name)
 
-	owner.call("manage_script", map[string]any{
-		"command": "schedule_set", "name": name,
-		"cron": "* * * * *", "timezone": "UTC",
-		"args": map[string]any{"target": "acceptance-1575-sched-output"},
-	})
+	owner.scheduleSet(name, "* * * * *", "UTC", map[string]any{"target": "acceptance-1575-sched-output"})
 	runScript1575(t, owner, name, "acceptance-1575-sched-output")
 
 	if status, runs := runsOf1575(t, owner, id); status != http.StatusOK || runs == 0 {
 		t.Fatalf("the script has no run history to lose: status %d, %d runs", status, runs)
 	}
-	scheduleStatus, _ := owner.rest(http.MethodGet, "/api/v1/portal/scripts/"+id+"/schedule", http.NoBody)
-	if scheduleStatus != http.StatusOK {
-		t.Fatalf("the script has no schedule to lose: status %d", scheduleStatus)
+	scheduleStatus, handlers := owner.rest(http.MethodGet, "/api/v1/portal/scripts/"+id+"/handlers", http.NoBody)
+	if scheduleStatus != http.StatusOK || len(listOf(handlers, "handlers")) == 0 {
+		t.Fatalf("the script has no schedule to lose: status %d: %v", scheduleStatus, handlers)
 	}
 
 	dueSchedule1575(t, id)
@@ -282,7 +278,7 @@ func TestIssue1575_TheScheduleAndTheRunsGoWithIt(t *testing.T) {
 	}
 	deleted := float64(time.Now().UnixNano()) / 1e9
 
-	if status, _ := owner.rest(http.MethodGet, "/api/v1/portal/scripts/"+id+"/schedule", http.NoBody); status != http.StatusNotFound {
+	if status, _ := owner.rest(http.MethodGet, "/api/v1/portal/scripts/"+id+"/handlers", http.NoBody); status != http.StatusNotFound {
 		t.Fatalf("the schedule survived the delete: status %d", status)
 	}
 	if status, runs := runsOf1575(t, owner, id); status != http.StatusNotFound || runs != 0 {
@@ -349,11 +345,7 @@ func TestIssue1575_ThePortalAndTheToolLeaveTheSameState(t *testing.T) {
 		{viaPortal, "acceptance-1575-portal-output-" + unique},
 		{viaTool, "acceptance-1575-tool-output-" + unique},
 	} {
-		owner.call("manage_script", map[string]any{
-			"command": "schedule_set", "name": pair.name,
-			"cron": "0 7 * * *", "timezone": "UTC",
-			"args": map[string]any{"target": pair.target},
-		})
+		owner.scheduleSet(pair.name, "0 7 * * *", "UTC", map[string]any{"target": pair.target})
 		runScript1575(t, owner, pair.name, pair.target)
 	}
 
@@ -366,7 +358,7 @@ func TestIssue1575_ThePortalAndTheToolLeaveTheSameState(t *testing.T) {
 		if listedInPortal1575(t, owner, id) {
 			t.Fatalf("script %s is still listed", id)
 		}
-		if status, _ := owner.rest(http.MethodGet, "/api/v1/portal/scripts/"+id+"/schedule", http.NoBody); status != http.StatusNotFound {
+		if status, _ := owner.rest(http.MethodGet, "/api/v1/portal/scripts/"+id+"/handlers", http.NoBody); status != http.StatusNotFound {
 			t.Fatalf("script %s kept its schedule: status %d", id, status)
 		}
 		if status, runs := runsOf1575(t, owner, id); status != http.StatusNotFound || runs != 0 {

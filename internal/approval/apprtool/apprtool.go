@@ -79,7 +79,7 @@ const description = "Approvals: a request for an administrator's decision. A for
 	"the version by the hash of its source and says what changed since the version approved before. An " +
 	"administrator reads it with get, previews the version's form with manage_script form_preview " +
 	"preview_version=<n>, and decides it (decide id, decision approve or deny, comment); the requester is " +
-	"notified. Once approved, the form's owner sets auth_mode public or bot_check with manage_script endpoint_set. " +
+	"notified. Once approved, the form's owner sets auth_mode public or bot_check on its endpoint handler with manage_script handler_set. " +
 	"A version saved after the approval is served to signed-in people and not publicly until it is approved too. " +
 	"Administrators decide every request, their own included (recorded as self-approved); nobody else decides " +
 	"one. list answers your own requests, or for an administrator every request (status filters it)."

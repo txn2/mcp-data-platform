@@ -92,11 +92,7 @@ func createScript1593(t *testing.T, c *client, name string) string {
 // the script is in the state the fullest account describes.
 func loadUp1593(t *testing.T, c *client, name string) {
 	t.Helper()
-	c.call("manage_script", map[string]any{
-		"command": "schedule_set", "name": name,
-		"cron": "0 3 * * *", "timezone": "UTC",
-		"args": map[string]any{"target": "acceptance-1593-scheduled"},
-	})
+	c.scheduleSet(name, "0 3 * * *", "UTC", map[string]any{"target": "acceptance-1593-scheduled"})
 	out := c.call("run_script", map[string]any{
 		"name": name, "args": map[string]any{"target": "acceptance-1593-" + unique1593()},
 		"wait_seconds": 120,

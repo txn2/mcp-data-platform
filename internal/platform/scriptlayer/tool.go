@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 
+	"github.com/txn2/mcp-data-platform/internal/removedvalue"
 	"github.com/txn2/mcp-data-platform/internal/runstate"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -50,20 +51,22 @@ const (
 	cmdState      = "state"
 	cmdTest       = "test"
 	cmdRecording  = "recording"
-
-	cmdScheduleSet     = "schedule_set"
-	cmdScheduleList    = "schedule_list"
-	cmdScheduleEnable  = "schedule_enable"
-	cmdScheduleDisable = "schedule_disable"
 )
 
 // JSON field names shared between the schema and result maps.
 const (
-	fieldName    = "name"
-	fieldStatus  = "status"
-	fieldVersion = "version"
-	fieldSource  = "source"
-	fieldMessage = "message"
+	fieldName     = "name"
+	fieldStatus   = "status"
+	fieldVersion  = "version"
+	fieldSource   = "source"
+	fieldMessage  = "message"
+	fieldCount    = "count"
+	fieldOwner    = "owner_email"
+	fieldCategory = "category"
+	fieldTags     = "tags"
+	fieldLibrary  = "library"
+	fieldHandlers = "handlers"
+	fieldCommand  = "command"
 )
 
 // manageScriptInput is the input schema for the manage_script tool. Every field
@@ -93,10 +96,11 @@ type manageScriptInput struct {
 	Enabled *bool `json:"enabled,omitempty"`
 	// Exclusive is a pointer for the same reason: an update that does not
 	// send it leaves the setting alone (#1986).
-	Exclusive    *runstate.ExclusiveMode `json:"exclusive,omitempty"`
-	EventSource  *string                 `json:"event_source,omitempty"` // a pointer: "" is a value (#2332)
-	Status       string                  `json:"status,omitempty"`
-	SupersededBy string                  `json:"superseded_by,omitempty"`
+	Exclusive *runstate.ExclusiveMode `json:"exclusive,omitempty"`
+	// EventSource is a webhook handler's source (#2434); update refuses it.
+	EventSource  *string `json:"event_source,omitempty"`
+	Status       string  `json:"status,omitempty"`
+	SupersededBy string  `json:"superseded_by,omitempty"`
 
 	// List filters.
 	Search string `json:"search,omitempty"`
@@ -119,7 +123,7 @@ type manageScriptInput struct {
 	ChangeSummary string `json:"change_summary,omitempty"`
 	UserAgreed    bool   `json:"user_agreed,omitempty"`
 
-	// Cron and Timezone carry the cadence for schedule_set. Args carries the
+	// Cron and Timezone carry a schedule handler's cadence. Args carries the
 	// schedule's bound parameter values — the same vocabulary run_draft binds,
 	// which is why it is the same argument, with the addition that a schedule's
 	// values may contain the ${fire_date} token.
@@ -161,7 +165,9 @@ type manageScriptInput struct {
 	// lines in full, and a refused save's formatted source.
 	Verbose bool `json:"verbose,omitempty"`
 
-	// The endpoint binding commands' fields (#2171), and list's library filter (#2273).
+	// The handler commands' fields (#2441), an endpoint handler's settings
+	// (#2171), and list's library filter (#2273).
+	HandlerInput
 	epcmd.Input
 	scriptshare.ListInput
 }
@@ -176,6 +182,9 @@ func (h *Handle) RegisterTool(server *mcp.Server) {
 		return
 	}
 	h.server = server
+	for command, replacement := range removedCommands {
+		removedvalue.Register(ToolNameManageScript, fieldCommand, command, replacement+" (#2441)")
+	}
 
 	toolkit.AddTool(server, &mcp.Tool{
 		Name:        ToolNameManageScript,
@@ -222,13 +231,13 @@ func (h *Handle) commands() map[string]commandHandler {
 		cmdTest:       h.handleTest,
 		cmdRecording:  h.handleRecording,
 
-		cmdScheduleSet:     h.handleScheduleSet,
-		cmdScheduleList:    h.handleScheduleList,
-		cmdScheduleEnable:  h.handleScheduleEnable,
-		cmdScheduleDisable: h.handleScheduleDisable,
-
-		epcmd.CmdSet: h.handleEndpoint, epcmd.CmdList: h.handleEndpoint,
-		epcmd.CmdEnable: h.handleEndpoint, epcmd.CmdDisable: h.handleEndpoint, epcmd.CmdFormPreview: h.handleEndpoint,
+		cmdHandlerSet:        h.handleHandlerSet,
+		cmdHandlerList:       h.handleHandlerList,
+		cmdHandlerGet:        h.handleHandlerGet,
+		cmdHandlerEnable:     h.handleHandlerEnable,
+		cmdHandlerDisable:    h.handleHandlerDisable,
+		cmdHandlerDelete:     h.handleHandlerDelete,
+		epcmd.CmdFormPreview: h.handleFormPreview,
 	}
 }
 
@@ -254,17 +263,20 @@ func (h *Handle) commands() map[string]commandHandler {
 //     never held it. Nothing about a run should be able to author authority.
 var scriptWritingCommands = map[string]bool{
 	cmdCreate: true, cmdUpdate: true, cmdPatch: true, cmdDelete: true,
-	cmdScheduleSet: true, cmdScheduleEnable: true, cmdScheduleDisable: true,
+	cmdHandlerSet: true, cmdHandlerEnable: true, cmdHandlerDisable: true, cmdHandlerDelete: true,
 	cmdCancelRun: true,
 }
 
 // handleManageScript dispatches manage_script commands.
 func (h *Handle) handleManageScript(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
+	if replacement, gone := removedCommands[input.Command]; gone {
+		return errorResult(fmt.Sprintf("%s was removed: use %s (#2441)", input.Command, replacement)), nil, nil
+	}
 	handler, ok := h.commands()[input.Command]
 	if !ok {
 		return errorResult(fmt.Sprintf("unknown command: %s", input.Command)), nil, nil
 	}
-	if scriptWritingCommands[input.Command] || epcmd.Writes(input.Command) {
+	if scriptWritingCommands[input.Command] {
 		if errResult := refuseScriptAuthoring(ctx, ToolNameManageScript+" "+input.Command); errResult != nil {
 			return errResult, nil, nil
 		}
@@ -317,14 +329,14 @@ const (
 // instead of silently dropped (#1057).
 func manageScriptSchema() any {
 	props := map[string]any{
-		"command": map[string]any{
+		fieldCommand: map[string]any{
 			keyType: valString,
 			keyEnum: append([]string{
 				cmdCreate, cmdUpdate, cmdDelete, cmdGet, cmdList, cmdValidate,
 				cmdRunDraft, cmdHelp, cmdPatch, cmdLocate, cmdGetContent,
 				cmdOutline, cmdStats, cmdDiff, cmdVersions, cmdRuns, cmdGetRun, cmdCancelRun, cmdState,
-				cmdTest, cmdRecording, cmdScheduleSet, cmdScheduleList, cmdScheduleEnable, cmdScheduleDisable,
-			}, epcmd.Commands...),
+				cmdTest, cmdRecording,
+			}, handlerCommands...),
 			keyDescription: "The operation to perform. Call 'help' first if you have not written a " +
 				"script for this platform before: it states the dialect and what is available.",
 		},
@@ -344,7 +356,7 @@ func manageScriptSchema() any {
 				"months would need. It is rendered as markdown on the script's page and is part of " +
 				"what search matches the script on.",
 		},
-		"category": map[string]any{
+		fieldCategory: map[string]any{
 			keyType: valString,
 			keyDescription: "One lowercase slug filing the script under a category (letters, digits and " +
 				"hyphens, starting with a letter), which the listings filter on. Reuse an existing " +
@@ -370,8 +382,8 @@ func manageScriptSchema() any {
 				"bind: \"caller.<claim>\" takes the value from the calling identity (an API key's attribute, an OIDC claim) instead of the arguments: an argument for it is refused, a caller without the claim cannot run the script, and it cannot be scheduled.",
 			keyItems: map[string]any{keyType: valObject},
 		},
-		"owner_email": map[string]any{keyType: valString, keyDescription: "Owner of the script, to address another person's. Anyone may read another person's script this way with get, get_content, outline, stats, locate, diff and versions; only an admin may run, schedule, change it or read its runs and state."},
-		"tags": map[string]any{
+		fieldOwner: map[string]any{keyType: valString, keyDescription: "Owner of the script, to address another person's. Anyone may read another person's script this way with get, get_content, outline, stats, locate, diff and versions; only an admin may run it, change it or its handlers, or read its runs and state."},
+		fieldTags: map[string]any{
 			keyType: valArray, keyItems: map[string]any{keyType: valString},
 			keyDescription: "Free-form tags. On list they narrow the result to the scripts carrying any of them.",
 		},
@@ -381,15 +393,15 @@ func manageScriptSchema() any {
 			"queue: another run is accepted and stays pending until no other run of the script is running, then runs; use it to start several runs by hand against an upstream that takes one request at a time. " +
 			"off (the default): runs of one script may overlap (a run_script run beside a scheduled one, or two run_script runs), and the state check at save time is the only guard: the later run fails with state_conflict after its side effects have happened. " +
 			"true and false are read as refuse and off."},
-		"event_source": map[string]any{keyType: valString, keyDescription: "Set with update: the webhook source the script runs for (\"\" for none). Each event it stores (a post, a form submission, a filed message) enqueues one run, trigger event, reading run.event (id, type, key, received_at, source, payload) under the script's saved roles; " +
-			"one run per event id, at most scripts.events.max_queued waiting (past it, skipped_backlog), one at a time when exclusive. An administrator names any source; the owner only their own form's (form-<endpoint>)."},
+		"event_source": map[string]any{keyType: valString, keyDescription: "For handler_set kind=webhook: the webhook source the script runs for. Each event it stores (a post, a form submission, a filed message) enqueues one run, trigger event, reading run.event (id, type, key, received_at, source, payload) under the script's saved roles; " +
+			"one run per event id, at most scripts.events.max_queued waiting for this handler (past it, skipped_backlog), one at a time when exclusive. Several scripts may run for one source and one script for several. An administrator names any source; the owner only their own form's (form-<endpoint>)."},
 		fieldStatus:     map[string]any{keyType: valString, keyEnum: []string{script.StatusActive, script.StatusDeprecated, script.StatusSuperseded}, keyDescription: "Lifecycle transition to apply."},
 		"superseded_by": map[string]any{keyType: valString, keyDescription: "Name of the replacing script when superseding."},
 		"search":        map[string]any{keyType: valString, keyDescription: "Substring filter for list."},
 		"limit":         map[string]any{keyType: valInteger, keyDescription: "Maximum rows for list, or matches for locate."},
 		"args": map[string]any{
 			keyType: valObject,
-			keyDescription: "Parameter values for run_draft, or the bound values a schedule fires with, " +
+			keyDescription: "Parameter values for run_draft, or the bound values a schedule handler fires with, " +
 				"checked against the script's declared params. A schedule's value may contain " +
 				script.FireDateToken + ", which expands to the date of the fire in the schedule's timezone.",
 		},
@@ -420,7 +432,7 @@ func manageScriptSchema() any {
 		},
 		"cron": map[string]any{
 			keyType: valString,
-			keyDescription: "Cadence for schedule_set: a standard five-field cron expression " +
+			keyDescription: "For handler_set kind=schedule: the cadence, a standard five-field cron expression " +
 				"(\"0 7 * * 1-5\" is 07:00 on weekdays) or a descriptor (@daily, @hourly, @every 30m). " +
 				"A schedule may fire at most once a minute.",
 		},
@@ -461,10 +473,11 @@ func manageScriptSchema() any {
 	maps.Copy(props, textpatch.PropertiesMap())
 	maps.Copy(props, epcmd.Properties())
 	maps.Copy(props, scriptshare.ListProperties())
+	maps.Copy(props, handlerProperties())
 	props["timeout_seconds"] = map[string]any{keyType: "integer", keyDescription: "For run_draft: how long the draft may run. " +
 		"Up to 60 for anyone; an administrator may ask for up to scripts.draft.max_seconds, and a draft longer " +
 		"than 60 runs in the background: run_draft answers its run_id at once and get_run reads it. " +
-		"For endpoint_set: how long one request may run."}
+		"For an endpoint handler: how long one request may run."}
 	props["source_ref"] = map[string]any{keyType: valString, keyDescription: "For create and update: a managed " +
 		"resource whose text is the source, as mcp:resource:<id> or its mcp:// uri, instead of sending source. " +
 		"Write the file once with manage_resource and save from it; you must be able to read it."}
@@ -474,7 +487,7 @@ func manageScriptSchema() any {
 	return map[string]any{
 		keyType:                valObject,
 		"properties":           props,
-		"required":             []string{"command"},
+		"required":             []string{fieldCommand},
 		"additionalProperties": false,
 	}
 }

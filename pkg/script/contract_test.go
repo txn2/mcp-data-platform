@@ -54,31 +54,55 @@ func TestBuildContractReportsAGateRefusal(t *testing.T) {
 // will never happen.
 func TestContractScheduleReportsCadenceAndNextFire(t *testing.T) {
 	next := time.Date(2026, 8, 17, 14, 0, 0, 0, time.UTC)
-	sched := &Schedule{
+	sched := Schedule{
 		CronSpec: "0 7 * * 1-5", Timezone: "America/Los_Angeles",
 		Enabled: true, NextRunAt: next,
 	}
 
-	c := BuildContract(liveScript(), sched, nil)
-	require.NotNil(t, c.Schedule)
-	require.NotNil(t, c.Schedule.NextRunAt)
-	assert.Equal(t, next, *c.Schedule.NextRunAt)
+	c := BuildContract(liveScript(), []Schedule{sched}, nil)
+	require.Len(t, c.Schedules, 1)
+	require.NotNil(t, c.Schedules[0].NextRunAt)
+	assert.Equal(t, next, *c.Schedules[0].NextRunAt)
 	assert.Contains(t, c.Text(), "next fire 2026-08-17 14:00 UTC")
 
 	sched.Enabled = false
-	c = BuildContract(liveScript(), sched, nil)
-	require.NotNil(t, c.Schedule)
-	assert.Nil(t, c.Schedule.NextRunAt)
+	c = BuildContract(liveScript(), []Schedule{sched}, nil)
+	require.Len(t, c.Schedules, 1)
+	assert.Nil(t, c.Schedules[0].NextRunAt)
 	assert.Contains(t, c.Text(), "disabled")
 
 	// An enabled schedule whose expression has nothing left to fire says so,
 	// rather than reading as a cadence that simply has not fired yet.
 	sched.Enabled = true
 	sched.NextRunAt = time.Time{}
-	c = BuildContract(liveScript(), sched, nil)
-	require.NotNil(t, c.Schedule)
-	assert.Nil(t, c.Schedule.NextRunAt)
+	c = BuildContract(liveScript(), []Schedule{sched}, nil)
+	require.Len(t, c.Schedules, 1)
+	assert.Nil(t, c.Schedules[0].NextRunAt)
 	assert.Contains(t, c.Text(), "no further fire")
+}
+
+// TestContractReportsEverySchedule proves a script holding several schedule
+// handlers (#2434) reports each cadence, in the order the store returned
+// them, and a script with none reports an empty list rather than null.
+func TestContractReportsEverySchedule(t *testing.T) {
+	morning := time.Date(2026, 8, 17, 14, 0, 0, 0, time.UTC)
+	c := BuildContract(liveScript(), []Schedule{
+		{CronSpec: "0 7 * * 1-5", Timezone: "America/Los_Angeles", Enabled: true, NextRunAt: morning},
+		{CronSpec: "0 19 * * *", Timezone: "UTC", Enabled: false},
+	}, nil)
+
+	require.Len(t, c.Schedules, 2)
+	assert.Equal(t, "0 7 * * 1-5", c.Schedules[0].CronSpec)
+	assert.Equal(t, "0 19 * * *", c.Schedules[1].CronSpec)
+	text := c.Text()
+	assert.Contains(t, text, "Schedule: 0 7 * * 1-5 (America/Los_Angeles)")
+	assert.Contains(t, text, "Schedule: 0 19 * * * (UTC)")
+	assert.Less(t, strings.Index(text, "0 7 * * 1-5"), strings.Index(text, "0 19 * * *"))
+
+	none := BuildContract(liveScript(), nil, nil)
+	require.NotNil(t, none.Schedules)
+	assert.Empty(t, none.Schedules)
+	assert.NotContains(t, none.Text(), "Schedule:")
 }
 
 // TestContractNamesEachOutputShape proves "what did this produce" answers in

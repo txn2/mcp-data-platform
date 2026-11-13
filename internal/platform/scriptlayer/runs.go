@@ -41,7 +41,7 @@ func (h *Handle) handleRuns(ctx context.Context, input manageScriptInput) (*mcp.
 		summaries = append(summaries, runSummary(sc, &runs[i]))
 	}
 	return jsonResult(map[string]any{
-		fieldName: sc.Name, "runs": summaries, "count": len(summaries),
+		fieldName: sc.Name, "runs": summaries, fieldCount: len(summaries),
 	})
 }
 

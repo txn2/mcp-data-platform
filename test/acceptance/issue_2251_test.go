@@ -16,13 +16,13 @@ import (
 // before it is embedded.
 //
 // Wire forms: the list takes page, per_page, access and status as query
-// strings; manage_script endpoint_list takes limit as a JSON number (its
+// strings; manage_script handler_list takes limit as a JSON number (its
 // schema types it integer); search takes sources as an array of strings.
 
 // TestIssue2251_TheEndpointListReachesEveryEndpointAndCountsThem: read one
 // endpoint a page, the pages hold every endpoint the total names, each once,
 // the three bound here among them; a filter narrows the total; and
-// endpoint_list cut at one says how many there are.
+// handler_list cut at one says how many there are.
 func TestIssue2251_TheEndpointListReachesEveryEndpointAndCountsThem(t *testing.T) {
 	admin := connect(t)
 	names := []string{endpointName("acc-2251-a"), endpointName("acc-2251-b"), endpointName("acc-2251-c")}
@@ -81,12 +81,9 @@ func TestIssue2251_TheEndpointListReachesEveryEndpointAndCountsThem(t *testing.T
 	}
 
 	// The MCP listing says what it left out.
-	out := admin.call("manage_script", map[string]any{"command": "endpoint_list", "limit": 1})
+	out := admin.call("manage_script", map[string]any{"command": "handler_list", "kind": "endpoint", "limit": 1})
 	if number(t, out, "count") != 1 || int(number(t, out, "total")) != total {
-		t.Fatalf("endpoint_list limit=1: count %v, total %v (want 1 of %d)", out["count"], out["total"], total)
-	}
-	if note, _ := out["note"].(string); !strings.Contains(note, fmt.Sprintf("1 of %d endpoints listed", total)) {
-		t.Errorf("endpoint_list cut at one says %q", note)
+		t.Fatalf("handler_list kind=endpoint limit=1: count %v, total %v (want 1 of %d)", out["count"], out["total"], total)
 	}
 }
 

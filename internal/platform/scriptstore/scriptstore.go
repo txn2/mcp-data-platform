@@ -18,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
+
 	"github.com/txn2/mcp-data-platform/internal/runstate"
 
 	"github.com/lib/pq"
@@ -62,7 +64,7 @@ func New(db *sql.DB, opts ...indexjobs.StoreOption) *Store {
 // place so the scan order in scanScript cannot drift from the query.
 const scriptColumns = `id, name, display_name, description, category, source_code, params,
 	owner_email, tags, enabled, status, superseded_by,
-	deprecated_at, version, created_at, updated_at, library, library_loads, exclusive_mode, event_source, COALESCE(released_version, 0)`
+	deprecated_at, version, created_at, updated_at, library, library_loads, exclusive_mode, is_form, COALESCE(released_version, 0)`
 
 // scriptSelect is the base SELECT for the script columns.
 // scriptsTable is the one place the table's name is written. Every statement
@@ -85,7 +87,7 @@ func scanScript(sc rowScanner) (*script.Script, error) {
 	err := sc.Scan(&s.ID, &s.Name, &s.DisplayName, &s.Description, &s.Category, &s.Source, &paramsJSON,
 		&s.OwnerEmail, pq.Array(&s.Tags), &s.Enabled,
 		&s.Status, &s.SupersededBy, &s.DeprecatedAt, &s.Version,
-		&s.CreatedAt, &s.UpdatedAt, &s.Library, pq.Array(&s.Loads), &s.Exclusive, &s.EventSource, &s.ReleasedVersion)
+		&s.CreatedAt, &s.UpdatedAt, &s.Library, pq.Array(&s.Loads), &s.Exclusive, &s.IsForm, &s.ReleasedVersion)
 	if err != nil {
 		return nil, fmt.Errorf("scanning script row: %w", err)
 	}
@@ -158,13 +160,13 @@ func (s *Store) Create(ctx context.Context, sc *script.Script, author script.Aut
 		row := tx.QueryRowContext(ctx, `
 			INSERT INTO scripts (name, display_name, description, category, source_code, params,
 			                     owner_email, tags, enabled, status, version, library, library_loads, exclusive_mode,
-			                     index_text_hash)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1, $11, $12, $13, $14)
-			RETURNING id, created_at, updated_at`,
+			                     index_text_hash, is_form)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1, $11, $12, $13, $14, $15)
+			RETURNING id, created_at, updated_at, is_form`,
 			sc.Name, sc.DisplayName, sc.Description, sc.Category, sc.Source, paramsJSON,
 			sc.OwnerEmail, pq.Array(sc.Tags), sc.Enabled, sc.Status, sc.Library, pq.Array(sc.Loads), sc.Exclusive.Or(),
-			indexjobs.TextHash(scriptindex.Corpus(sc)))
-		if err := row.Scan(&sc.ID, &sc.CreatedAt, &sc.UpdatedAt); err != nil {
+			indexjobs.TextHash(scriptindex.Corpus(sc)), epform.DefinesSource(sc.Source))
+		if err := row.Scan(&sc.ID, &sc.CreatedAt, &sc.UpdatedAt, &sc.IsForm); err != nil {
 			return fmt.Errorf("insert script: %w", err)
 		}
 		return insertVersionRow(ctx, tx, versionInsert{
@@ -242,7 +244,7 @@ const updateScriptQuery = `
 		       source_code = $6, params = $7,
 		       owner_email = $8, tags = $9, enabled = $10, status = $11,
 		       superseded_by = $12, deprecated_at = $13, version = $14,
-		       library_loads = $16, exclusive_mode = $17, event_source = $18, index_text_hash = $15, updated_at = NOW()
+		       library_loads = $16, exclusive_mode = $17, is_form = $18, index_text_hash = $15, updated_at = NOW()
 		  FROM (SELECT id, index_text_hash AS prev FROM scripts WHERE id = $1 FOR UPDATE) p
 		 WHERE s.id = $1 AND p.id = s.id
 		 RETURNING p.prev IS DISTINCT FROM $15`
@@ -259,7 +261,7 @@ func updateTx(ctx context.Context, tx *sql.Tx, sc *script.Script) (bool, error) 
 		sc.ID, sc.Name, sc.DisplayName, sc.Description, sc.Category, sc.Source, paramsJSON,
 		sc.OwnerEmail, pq.Array(sc.Tags),
 		sc.Enabled, sc.Status, sc.SupersededBy, sc.DeprecatedAt, sc.Version,
-		indexjobs.TextHash(scriptindex.Corpus(sc)), pq.Array(libraryLoads(sc.Source)), sc.Exclusive.Or(), sc.EventSource).Scan(&changed)
+		indexjobs.TextHash(scriptindex.Corpus(sc)), pq.Array(libraryLoads(sc.Source)), sc.Exclusive.Or(), epform.DefinesSource(sc.Source)).Scan(&changed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, fmt.Errorf("script %s not found", sc.ID)
 	}
@@ -350,11 +352,11 @@ func deleteTx(ctx context.Context, tx *sql.Tx, id string) (script.Removed, error
 	// the empty object rather than removing the row, and reporting that as
 	// state the delete took would name what was not there.
 	if err := tx.QueryRowContext(ctx, `
-		SELECT EXISTS (SELECT 1 FROM script_schedules WHERE script_id = $1),
+		SELECT EXISTS (SELECT 1 FROM script_handlers  WHERE script_id = $1),
 		       EXISTS (SELECT 1 FROM script_runs      WHERE script_id = $1),
 		       EXISTS (SELECT 1 FROM script_state     WHERE script_id = $1
 		                                                AND state <> '{}'::jsonb)`,
-		id).Scan(&rm.Schedule, &rm.Runs, &rm.State); err != nil {
+		id).Scan(&rm.Handlers, &rm.Runs, &rm.State); err != nil {
 		return script.Removed{}, fmt.Errorf("read what a script delete cascades: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM scripts WHERE id = $1`, id); err != nil {
@@ -398,9 +400,9 @@ func (s *Store) Count(ctx context.Context, filter script.ListFilter) (int, error
 
 // CountScheduled returns how many matching scripts carry a cadence.
 //
-// A correlated EXISTS rather than a join: a script has at most one schedule,
-// so a join could not multiply rows, but EXISTS says what is being asked and
-// stops short on the first match.
+// A correlated EXISTS rather than a join: a script may hold several schedules
+// (#2434), which a join would count once each; EXISTS counts the script once
+// and stops short on the first match.
 func (s *Store) CountScheduled(ctx context.Context, filter script.ListFilter) (int, error) {
 	query, args := buildScheduledCountQuery(filter)
 	var total int
@@ -423,6 +425,31 @@ func (q *listQuery) add(clause string, arg any) {
 	q.where = append(q.where, fmt.Sprintf(clause, len(q.args)))
 }
 
+// addHandlerTypes narrows to the scripts holding a handler of any of the
+// types, read from the script_handlers view (#2435); "none" is a script
+// holding no handler at all.
+func (q *listQuery) addHandlerTypes(types []string) {
+	kinds := make([]string, 0, len(types))
+	none := false
+	for _, t := range types {
+		if t == "none" {
+			none = true
+			continue
+		}
+		kinds = append(kinds, t)
+	}
+	holds := "EXISTS (SELECT 1 FROM script_handlers h WHERE h.script_id = " + scriptsTable + ".id AND h.type = ANY($%d))"
+	empty := "NOT EXISTS (SELECT 1 FROM script_handlers h WHERE h.script_id = " + scriptsTable + ".id)"
+	switch {
+	case none && len(kinds) > 0:
+		q.add("("+holds+" OR "+empty+")", pq.Array(kinds))
+	case none:
+		q.where = append(q.where, empty)
+	default:
+		q.add(holds, pq.Array(kinds))
+	}
+}
+
 // addEquality appends the plain equality filters.
 func (q *listQuery) addEquality(filter script.ListFilter) {
 	if filter.OwnerEmail != "" {
@@ -437,9 +464,8 @@ func (q *listQuery) addEquality(filter script.ListFilter) {
 	if filter.Library != nil {
 		q.add("library = $%d", *filter.Library)
 	}
-	if filter.Endpoint != nil {
-		q.add("EXISTS (SELECT 1 FROM script_endpoints WHERE script_endpoints.script_id = "+scriptsTable+".id) = $%d",
-			*filter.Endpoint)
+	if len(filter.HandlerTypes) > 0 {
+		q.addHandlerTypes(filter.HandlerTypes)
 	}
 	if filter.Status != "" {
 		q.add("status = $%d", filter.Status)

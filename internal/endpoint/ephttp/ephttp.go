@@ -142,6 +142,38 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+solverPath, solver)
 }
 
+// Raw serves a request under /endpoints/ whose path has an empty or a dot
+// segment from the path as sent, so the endpoint's router answers it as it
+// does on a page origin: such a segment matches nothing and is answered 404
+// without the handler running. A ServeMux would first redirect it to the
+// cleaned path and then run the handler there (#2628). Every other request
+// goes to next.
+func (h *Handler) Raw(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		after, ok := strings.CutPrefix(r.URL.Path, PathPrefix)
+		if !ok || !unclean(after) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		name, rest, _ := strings.Cut(after, "/")
+		if rest != "" || strings.HasSuffix(after, "/") {
+			rest = "/" + rest
+		}
+		h.serve(w, r, name, rest)
+	})
+}
+
+// unclean reports a path with an empty, "." or ".." segment, a trailing
+// slash aside: what a ServeMux redirects.
+func unclean(p string) bool {
+	for seg := range strings.SplitSeq(strings.TrimSuffix(p, "/"), "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return true
+		}
+	}
+	return false
+}
+
 // PageRoute is a request to an application's endpoint on its page origin
 // (#2517): the endpoint, the application it must belong to, and the identity
 // that origin carries in place of the portal's.

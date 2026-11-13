@@ -5,8 +5,10 @@
 package savegatewire
 
 import (
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifylayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
+	"github.com/txn2/mcp-data-platform/internal/platform/scripthandler"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec/recstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
@@ -17,8 +19,8 @@ import (
 
 // Gate is the save gate over the platform's recordings (sealed with its rest
 // encryptor), destinations, memory budget, answer contracts, libraries and
-// resource files. A script bound to an endpoint must keep defining
-// handle(req) (#2171).
+// resource files. A script's handlers must still be served by each version
+// saved (#2171, #2441).
 func Gate(p *platform.Platform) *scriptsave.Gate {
 	gate := &scriptsave.Gate{
 		Recordings: recstore.New(p.DB()).Sealed(p.RestEncryptor()), Destinations: p.Config().Scripts.ScriptDestinations(),
@@ -29,10 +31,24 @@ func Gate(p *platform.Platform) *scriptsave.Gate {
 		Resources:      scriptsrc.New(p.ResourceStore(), p.ResourceS3Client(), p.Config().Resources.Managed.S3Bucket, p.Config().Resources.Managed.URIScheme),
 		CannotServe:    scriptsave.PassthroughConnections{Kits: p.ToolkitRegistry()}.CannotServe,
 	}
-	if e := p.Endpoints(); e != nil {
-		gate.Endpoint = e.Commands.Bound
+	if h := Handlers(p); h != nil {
+		gate.Handlers = h.Check
 	}
 	return gate
+}
+
+// Handlers is the handler service over the platform's database (#2441): the
+// portal's handler routes, the save gate's contract question and an
+// application import act through it. Nil with no database.
+func Handlers(p *platform.Platform) *scripthandler.Service {
+	if p == nil || p.DB() == nil {
+		return nil
+	}
+	var commands *epcmd.Handler
+	if e := p.Endpoints(); e != nil {
+		commands = e.Commands
+	}
+	return scripthandler.New(p.DB(), commands, scriptstore.New(p.DB()))
 }
 
 // Drafts is the runner a draft started on the portal executes on: the script

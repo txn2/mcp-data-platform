@@ -187,8 +187,10 @@ func TestRealDB_AnOverlappingFireIsRecordedAsASkip(t *testing.T) {
 }
 
 // TestRealDB_ScheduleLifecycleAgainstTheRealSchema covers the writes sqlmock
-// cannot vouch for: the upsert keyed on the script, the conditional advance,
-// and the due predicate reading a NULL next fire as parked.
+// cannot vouch for: the replace keyed on the schedule's id and held to its
+// script, a second schedule on one script (#2434), the delete, the
+// conditional advance, and the due predicate reading a NULL next fire as
+// parked.
 func TestRealDB_ScheduleLifecycleAgainstTheRealSchema(t *testing.T) {
 	db := testdb.New(t)
 	s := New(db)
@@ -198,18 +200,50 @@ func TestRealDB_ScheduleLifecycleAgainstTheRealSchema(t *testing.T) {
 	due := time.Now().Add(-time.Minute)
 	sched := scheduledFor(ctx, t, s, sc, due)
 
-	t.Run("setting again replaces in place", func(t *testing.T) {
+	t.Run("setting with its id replaces in place", func(t *testing.T) {
 		replacement := &script.Schedule{
-			ScriptID: sc.ID, CronSpec: "@daily", Timezone: "UTC",
+			ID: sched.ID, ScriptID: sc.ID, CronSpec: "@daily", Timezone: "UTC",
 			Enabled: true, NextRunAt: due, UpdatedBy: "admin@example.com",
 		}
 		require.NoError(t, s.SetSchedule(ctx, replacement))
-		assert.Equal(t, sched.ID, replacement.ID, "a script has one schedule, and it keeps its identity")
+		assert.Equal(t, sched.ID, replacement.ID, "a replaced schedule keeps its identity")
+		assert.Equal(t, "jane@example.com", replacement.CreatedBy, "and who created it")
 
 		all, err := s.ListSchedules(ctx, script.ScheduleFilter{ScriptID: sc.ID})
 		require.NoError(t, err)
 		assert.Len(t, all, 1)
 		assert.Equal(t, "@daily", all[0].CronSpec)
+	})
+
+	t.Run("an id read from another script's schedule changes nothing", func(t *testing.T) {
+		other, _ := savedScript(ctx, t, s, "weekly")
+		err := s.SetSchedule(ctx, &script.Schedule{
+			ID: sched.ID, ScriptID: other.ID, CronSpec: "@hourly", Timezone: "UTC", UpdatedBy: "mallory@example.com",
+		})
+		require.ErrorIs(t, err, script.ErrScheduleNotFound)
+
+		kept, err := s.ScheduleByID(ctx, sched.ID)
+		require.NoError(t, err)
+		assert.Equal(t, sc.ID, kept.ScriptID)
+		assert.Equal(t, "@daily", kept.CronSpec)
+	})
+
+	t.Run("setting with no id adds a second schedule, and one with no runs deletes", func(t *testing.T) {
+		evening := &script.Schedule{
+			ScriptID: sc.ID, CronSpec: "0 19 * * *", Timezone: "UTC",
+			Enabled: true, NextRunAt: time.Now().Add(30 * 24 * time.Hour), UpdatedBy: "jane@example.com",
+		}
+		require.NoError(t, s.SetSchedule(ctx, evening))
+		require.NotEqual(t, sched.ID, evening.ID, "a script may hold several schedules")
+
+		all, err := s.ListSchedules(ctx, script.ScheduleFilter{ScriptID: sc.ID})
+		require.NoError(t, err)
+		assert.Len(t, all, 2)
+
+		require.NoError(t, s.DeleteSchedule(ctx, evening.ID))
+		_, err = s.ScheduleByID(ctx, evening.ID)
+		require.ErrorIs(t, err, script.ErrScheduleNotFound)
+		require.ErrorIs(t, s.DeleteSchedule(ctx, evening.ID), script.ErrScheduleNotFound)
 	})
 
 	t.Run("the due query finds it", func(t *testing.T) {
@@ -234,27 +268,27 @@ func TestRealDB_ScheduleLifecycleAgainstTheRealSchema(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, moved, "the misses are counted once, not once per replica")
 
-		after, err := s.GetSchedule(ctx, sc.ID)
+		after, err := s.ScheduleByID(ctx, sched.ID)
 		require.NoError(t, err)
 		assert.Equal(t, 3, after.MissedFires)
 		require.NotNil(t, after.LastFireAt)
 	})
 
 	t.Run("disabling takes it out of the due set and keeps the row", func(t *testing.T) {
-		require.NoError(t, s.SetScheduleEnabled(ctx, sc.ID, false, "admin@example.com"))
+		require.NoError(t, s.EnableSchedule(ctx, sched.ID, false, "admin@example.com"))
 		out, err := s.DueSchedules(ctx, time.Now().Add(48*time.Hour), 0)
 		require.NoError(t, err)
 		assert.Empty(t, out)
 
-		still, err := s.GetSchedule(ctx, sc.ID)
+		still, err := s.ScheduleByID(ctx, sched.ID)
 		require.NoError(t, err)
 		assert.False(t, still.Enabled, "the schedule that explains past runs is still there")
 	})
 
 	t.Run("a parked schedule is never due", func(t *testing.T) {
-		require.NoError(t, s.SetScheduleEnabled(ctx, sc.ID, true, "admin@example.com"))
+		require.NoError(t, s.EnableSchedule(ctx, sched.ID, true, "admin@example.com"))
 		moved, err := s.AdvanceSchedule(ctx, script.ScheduleAdvance{
-			ID: sched.ID, From: mustNextRunAt(ctx, t, s, sc.ID),
+			ID: sched.ID, From: mustNextRunAt(ctx, t, s, sched.ID),
 		})
 		require.NoError(t, err)
 		require.True(t, moved)
@@ -266,9 +300,9 @@ func TestRealDB_ScheduleLifecycleAgainstTheRealSchema(t *testing.T) {
 }
 
 // mustNextRunAt reads a schedule's current next fire.
-func mustNextRunAt(ctx context.Context, t *testing.T, s *Store, scriptID string) time.Time {
+func mustNextRunAt(ctx context.Context, t *testing.T, s *Store, scheduleID string) time.Time {
 	t.Helper()
-	sched, err := s.GetSchedule(ctx, scriptID)
+	sched, err := s.ScheduleByID(ctx, scheduleID)
 	require.NoError(t, err)
 	return sched.NextRunAt
 }
@@ -289,14 +323,55 @@ func TestRealDB_DeletingAScriptRemovesItsScheduleAndRuns(t *testing.T) {
 	_, err := s.MaterializeRun(ctx, fireRun(sc, v, sched, "dpx_1", fire))
 	require.NoError(t, err)
 
+	require.ErrorIs(t, s.DeleteSchedule(ctx, sched.ID), ErrScheduleHasRuns,
+		"a schedule its runs name is refused on its own (#2434)")
+	kept, err := s.ScheduleByID(ctx, sched.ID)
+	require.NoError(t, err, "and the row stays")
+	assert.Equal(t, sched.ID, kept.ID)
+
 	removed, delErr := s.Delete(ctx, sc.ID)
 	require.NoError(t, delErr, "a script with a schedule and run history is still deletable")
-	assert.True(t, removed.Schedule, "the delete reports the schedule it took (#1593)")
+	assert.True(t, removed.Handlers, "the delete reports the handlers it took (#1593, #2441)")
 	assert.True(t, removed.Runs, "the delete reports the run history it took (#1593)")
 
-	_, err = s.GetSchedule(ctx, sc.ID)
+	_, err = s.ScheduleByID(ctx, sched.ID)
 	assert.ErrorIs(t, err, script.ErrScheduleNotFound)
 	runs, err := s.ListRuns(ctx, script.RunFilter{ScriptID: sc.ID})
 	require.NoError(t, err)
 	assert.Empty(t, runs)
+}
+
+// TestRealDB_TwoSchedulesOfOneScriptFireOnTheirOwn is the several-schedules
+// guarantee (#2434): each schedule of a script fires on its own, so two fires
+// at the same instant are two runs, each carrying the id of the schedule
+// that produced it, and neither is taken for the other's duplicate.
+func TestRealDB_TwoSchedulesOfOneScriptFireOnTheirOwn(t *testing.T) {
+	db := testdb.New(t)
+	s := New(db)
+	ctx := context.Background()
+
+	sc, v := savedScript(ctx, t, s, "daily")
+	fire := pastFire()
+	morning := scheduledFor(ctx, t, s, sc, fire)
+	evening := &script.Schedule{
+		ScriptID: sc.ID, CronSpec: "0 19 * * *", Timezone: "UTC",
+		Enabled: true, NextRunAt: fire, UpdatedBy: "jane@example.com",
+	}
+	require.NoError(t, s.SetSchedule(ctx, evening))
+
+	due, err := s.DueSchedules(ctx, time.Now(), 0)
+	require.NoError(t, err)
+	assert.Len(t, due, 2, "both schedules of the script are due")
+
+	for i, sched := range []*script.Schedule{morning, evening} {
+		outcome, err := s.MaterializeRun(ctx, fireRun(sc, v, sched, mintRunID(i), fire))
+		require.NoError(t, err)
+		assert.Equal(t, script.MaterializedRun, outcome, "schedule %s fires on its own", sched.ID)
+	}
+
+	runs, err := s.ListRuns(ctx, script.RunFilter{ScriptID: sc.ID})
+	require.NoError(t, err)
+	require.Len(t, runs, 2)
+	got := []string{runs[0].ScheduleID, runs[1].ScheduleID}
+	assert.ElementsMatch(t, []string{morning.ID, evening.ID}, got, "each run keeps its schedule's id")
 }

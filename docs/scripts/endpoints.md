@@ -31,6 +31,10 @@ sequenceDiagram
 
 ## Binding a script
 
+An endpoint is one kind of a script's [handlers](handlers.md) (#2441). A script
+may answer several endpoints, at most 20, each an endpoint handler of its own
+with its own name, settings and on or off state.
+
 Binding a script to an endpoint is an administrator's, with one exception: the
 owner of a form (a script defining `form_spec` and `form_submit`) binds,
 changes, turns on and turns off their own form (#2494). Every other caller,
@@ -47,22 +51,34 @@ approved; see [Publishing a form](#publishing-a-form).
 With `manage_script`:
 
 ```json
-{"command": "endpoint_set", "name": "order-lookup", "owner_email": "jane@example.com",
+{"command": "handler_set", "kind": "endpoint", "name": "order-lookup", "owner_email": "jane@example.com",
  "endpoint": "orders", "methods": ["GET"], "path": "/{id}", "auth_mode": "authenticated",
  "callers": ["persona:analyst", "api_key:partner-sync"], "timeout_seconds": 10}
 ```
 
-`endpoint_list` reads a script's binding and its recent failed requests, or
-lists every binding the caller's scripts have, up to `limit` (at most 200),
-with `total`, and a `note` naming how many were left out when the list was cut. `endpoint_enable` and
-`endpoint_disable` turn an endpoint on and off without touching the script; a
-disabled endpoint answers 404. A script run may read a binding but not set
-or turn one on or off.
+`handler_set` with `kind: "endpoint"` changes the endpoint handler `handler`
+names by id, else the script's endpoint handler with the name sent in
+`endpoint`, else its only one when no name is sent, and otherwise adds one. A
+script holding several endpoint handlers and sent no name is refused, naming
+them, and a name another script holds is refused, naming the handler that holds
+it. `handler_get` reads one endpoint handler with its recent failed requests,
+and `handler_list` lists a script's handlers, or with no `name` the handlers of
+the caller's scripts (every script's for an administrator); `kind: "endpoint"`
+narrows to endpoints and forms. `handler_enable` and `handler_disable` turn an
+endpoint on and off without touching the script; a disabled endpoint answers
+404. `handler_delete` removes it, with its failed and refused requests. A
+script run may read an endpoint handler but not set, turn on or off, or delete
+one.
+`endpoint_set`, `endpoint_list`, `endpoint_enable` and `endpoint_disable` were
+removed, and a call to one is refused naming its replacement (see
+[Handlers](handlers.md#the-commands-they-replaced)).
 
-On the portal, the script's page under Automations shows the binding, and an
-administrator, or a form's owner, binds, changes and turns it on and off there. The routes are
-`GET|PUT /api/v1/portal/scripts/{id}/endpoint` and
-`POST /api/v1/portal/scripts/{id}/endpoint/enable|disable`.
+On the portal, the script's page under Automations shows its endpoints in the
+**Handlers** section, and an administrator, or a form's owner, adds, changes,
+turns on and off and deletes them there. The routes are
+`GET|POST /api/v1/portal/scripts/{id}/handlers`,
+`GET|PUT|DELETE /api/v1/portal/handlers/{id}` and
+`POST /api/v1/portal/handlers/{id}/enable|disable`.
 
 A binding holds:
 
@@ -86,9 +102,9 @@ A binding holds:
 | `page_cdns`, `page_frame_origins`, `page_connect_origins`, `page_form_origins` | none | On a page: the https origins it may load from, frame, call from its script and post its forms to besides its own; at most 20 each, one leading `*.` label with two labels after it |
 
 A script can be bound only when it defines `handle(req)`, and a save of a bound
-script whose source no longer defines it is refused, naming the endpoint. A
-library cannot be bound. A script with `handle` and no `main()` is a script,
-not a library.
+script whose source no longer defines it is refused, naming the endpoint and
+its handler. A library cannot be bound. A script with `handle` and no `main()`
+is a script, not a library.
 
 ## The handler
 
@@ -147,10 +163,13 @@ reads it as `req["params"]["name"]` with no leading slash: with
 `path: "/{route...}"`, `/endpoints/shop` is `""`, `/endpoints/shop/products/shoe`
 is `"products/shoe"`, and a trailing slash is the same path. The handler routes
 it and chooses each status. A segment that is empty, `.` or `..`, or holds a
-backslash or a control character, matches nothing and answers 404, so `route` is
-always a clean relative path no longer than 2048 bytes and 64 segments. Only the
-last segment may be a catch-all, and it counts as one segment against the
-template's eight; `endpoint_set` refuses one anywhere else, naming the path. On
+backslash or a control character, matches nothing and answers 404 without the
+handler running, on the platform's own address and on an application's page
+origin alike (#2628): the platform's address is not redirected to a cleaned
+path first. So `route` is always a clean relative path no longer than 2048
+bytes and 64 segments. Only the last segment may be a catch-all, and it counts
+as one segment against the template's eight; `handler_set` refuses one anywhere
+else, naming the path. On
 an application's page origin, the endpoint named after the application bound at
 `/{route...}` answers every path but `/endpoints/`, `/_static/`, `/_viewer` and
 `/_auth`, so `/robots.txt` can answer `text/plain` and an unknown path its own
@@ -201,7 +220,7 @@ forged leftmost entry moves nothing. With no trusted proxy it is the peer's
 address. `ip_rate_limit` limits each address to that many requests a minute on
 each replica, an IPv6 client by its /64; a request past it is answered 429 with
 `Retry-After`, counted under the refusal reason `ip_rate_limit`, before the
-endpoint's own `rate_limit` is spent. `endpoint_set` warns when `ip_rate_limit`
+endpoint's own `rate_limit` is spent. `handler_set` warns when `ip_rate_limit`
 is set and `server.trusted_proxies` is empty, since behind a proxy every client
 then shares one address. The address is not written to an audit row, a log or a
 metric label. Static files and `/_static/` are not limited.
@@ -374,7 +393,7 @@ removes `handle(req)` is. The flow diagram draws `form_spec` and then
 
 Binding a form makes a webhook source for it (#2178), named `form-<endpoint>`
 (each `_` read as `-`), whose table is `webhook_form_<endpoint>` in the scratch
-schema of a Trino connection. `endpoint_set` takes `connection`, the Trino
+schema of a Trino connection. `handler_set` takes `connection`, the Trino
 connection whose scratch catalog holds the table, and defaults it to the only
 such connection; on a deployment with several it is required, named once, and
 does not change. Each submission `form_submit` accepts is written to that
@@ -397,7 +416,7 @@ address. A form's source is never posted to: `/hooks/form-<endpoint>` answers
 404, and the administrator's create refuses a source with input `form`. The
 script follows the source, so an endpoint renamed later keeps storing where it
 did. A form bound before it defined both handlers, or whose source was deleted
-or disabled, answers each submission 503 until `endpoint_set` is called again.
+or disabled, answers each submission 503 until `handler_set` is called again.
 A deployment with no webhook sources (no Trino toolkit) stores nothing, and a
 form accepts as it did before submissions were stored.
 
@@ -414,7 +433,7 @@ in two places, each audited as `form_decrypt` with the fields read:
 - the form owner's Submissions section on the automation's page (and its CSV
   and Excel exports);
 - `platform.decrypt(form, payload)` in a script, whose run's persona must be
-  among the form's `decrypt_personas` (set with `endpoint_set`); the
+  among the form's `decrypt_personas` (set with `handler_set`); the
   administrator always may. It opens only a value that form sealed: each
   sensitive field is sealed bound to its form's source and its field name
   (#2355), so a value sealed for another form, another field or anything else
@@ -431,7 +450,7 @@ def main():
         print(values["name"], values["ssn"])
 ```
 
-A failed form request is recorded (the failed requests `endpoint_list`
+A failed form request is recorded (the failed requests `handler_get`
 reports, and the `endpoint_request` audit row) with each sensitive field's
 submitted value replaced by `[REDACTED:<field>]`, so an error that repeats
 the value it choked on, such as `int()` on a dashed SSN, never stores it
@@ -456,9 +475,9 @@ each previous key in turn.
 ### Publishing a form
 
 A form's owner sees the form before anything is bound (#2494). **Preview
-form** on the script's page (the Endpoint section, and the editor for the
-unsaved edit) and `manage_script` `form_preview` open a preview: the form
-rendered as `/forms/<endpoint>` renders it, from the latest saved version, a
+form** on the script's page (where an endpoint is added in the Handlers
+section, on the form's endpoint handler, and in the editor for the unsaved
+edit) and `manage_script` `form_preview` open a preview: the form rendered as `/forms/<endpoint>` renders it, from the latest saved version, a
 given one (`preview_version`) or the unsaved `source`, with a bot check's place
 marked and a redirect shown rather than followed. The address
 (`/forms/_preview/<id>`) renders only for the person who opened it, an
@@ -471,7 +490,8 @@ saved, and no endpoint audit row, failed request, metric or recording is
 written. The portal opens one with
 `POST /api/v1/portal/scripts/{id}/form-preview` (`version` or `source`).
 
-**Publish** binds the form for signed-in people. To serve it to people who are
+Adding the form's endpoint handler with `auth_mode: authenticated` publishes
+it for signed-in people. To serve it to people who are
 not signed in, the owner asks for a version to be approved, at any time, well
 before going public: **Request public access** on the script's page, or
 `manage_approval` `submit` with the script and version. Each administrator is
@@ -481,7 +501,7 @@ it under **Approvals** (or `manage_approval` `get`), previews that version, and
 approves or denies it; the requester is notified. Administrators decide every
 request, their own included (recorded as self-approved); nobody else decides
 one. Once a version is approved, the owner switches the form to `public`
-whenever they choose; until then `endpoint_set` with `public` or `bot_check`
+whenever they choose; until then `handler_set` with `public` or `bot_check`
 is refused, naming the request to file. An administrator binding a form
 public approves the version it serves, recorded as self-approved.
 
@@ -514,8 +534,8 @@ says the form cannot be filled in.
 
 ### Embedding a form on a site
 
-A bound form's section on the automation's page offers its page's address and
-an embed snippet to copy: a frame of the page and the few lines that size the
+A form's endpoint handler, opened in the Handlers section of the automation's
+page, offers its page's address and an embed snippet to copy: a frame of the page and the few lines that size the
 frame to the height the page posts to it.
 
 ```html
@@ -867,7 +887,7 @@ times `rate_limit` through between them. `ip_rate_limit` counts each client
 address, read as [The client's address](#the-clients-address) says.
 
 A request that fails is kept for seven days with its status, error and duration,
-and is listed on the script's page and by `endpoint_list`. The caller is told
+and is listed on the script's page and by `handler_get`. The caller is told
 only which of the answers above it got, never the script's error.
 
 The compiled module is kept per version on each replica. Each request reads
@@ -902,9 +922,9 @@ day, six hours over a week) beside the requests it refused before its handler
 ran, names the reasons it refused them, who an authenticated one admits and its
 busiest callers, a bot_check one's check and the methods it checks, and its
 failed requests, and turns it on and off. It is edited on its automation's
-page, in the Endpoint section, which is also where **Bind an automation** on
-the list leads: the automation is picked there, and the binding refuses one
-that defines no `handle(req)`.
+page, in the Handlers section, which is also where **Bind an automation** on
+the list leads: the automation is picked there, its page opens, and adding an
+endpoint refuses a script that defines no `handle(req)`.
 
 The answered requests are read from each request's audit row. A request
 refused before its handler ran writes no audit row, so the refusals are
@@ -926,11 +946,14 @@ takes `access` (`authenticated`, `public`, `bot_check`), `status` (`on`, `off`),
 ## Which automations are endpoints
 
 The Automations list has an Endpoint column: the address a script answers at,
-with Off beside it when its binding is turned off, and blank for a script bound
-to no endpoint. Its Endpoint filter (All, Bound, Not bound) narrows the listing
-on the server (`GET /api/v1/portal/scripts?endpoint=bound|unbound`), and each
-listed row bound to an endpoint carries it (`endpoint`: name, address, access
-mode, whether it is on).
+with Off beside it when that endpoint is turned off and how many more it
+answers, and blank for a script bound to no endpoint. Each row carries an
+**Endpoint** or **Form** type badge beside the name, and **Filter by type**
+narrows the listing on the server to Endpoint, Form or None among the other
+handler types (`GET /api/v1/portal/scripts?type=endpoint`, repeatable; see
+[Handlers](handlers.md#routes)). Each listed row carries its endpoints
+(`endpoints`: name, address, access mode, whether it is on), `[]` for none.
+`endpoint=bound|unbound` was removed and is answered 400.
 
 ## The flow diagram
 

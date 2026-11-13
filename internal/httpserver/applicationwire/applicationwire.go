@@ -14,8 +14,11 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/application/appstore"
 	"github.com/txn2/mcp-data-platform/internal/application/appsvc"
 	"github.com/txn2/mcp-data-platform/internal/application/appwire"
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
+	"github.com/txn2/mcp-data-platform/internal/platform/scripthandler"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/portal/access"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -47,9 +50,11 @@ func Mount(mux *http.ServeMux, p *platform.Platform, wrap func(http.Handler) htt
 	if c := p.PortalS3Client(); c != nil {
 		d.Blobs = c
 	}
-	if e := p.Endpoints(); e != nil && e.Commands != nil {
-		d.Endpoints = e.Commands.Run
+	var commands *epcmd.Handler
+	if e := p.Endpoints(); e != nil {
+		commands = e.Commands
 	}
+	d.Handlers = scripthandler.New(p.DB(), commands, scriptstore.New(p.DB()))
 	// The site service manage_application reads, so a site part added here
 	// is checked, listed, pinned and released as it is there (#2613).
 	if e := p.Endpoints(); e != nil && e.Sites != nil {

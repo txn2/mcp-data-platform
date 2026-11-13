@@ -680,7 +680,12 @@ resources:
 
 memory:
   embedding:
-    provider: ollama
+    # noop unless DEV_EMBEDDING_PROVIDER=ollama (#2637): without an embedder
+    # the platform ranks lexically and starts no index queue, so an acceptance
+    # run does not spend the machine embedding what its criteria create. The
+    # criteria that read real vectors run in the `embeddings` acceptance
+    # environment (test/acceptance/environments.txt), which turns it on.
+    provider: "${DEV_EMBEDDING_PROVIDER:-noop}"
     ollama:
       url: "http://localhost:${DEV_OLLAMA_PORT:-11434}"
       model: "nomic-embed-text"

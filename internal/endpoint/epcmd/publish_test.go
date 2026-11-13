@@ -46,8 +46,8 @@ func owned() *script.Script {
 	return &c
 }
 
-func janeReq(cmd string, in Input) Request {
-	return Request{Command: cmd, Input: in, Script: owned(), Actor: "jane@example.com"}
+func janeReq(in Input) Request {
+	return Request{Input: in, Script: owned(), Actor: "jane@example.com"}
 }
 
 // TestOwnerPublishesAnInternalForm is #2494's fourth requirement: the owner
@@ -60,30 +60,37 @@ func TestOwnerPublishesAnInternalForm(t *testing.T) {
 	h.Approvals = &approvals{approved: map[string]int{}}
 	ctx := context.Background()
 
-	out, err := h.Run(ctx, janeReq(CmdSet, Input{Endpoint: "contact", AuthMode: epbinding.AuthAuthenticated, Callers: []string{"*"}, Methods: []string{"GET", "POST"}}))
+	out, err := h.Set(ctx, janeReq(Input{Endpoint: "contact", AuthMode: epbinding.AuthAuthenticated, Callers: []string{"*"}, Methods: []string{"GET", "POST"}}))
 	require.NoError(t, err)
 	assert.Equal(t, "https://data.example.com/endpoints/contact", out["url"])
-	_, err = h.Run(ctx, janeReq(CmdDisable, Input{}))
+	b := s.only(t, "s9")
+	_, err = h.Enable(ctx, janeReq(Input{}), &b, false)
 	require.NoError(t, err)
-	_, err = h.Run(ctx, janeReq(CmdEnable, Input{}))
+	assert.False(t, s.byID[b.ID].Enabled)
+	_, err = h.Enable(ctx, janeReq(Input{}), &b, true)
 	require.NoError(t, err)
+	assert.True(t, s.byID[b.ID].Enabled)
 
-	other := janeReq(CmdSet, Input{Endpoint: "x", AuthMode: epbinding.AuthAuthenticated})
+	other := janeReq(Input{Endpoint: "x", AuthMode: epbinding.AuthAuthenticated})
 	other.Actor = "bob@example.com"
-	_, err = h.Run(ctx, other)
+	_, err = h.Set(ctx, other)
 	require.ErrorIs(t, err, epbinding.ErrNotAllowed)
 	assert.Contains(t, err.Error(), "the script contact is not yours")
+	require.ErrorIs(t, h.Delete(ctx, other, &b), epbinding.ErrNotAllowed)
 
-	notForm := janeReq(CmdSet, Input{Endpoint: "x", AuthMode: epbinding.AuthAuthenticated})
+	notForm := janeReq(Input{Endpoint: "x", AuthMode: epbinding.AuthAuthenticated})
 	notForm.Script = &script.Script{ID: "s1", Name: "lookup", OwnerEmail: "jane@example.com", Source: lookup.Source}
-	_, err = h.Run(ctx, notForm)
+	_, err = h.Set(ctx, notForm)
 	require.ErrorIs(t, err, epbinding.ErrNotAllowed)
 	assert.Contains(t, err.Error(), "an administrator binds an endpoint that is not a form")
 
-	none := janeReq(CmdSet, Input{})
+	none := janeReq(Input{})
 	none.Script = nil
-	_, err = h.Run(ctx, none)
+	_, err = h.Set(ctx, none)
 	require.ErrorIs(t, err, epbinding.ErrNotAllowed)
+
+	require.NoError(t, h.Delete(ctx, janeReq(Input{}), &b), "the owner deletes their own form's handler")
+	assert.Empty(t, s.byID)
 }
 
 // TestPublicNeedsAnApprovedVersion is #2494's fifth requirement: the owner
@@ -102,15 +109,15 @@ func TestPublicNeedsAnApprovedVersion(t *testing.T) {
 		{Endpoint: "contact", AuthMode: epbinding.AuthBotCheck, BotCheck: "default", Methods: []string{"GET", "POST"}},
 	} {
 		mode := in.AuthMode
-		_, err := h.Run(ctx, janeReq(CmdSet, in))
+		_, err := h.Set(ctx, janeReq(in))
 		require.ErrorIs(t, err, epbinding.ErrNotAllowed, mode)
 		assert.Contains(t, err.Error(), "manage_approval action=submit script=s9 version=2", mode)
 		assert.Contains(t, err.Error(), "Request public access", mode)
 	}
-	assert.Empty(t, s.byScript)
+	assert.Empty(t, s.byID)
 
 	a.approved["s9"] = 2
-	_, err := h.Run(ctx, janeReq(CmdSet, Input{Endpoint: "contact", AuthMode: epbinding.AuthPublic, Methods: []string{"GET", "POST"}}))
+	_, err := h.Set(ctx, janeReq(Input{Endpoint: "contact", AuthMode: epbinding.AuthPublic, Methods: []string{"GET", "POST"}}))
 	require.NoError(t, err, "an approved version lets the owner go public")
 
 	// An administrator binding a form with no approved version approves the
@@ -121,33 +128,45 @@ func TestPublicNeedsAnApprovedVersion(t *testing.T) {
 	h2.Approvals = a2
 	req := setReq(Input{Endpoint: "contact", AuthMode: epbinding.AuthPublic, Methods: []string{"GET", "POST"}})
 	req.Script = owned()
-	_, err = h2.Run(ctx, req)
+	_, err = h2.Set(ctx, req)
 	require.NoError(t, err)
 	assert.Equal(t, []int{2}, a2.recorded)
-	_, err = h2.Run(ctx, req)
+	_, err = h2.Set(ctx, req)
 	require.NoError(t, err)
 	assert.Equal(t, []int{2}, a2.recorded, "an approved version is not approved again")
 
 	a2.approved = map[string]int{}
 	a2.err = errors.New("down")
-	_, err = h2.Run(ctx, req)
+	_, err = h2.Set(ctx, req)
 	require.ErrorIs(t, err, ErrStore)
 
 	// No queue: an administrator binds as before, the owner cannot go public.
 	h3 := handler(newStore())
-	_, err = h3.Run(ctx, req)
+	_, err = h3.Set(ctx, req)
 	require.NoError(t, err)
-	_, err = h3.Run(ctx, janeReq(CmdSet, Input{Endpoint: "contact", AuthMode: epbinding.AuthPublic}))
+	_, err = h3.Set(ctx, janeReq(Input{Endpoint: "contact", AuthMode: epbinding.AuthPublic}))
 	require.ErrorIs(t, err, epbinding.ErrNotAllowed)
 }
 
 func TestOwnerEnablingAPublicFormNeedsAnApprovedVersion(t *testing.T) {
 	s := newStore()
-	s.byScript["s9"] = epbinding.Binding{ScriptID: "s9", Name: "contact", AuthMode: epbinding.AuthPublic, Methods: []string{"GET"}}
+	b := epbinding.Binding{ID: "ep_9", ScriptID: "s9", Name: "contact", AuthMode: epbinding.AuthPublic, Methods: []string{"GET"}}
+	s.byID[b.ID] = b
 	h := handler(s)
-	h.Approvals = &approvals{approved: map[string]int{}}
-	_, err := h.Run(context.Background(), janeReq(CmdEnable, Input{}))
+	a := &approvals{approved: map[string]int{}}
+	h.Approvals = a
+	ctx := context.Background()
+	_, err := h.Enable(ctx, janeReq(Input{}), &b, true)
 	require.ErrorIs(t, err, epbinding.ErrNotAllowed)
+	assert.False(t, s.byID[b.ID].Enabled)
+
+	_, err = h.Enable(ctx, janeReq(Input{}), &b, false)
+	require.NoError(t, err, "turning a public form off needs no approval")
+
+	a.approved["s9"] = 2
+	_, err = h.Enable(ctx, janeReq(Input{}), &b, true)
+	require.NoError(t, err, "an approved version lets the owner turn it on")
+	assert.True(t, s.byID[b.ID].Enabled)
 }
 
 // TestFormPreviewCommand is manage_script form_preview: the link the agent
@@ -158,10 +177,10 @@ func TestFormPreviewCommand(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 	h := handler(newStore())
 	ctx := context.Background()
-	req := janeReq(CmdFormPreview, Input{PreviewVersion: 1})
+	req := janeReq(Input{PreviewVersion: 1})
 	req.Opener = eppreview.Opener{UserID: "u-jane", Roles: []string{"analyst"}}
 
-	_, err = h.Run(ctx, req)
+	_, err = h.Preview(ctx, req)
 	require.ErrorContains(t, err, "cannot preview a form")
 
 	h.Previews = &eppreview.Previews{Store: eppreview.NewStore(db), Versions: versionsOf{1: contact.Source}, BaseURL: "https://data.example.com"}
@@ -169,7 +188,7 @@ func TestFormPreviewCommand(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO form_previews")).
 		WithArgs(sqlmock.AnyArg(), "s9", 1, "", "jane@example.com", "u-jane", []byte(`["analyst"]`), "", sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(time.Now()))
-	out, err := h.Run(ctx, req)
+	out, err := h.Preview(ctx, req)
 	require.NoError(t, err)
 	assert.Contains(t, out["preview_url"], "https://data.example.com/forms/_preview/fp")
 	assert.Contains(t, out["message"], "version 1 of contact's form")
@@ -177,20 +196,19 @@ func TestFormPreviewCommand(t *testing.T) {
 	req.Source, req.Input.PreviewVersion = contact.Source, 0
 	mock.ExpectExec("DELETE").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery("INSERT").WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(time.Now()))
-	out, err = h.Run(ctx, req)
+	out, err = h.Preview(ctx, req)
 	require.NoError(t, err)
 	assert.Contains(t, out["message"], "the unsaved source")
 
 	req.Source, req.Input.PreviewVersion = "", 1
 	mock.ExpectExec("DELETE").WillReturnError(sql.ErrConnDone)
-	_, err = h.Run(ctx, req)
+	_, err = h.Preview(ctx, req)
 	require.Error(t, err)
 	none := req
 	none.Script = nil
-	_, err = h.Run(ctx, none)
+	_, err = h.Preview(ctx, none)
 	require.ErrorContains(t, err, "names the script")
 	require.NoError(t, mock.ExpectationsWereMet())
-	assert.False(t, Writes(CmdFormPreview))
 }
 
 type versionsOf map[int]string

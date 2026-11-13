@@ -10,7 +10,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/pglint"
 
@@ -18,6 +17,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/application"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
+	"github.com/txn2/mcp-data-platform/internal/platform/scripthandler"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
 	"github.com/txn2/mcp-data-platform/internal/platform/scripttest"
@@ -167,14 +167,14 @@ func (b *Bundler) read(ctx context.Context, ref string) (*Bundle, error) {
 
 // checkFormat refuses a bundle this deployment does not read.
 func checkFormat(bundle *Bundle) error {
-	if bundle == nil || bundle.Format != Format || bundle.FormatVersion != FormatVersion {
+	if bundle == nil || bundle.Format != Format || (bundle.FormatVersion != FormatVersion && bundle.FormatVersion != FormatVersion1) {
 		var format string
 		var version int
 		if bundle != nil {
 			format, version = bundle.Format, bundle.FormatVersion
 		}
-		return refused("the bundle's format is %q version %d; this deployment reads %q version %d",
-			format, version, Format, FormatVersion)
+		return refused("the bundle's format is %q version %d; this deployment reads %q versions %d and %d",
+			format, version, Format, FormatVersion1, FormatVersion)
 	}
 	return nil
 }
@@ -472,12 +472,10 @@ func (im *importer) parts(ctx context.Context, bundle *Bundle) error {
 		if err := im.add(ctx, application.KindScript, sc.ID); err != nil {
 			return err
 		}
-		// Bound once it is a part: a page endpoint belongs to an application
-		// (#2554), so binding one before the part exists is refused.
-		if err := im.endpoint(ctx, sc, bundle.Scripts[i].Endpoint); err != nil {
-			return err
-		}
-		if err := im.schedule(ctx, sc, bundle.Scripts[i].Schedule); err != nil {
+		// Its handlers once it is a part: a page endpoint belongs to an
+		// application (#2554), so binding one before the part exists is
+		// refused.
+		if err := im.handlers(ctx, sc, handlersOf(&bundle.Scripts[i])); err != nil {
 			return err
 		}
 	}
@@ -511,8 +509,8 @@ func (im *importer) add(ctx context.Context, kind, id string) error {
 }
 
 // script writes one script: a new version of the part with its name, or a new
-// script owned by the importing administrator, with its recordings and event
-// source. Its endpoint and schedule follow once it is a part.
+// script owned by the importing administrator, with its recordings. Its
+// handlers follow once it is a part.
 func (im *importer) script(ctx context.Context, s *Script) (*script.Script, error) {
 	sc, err := im.writeScript(ctx, s, im.gated[s.Name])
 	if err != nil {
@@ -521,7 +519,7 @@ func (im *importer) script(ctx context.Context, s *Script) (*script.Script, erro
 	if err := im.keepRecordings(ctx, sc); err != nil {
 		return nil, err
 	}
-	return sc, im.eventSource(ctx, sc, s)
+	return sc, nil
 }
 
 // writeScript creates the script, gives the part with its name a new
@@ -569,36 +567,56 @@ func sameParams(a, b []script.Param) bool {
 	return bytes.Equal(x, y)
 }
 
-// eventSource sets the webhook source the script runs for, mapped.
-func (im *importer) eventSource(ctx context.Context, sc *script.Script, s *Script) error {
-	want := ""
-	if s.EventSource != "" {
-		want = im.mapped(s.EventSource)
-	}
-	if sc.EventSource == want {
+// handlers gives the script the bundle's handlers, as handler_set does with
+// the importing administrator's authority. A handler the script already holds
+// (an endpoint by name, a schedule by cadence and arguments, a webhook by
+// source) is changed in place; one it holds that the bundle does not is left.
+func (im *importer) handlers(ctx context.Context, sc *script.Script, h Handlers) error {
+	if len(h.Endpoints)+len(h.Schedules)+len(h.Webhooks) == 0 {
 		return nil
 	}
-	updater, ok := im.Scripts.(interface {
-		Update(ctx context.Context, sc *script.Script) error
-	})
-	if !ok {
-		return refused("this deployment cannot set the webhook source script %s runs for", sc.Name)
+	if im.Handlers == nil {
+		return refused("this deployment cannot keep handlers, which script %s has", sc.Name)
 	}
-	sc.EventSource = want
-	if err := updater.Update(ctx, sc); err != nil {
-		return fmt.Errorf("setting the webhook source of script %s: %w", sc.Name, err)
+	caller := scripthandler.Caller{Email: im.actor.Email, Admin: true}
+	for i := range h.Endpoints {
+		if err := im.endpoint(ctx, sc, caller, &h.Endpoints[i]); err != nil {
+			return err
+		}
+	}
+	for i := range h.Schedules {
+		if err := im.schedule(ctx, sc, caller, &h.Schedules[i]); err != nil {
+			return err
+		}
+	}
+	for _, w := range h.Webhooks {
+		out, err := im.Handlers.Set(ctx, scripthandler.SetRequest{
+			Caller: caller, Script: sc, Kind: scripthandler.KindWebhook, EventSource: im.mapped(w.Source),
+		})
+		if err != nil {
+			return fmt.Errorf("running script %s for webhook source %s: %w", sc.Name, w.Source, err)
+		}
+		if err := im.setEnabled(ctx, out, w.Enabled, caller); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-// endpoint binds the script as the bundle's endpoint, as endpoint_set does.
-func (im *importer) endpoint(ctx context.Context, sc *script.Script, e *Endpoint) error {
-	if e == nil {
+// setEnabled turns a handler on or off as the bundle holds it.
+func (im *importer) setEnabled(ctx context.Context, out map[string]any, enabled bool, caller scripthandler.Caller) error {
+	if on, ok := out["enabled"].(bool); ok && on == enabled {
 		return nil
 	}
-	if im.Endpoints == nil {
-		return refused("this deployment cannot bind endpoints, which script %s needs", sc.Name)
+	id, _ := out["handler"].(string)
+	if _, err := im.Handlers.Enable(ctx, id, enabled, caller); err != nil {
+		return fmt.Errorf("turning handler %s on or off: %w", id, err)
 	}
+	return nil
+}
+
+// endpoint gives the script one of the bundle's endpoint handlers.
+func (im *importer) endpoint(ctx context.Context, sc *script.Script, caller scripthandler.Caller, e *Endpoint) error {
 	path := e.Path
 	in := epcmd.Input{
 		Endpoint: e.Name, Methods: e.Methods, Path: &path, AuthMode: e.AuthMode, Callers: e.Callers,
@@ -617,39 +635,36 @@ func (im *importer) endpoint(ctx context.Context, sc *script.Script, e *Endpoint
 	if e.FormConnection != "" {
 		in.Connection = im.mapped(e.FormConnection)
 	}
-	req := epcmd.Request{Command: epcmd.CmdSet, Input: in, TimeoutSeconds: e.TimeoutSeconds, Script: sc, Admin: true, Actor: im.actor.Email}
-	if _, err := im.Endpoints(ctx, req); err != nil {
+	out, err := im.Handlers.Set(ctx, scripthandler.SetRequest{
+		Caller: caller, Script: sc, Kind: scripthandler.KindEndpoint, Endpoint: in, TimeoutSeconds: e.TimeoutSeconds,
+	})
+	if err != nil {
 		return fmt.Errorf("binding script %s to endpoint %s: %w", sc.Name, e.Name, err)
 	}
-	if !e.Enabled {
-		req.Command = epcmd.CmdDisable
-		if _, err := im.Endpoints(ctx, req); err != nil {
-			return fmt.Errorf("disabling endpoint %s: %w", e.Name, err)
-		}
-	}
-	return nil
+	return im.setEnabled(ctx, out, e.Enabled, caller)
 }
 
-// schedule sets the script's schedule.
-func (im *importer) schedule(ctx context.Context, sc *script.Script, s *Schedule) error {
-	if s == nil || im.Schedules == nil {
-		return nil
+// schedule gives the script one of the bundle's schedules: the one it holds
+// with the same cadence and arguments, or a new one.
+func (im *importer) schedule(ctx context.Context, sc *script.Script, caller scripthandler.Caller, s *Schedule) error {
+	req := scripthandler.SetRequest{
+		Caller: caller, Script: sc, Kind: scripthandler.KindSchedule,
+		Cron: s.CronSpec, Timezone: s.Timezone, Args: maps.Clone(s.Params),
 	}
-	prev, err := im.Schedules.GetSchedule(ctx, sc.ID)
-	if err != nil && !errors.Is(err, script.ErrScheduleNotFound) {
-		return fmt.Errorf("reading the schedule of script %s: %w", sc.Name, err)
+	held, _, err := im.Handlers.List(ctx, scripthandler.Filter{ScriptIDs: []string{sc.ID}, Types: []string{scripthandler.KindSchedule}}, caller)
+	if err != nil {
+		return fmt.Errorf("reading the schedules of script %s: %w", sc.Name, err)
 	}
-	enabled := s.Enabled
-	sched, err := script.BuildSchedule(sc, prev, script.ScheduleRequest{
-		CronSpec: s.CronSpec, Timezone: s.Timezone, Params: maps.Clone(s.Params), Enabled: &enabled, Actor: im.actor.Email,
-	}, time.Now())
+	for _, h := range held {
+		if same, err := im.Handlers.SameSchedule(ctx, h.ID, s.CronSpec, s.Timezone, s.Params); err == nil && same {
+			req.Handler = h.ID
+		}
+	}
+	out, err := im.Handlers.Set(ctx, req)
 	if err != nil {
 		return refused("the schedule of script %s: %v", sc.Name, err)
 	}
-	if err := im.Schedules.SetSchedule(ctx, sched); err != nil {
-		return fmt.Errorf("setting the schedule of script %s: %w", sc.Name, err)
-	}
-	return nil
+	return im.setEnabled(ctx, out, s.Enabled, caller)
 }
 
 // asset writes one asset: a new version of the part with its name, or a new

@@ -19,10 +19,10 @@ import (
 // forged leftmost X-Forwarded-For escapes nothing; with no trusted proxy the
 // header is ignored; one IPv6 /64 is one bucket; the limit holds on the
 // platform's host and on the page origin alike; a refusal is counted under its
-// own reason; endpoint_set warns when no proxy is trusted; and the address
+// own reason; handler_set kind=endpoint warns when no proxy is trusted; and the address
 // reaches no audit row and no log.
 //
-// Wire forms: endpoint_set takes endpoint, path and auth_mode as strings,
+// Wire forms: handler_set kind=endpoint takes endpoint, path and auth_mode as strings,
 // methods and callers as lists of strings, and ip_rate_limit and rate_limit as
 // numbers (the only form each admits). A request is an HTTP GET with an
 // X-Forwarded-For header, to the platform's host or naming the page origin in
@@ -264,15 +264,15 @@ func TestIssue2556_ARefusalIsCountedUnderItsOwnReason(t *testing.T) {
 	t.Fatalf("no refusal was counted as ip_rate_limit within 45s: %v", reasons)
 }
 
-// The warning (requirement 6): endpoint_set on a deployment that trusts no
+// The warning (requirement 6): handler_set kind=endpoint on a deployment that trusts no
 // proxy says every client behind one shares an address.
 func TestIssue2556_EndpointSetWarnsWhenNoProxyIsTrusted(t *testing.T) {
 	a := newApp2556(t)
-	res, text, err := a.admin.callRaw("manage_script", map[string]any{"command": "endpoint_set", "name": a.endpoint, "ip_rate_limit": 3})
+	res, text, err := a.admin.callRaw("manage_script", map[string]any{"command": "handler_set", "kind": "endpoint", "name": a.endpoint, "ip_rate_limit": 3})
 	if err != nil || res.IsError {
-		t.Fatalf("endpoint_set: %v %s", err, text)
+		t.Fatalf("handler_set: %v %s", err, text)
 	}
 	if !strings.Contains(text, "server.trusted_proxies is empty") {
-		t.Fatalf("endpoint_set answered with no warning: %s", text)
+		t.Fatalf("handler_set answered with no warning: %s", text)
 	}
 }

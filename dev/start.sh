@@ -276,6 +276,16 @@ if [ "$DEV_REPLICAS" = 2 ]; then
   # the proxy service (dev/docker-compose.yml, profile `replicas`).
   export COMPOSE_PROFILES=replicas
 fi
+# DEV_EMBEDDING_PROVIDER is the embedder the platform runs with (#2637): noop
+# by default, so the stack ranks lexically and starts no index queue; ollama
+# starts the CPU-only Ollama container (profile `embeddings`), pulls the model
+# and embeds. The `embeddings` acceptance environment sets it.
+export DEV_EMBEDDING_PROVIDER="${DEV_EMBEDDING_PROVIDER:-noop}"
+case "$DEV_EMBEDDING_PROVIDER" in
+  noop) ;;
+  ollama) export COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}embeddings" ;;
+  *) fail "DEV_EMBEDDING_PROVIDER must be noop or ollama, not '$DEV_EMBEDDING_PROVIDER'" ;;
+esac
 export DEV_S3_PORT=$((9000 + DEV_OFFSET))
 # The managed-resource store's TLS port moves with the S3 window rather than being relocated on its
 # own, so the two object stores stay in one addressable block.
@@ -324,6 +334,7 @@ DEV_OTLP_PORT=$DEV_OTLP_PORT
 DEV_OTEL_DIR=$DEV_OTEL_DIR
 DEV_PLATFORM_TMPDIR=$DEV_PLATFORM_TMPDIR
 DEV_REPLICAS=$DEV_REPLICAS
+DEV_EMBEDDING_PROVIDER=$DEV_EMBEDDING_PROVIDER
 DEV_API_PORT_B=$DEV_API_PORT_B
 DEV_PROXY_PORT=$DEV_PROXY_PORT
 DEV_AIR_LOG=$DEV_AIR_LOG
@@ -692,53 +703,58 @@ for i in $(seq 1 60); do
 done
 ok "IMAP server ready on :${DEV_IMAPS_PORT:-9993} (platform / app-password, IMAPS)"
 
-# Wait for Ollama (the embedding provider for semantic indexing). The platform
+# Wait for Ollama (the embedding provider for semantic indexing), when
+# embeddings are on (DEV_EMBEDDING_PROVIDER=ollama, #2637). The platform
 # degrades to lexical-only without it, so a failure here WARNS rather than aborts
 # the run — but it must be visible, not silent (the embedder being absent was
 # previously invisible until embed jobs started failing). DEV_REQUIRE_EMBEDDER=1
 # (set by scripts/release-acceptance.sh) makes it fatal: every criterion that
-# searches or embeds fails on a stack without the model, each naming its own
+# reads real vectors fails on a stack without the model, each naming its own
 # symptom, and on two of the E2E Nightly's groups the registry download failed
 # once and nine criteria failed after it (#2349).
-info "Waiting for Ollama embedder..."
-OLLAMA_READY=""
-for i in $(seq 1 60); do
-  if curl -sf http://localhost:$DEV_OLLAMA_PORT/api/tags > /dev/null 2>&1; then
-    OLLAMA_READY=1
-    break
-  fi
-  sleep 1
-done
-if [ -n "$OLLAMA_READY" ]; then
-  ok "Ollama ready on :$DEV_OLLAMA_PORT"
-  # Pull the embedding model the platform is configured to use. Cached in the
-  # acme_ollama_data volume after the first run, so this is a fast no-op on
-  # subsequent `make dev` runs.
-  # The download is from the Ollama registry and fails now and then on a CI
-  # runner; a pull resumes what an earlier attempt fetched, so it is retried.
-  info "Pulling embedding model nomic-embed-text (first run downloads ~270MB)..."
-  EMBED_MODEL_READY=""
-  for attempt in 1 2 3 4 5; do
-    if pull_out=$(docker exec acme-dev-ollama ollama pull nomic-embed-text 2>&1); then
-      EMBED_MODEL_READY=1
+if [ "$DEV_EMBEDDING_PROVIDER" = ollama ]; then
+  info "Waiting for Ollama embedder..."
+  OLLAMA_READY=""
+  for i in $(seq 1 60); do
+    if curl -sf http://localhost:$DEV_OLLAMA_PORT/api/tags > /dev/null 2>&1; then
+      OLLAMA_READY=1
       break
     fi
-    echo -e "  ${BOLD}WARN${NC}: pull attempt $attempt of 5 failed: $(printf '%s' "$pull_out" | tail -n 1)" >&2
-    [ "$attempt" -lt 5 ] && sleep $((attempt * 5))
+    sleep 1
   done
-  if [ -n "$EMBED_MODEL_READY" ]; then
-    ok "Embedding model nomic-embed-text ready"
+  if [ -n "$OLLAMA_READY" ]; then
+    ok "Ollama ready on :$DEV_OLLAMA_PORT"
+    # Pull the embedding model the platform is configured to use. Cached in the
+    # acme_ollama_data volume after the first run, so this is a fast no-op on
+    # subsequent `make dev` runs.
+    # The download is from the Ollama registry and fails now and then on a CI
+    # runner; a pull resumes what an earlier attempt fetched, so it is retried.
+    info "Pulling embedding model nomic-embed-text (first run downloads ~270MB)..."
+    EMBED_MODEL_READY=""
+    for attempt in 1 2 3 4 5; do
+      if pull_out=$(docker exec acme-dev-ollama ollama pull nomic-embed-text 2>&1); then
+        EMBED_MODEL_READY=1
+        break
+      fi
+      echo -e "  ${BOLD}WARN${NC}: pull attempt $attempt of 5 failed: $(printf '%s' "$pull_out" | tail -n 1)" >&2
+      [ "$attempt" -lt 5 ] && sleep $((attempt * 5))
+    done
+    if [ -n "$EMBED_MODEL_READY" ]; then
+      ok "Embedding model nomic-embed-text ready"
+    elif [ "${DEV_REQUIRE_EMBEDDER:-}" = "1" ]; then
+      fail "could not pull nomic-embed-text after 5 attempts; the acceptance criteria need the embedder (docker logs acme-dev-ollama)"
+    else
+      echo -e "  ${BOLD}WARN${NC}: failed to pull nomic-embed-text; semantic indexing will be disabled." >&2
+      echo -e "        Retry with: docker exec acme-dev-ollama ollama pull nomic-embed-text" >&2
+    fi
   elif [ "${DEV_REQUIRE_EMBEDDER:-}" = "1" ]; then
-    fail "could not pull nomic-embed-text after 5 attempts; the acceptance criteria need the embedder (docker logs acme-dev-ollama)"
+    fail "Ollama did not become ready on :$DEV_OLLAMA_PORT; the acceptance criteria need the embedder (docker logs acme-dev-ollama)"
   else
-    echo -e "  ${BOLD}WARN${NC}: failed to pull nomic-embed-text; semantic indexing will be disabled." >&2
-    echo -e "        Retry with: docker exec acme-dev-ollama ollama pull nomic-embed-text" >&2
+    echo -e "  ${BOLD}WARN${NC}: Ollama did not become ready on :11434; semantic indexing will be disabled" >&2
+    echo -e "        (the platform falls back to lexical ranking). Check 'docker logs acme-dev-ollama'." >&2
   fi
-elif [ "${DEV_REQUIRE_EMBEDDER:-}" = "1" ]; then
-  fail "Ollama did not become ready on :$DEV_OLLAMA_PORT; the acceptance criteria need the embedder (docker logs acme-dev-ollama)"
 else
-  echo -e "  ${BOLD}WARN${NC}: Ollama did not become ready on :11434; semantic indexing will be disabled" >&2
-  echo -e "        (the platform falls back to lexical ranking). Check 'docker logs acme-dev-ollama'." >&2
+  ok "Embeddings off: search ranks lexically (DEV_EMBEDDING_PROVIDER=ollama make dev turns them on)"
 fi
 
 # Create the portal-assets S3 bucket (requires aws CLI)

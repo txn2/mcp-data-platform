@@ -23,7 +23,7 @@ import (
 // Wire forms: save_asset takes name, content, content_type and purpose as
 // strings and references as a list of strings; manage_asset share takes
 // action, asset_id, access_mode and expires_in as strings; the portal share
-// route takes shared_with_email and permission as strings; endpoint_set takes
+// route takes shared_with_email and permission as strings; handler_set kind=endpoint takes
 // endpoint, path and auth_mode as strings and methods and callers as lists. A
 // served asset is an HTTP GET of its content route, and the asset's call is an
 // HTTP GET with Origin: null of the address it was served.

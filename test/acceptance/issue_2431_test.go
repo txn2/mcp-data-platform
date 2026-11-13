@@ -22,7 +22,7 @@ import (
 //
 // Wire forms: save_asset's name, content and content_type are strings and
 // references a list of strings, each sent as a literal tools/call parameter;
-// manage_script create and endpoint_set as in #2178; the tile and PDF routes
+// manage_script create and handler_set kind=endpoint as in #2178; the tile and PDF routes
 // are plain GETs.
 //
 // Stack: `make dev`, with the renderer beside the platform and the form

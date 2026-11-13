@@ -2,6 +2,7 @@ import { BookOpen, FileCode2 } from "lucide-react";
 import { PrincipalLabel } from "@/components/PrincipalLabel";
 import { OpenRowChevron } from "@/components/patterns/OpenRowChevron";
 import { Badge } from "@/components/ui/badge";
+import { HandlerTypeBadges } from "./HandlerTypeBadge";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { PortalScriptRow } from "@/api/portal/hooks/scripts";
@@ -85,6 +86,7 @@ export function ScriptRow({
 function NameCell({ row, chip }: { row: PortalScriptRow; chip: boolean }) {
   const { script } = row;
   const name = script.display_name || script.name;
+  const endpoint = chip ? firstEndpoint(row) : undefined;
   return (
     <div className="min-w-0">
       <div className="flex min-w-0 items-center gap-1.5">
@@ -93,10 +95,12 @@ function NameCell({ row, chip }: { row: PortalScriptRow; chip: boolean }) {
         </span>
         <InertBadge row={row} />
       </div>
-      {/* The slug and the category, and where Endpoint has no column a bound
-          endpoint as a chip at the line's end, so the row stays two lines. */}
+      {/* The slug and the category, its handler types (#2435), and where
+          Endpoint has no column a bound endpoint as a chip at the line's end,
+          so the row stays two lines and the name keeps the first. The chip
+          stands for the Endpoint badge: the address says it is one. */}
       <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-        <span className="min-w-0 flex-1 truncate">
+        <span className="min-w-[3rem] flex-1 truncate">
           <span className="font-mono">{script.name}</span>
           {script.category && (
             <>
@@ -105,10 +109,12 @@ function NameCell({ row, chip }: { row: PortalScriptRow; chip: boolean }) {
             </>
           )}
         </span>
-        {chip && row.endpoint && (
-          <span className="inline-flex max-w-[60%] min-w-0 shrink-0 items-center gap-1 rounded border bg-background px-1.5 text-[11px] text-foreground">
-            <EndpointText path={row.endpoint.path} />
-            {!row.endpoint.enabled && <span className="shrink-0 text-muted-foreground">· Off</span>}
+        <HandlerTypeBadges types={row.handler_types} omit={endpoint ? ["endpoint"] : []} className="shrink-0" />
+        {endpoint && (
+          <span className="inline-flex max-w-[50%] min-w-0 items-center gap-1 rounded border bg-background px-1.5 text-[11px] text-foreground">
+            <EndpointText path={endpoint.path} />
+            {!endpoint.enabled && <span className="shrink-0 text-muted-foreground">· Off</span>}
+            <MoreCount count={(row.endpoints?.length ?? 0) - 1} />
           </span>
         )}
       </div>
@@ -170,14 +176,15 @@ export function InertBadge({ row }: { row: PortalScriptRow }) {
 // the cadence on the first line, and on the second when it fires next with its
 // zone, or that it is paused.
 export function ScheduleCell({ row }: { row: PortalScriptRow }) {
-  const { schedule } = row;
+  const schedules = row.schedules ?? [];
+  const schedule = schedules[0];
   // A library is never scheduled, so "On demand" would promise a run it
   // cannot have.
   if (row.script.library) {
     return <span className="text-xs text-muted-foreground">—</span>;
   }
   if (!schedule) {
-    return <span className="text-xs text-muted-foreground">On demand</span>;
+    return <span className="text-xs text-muted-foreground">{unscheduledText(row)}</span>;
   }
   const line = scheduleLine(schedule.cron_spec, schedule.timezone);
   const when = scheduleWhen(schedule);
@@ -185,6 +192,7 @@ export function ScheduleCell({ row }: { row: PortalScriptRow }) {
     <div className="min-w-0 text-xs">
       <div className="truncate" title={line}>
         {line}
+        <MoreCount count={schedules.length - 1} />
       </div>
       <div className="truncate text-muted-foreground" title={when.title}>
         {when.text}
@@ -193,10 +201,32 @@ export function ScheduleCell({ row }: { row: PortalScriptRow }) {
   );
 }
 
+// unscheduledText is what starts a script with no schedule (#2435): each
+// event of a webhook source, a request to an endpoint or form, or someone
+// asking for a run.
+export function unscheduledText(row: PortalScriptRow): string {
+  const types = row.handler_types ?? [];
+  if (types.includes("webhook")) return "Each event";
+  if (types.includes("endpoint") || types.includes("form")) return "On request";
+  return "On demand";
+}
+
+// MoreCount says how many more handlers of the kind a script holds than the
+// one shown, nothing for none (#2434).
+function MoreCount({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return <span className="ml-1 text-muted-foreground">+{count} more</span>;
+}
+
+// firstEndpoint is the endpoint a row shows; the rest are counted beside it.
+export function firstEndpoint(row: PortalScriptRow) {
+  return row.endpoints?.[0];
+}
+
 // scheduleWhen is the schedule's state in the few words this column has. The
 // editor says the same thing at greater length; both read it off scheduleState,
 // so neither can call a paused schedule due.
-function scheduleWhen(schedule: NonNullable<PortalScriptRow["schedule"]>): { text: string; title?: string } {
+function scheduleWhen(schedule: NonNullable<PortalScriptRow["schedules"]>[number]): { text: string; title?: string } {
   const state = scheduleState(schedule);
   switch (state.kind) {
     case "paused":
@@ -232,12 +262,13 @@ export function EndpointText({ path }: { path: string }) {
 // Off beside it when its binding is turned off; a dash for a script bound to
 // no endpoint, like the other columns.
 export function EndpointCell({ row }: { row: PortalScriptRow }) {
-  const { endpoint } = row;
+  const endpoint = firstEndpoint(row);
   if (!endpoint) return <span className="text-xs text-muted-foreground">—</span>;
   return (
     <div className="flex min-w-0 items-center gap-1.5 text-xs" data-testid="script-endpoint">
       <EndpointText path={endpoint.path} />
       {!endpoint.enabled && <Badge variant="muted">Off</Badge>}
+      <MoreCount count={(row.endpoints?.length ?? 0) - 1} />
     </div>
   );
 }

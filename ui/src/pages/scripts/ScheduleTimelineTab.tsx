@@ -341,7 +341,7 @@ function TimelinePlot({
         <g>
           {section.rows.map((row, i) => (
             <TimelineRow
-              key={row.script_id}
+              key={row.schedule_id ?? row.script_id}
               row={row}
               index={i}
               section={section}

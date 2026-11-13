@@ -20,7 +20,7 @@ import (
 // allow_writes as a boolean and args as an object; list_connections,
 // platform_find_tools and search take their documented string arguments; the
 // admin connection route takes one JSON object; an endpoint request is an
-// HTTP GET with a bearer key; endpoint_set takes endpoint, path and auth_mode
+// HTTP GET with a bearer key; handler_set kind=endpoint takes endpoint, path and auth_mode
 // as strings and methods and callers as lists of strings. The statement parameters are Starlark values in
 // the script source: an integer, a string and a list.
 

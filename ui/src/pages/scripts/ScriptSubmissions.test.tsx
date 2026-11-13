@@ -6,13 +6,13 @@ import { ScriptSubmissions, cellText, submittedFiles } from "./ScriptSubmissions
 // A form's stored submissions (#2180): the newest rows, sensitive columns
 // marked, and the two exports.
 
-vi.mock("@/api/portal/hooks/scriptEndpoint", () => ({ useScriptEndpoint: vi.fn() }));
+vi.mock("@/api/portal/hooks/scriptHandlers", () => ({ useScriptHandlers: vi.fn() }));
 vi.mock("@/api/portal/hooks/scriptSubmissions", async (orig) => ({
   ...(await orig<typeof import("@/api/portal/hooks/scriptSubmissions")>()),
   useScriptSubmissions: vi.fn(),
 }));
 
-import { useScriptEndpoint } from "@/api/portal/hooks/scriptEndpoint";
+import { useScriptHandlers } from "@/api/portal/hooks/scriptHandlers";
 import { useScriptSubmissions } from "@/api/portal/hooks/scriptSubmissions";
 
 const refetch = vi.fn();
@@ -36,11 +36,20 @@ const page: FormSubmissionsPage = {
   ],
 };
 
+const formSource = { source: "form-apply", table: "webhook_form_apply", connection: "scratch", decrypt_personas: [] };
+
+// withForm answers the script's handlers (#2441): a form endpoint handler
+// carrying where its submissions are stored when stored is true, and one
+// whose source is not made yet otherwise.
 function withForm(stored: boolean, data?: FormSubmissionsPage) {
-  vi.mocked(useScriptEndpoint).mockReturnValue({
-    data: stored
-      ? { name: "apply", bound: true, is_form: true, form: { source: "form-apply", table: "webhook_form_apply", connection: "scratch", decrypt_personas: [] } }
-      : { name: "apply", bound: false, is_form: true },
+  const endpoint = { handler: "ep-1", kind: "endpoint", type: "form", name: "apply", enabled: true, endpoint: "apply", is_form: true };
+  vi.mocked(useScriptHandlers).mockReturnValue({
+    data: {
+      handlers: [stored ? { ...endpoint, form: formSource } : { ...endpoint, form_connections: ["scratch"] }],
+      add: [],
+      sources: [],
+      max_per_kind: 20,
+    },
   } as never);
   vi.mocked(useScriptSubmissions).mockReturnValue({ data, isLoading: false, isFetching: false, error: null, refetch } as never);
 }
@@ -102,6 +111,33 @@ describe("ScriptSubmissions", () => {
     withForm(false);
     const { container } = render(<ScriptSubmissions scriptId="script-001" />);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("shows nothing for a script that is no form", () => {
+    vi.mocked(useScriptHandlers).mockReturnValue({
+      data: {
+        handlers: [{ handler: "sched-1", kind: "schedule", type: "schedule", name: "daily", enabled: true, cron: "0 7 * * *" }],
+        add: [],
+        sources: [],
+        max_per_kind: 20,
+      },
+    } as never);
+    const { container } = render(<ScriptSubmissions scriptId="script-001" />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  // Deleting a form's endpoint keeps its source and the submissions stored in
+  // it (the delete's confirmation says so), so they stay readable with no
+  // endpoint: what adding one offers names the source.
+  it("keeps showing a form's submissions once its last endpoint is deleted", () => {
+    vi.mocked(useScriptHandlers).mockReturnValue({
+      data: { handlers: [], add: [], endpoint: { name: "apply", is_form: true, form: formSource }, sources: [], max_per_kind: 20 },
+    } as never);
+    vi.mocked(useScriptSubmissions).mockReturnValue({ data: page, isLoading: false, isFetching: false, error: null, refetch } as never);
+    render(<ScriptSubmissions scriptId="script-001" />);
+    expect(screen.getByRole("heading", { name: "Submissions" })).toBeInTheDocument();
+    expect(screen.getByText("Stored in webhook_form_apply on scratch.")).toBeInTheDocument();
+    expect(screen.getByText("987-65-4321")).toBeInTheDocument();
   });
 
   it("renders each value plainly", () => {

@@ -3,7 +3,7 @@ import { FileCode2 } from "lucide-react";
 import { useScriptListing } from "@/api/portal/hooks/scripts";
 import type {
   PortalScriptRow,
-  ScriptEndpointFilter,
+  ScriptHandlerFilter,
   ScriptKind,
   ScriptListFilter,
   ScriptListResponse,
@@ -89,18 +89,22 @@ interface Facets {
   status: string;
   /** kind is "" for both, or the one kind the listing narrows to (#1941). */
   kind: "" | ScriptKind;
-  /** endpoint is "" for both, or whether the scripts are bound to one (#2259). */
-  endpoint: "" | ScriptEndpointFilter;
+  /** type is "" for every script, or the handler type it narrows to (#2435). */
+  type: "" | ScriptHandlerFilter;
 }
 
-const NO_FACETS: Facets = { owner: "", category: "", tag: "", status: "", kind: "", endpoint: "" };
+const NO_FACETS: Facets = { owner: "", category: "", tag: "", status: "", kind: "", type: "" };
 
-// ENDPOINT_OPTIONS answer "which answer HTTP requests" (#2259): every one, the
-// scripts bound to an endpoint, and the rest.
-const ENDPOINT_OPTIONS: FilterOption[] = [
-  { value: "", label: "All" },
-  { value: "bound", label: "Bound" },
-  { value: "unbound", label: "Not bound" },
+// TYPE_OPTIONS answer "what starts it" (#2435): every script, the scripts
+// holding a handler of each type, in the words of the type badges, and the
+// scripts holding none.
+const TYPE_OPTIONS: FilterOption[] = [
+  { value: "", label: "All types" },
+  { value: "endpoint", label: "Endpoint" },
+  { value: "form", label: "Form" },
+  { value: "schedule", label: "Schedule" },
+  { value: "webhook", label: "Webhook" },
+  { value: "none", label: "None" },
 ];
 
 // KIND_OPTIONS are the three answers to "which kind": every one, the scripts
@@ -283,7 +287,7 @@ function serverFilter(
   if (facets.status) filter.status = facets.status;
   if (facets.owner) filter.owner = facets.owner;
   if (facets.kind) filter.kind = facets.kind;
-  if (facets.endpoint) filter.endpoint = facets.endpoint;
+  if (facets.type) filter.type = facets.type;
   if (search) filter.search = search;
   return filter;
 }
@@ -314,7 +318,7 @@ function isNarrowed(filter: ScriptListFilter): boolean {
       filter.status ||
       filter.owner ||
       filter.kind ||
-      filter.endpoint ||
+      filter.type ||
       filter.search,
   );
 }
@@ -420,10 +424,10 @@ function ScriptFilterBar({
         options={KIND_OPTIONS}
       />
       <FilterSelect
-        label="Filter by endpoint"
-        value={facets.endpoint}
-        onChange={(endpoint) => set({ endpoint: endpoint as Facets["endpoint"] })}
-        options={ENDPOINT_OPTIONS}
+        label="Filter by type"
+        value={facets.type}
+        onChange={(type) => set({ type: type as Facets["type"] })}
+        options={TYPE_OPTIONS}
       />
       <FilterSelect
         label="Filter by author"

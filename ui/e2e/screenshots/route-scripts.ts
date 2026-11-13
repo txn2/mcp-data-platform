@@ -3,6 +3,7 @@ import {
   openScriptDocumentation,
   openScriptDryRun,
   openScriptEndpoint,
+  openScriptHandlers,
   openScriptOwner,
   openScriptRunHistory,
   openScriptRunLog,
@@ -91,6 +92,14 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     path: "/portal/automations/script-003",
     category: "user",
     beforeCapture: openScriptSchedule,
+  },
+  {
+    // What starts a script (#2435): its handlers, each with its type badge,
+    // target and state, and Add handler.
+    slug: "script-handlers",
+    path: "/portal/automations/script-001",
+    category: "user",
+    beforeCapture: openScriptHandlers,
   },
   {
     // A script bound to an endpoint (#2171): the address a request reaches,
@@ -194,7 +203,7 @@ export const userScriptRoutes: ScreenshotRoute[] = [
   },
   {
     // The confirmation behind the delete (#1575). It names what goes with the
-    // script -- its saved versions, its schedule, its run history and the state
+    // script -- its saved versions, its handlers, its run history and the state
     // it carried -- and what does not, because "delete the script" reads to a
     // lot of people as "delete the reports it wrote".
     slug: "script-delete",
@@ -228,6 +237,13 @@ export const userScriptRoutes: ScreenshotRoute[] = [
 ];
 
 export const adminScriptRoutes: ScreenshotRoute[] = [
+  {
+    // Every handler of every script (#2435): what starts each automation,
+    // by type, with its target, owner and state.
+    slug: "admin-handlers",
+    path: "/portal/admin/automations/handlers",
+    category: "admin",
+  },
   {
     // Every endpoint binding with its traffic (#2208): what the deployment
     // answers over HTTP, under whose automation, and who is calling it, with

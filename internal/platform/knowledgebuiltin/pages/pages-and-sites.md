@@ -21,7 +21,7 @@ An endpoint is a page when it is bound with `response_mode: "page"`. The script
 must be a part of an application, and the deployment needs `sites.pages_domain`.
 
 ```
-manage_script command=endpoint_set endpoint=shop response_mode=page
+manage_script command=handler_set kind=endpoint endpoint=shop response_mode=page
   methods=["GET"] path="/{route...}" auth_mode=public page_cdns=["https://cdn.jsdelivr.net"]
 ```
 
@@ -41,7 +41,8 @@ rest of the path at any depth, including none, and the handler reads it as
 `"products/shoe"`, `/` is `""`). The handler routes it and chooses each status,
 so `robots.txt` can answer `text/plain` and an unknown path its own 404 page. A
 segment that is empty, `.` or `..`, or holds a backslash or a control character,
-matches nothing, so `route` is always a clean relative path. Only the last
+matches nothing and answers 404 without the handler running, here and on the
+platform's own address alike, so `route` is always a clean relative path. Only the last
 segment may be a catch-all. `/endpoints/`, `/_static/`, `/_viewer` and `/_auth`
 keep their meaning whatever the root endpoint catches.
 
@@ -120,7 +121,7 @@ limits each address to that many requests a minute on each replica; an IPv6
 client is counted by its /64. Behind a load balancer or an ingress the address
 is right only when `server.trusted_proxies` names the proxy's range: the
 platform reads `X-Forwarded-For` from a trusted proxy alone, so a forged header
-moves nothing. `endpoint_set` warns when the limit is set and no proxy is
+moves nothing. `handler_set` warns when the limit is set and no proxy is
 trusted. The address is not written to an audit row or a log.
 
 ### Who is viewing
@@ -313,8 +314,11 @@ served from the rendered output alone.
 A template error refuses the release, names every file and line that failed, and the
 environment does not move. A render is a function of the source tree alone, with no
 network or clock, so `{{ "now" | date }}` is refused: use a date from a page or
-record. A range such as `(1..n)` works only in a `for` tag. Each render has limits on
-loop iterations, include depth and bytes; going past one fails that page.
+record. A range such as `(1..n)` works only in a `for` tag. Its bounds, and a loop's
+`limit`, `offset` and `cols`, are whole numbers: a literal, a `size`, integer arithmetic
+(`plus`, `minus`, `times`, `divided_by`, `modulo`) or a whole number in a record. A float
+such as `6 | divided_by: 2.0` is refused as a bound; `| floor` makes it one. Each render
+has limits on loop iterations, include depth and bytes; going past one fails that page.
 
 ### Who has access
 

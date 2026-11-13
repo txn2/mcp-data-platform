@@ -379,7 +379,7 @@ func (s *scheduler) park(ctx context.Context, sched *script.Schedule, cause erro
 		logKeyScheduleID, logsan.SanitizeForLog(sched.ID),
 		"script_id", logsan.SanitizeForLog(sched.ScriptID),
 		logKeyError, logsan.SanitizeForLog(cause.Error()))
-	if err := s.cfg.schedules.SetScheduleEnabled(ctx, sched.ScriptID, false, schedulePrincipal); err != nil && ctx.Err() == nil {
+	if err := s.cfg.schedules.EnableSchedule(ctx, sched.ID, false, schedulePrincipal); err != nil && ctx.Err() == nil {
 		slog.WarnContext(ctx, "scripts: disabling an unparseable schedule failed",
 			logKeyScheduleID, logsan.SanitizeForLog(sched.ID), logKeyError, err)
 	}

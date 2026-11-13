@@ -1,4 +1,5 @@
 import { usePersonas } from "@/api/admin/hooks";
+import { useEndpointIds } from "./endpointIds";
 import type { ScriptEndpoint } from "@/api/portal/hooks/scriptEndpoint";
 import { Label } from "@/components/ui/label";
 import { sortNames } from "@/lib/sortByName";
@@ -24,12 +25,13 @@ export function FormStorageFields({
   onConnection: (v: string) => void;
   onDecryptPersonas: (v: string[]) => void;
 }) {
+  const eid = useEndpointIds();
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       <div className="space-y-1">
-        <Label htmlFor="endpoint-form-connection">Connection</Label>
+        <Label htmlFor={eid("endpoint-form-connection")}>Connection</Label>
         {endpoint.form ? (
-          <p id="endpoint-form-connection" className="text-sm">
+          <p id={eid("endpoint-form-connection")} className="text-sm">
             {formStorage(endpoint.form.table, endpoint.form.connection)}
           </p>
         ) : (
@@ -42,10 +44,11 @@ export function FormStorageFields({
 }
 
 function ConnectionChoice({ choices, value, onChange }: { choices: string[]; value: string; onChange: (v: string) => void }) {
+  const eid = useEndpointIds();
   return (
     <>
       <select
-        id="endpoint-form-connection"
+        id={eid("endpoint-form-connection")}
         className="h-9 w-full rounded-md border bg-background px-2 text-sm"
         value={value}
         onChange={(e) => onChange(e.target.value)}

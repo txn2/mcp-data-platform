@@ -55,17 +55,17 @@ func TestPageAllowed_TheHookIsAskedAboutTheBindingsScript(t *testing.T) {
 	assert.Equal(t, "script_9", asked)
 }
 
-// TestRun_SetCarriesThePageListsAndTheAddressLimit is #2554 and #2556 through
-// endpoint_set: the three origin lists and ip_rate_limit are stored and
+// TestSet_CarriesThePageListsAndTheAddressLimit is #2554 and #2556 through
+// an endpoint handler: the three origin lists and ip_rate_limit are stored and
 // reported, a limit on a deployment that trusts no proxy is warned of, and 0
 // removes the limit.
-func TestRun_SetCarriesThePageListsAndTheAddressLimit(t *testing.T) {
+func TestSet_CarriesThePageListsAndTheAddressLimit(t *testing.T) {
 	s := newStore()
 	h := handler(s)
 	h.PageAllowed = func(context.Context, string) error { return nil }
 	h.NoTrustedProxies = true
 	limit := 30
-	out, err := h.Run(context.Background(), setReq(Input{
+	out, err := h.Set(context.Background(), setReq(Input{
 		Endpoint: "shop", AuthMode: epbinding.AuthPublic, ResponseMode: epbinding.ResponsePage, Path: new("/{route...}"),
 		PageFrameOrigins: []string{"https://js.stripe.com", "https://*.js.stripe.com"}, PageConnectOrigins: []string{"https://api.stripe.com"},
 		PageFormOrigins: []string{"https://pay.example.test"}, IPRateLimit: &limit,
@@ -76,19 +76,19 @@ func TestRun_SetCarriesThePageListsAndTheAddressLimit(t *testing.T) {
 	assert.Equal(t, []string{"https://pay.example.test"}, out["page_form_origins"])
 	assert.Equal(t, 30, out["ip_rate_limit"])
 	assert.Equal(t, NoTrustedProxiesWarning, out["warning"])
-	assert.Equal(t, "/{route...}", s.byScript["s1"].Path)
+	assert.Equal(t, "/{route...}", s.only(t, "s1").Path)
 
 	h.NoTrustedProxies = false
-	out, err = h.Run(context.Background(), setReq(Input{}))
+	out, err = h.Set(context.Background(), setReq(Input{}))
 	require.NoError(t, err)
 	assert.NotContains(t, out, "warning", "trusted proxies are set: nothing to warn of")
 	assert.Equal(t, 30, out["ip_rate_limit"], "an omitted limit is kept")
 
 	off := 0
-	out, err = h.Run(context.Background(), setReq(Input{IPRateLimit: &off}))
+	out, err = h.Set(context.Background(), setReq(Input{IPRateLimit: &off}))
 	require.NoError(t, err)
 	assert.Equal(t, 0, out["ip_rate_limit"])
 
-	_, err = h.Run(context.Background(), setReq(Input{ResponseMode: epbinding.ResponseAPI, PageFrameOrigins: []string{"https://js.stripe.com"}}))
+	_, err = h.Set(context.Background(), setReq(Input{ResponseMode: epbinding.ResponseAPI, PageFrameOrigins: []string{"https://js.stripe.com"}}))
 	require.ErrorContains(t, err, "page_frame_origins applies to an endpoint with response_mode page")
 }

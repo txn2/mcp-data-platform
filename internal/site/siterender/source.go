@@ -2,7 +2,6 @@ package siterender
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -214,8 +213,8 @@ func (r *run) decodeRecord(name string) (sortedMap, error) {
 func parseRecord(name string, data []byte) (sortedMap, error) {
 	switch strings.ToLower(path.Ext(name)) {
 	case extJSON:
-		decoded := map[string]any{}
-		if err := json.Unmarshal(data, &decoded); err != nil {
+		decoded, err := decodeJSON(data)
+		if err != nil {
 			return nil, fmt.Errorf("not a JSON object: %w", err)
 		}
 		settled, err := settle(decoded, 0)

@@ -230,7 +230,7 @@ func TestIssue1795_TheTotalCountsThePredicateNotThePage(t *testing.T) {
 	withCadence := 0
 	for _, row := range data {
 		r, _ := row.(map[string]any)
-		if r["schedule"] != nil {
+		if schedules, _ := r["schedules"].([]any); len(schedules) > 0 {
 			withCadence++
 		}
 	}
@@ -258,15 +258,9 @@ func TestIssue1795_TheCountsAreSecondQueriesThatRun(t *testing.T) {
 	c := connect(t)
 	seedIssue1795(t, c)
 
-	// Give one of them a cadence. Idempotent like the seed: setting a
-	// schedule replaces it rather than adding a second.
-	c.call("manage_script", map[string]any{
-		"command":  "schedule_set",
-		"name":     issue1795Scripts[0].name,
-		"cron":     "0 7 * * 1-5",
-		"timezone": "UTC",
-		"purpose":  issue1795Purpose,
-	})
+	// Give one of them a cadence. Idempotent like the seed: the same
+	// schedule set again is the one the script already has.
+	c.scheduleSet(issue1795Scripts[0].name, "0 7 * * 1-5", "UTC", nil)
 
 	status, out := c.rest(http.MethodGet, "/api/v1/portal/scripts?category=acceptance", nil)
 	if status != http.StatusOK {

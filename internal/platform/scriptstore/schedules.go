@@ -17,8 +17,8 @@ import (
 // Compile-time interface verification.
 var _ script.ScheduleStore = (*Store)(nil)
 
-// defaultScheduleListLimit caps a schedule listing with no explicit limit.
-const defaultScheduleListLimit = 200
+// The cap of a schedule listing with no limit, and of one naming its own.
+const defaultScheduleListLimit, maxScheduleListLimit = 200, 5000
 
 // defaultDueLimit caps how many due schedules one materialization pass reads.
 // A pass that hits it leaves the rest for the next tick rather than holding one
@@ -54,39 +54,50 @@ func scanSchedule(sc rowScanner) (*script.Schedule, error) {
 	return s, nil
 }
 
-// SetSchedule creates or replaces one script's schedule.
-//
-// The upsert is keyed on script_id rather than on the schedule id because the
-// script is what a caller names: "set the schedule of daily-sales" must not
-// depend on whether one already exists. Replacing keeps the id and the creation
-// stamp, so a schedule's identity — and the runs that point at it — survive an
-// edit of its cadence.
+// SetSchedule creates a schedule when its ID is empty and replaces the one
+// with its ID otherwise (#2434). Replacing keeps the id and the creation
+// stamp, so a schedule's identity, and the runs that point at it, survive an
+// edit of its cadence. The replace is held to the schedule's own script, so
+// an id read from another script's schedule changes nothing.
 func (s *Store) SetSchedule(ctx context.Context, sched *script.Schedule) error {
 	params, err := json.Marshal(orEmptyParams(sched.Params))
 	if err != nil {
 		return fmt.Errorf("marshal schedule params: %w", err)
 	}
+	if sched.ID == "" {
+		row := s.db.QueryRowContext(ctx, `
+			INSERT INTO script_schedules (script_id, cron_spec, timezone, params, enabled,
+			                              next_run_at, created_by, updated_by)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+			RETURNING id, created_at, updated_at`,
+			sched.ScriptID, sched.CronSpec, sched.Timezone, params, sched.Enabled,
+			orNilTime(sched.NextRunAt), sched.UpdatedBy)
+		if err := row.Scan(&sched.ID, &sched.CreatedAt, &sched.UpdatedAt); err != nil {
+			return fmt.Errorf("create script schedule: %w", err)
+		}
+		return nil
+	}
 	row := s.db.QueryRowContext(ctx, `
-		INSERT INTO script_schedules (script_id, cron_spec, timezone, params, enabled,
-		                              next_run_at, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
-		ON CONFLICT (script_id) DO UPDATE
-		   SET cron_spec = EXCLUDED.cron_spec, timezone = EXCLUDED.timezone,
-		       params = EXCLUDED.params, enabled = EXCLUDED.enabled,
-		       next_run_at = EXCLUDED.next_run_at, updated_by = EXCLUDED.updated_by,
-		       updated_at = NOW()
-		RETURNING id, created_at, updated_at`,
-		sched.ScriptID, sched.CronSpec, sched.Timezone, params, sched.Enabled,
+		UPDATE script_schedules
+		   SET cron_spec = $3, timezone = $4, params = $5, enabled = $6,
+		       next_run_at = $7, updated_by = $8, updated_at = NOW()
+		 WHERE id = $1 AND script_id = $2
+		RETURNING created_by, created_at, updated_at`,
+		sched.ID, sched.ScriptID, sched.CronSpec, sched.Timezone, params, sched.Enabled,
 		orNilTime(sched.NextRunAt), sched.UpdatedBy)
-	if err := row.Scan(&sched.ID, &sched.CreatedAt, &sched.UpdatedAt); err != nil {
+	err = row.Scan(&sched.CreatedBy, &sched.CreatedAt, &sched.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return script.ErrScheduleNotFound
+	}
+	if err != nil {
 		return fmt.Errorf("set script schedule: %w", err)
 	}
 	return nil
 }
 
-// GetSchedule returns one script's schedule.
-func (s *Store) GetSchedule(ctx context.Context, scriptID string) (*script.Schedule, error) {
-	sched, err := scanSchedule(s.db.QueryRowContext(ctx, scheduleSelect+` WHERE script_id = $1`, scriptID))
+// ScheduleByID returns one schedule.
+func (s *Store) ScheduleByID(ctx context.Context, id string) (*script.Schedule, error) {
+	sched, err := scanSchedule(s.db.QueryRowContext(ctx, scheduleSelect+` WHERE id = $1`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, script.ErrScheduleNotFound
 	}
@@ -94,6 +105,27 @@ func (s *Store) GetSchedule(ctx context.Context, scriptID string) (*script.Sched
 		return nil, fmt.Errorf("get script schedule: %w", err)
 	}
 	return sched, nil
+}
+
+// ErrScheduleHasRuns refuses deleting a schedule whose runs name it (#2434).
+var ErrScheduleHasRuns = errors.New("this schedule produced runs, which name it; disable it instead")
+
+// DeleteSchedule removes a schedule that produced no runs; script_runs names
+// the schedule of every run it produced, with no cascade, so one that did is
+// refused by the database itself.
+func (s *Store) DeleteSchedule(ctx context.Context, id string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM script_schedules WHERE id = $1`, id)
+	var pqErr *pq.Error
+	switch {
+	case errors.As(err, &pqErr) && pqErr.Code == "23503":
+		return ErrScheduleHasRuns
+	case err != nil:
+		return fmt.Errorf("delete script schedule: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return script.ErrScheduleNotFound
+	}
+	return nil
 }
 
 // ListSchedules returns schedules matching the filter, newest first.
@@ -116,8 +148,11 @@ func (s *Store) ListSchedules(ctx context.Context, filter script.ScheduleFilter)
 		query += " WHERE " + joinAnd(q.where)
 	}
 	limit := filter.Limit
-	if limit <= 0 || limit > defaultScheduleListLimit {
+	switch {
+	case limit <= 0:
 		limit = defaultScheduleListLimit
+	case limit > maxScheduleListLimit:
+		limit = maxScheduleListLimit
 	}
 	q.args = append(q.args, limit)
 	return s.querySchedules(ctx,
@@ -146,17 +181,17 @@ func (s *Store) querySchedules(ctx context.Context, query string, args ...any) (
 	return out, nil
 }
 
-// SetScheduleEnabled turns a schedule on or off.
+// EnableSchedule turns a schedule on or off.
 //
 // Enabling does not move next_run_at. A schedule re-enabled after a pause is
 // therefore due for whatever fire it was parked on, which the misfire policy
 // then collapses to one run — the same treatment downtime gets, which is what a
 // pause is.
-func (s *Store) SetScheduleEnabled(ctx context.Context, scriptID string, enabled bool, actor string) error {
+func (s *Store) EnableSchedule(ctx context.Context, id string, enabled bool, actor string) error {
 	res, err := s.db.ExecContext(ctx, `
 		UPDATE script_schedules
 		   SET enabled = $2, updated_by = $3, updated_at = NOW()
-		 WHERE script_id = $1`, scriptID, enabled, actor)
+		 WHERE id = $1`, id, enabled, actor)
 	if err != nil {
 		return fmt.Errorf("set script schedule enabled: %w", err)
 	}

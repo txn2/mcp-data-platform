@@ -21,7 +21,7 @@ import (
 // binding needs a deployment-wide bot check was retired by #2259: a public
 // endpoint answers anyone with no check, and a bot_check one names its check.
 //
-// Wire forms: manage_script endpoint_set takes typed arguments (methods a
+// Wire forms: manage_script handler_set kind=endpoint takes typed arguments (methods a
 // JSON array of strings, path and auth_mode strings, timeout_seconds a JSON
 // number), sent as the literal tools/call params; the portal route takes one
 // JSON object with the same fields.
@@ -65,30 +65,29 @@ func bindEndpoint(t *testing.T, admin *client, name, owner string, args map[stri
 	t.Helper()
 	out, text := endpointSet(t, admin, name, owner, args)
 	if out == nil {
-		t.Fatalf("endpoint_set %s was refused: %s", name, text)
+		t.Fatalf("handler_set kind=endpoint %s was refused: %s", name, text)
 	}
 	return out
 }
 
-// endpointSet is endpoint_set as c, returning the result or, refused, nil
-// and the refusal.
+// endpointSet is handler_set kind=endpoint as c (#2441), returning the
+// endpoint handler as handler_get describes it, bound true, or, refused, nil
+// and the refusal. The script's handler with the name sent changes, or its
+// only one when none is sent; another name adds one.
 func endpointSet(t *testing.T, c *client, name, owner string, args map[string]any) (map[string]any, string) {
 	t.Helper()
-	params := map[string]any{"command": "endpoint_set", "name": name}
+	params := map[string]any{}
 	if owner != "" {
 		params["owner_email"] = owner
 	}
 	for k, v := range args {
 		params[k] = v
 	}
-	res, text, err := c.callRaw("manage_script", params)
-	if err != nil {
-		t.Fatalf("endpoint_set %s: %v", name, err)
+	out, text := c.handlerSetRaw(name, "endpoint", params)
+	if out != nil {
+		out["bound"] = true
 	}
-	if res.IsError {
-		return nil, text
-	}
-	return c.call("manage_script", map[string]any{"command": "endpoint_list", "name": name, "owner_email": owner}), ""
+	return out, text
 }
 
 // endpointResponse is one answer an endpoint gave.
@@ -161,17 +160,17 @@ func TestIssue2171_AnAdministratorBindsOnBothSurfacesAndItIsListed(t *testing.T)
 	listed := bindEndpoint(t, admin, viaTool, "", map[string]any{
 		"endpoint": viaTool, "methods": []string{"GET"}, "path": "/{id}", "auth_mode": "authenticated", "callers": []string{"*"}, "timeout_seconds": 5,
 	})
-	if listed["bound"] != true || listed["endpoint"] != viaTool || fmt.Sprint(listed["timeout_seconds"]) != "5" {
-		t.Fatalf("endpoint_list after endpoint_set: %v", listed)
+	if idOf(listed) == "" || listed["endpoint"] != viaTool || fmt.Sprint(listed["timeout_seconds"]) != "5" {
+		t.Fatalf("handler_get after handler_set: %v", listed)
 	}
 
-	status, out := admin.rest(http.MethodPut, fmt.Sprintf("/api/v1/portal/scripts/%s/endpoint", portalID), jsonBody(t, map[string]any{
+	status, out := admin.portalEndpointSet(portalID, map[string]any{
 		"endpoint": viaPortal, "methods": []string{"GET"}, "path": "/{id}", "auth_mode": "authenticated", "callers": []string{"*"},
-	}))
-	if status != http.StatusOK {
-		t.Fatalf("PUT portal endpoint: %d %v", status, out)
+	})
+	if !succeeded(status) {
+		t.Fatalf("portal endpoint handler: %d %v", status, out)
 	}
-	status, page := admin.rest(http.MethodGet, fmt.Sprintf("/api/v1/portal/scripts/%s/endpoint", portalID), nil)
+	status, page := admin.portalEndpointOf(portalID)
 	if status != http.StatusOK || page["bound"] != true || page["endpoint"] != viaPortal {
 		t.Fatalf("the script's page does not list the binding: %d %v", status, page)
 	}
@@ -194,14 +193,13 @@ func TestIssue2171_ANonAdministratorIsRefusedOnBothSurfaces(t *testing.T) {
 
 	out, refusal := endpointSet(t, owner, name, "", map[string]any{"endpoint": name, "auth_mode": "authenticated", "callers": []string{"*"}})
 	if out != nil || !strings.Contains(refusal, "an administrator binds an endpoint that is not a form") {
-		t.Fatalf("the owner's endpoint_set: want refused, got %v %q", out, refusal)
+		t.Fatalf("the owner's handler_set kind=endpoint: want refused, got %v %q", out, refusal)
 	}
-	status, body := owner.rest(http.MethodPut, fmt.Sprintf("/api/v1/portal/scripts/%s/endpoint", id),
-		jsonBody(t, map[string]any{"endpoint": name, "auth_mode": "authenticated", "callers": []string{"*"}}))
+	status, body := owner.portalEndpointSet(id, map[string]any{"endpoint": name, "auth_mode": "authenticated", "callers": []string{"*"}})
 	if status != http.StatusForbidden {
-		t.Fatalf("the owner's portal PUT: want 403, got %d %v", status, body)
+		t.Fatalf("the owner's portal add: want 403, got %d %v", status, body)
 	}
-	status, page := owner.rest(http.MethodGet, fmt.Sprintf("/api/v1/portal/scripts/%s/endpoint", id), nil)
+	status, page := owner.portalEndpointOf(id)
 	if status != http.StatusOK || page["bound"] != false {
 		t.Fatalf("the owner reads an unbound script's page: %d %v", status, page)
 	}

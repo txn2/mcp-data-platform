@@ -24,5 +24,7 @@ func TestGate(t *testing.T) {
 	assert.NotNil(t, g.Contracts)
 	assert.NotNil(t, g.CannotServe)
 	assert.Equal(t, p.Config().Scripts.Worker.ProcessRunMemoryBudget(), g.MaxMemoryBytes)
-	assert.Nil(t, g.Endpoint, "no endpoints are wired on a platform without a database")
+	assert.Nil(t, g.Handlers, "no handlers are checked on a platform without a database")
+	assert.Nil(t, Handlers(p), "a platform without a database keeps no handler")
+	assert.Nil(t, Handlers(nil))
 }

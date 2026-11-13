@@ -12,6 +12,7 @@ package scriptstore
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -134,8 +135,19 @@ func TestRealDB_ContractComposesFromTheRealSchema(t *testing.T) {
 	assert.Equal(t, 1, before.Version, "the version a run executes is the latest saved one")
 	require.Len(t, before.Params, 1)
 	assert.Equal(t, "report_date", before.Params[0].Name)
-	assert.Nil(t, before.Schedule)
+	require.NotNil(t, before.Schedules, "no schedule is an empty list, never null")
+	assert.Empty(t, before.Schedules)
 	assert.Nil(t, before.LastRun)
+
+	for _, spec := range []string{"0 7 * * *", "0 19 * * *"} {
+		require.NoError(t, s.SetSchedule(ctx, &script.Schedule{
+			ScriptID: sc.ID, CronSpec: spec, Timezone: "UTC", Enabled: true,
+			NextRunAt: time.Now().Add(time.Hour), UpdatedBy: "jane@example.com",
+		}))
+	}
+	scheduled, err := s.Contract(ctx, sc.ID)
+	require.NoError(t, err)
+	require.Len(t, scheduled.Schedules, 2, "every schedule handler the script holds is in its contract (#2434)")
 
 	sc.Status = script.StatusDeprecated
 	require.NoError(t, s.Update(ctx, sc))

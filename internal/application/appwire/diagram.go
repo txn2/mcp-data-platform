@@ -2,14 +2,11 @@ package appwire
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"regexp"
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/application/appdiagram"
 	"github.com/txn2/mcp-data-platform/internal/application/appsvc"
-	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/migrationstore"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
@@ -27,15 +24,16 @@ func diagramDeps(d Deps) appsvc.DiagramDeps {
 	}
 	bindings, migrations := epstore.New(d.DB), migrationstore.New(d.DB)
 	out := appsvc.DiagramDeps{
-		Binding: func(ctx context.Context, scriptID string) (*appdiagram.Binding, error) {
-			b, err := bindings.Get(ctx, scriptID)
-			if errors.Is(err, epbinding.ErrNotFound) || errors.Is(err, sql.ErrNoRows) || b == nil {
-				return nil, nil //nolint:nilnil // no binding is no endpoint
-			}
+		Bindings: func(ctx context.Context, scriptID string) ([]appdiagram.Binding, error) {
+			held, err := bindings.ByScript(ctx, scriptID)
 			if err != nil {
 				return nil, err //nolint:wrapcheck // the diagram leaves out what it cannot read
 			}
-			return &appdiagram.Binding{Name: b.Name, Path: b.Path}, nil
+			out := make([]appdiagram.Binding, 0, len(held))
+			for _, b := range held {
+				out = append(out, appdiagram.Binding{Name: b.Name, Path: b.Path})
+			}
+			return out, nil
 		},
 		SchemaWrites: func(ctx context.Context, connection, schema string) []string {
 			ms, err := migrations.List(ctx, connection, schema)

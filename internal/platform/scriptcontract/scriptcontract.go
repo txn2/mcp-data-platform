@@ -648,8 +648,8 @@ ENDPOINTS
   An endpoint is a script bound to an HTTP route, /endpoints/{name}/...,
   that answers each request by calling its handle(req), inline, under the
   same identity and the same persona filter a run has. An administrator
-  binds it with endpoint_set; endpoint_list reads a binding and the
-  requests that failed. A bound script defines handle(req), taking the
+  adds one or more with handler_set kind=endpoint; handler_get reads one
+  and its failed requests. A bound script defines handle(req), taking the
   request as its one parameter, and a save of one without it is refused:
       def handle(req):
           """Looks one order up."""
@@ -717,7 +717,7 @@ FORMS
   help, choices ({"value", "label"}) and sensitive; form_token and website
   (the honeypot) are the platform's. A form answers GET and POST; on a
   bot_check endpoint set checked_methods to ["POST"].
-  Binding a form makes its webhook source (endpoint_set connection, default
+  Binding a form makes its webhook source (handler_set connection, default
   the only scratch connection; decrypt_personas), and each accepted
   submission is stored as a row of webhook_form_<endpoint> before it is
   answered (503 when it cannot be). A "sensitive": True field is stored

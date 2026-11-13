@@ -469,9 +469,13 @@ total output (`sites.max_release_bytes`), output files (`sites.max_release_files
 and records held in memory (256 MiB). A panic in the template engine fails the page.
 Source and output each count against the limits on their own. A render is a function
 of the source tree: `date` refuses `now`, loops over objects run in key order, and no
-template reaches the network or a file outside the tree. A template error refuses the
-release, lists every file and line that failed, and leaves the environment where it
-was.
+template reaches the network or a file outside the tree. A `for` loop's range bounds,
+and a loop's `limit`, `offset` and `cols`, are whole numbers: a literal, a `size`, the
+result of integer arithmetic (`plus`, `minus`, `times`, `divided_by` or `modulo` on
+whole numbers) or a whole number in a JSON or YAML record (#2633). A float such as
+`6 | divided_by: 2.0` is refused as a bound; `| floor` makes it one. A template error
+refuses the release, lists every file and line that failed, and leaves the environment
+where it was.
 
 A publish or a copy from the portal runs in the background (`site_jobs`): it goes
 on if the browser goes away, and a copy can be stopped. A job nobody has reported

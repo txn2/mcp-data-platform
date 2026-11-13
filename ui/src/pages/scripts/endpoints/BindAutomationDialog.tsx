@@ -42,7 +42,7 @@ export function BindAutomationDialog({
           <DialogTitle>Bind an automation</DialogTitle>
           <DialogDescription>
             Pick the automation the endpoint runs. It must define handle(req).
-            Its page opens; bind it in its Endpoint section, where the address,
+            Its page opens; add an endpoint in its Handlers section, where the address,
             access and limits are set.
           </DialogDescription>
         </DialogHeader>

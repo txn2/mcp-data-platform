@@ -48,6 +48,9 @@ func MCPErrorContractMiddleware() mcp.Middleware {
 				// result; leave it for the SDK to encode.
 				return result, err
 			}
+			if removed := removedValueResult(req, result); removed != nil {
+				return removed, nil
+			}
 			return normalizeErrorResult(result), nil
 		}
 	}

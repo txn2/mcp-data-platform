@@ -218,10 +218,14 @@ export async function openScriptRunsTab(page: Page): Promise<void> {
  * that retires it.
  */
 export async function openScriptSchedule(page: Page): Promise<void> {
-  // The section is folded by default (#1407): its header states what the
-  // script runs, and the builder is behind the reveal this opens.
+  // A schedule is a handler (#2434): its row in the Handlers section opens
+  // onto the cadence in force and the builder that changes it.
   await page
-    .getByRole("button", { name: /^Schedule/ })
+    .locator('[data-testid="handler-row"]')
+    .filter({ hasText: "Schedule" })
+    .first()
+    .getByRole("button")
+    .first()
     .click({ timeout: 3_000 })
     .catch(() => {});
   // The builder's first control, which is where the schedule is chosen — the
@@ -251,9 +255,26 @@ export async function openScriptState(page: Page): Promise<void> {
  * binding's limits, and the requests that failed.
  */
 export async function openScriptEndpoint(page: Page): Promise<void> {
-  const heading = page.getByRole("heading", { name: "Endpoint" });
-  await heading.click({ timeout: 3_000 }).catch(() => {});
+  // An endpoint is a handler (#2441): its row in the Handlers section opens
+  // onto the address, the limits and the failed requests.
+  await page
+    .locator('[data-testid="handler-row"]')
+    .filter({ hasText: "Endpoint" })
+    .first()
+    .getByRole("button")
+    .first()
+    .click({ timeout: 3_000 })
+    .catch(() => {});
   await page.getByText("Failed requests").scrollIntoViewIfNeeded({ timeout: 3_000 }).catch(() => {});
+  await page.waitForTimeout(500);
+}
+
+/**
+ * openScriptHandlers brings a script's Handlers section into view (#2435):
+ * each handler's type, target and state, and the Add handler control.
+ */
+export async function openScriptHandlers(page: Page): Promise<void> {
+  await page.getByTestId("script-handlers").scrollIntoViewIfNeeded({ timeout: 3_000 }).catch(() => {});
   await page.waitForTimeout(500);
 }
 

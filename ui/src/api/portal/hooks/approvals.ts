@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
-import { endpointKey } from "./scriptEndpoint";
+import { handlersKey } from "./scriptHandlers";
 
 // Approvals (#2437, #2494): a request for an administrator's decision. A form
 // is served to callers with no session only at a version an administrator
@@ -84,7 +84,7 @@ export function useDecideApproval() {
       }),
     onSuccess: (r) => {
       void queryClient.invalidateQueries({ queryKey: approvalsKey });
-      void queryClient.invalidateQueries({ queryKey: endpointKey(r.script_id) });
+      void queryClient.invalidateQueries({ queryKey: handlersKey(r.script_id) });
     },
   });
 }

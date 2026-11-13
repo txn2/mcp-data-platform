@@ -395,8 +395,8 @@ func TestIssue2483_AFailedCheckNeverRepeatsTheURL(t *testing.T) {
 	const key = "acc2483sekretKEY"
 	catalog := issue2483Catalog(t, admin, "acc-2483-key", map[string]any{"source_kind": "url", "source_url": up.url + "?key=" + key})
 	// The endpoint is unbound, so the upstream answers 404.
-	if out := admin.call("manage_script", map[string]any{"command": "endpoint_disable", "name": up.name}); out["status"] == nil {
-		t.Logf("endpoint_disable: %v", out)
+	if out := admin.endpointEnable(up.name, false); out["enabled"] != false {
+		t.Logf("handler_disable: %v", out)
 	}
 	status, out := admin.rest(http.MethodPost, issue2483SpecPath(catalog)+"/refresh", http.NoBody)
 	if status == http.StatusOK {

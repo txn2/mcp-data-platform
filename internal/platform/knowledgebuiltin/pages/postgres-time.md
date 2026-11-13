@@ -45,7 +45,9 @@ SELECT id, (('2026-03-09'::date + at_local) AT TIME ZONE zone) AS next_instant F
 
 A managed script's schedule is the platform's own cron with a time zone, so a
 reminder sent at 9:00 local time is a schedule, not a table a loop polls
-(mcp:knowledge_page:platform-postgres-platform-provides).
+(mcp:knowledge_page:platform-postgres-platform-provides). One script may hold
+several schedules, each read in its own zone, so reminders at 9:00 in New York
+and at 9:00 in Los Angeles are two schedules of one script.
 
 ## Periods are half-open ranges
 

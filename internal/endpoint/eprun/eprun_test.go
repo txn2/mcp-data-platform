@@ -52,8 +52,12 @@ func (m *memBindings) touch(name string) {
 }
 
 func (*memBindings) Set(context.Context, *epbinding.Binding) error { return nil }
-func (*memBindings) Get(context.Context, string) (*epbinding.Binding, error) {
+func (*memBindings) GetByID(context.Context, string) (*epbinding.Binding, error) {
 	return nil, epbinding.ErrNotFound
+}
+
+func (*memBindings) ByScript(context.Context, string) ([]epbinding.Binding, error) {
+	return []epbinding.Binding{}, nil
 }
 
 func (m *memBindings) GetByName(_ context.Context, name string) (*epbinding.Binding, error) {
@@ -70,7 +74,8 @@ func (*memBindings) List(context.Context, epbinding.Filter) ([]epbinding.Binding
 	return nil, 0, nil
 }
 
-func (*memBindings) SetEnabled(context.Context, string, bool, string) error { return nil }
+func (*memBindings) Enable(context.Context, string, bool, string) error { return nil }
+func (*memBindings) Delete(context.Context, string) error               { return nil }
 
 func (m *memBindings) RecordFailure(_ context.Context, f epbinding.Failure) error {
 	m.mu.Lock()

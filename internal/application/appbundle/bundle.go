@@ -19,10 +19,14 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
-// Format identifies a bundle.
+// Format identifies a bundle. Version 2 lists every handler of each script
+// (#2441); version 1 carried at most one endpoint, one schedule and one
+// webhook source per script, and import still reads it.
 const (
 	Format        = "mcp-data-platform.application"
-	FormatVersion = 1
+	FormatVersion = 2
+	// FormatVersion1 is the version before handlers.
+	FormatVersion1 = 1
 )
 
 // MaxBytes bounds a bundle.
@@ -78,10 +82,16 @@ type Script struct {
 	Source      string         `json:"source"`
 	Params      []script.Param `json:"params"`
 	Exclusive   string         `json:"exclusive,omitempty"`
-	EventSource string         `json:"event_source,omitempty"`
 	Version     int            `json:"version"`
-	Endpoint    *Endpoint      `json:"endpoint,omitempty"`
-	Schedule    *Schedule      `json:"schedule,omitempty"`
+	// Handlers are what start the script: its endpoints, schedules and
+	// webhook sources (format version 2). A tool-call handler governs a
+	// deployment's people rather than an application, and is never exported.
+	Handlers *Handlers `json:"handlers,omitempty"`
+	// EventSource, Endpoint and Schedule are a version 1 bundle's one of
+	// each, which import reads as handlers.
+	EventSource string    `json:"event_source,omitempty"`
+	Endpoint    *Endpoint `json:"endpoint,omitempty"`
+	Schedule    *Schedule `json:"schedule,omitempty"`
 	// DynamicConnections is set when the source names a connection in a way
 	// a static read cannot see; those names are not in Names.
 	DynamicConnections bool `json:"dynamic_connections,omitempty"`
@@ -127,6 +137,39 @@ type Endpoint struct {
 	IPRateLimit        int      `json:"ip_rate_limit,omitempty"`
 	// FormConnection is the connection a form's submissions table is on.
 	FormConnection string `json:"form_connection,omitempty"`
+}
+
+// Handlers are a script's handlers, by kind.
+type Handlers struct {
+	Endpoints []Endpoint `json:"endpoints"`
+	Schedules []Schedule `json:"schedules"`
+	Webhooks  []Webhook  `json:"webhooks"`
+}
+
+// Webhook is a webhook handler: the source the script runs for, mapped to
+// one of the importing deployment's.
+type Webhook struct {
+	Source  string `json:"source"`
+	Enabled bool   `json:"enabled"`
+}
+
+// handlersOf is a script's handlers whatever the bundle's version: version
+// 1's one endpoint, schedule and source become one handler each.
+func handlersOf(s *Script) Handlers {
+	if s.Handlers != nil {
+		return *s.Handlers
+	}
+	var h Handlers
+	if s.Endpoint != nil {
+		h.Endpoints = append(h.Endpoints, *s.Endpoint)
+	}
+	if s.Schedule != nil {
+		h.Schedules = append(h.Schedules, *s.Schedule)
+	}
+	if s.EventSource != "" {
+		h.Webhooks = append(h.Webhooks, Webhook{Source: s.EventSource, Enabled: true})
+	}
+	return h
 }
 
 // Schedule is a script's schedule.

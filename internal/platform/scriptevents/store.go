@@ -31,18 +31,19 @@ type EventSummary struct {
 	LastSkippedAt *time.Time `json:"last_skipped_at,omitempty"`
 }
 
-// eventBindingsSQL lists every script that runs for a webhook source, with
-// the source it names, through idx_scripts_event_source.
-const eventBindingsSQL = `SELECT event_source, id FROM scripts WHERE event_source <> '' ORDER BY event_source, id`
+// eventBindingsSQL lists every script with an enabled webhook handler, with
+// the source it names (#2434).
+const eventBindingsSQL = `SELECT source, script_id FROM script_webhook_handlers WHERE enabled ORDER BY source, script_id`
 
 // lockScriptSQL holds a script's row for the transaction, so two replicas
 // enqueuing events for one script count its pending event runs one after the
 // other.
 const lockScriptSQL = `SELECT id FROM scripts WHERE id = $1 FOR UPDATE`
 
-// pendingEventRunsSQL counts a script's event runs that wait for a worker.
+// pendingEventRunsSQL counts a webhook handler's event runs that wait for a
+// worker: the script's, for the one source (#2434).
 const pendingEventRunsSQL = `SELECT COUNT(*) FROM script_runs
-	 WHERE script_id = $1 AND trigger_kind = 'event' AND status = 'pending'`
+	 WHERE script_id = $1 AND trigger_kind = 'event' AND status = 'pending' AND event_source = $2`
 
 // insertEventRunSQL writes one event's run: pending, or, past the bound,
 // skipped_backlog with its reason and finished. A run is queued when its
@@ -71,8 +72,8 @@ const eventSummarySQL = `
 		  FROM script_runs
 		 WHERE script_id = $1 AND trigger_kind = 'event'`
 
-// PostgresStore keeps event runs in script_runs and reads which scripts run
-// for a source from scripts (#2332).
+// PostgresStore keeps event runs in script_runs and webhook handlers in
+// script_webhook_handlers (#2332, #2434).
 type PostgresStore struct{ db *sql.DB }
 
 // NewStore is the PostgreSQL event run store.
@@ -102,22 +103,23 @@ func (s *PostgresStore) EventBindings(ctx context.Context) (map[string][]string,
 
 // EnqueueEvents writes one run per event for the script the runs name, in
 // one transaction holding the script's row: each is pending while the
-// script's pending event runs are under maxQueued, and recorded as
-// skipped_backlog past it. An event that already has a run makes none. A
-// worker is woken when any run was made pending. Every run carries the same
-// script and version; its Event, EventSource and EventID name the event.
+// handler's pending event runs (the script's, for the source) are under
+// maxQueued, and recorded as skipped_backlog past it. An event that already
+// has a run makes none. A worker is woken when any run was made pending.
+// Every run carries the same script, version and source; its Event and
+// EventID name the event.
 func (s *PostgresStore) EnqueueEvents(ctx context.Context, runs []*script.Run, maxQueued int) (EventEnqueue, error) {
 	var out EventEnqueue
 	if len(runs) == 0 {
 		return out, nil
 	}
-	scriptID := runs[0].ScriptID
+	scriptID, source := runs[0].ScriptID, runs[0].EventSource
 	err := withTx(ctx, s.db, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, lockScriptSQL, scriptID); err != nil {
 			return fmt.Errorf("locking script %s: %w", scriptID, err)
 		}
 		var pending int
-		if err := tx.QueryRowContext(ctx, pendingEventRunsSQL, scriptID).Scan(&pending); err != nil {
+		if err := tx.QueryRowContext(ctx, pendingEventRunsSQL, scriptID, source).Scan(&pending); err != nil {
 			return fmt.Errorf("counting the pending event runs of %s: %w", scriptID, err)
 		}
 		var err error
@@ -175,8 +177,8 @@ func insertEventRun(ctx context.Context, tx *sql.Tx, r *script.Run, full bool, m
 	status, reason := script.RunStatusPending, ""
 	if full {
 		status = runstate.StatusSkippedBacklog
-		reason = fmt.Sprintf("not run: %d event runs of this script were already waiting, the most scripts.events.max_queued allows; "+
-			"the event is stored in source %s", maxQueued, r.EventSource)
+		reason = fmt.Sprintf("not run: %d event runs of this script for source %s were already waiting, the most scripts.events.max_queued allows; "+
+			"the event is stored in the source", maxQueued, r.EventSource)
 	}
 	res, err := tx.ExecContext(ctx, insertEventRunSQL,
 		r.ID, r.ScriptID, r.VersionID, r.Version, status, params, r.RequestedBy,

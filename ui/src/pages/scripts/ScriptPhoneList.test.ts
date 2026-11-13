@@ -12,18 +12,36 @@ function row(overrides: Partial<PortalScriptRow> = {}): PortalScriptRow {
   } as PortalScriptRow;
 }
 
+type ListedSchedule = NonNullable<PortalScriptRow["schedules"]>[number];
+
+function schedule(overrides: Partial<ListedSchedule> = {}): ListedSchedule {
+  return { id: "x", script_id: "s1", cron_spec: "0 6 * * *", timezone: "UTC", enabled: true, ...overrides } as ListedSchedule;
+}
+
 describe("whatItDoes", () => {
   it("is what a library is for, an endpoint without its prefix, or on demand", () => {
     expect(whatItDoes(row({ script: { ...row().script, library: true } }))).toBe("Loaded by other automations");
-    expect(whatItDoes(row({ endpoint: { name: "s", path: "/endpoints/store-survey", auth_mode: "public", enabled: false } }))).toBe(
+    expect(whatItDoes(row({ endpoints: [{ name: "s", path: "/endpoints/store-survey", auth_mode: "public", enabled: false }] }))).toBe(
       "Endpoint store-survey · Off",
     );
     expect(whatItDoes(row())).toBe("On demand");
   });
 
   it("is a schedule's cadence, and that it is paused", () => {
-    const paused = row({ schedule: { id: "x", script_id: "s1", cron_spec: "0 6 * * *", timezone: "UTC", enabled: false } as PortalScriptRow["schedule"] });
+    const paused = row({ schedules: [schedule({ enabled: false })] });
     expect(whatItDoes(paused)).toMatch(/paused$/);
+  });
+
+  // #2434: a script holds several schedules; the row states the first and
+  // counts the rest, and a schedule is what a row leads with over an endpoint.
+  it("counts the schedules past the first, and leads with a schedule over an endpoint", () => {
+    const three = row({
+      schedules: [schedule({ enabled: false }), schedule({ id: "y", cron_spec: "0 18 * * *" }), schedule({ id: "z" })],
+      endpoints: [{ name: "s", path: "/endpoints/store-survey", auth_mode: "public", enabled: true }],
+    });
+    expect(whatItDoes(three)).toBe("Every day at 6:00 AM, UTC · paused · +2 more");
+    expect(whatItDoes(row({ schedules: [schedule({ enabled: false })] }))).toBe("Every day at 6:00 AM, UTC · paused");
+    expect(whatItDoes(row({ schedules: [] }))).toBe("On demand");
   });
 });
 

@@ -90,7 +90,7 @@ func (s *endpointAppDB) Setup(ctx context.Context, env *harness.Env) error {
 		return err
 	}
 	if _, err := call(ctx, session, "manage_script", map[string]any{
-		"command": "endpoint_set", "name": name, "endpoint": name, "methods": []string{"GET"}, "path": "/",
+		"command": "handler_set", "kind": "endpoint", "name": name, "endpoint": name, "methods": []string{"GET"}, "path": "/",
 		"auth_mode": "authenticated", "callers": []string{"*"}, "rate_limit": 100000, "caller_rate_limit": 100000,
 	}); err != nil {
 		return err

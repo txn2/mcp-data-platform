@@ -43,7 +43,7 @@ const eventIDBytes = 16
 // ErrNoSource is a form whose source this replica cannot find: the form was
 // bound before it defined both handlers, or its source was deleted or
 // disabled.
-var ErrNoSource = errors.New("this form has no enabled webhook source to store its submissions in; bind it again with manage_script endpoint_set")
+var ErrNoSource = errors.New("this form has no enabled webhook source to store its submissions in; set its endpoint handler again with manage_script handler_set kind=endpoint")
 
 // ErrCannotSeal is a form declaring a sensitive field on a deployment that
 // cannot encrypt it.

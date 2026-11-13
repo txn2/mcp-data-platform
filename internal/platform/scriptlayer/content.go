@@ -227,8 +227,8 @@ func (h *Handle) handleVersions(ctx context.Context, input manageScriptInput) (*
 		entries = append(entries, versionFields(&history[i], withRoles))
 	}
 	return jsonResult(map[string]any{
-		fieldName: sc.Name, "owner_email": sc.OwnerEmail,
-		"versions": entries, "count": len(entries),
+		fieldName: sc.Name, fieldOwner: sc.OwnerEmail,
+		"versions": entries, fieldCount: len(entries),
 	})
 }
 
@@ -239,7 +239,7 @@ func versionFields(v *script.Version, withRoles bool) map[string]any {
 		fieldVersion: v.Version, "author": v.Author,
 		fieldStatus: v.Status, "created_at": v.CreatedAt.UTC(),
 		"display_name": v.DisplayName, "description": v.Description,
-		"category": v.Category, "tags": orEmpty(v.Tags),
+		fieldCategory: v.Category, fieldTags: orEmpty(v.Tags),
 	}
 	if withRoles {
 		fields["author_roles"] = orEmpty(v.AuthorRoles)

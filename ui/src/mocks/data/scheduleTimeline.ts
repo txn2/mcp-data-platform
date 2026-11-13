@@ -211,6 +211,7 @@ export function buildMockScheduleTimeline(
     const win = windows.find((x) => x.section === section)!;
     const all = fires(spec, zone, win.from, win.to);
     rows[section].push({
+      schedule_id: sched.id,
       script_id: sched.script_id,
       script_name: name,
       owner_email: label?.owner_email ?? "",

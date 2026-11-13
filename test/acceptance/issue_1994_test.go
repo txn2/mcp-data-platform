@@ -33,8 +33,8 @@ func TestIssue1994_AnAnalystReadsAnotherPersonsAutomation(t *testing.T) {
 	}, nil)
 	t.Cleanup(func() { _, _, _ = owner.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 	id := scriptID1569(t, owner, name)
-	if status, out := owner.rest(http.MethodPut, "/api/v1/portal/scripts/"+id+"/schedule",
-		jsonBody(t, map[string]any{"cron": "0 6 1 * *", "timezone": "UTC", "enabled": true})); status != http.StatusOK {
+	if status, out := owner.rest(http.MethodPost, "/api/v1/portal/scripts/"+id+"/handlers",
+		jsonBody(t, map[string]any{"kind": "schedule", "cron": "0 6 1 * *", "timezone": "UTC"})); status != http.StatusCreated {
 		t.Fatalf("schedule the script: HTTP %d: %v", status, out)
 	}
 	run := owner.call("run_script", map[string]any{"name": name, "wait_seconds": 60})
@@ -59,10 +59,16 @@ func TestIssue1994_AnAnalystReadsAnotherPersonsAutomation(t *testing.T) {
 		t.Errorf("the row names who requested another person's run: %v", last)
 	}
 
-	// The schedule, without what each fire binds.
-	status, sched := analyst.rest(http.MethodGet, "/api/v1/portal/scripts/"+id+"/schedule", http.NoBody)
-	if status != http.StatusOK || sched["cron_spec"] != "0 6 1 * *" {
-		t.Errorf("the analyst cannot read the schedule: HTTP %d: %v", status, sched)
+	// The schedule, without what each fire binds: the cadence is in the
+	// script's contract, and its handlers are the owner's (#2441).
+	status, page := analyst.rest(http.MethodGet, "/api/v1/portal/scripts/"+id, http.NoBody)
+	contract, _ := page["contract"].(map[string]any)
+	schedules := listOf(contract, "schedules")
+	if status != http.StatusOK || len(schedules) != 1 || schedules[0]["cron_spec"] != "0 6 1 * *" {
+		t.Errorf("the analyst cannot read the schedule: HTTP %d: %v", status, page)
+	}
+	if status, _ := analyst.rest(http.MethodGet, "/api/v1/portal/scripts/"+id+"/handlers", http.NoBody); status != http.StatusNotFound {
+		t.Errorf("the analyst reads another person's handlers, with what each fire binds: HTTP %d", status)
 	}
 
 	// The run history and the run, as how it went and not what it printed.
@@ -95,8 +101,8 @@ func TestIssue1994_AnAnalystReadsAnotherPersonsAutomation(t *testing.T) {
 	if status, _ := analyst.rest(http.MethodPost, "/api/v1/portal/scripts/"+id+"/runs/"+runID+"/cancel", http.NoBody); status != http.StatusNotFound {
 		t.Errorf("the analyst may cancel another person's run: HTTP %d", status)
 	}
-	if status, _ := analyst.rest(http.MethodPut, "/api/v1/portal/scripts/"+id+"/schedule",
-		jsonBody(t, map[string]any{"cron": "@daily", "timezone": "UTC", "enabled": true})); status != http.StatusNotFound {
+	if status, _ := analyst.rest(http.MethodPost, "/api/v1/portal/scripts/"+id+"/handlers",
+		jsonBody(t, map[string]any{"kind": "schedule", "cron": "@daily", "timezone": "UTC"})); status != http.StatusNotFound {
 		t.Errorf("the analyst may change another person's schedule: HTTP %d", status)
 	}
 }

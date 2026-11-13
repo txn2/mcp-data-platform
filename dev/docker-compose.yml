@@ -449,13 +449,15 @@ services:
 
   # Ollama: local embedding provider backing semantic indexing (#557). The
   # host-run platform points embedding.ollama.url at http://localhost:11434
-  # (dev/platform.yaml), so bundling it here makes `make dev` exercise the
-  # semantic path out of the box instead of silently degrading to lexical-only.
-  # dev/start.sh pulls the nomic-embed-text model once the service is healthy.
-  # CPU-only under Docker on macOS (no GPU passthrough) — embedding is slower
-  # than a host/GPU Ollama but correct; the model volume persists across
-  # `make dev` runs (only `make dev-down` wipes it).
+  # (dev/platform.yaml). Started only under the `embeddings` profile, which
+  # dev/start.sh activates when DEV_EMBEDDING_PROVIDER=ollama (#2637): it runs
+  # CPU-only under Docker on macOS (no GPU passthrough) and embedding every
+  # object an acceptance run creates took most of the machine, so a plain
+  # `make dev` ranks lexically. dev/start.sh pulls the nomic-embed-text model
+  # once the service is healthy; the model volume persists across `make dev`
+  # runs (only `make dev-down` wipes it).
   ollama:
+    profiles: ["embeddings"]
     image: ollama/ollama:0.30.6@sha256:fbaaecc6c632a73c2b4ca25ef52dbee0b68d07783fcb850f916404c004040f90
     container_name: acme-dev-ollama
     ports:

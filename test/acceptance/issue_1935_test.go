@@ -130,9 +130,7 @@ func TestIssue1935_ARepeatedFailureEmailSaysToCorrectTheScript(t *testing.T) {
 		t.Fatalf("the script was refused on save: %v", created["findings"])
 	}
 	t.Cleanup(func() { _, _, _ = owner.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
-	owner.call("manage_script", map[string]any{
-		"command": "schedule_set", "name": name, "cron": "0 3 * * *", "timezone": "UTC",
-	})
+	owner.scheduleSet(name, "0 3 * * *", "UTC", nil)
 
 	const lastLine = "Error in fail: fail: the input was not what this script expects"
 	for i := 1; i <= 2; i++ {

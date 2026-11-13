@@ -20,8 +20,8 @@ import (
 // platform found, whatever a field claims; and the form input cannot be set on
 // a source that is not a form's.
 //
-// Wire forms: manage_script create and endpoint_set take their arguments as
-// literal tools/call params (endpoint_set's connection as a string); each
+// Wire forms: manage_script create and handler_set kind=endpoint take their arguments as
+// literal tools/call params (handler_set kind=endpoint's connection as a string); each
 // form GET is a plain GET; a submission is sent once as
 // application/x-www-form-urlencoded and once as an application/json object
 // with the same fields; X-Bot-Check carries the answer as a header;

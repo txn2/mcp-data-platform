@@ -15,7 +15,11 @@ gates then read results rather than prose:
               and its stream: their `// Wire forms:` comments, then each
               criterion's result (#2541)
   affected -- the acceptance files that call a tool whose registering package
-              a diff changes (#2543), read from the changed paths on stdin
+              a diff changes (#2543), read from the changed paths on stdin,
+              and the unchanged ones that call, directly or through another
+              helper, a helper whose declaration the diff changes in another
+              acceptance file (#2627), read from the diff ACCEPTANCE_DIFF_RANGE
+              names
 
 Before this existed the gate read build/<n>/acceptance.md and checked only
 that it carried a "Wire forms:" line. The transcript for #1663 carried a
@@ -29,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -164,11 +169,26 @@ def verdict(issue: str, files: list[str]) -> list[str]:
             "with the stack up."
         ]
     final = outcomes(read_events(path))
-    for name in declared:
+    for name in required_of(declared):
         got = final.get(name)
         if got != "pass":
             problems.append(f"#{issue}: {name} {got or 'never ran'}")
+    for name in declared:
+        if final.get(name) == "fail" and name not in required_of(declared):
+            problems.append(f"#{issue}: {name} fail")
     return problems
+
+
+def required_of(declared: list[str]) -> list[str]:
+    """The criteria a ticket's recording must show passed (#2637). In a file
+    mixing plain criteria with criteria an environment holds, a run on the
+    plain stack records the plain ones, and each environment's run
+    (ACCEPTANCE_ENV, the E2E Nightly) proves its own, as affected leaves out a
+    file every criterion of which runs elsewhere. A file of one environment's
+    criteria is that environment's run, and every one is read from it."""
+    elsewhere = environment_criteria()
+    plain = [n for n in declared if not any(p.search(n) for p in elsewhere)]
+    return plain or declared
 
 
 # ---------------------------------------------------------------- transcript
@@ -485,20 +505,150 @@ def affected(changed: list[str]) -> dict[str, dict[str, str]]:
     return out
 
 
+# The git range or base a diff is read from for the helpers it changes:
+# acceptance-check.sh sets it to the merge base, and the pull request job to
+# the range it diffs. Unset, no helper is read as changed.
+DIFF_RANGE_ENV = "ACCEPTANCE_DIFF_RANGE"
+HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+
+
+def diff_range() -> str:
+    return os.environ.get(DIFF_RANGE_ENV, "").strip()
+
+
+def changed_lines(range_: str) -> dict[str, set[int]]:
+    """Each acceptance file the diff changes, mapped to its changed lines on
+    the new side; a deletion counts as a change of the line after it."""
+    if not range_:
+        return {}
+    diff = subprocess.run(
+        ["git", "diff", "-U0", range_, "--", "test/acceptance"],
+        cwd=REPO_ROOT, capture_output=True, text=True, check=True,
+    ).stdout
+    out: dict[str, set[int]] = {}
+    current = ""
+    for line in diff.splitlines():
+        if line.startswith("+++ "):
+            current = line[len("+++ b/"):] if line.startswith("+++ b/") else ""
+            continue
+        m = HUNK.match(line)
+        if current and m:
+            start, count = int(m.group(1)), int(m.group(2) if m.group(2) is not None else "1")
+            out.setdefault(current, set()).update(range(start, start + count) if count else {start})
+    return out
+
+
+def declarations(text: str) -> list[tuple[str, int, int]]:
+    """Each top-level function or method a Go source declares: its name and
+    the first and last line of its declaration."""
+    found = []
+    for m in FUNC_DECL.finditer(text):
+        brace = text.find("{", m.end())
+        if brace < 0:
+            continue
+        body = balanced(text, brace, "{", "}")
+        first = text.count("\n", 0, m.start()) + 1
+        found.append((m.group(1), first, first + text.count("\n", m.start(), brace + len(body))))
+    return found
+
+
+def changed_helpers(range_: str) -> dict[str, str]:
+    """Each helper an acceptance file declares whose declaration the diff
+    changes, mapped to the file changing it. A criterion (TestIssue...) is not
+    a helper: its own file is selected because it changed."""
+    out: dict[str, str] = {}
+    for path, lines in sorted(changed_lines(range_).items()):
+        source = REPO_ROOT / path
+        if not path.endswith("_test.go") or not source.is_file():
+            continue
+        for name, first, last in declarations(source.read_text(encoding="utf-8")):
+            if name.startswith("Test") or not any(first <= n <= last for n in lines):
+                continue
+            out.setdefault(name, path)
+    return out
+
+
+def helpers_reached(text: str, wanted: set[str], funcs: dict[str, str], seen: set[str]) -> set[str]:
+    """The wanted helpers a span calls, directly or through a helper it calls."""
+    found: set[str] = set()
+    for m in CALL.finditer(text):
+        name = m.group(1)
+        if name in wanted:
+            found.add(name)
+        if name in funcs and name not in seen:
+            seen.add(name)
+            found |= helpers_reached(funcs[name], wanted, funcs, seen)
+    return found
+
+
+def helper_affected(changed: list[str], range_: str) -> dict[str, dict[str, str]]:
+    """The acceptance files the diff leaves alone that call a helper it
+    changes, each mapped to those helpers and the file changing each (#2627).
+    A file whose every criterion runs in its own environment is left out, as
+    affected leaves one out."""
+    helpers = changed_helpers(range_)
+    if not helpers:
+        return {}
+    directory = REPO_ROOT / "test" / "acceptance"
+    sources = {p.relative_to(REPO_ROOT).as_posix(): p.read_text(encoding="utf-8") for p in sorted(directory.glob("*_test.go"))}
+    joined = "\n".join(sources.values())
+    foreign = foreign_methods(joined)
+    funcs = {name: body for name, body in package_functions(joined).items() if name not in foreign}
+    elsewhere = environment_criteria()
+    touched = set(changed)
+    out: dict[str, dict[str, str]] = {}
+    for path, text in sources.items():
+        issue = issue_of(path)
+        if not issue or path in touched:
+            continue
+        reached = helpers_reached(text, set(helpers), funcs, set())
+        if not reached:
+            continue
+        criteria = criteria_in(REPO_ROOT / path, issue)
+        if criteria and all(any(p.search(c) for p in elsewhere) for c in criteria):
+            continue
+        out[path] = {name: helpers[name] for name in sorted(reached)}
+    return out
+
+
 def cmd_affected(_args: argparse.Namespace) -> int:
     """Print the tickets of the acceptance files the changed paths on stdin
-    reach, comma-separated, as acceptance-pr-paths.py --tickets does."""
+    reach, comma-separated, as acceptance-pr-paths.py --tickets does: the
+    files calling a changed tool, and the unchanged files calling a changed
+    helper."""
     changed = [line.strip() for line in sys.stdin if line.strip()]
-    print(",".join(str(n) for n in sorted({int(issue_of(p) or 0) for p in affected(changed)})))
+    paths = set(affected(changed)) | set(helper_affected(changed, diff_range()))
+    print(",".join(str(n) for n in sorted({int(issue_of(p) or 0) for p in paths})))
     return 0
 
 
+def stale_helper_recordings(changed: list[str]) -> list[str]:
+    """Each unchanged acceptance file calling a changed helper whose recorded
+    run did not pass, or was recorded before the helper changed (#2627)."""
+    problems: list[str] = []
+    for path, hits in helper_affected(changed, diff_range()).items():
+        issue = issue_of(path) or ""
+        named = ", ".join(f"{h} ({where})" for h, where in sorted(hits.items()))
+        found = verdict(issue, [path])
+        problems.extend(f"{p} (it calls {named}, which this diff changes)" for p in found)
+        if found:
+            continue
+        recorded = stream_path(issue).stat().st_mtime
+        for helper, source in sorted(hits.items()):
+            if (REPO_ROOT / source).stat().st_mtime > recorded:
+                problems.append(f"#{issue}: {stream_path(issue).relative_to(REPO_ROOT)} was recorded "
+                                f"before {source} changed {helper}, which {path} calls")
+                break
+    return problems
+
+
 def stale_recordings(changed: list[str]) -> list[str]:
-    """Each acceptance file calling a changed tool whose recorded run did not
-    pass, or was recorded before the change."""
+    """Each acceptance file calling a changed tool or helper whose recorded run
+    did not pass, or was recorded before the change."""
     problems: list[str] = []
     if not changed:
         return problems
+    problems.extend(stale_helper_recordings(changed))
     for path, hits in affected(changed).items():
         issue = issue_of(path) or ""
         named = ", ".join(sorted(hits))

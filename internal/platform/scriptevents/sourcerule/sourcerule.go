@@ -53,24 +53,6 @@ func NewRule(db *sql.DB, get func(ctx context.Context, id string) (*script.Scrip
 	return &Rule{Sources: whsource.NewStore(db, nil), FormOwner: OwnerOf(get)}
 }
 
-// Set sets the webhook source sc runs for to source once the caller may name
-// it; a nil source leaves it alone. A nil Rule refuses naming any source.
-func (r *Rule) Set(ctx context.Context, sc *script.Script, source *string, callerEmail string, admin bool) error {
-	if source == nil || *source == sc.EventSource {
-		return nil
-	}
-	if r == nil && *source != "" {
-		return refusal{"this deployment has no webhook sources for a script to run for"}
-	}
-	if r != nil {
-		if err := r.Check(ctx, *source, callerEmail, admin); err != nil {
-			return err
-		}
-	}
-	sc.EventSource = *source
-	return nil
-}
-
 // OwnerOf is Rule.FormOwner over a script read: the owner's email of the
 // script with the id, "" for a script that does not exist, which owns
 // nothing.
@@ -87,12 +69,15 @@ func OwnerOf(get func(ctx context.Context, id string) (*script.Script, error)) f
 	}
 }
 
-// Check reports why a script may not run for source when the caller names it,
-// nil when it may. An empty source runs the script for none, which anyone who
-// may edit the script may choose.
-func (r Rule) Check(ctx context.Context, source, callerEmail string, admin bool) error {
+// Check reports why a script may not run for source when the caller names it
+// in a webhook handler (#2434), nil when it may. A nil Rule refuses every
+// source: the deployment has none.
+func (r *Rule) Check(ctx context.Context, source, callerEmail string, admin bool) error {
+	if r == nil {
+		return refusal{"this deployment has no webhook sources for a script to run for"}
+	}
 	if source == "" {
-		return nil
+		return refusal{"event_source is required: the webhook source the script runs for"}
 	}
 	src, err := r.read(ctx, source)
 	if err != nil || admin {

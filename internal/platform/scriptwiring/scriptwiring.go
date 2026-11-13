@@ -150,7 +150,9 @@ func Wire(deps Deps) *scriptexec.Handle {
 	layer.RegisterTool(deps.Server)
 	// Applications (#2411): scripts, assets, sources and a schema released
 	// together, over the same stores.
-	if svc := appwire.Register(deps.Server, applicationDeps(deps, endpoints, layer.SaveGate(), sites)); svc != nil {
+	appDeps := applicationDeps(deps, endpoints, layer.SaveGate(), sites)
+	appDeps.Handlers = layer.Handlers()
+	if svc := appwire.Register(deps.Server, appDeps); svc != nil {
 		// A save of an application's script reports what it newly gives the
 		// application's diagram to find (#2540).
 		layer.SetPartFindings(svc.FindingsIntroduced)
@@ -232,9 +234,6 @@ func applicationDeps(deps Deps, endpoints *epwire.Endpoints, gate *scriptsave.Ga
 	}
 	if deps.S3 != nil {
 		d.Blobs = deps.S3
-	}
-	if endpoints != nil && endpoints.Commands != nil {
-		d.Endpoints = endpoints.Commands.Run
 	}
 	if sites != nil {
 		d.Sites = sites.Service

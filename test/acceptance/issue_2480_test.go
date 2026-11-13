@@ -133,8 +133,9 @@ func TestIssue2480_ABindingReachesTheNextDeliveryAtOnce(t *testing.T) {
 		t.Fatalf("the automation bound after the burst made %d event runs, want 1: %v", got, runs)
 	}
 
-	if got := admin.call("manage_script", map[string]any{"command": "update", "name": name, "event_source": ""}); got["status"] != "updated" {
-		t.Fatalf("unbinding %s: %v", name, got)
+	admin.webhookOff(name, source)
+	if got := admin.webhookSources(name); len(got) != 0 {
+		t.Fatalf("unbinding %s left it running for %v", name, got)
 	}
 	issue2480Deliver(t, source, 1, "unbound")
 	time.Sleep(3 * time.Second) // a run, if one were made, would be enqueued with the delivery

@@ -12,10 +12,10 @@ import (
 
 // Acceptance for #2360: a form request whose form_submit fails on a
 // sensitive value records the failure with the value replaced, in the
-// failed requests endpoint_list reports and in the request's audit row. The
+// failed requests handler_list reports and in the request's audit row. The
 // SSN is submitted as a form body and as JSON.
 //
-// Wire forms: manage_script create, endpoint_set and endpoint_list take
+// Wire forms: manage_script create, handler_set kind=endpoint and handler_list take
 // literal tools/call params; a submission is posted as
 // application/x-www-form-urlencoded and as application/json; the audit
 // route is a GET with a query string.
@@ -63,10 +63,10 @@ func TestIssue2360_AFailedFormRequestRecordsNoSensitiveValue(t *testing.T) {
 		}
 	}
 
-	listed := admin.call("manage_script", map[string]any{"command": "endpoint_list", "name": name})
+	listed := admin.endpointOf(name, "")
 	failures, _ := listed["failures"].([]any)
 	if len(failures) < 2 {
-		t.Fatalf("endpoint_list reports %d failed requests, want both: %v", len(failures), listed)
+		t.Fatalf("handler_list reports %d failed requests, want both: %v", len(failures), listed)
 	}
 	raw, _ := json.Marshal(failures)
 	if strings.Contains(string(raw), issue2360SSN) {

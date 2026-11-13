@@ -21,11 +21,13 @@ const contract: ScriptContract = {
   enabled: true,
   params: [],
   version: 4,
-  schedule: {
-    cron_spec: "0 7 * * 1-5",
-    timezone: "America/Los_Angeles",
-    enabled: true,
-  },
+  schedules: [
+    {
+      cron_spec: "0 7 * * 1-5",
+      timezone: "America/Los_Angeles",
+      enabled: true,
+    },
+  ],
   state: { reads_state: true, saves_state: true, revision: 12 },
 };
 
@@ -90,27 +92,44 @@ describe("ScriptDelete", () => {
 
     open();
 
-    const line = screen.getByText(/Its schedule,/);
+    const line = screen.getByText(/Every handler that starts it on its own/);
     expect(line.textContent).toContain("America/Los_Angeles");
     expect(line.textContent).not.toContain("0 7 * * 1-5");
   });
 
   it("names a paused schedule as paused, so it is not read as one already gone", () => {
     renderControl({
-      schedule: { cron_spec: "0 7 * * 1-5", timezone: "UTC", enabled: false },
+      schedules: [{ cron_spec: "0 7 * * 1-5", timezone: "UTC", enabled: false }],
     });
 
     open();
 
-    expect(screen.getByText(/Its schedule,.*\(paused\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Every handler that starts it on its own/).textContent).toMatch(/\(paused\)/);
   });
 
-  it("says nothing about a schedule or state the script does not have", () => {
-    renderControl({ schedule: undefined, state: undefined });
+  // #2434: a script holds several schedules, and every one stops.
+  it("names every schedule that stops, each in words", () => {
+    renderControl({
+      schedules: [
+        { cron_spec: "0 7 * * 1-5", timezone: "UTC", enabled: true },
+        { cron_spec: "0 18 * * *", timezone: "UTC", enabled: false },
+      ],
+    });
 
     open();
 
-    expect(screen.queryByText(/Its schedule,/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Every handler that starts it on its own/).textContent).toBe(
+      "Every handler that starts it on its own, so nothing starts it again: its endpoints, its webhook sources, and its schedules (Every weekday at 7:00 AM, UTC; Every day at 6:00 PM, UTC (paused)).",
+    );
+  });
+
+  it("says nothing about a schedule or state the script does not have", () => {
+    renderControl({ schedules: [], state: undefined });
+
+    open();
+
+    // The handler line names no cadence for a script with none.
+    expect(screen.getByText(/Every handler that starts it on its own/).textContent).not.toMatch(/\(/);
     expect(screen.queryByText(/The state it carries/)).not.toBeInTheDocument();
     expect(screen.getByText(/Its whole run history/)).toBeInTheDocument();
   });
@@ -190,7 +209,7 @@ describe("ScriptDelete: a library", () => {
   const library: Partial<ScriptContract> = {
     name: "date-windows",
     display_name: "Date Windows",
-    schedule: undefined,
+    schedules: [],
     state: undefined,
     library: true,
     loads: [],

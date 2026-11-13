@@ -18,11 +18,12 @@ import (
 // runs one at a time; and a run that fails is recorded with its cause while
 // the next event still runs.
 //
-// Wire forms: manage_script create, update (event_source a string, "" to
-// clear), runs and get_run take their arguments as literal tools/call params;
-// the portal route PUT /api/v1/portal/scripts/{id}/event-source takes
-// {"source": "<name>"}, a JSON string, and GET .../events no body; each form
-// submission is a JSON object.
+// Wire forms: manage_script create, handler_set (kind "webhook" and
+// event_source strings), handler_list, handler_delete, runs and get_run take
+// their arguments as literal tools/call params; the portal route POST
+// /api/v1/portal/scripts/{id}/handlers takes {"kind": "webhook",
+// "event_source": "<name>"}, JSON strings, and GET .../events no body; each
+// form submission is a JSON object.
 //
 // The criteria run against the local stack: the platform and its run
 // workers, Trino with the acme-scratch-resources scratch catalog, the store
@@ -39,25 +40,27 @@ const issue2332Echo = `def main():
     platform.result({"event_id": ev["id"], "email": email})
 `
 
-// issue2332Automation saves the echo script under a fresh name and names
-// source as what it runs for, through manage_script update.
+// issue2332Automation saves the echo script under a fresh name, applies extra
+// through manage_script update, and runs it for source through a webhook
+// handler (#2434).
 func issue2332Automation(t *testing.T, admin *client, prefix, source string, extra map[string]any) string {
 	t.Helper()
 	name := endpointName(prefix)
 	admin.saveScript(map[string]any{"command": "create", "name": name, "source": issue2332Echo}, nil)
-	update := map[string]any{"command": "update", "name": name, "event_source": source}
-	for k, v := range extra {
-		update[k] = v
+	if len(extra) > 0 {
+		update := map[string]any{"command": "update", "name": name}
+		for k, v := range extra {
+			update[k] = v
+		}
+		if got := admin.call("manage_script", update); got["status"] != "updated" {
+			t.Fatalf("updating %s: %v", name, got)
+		}
 	}
-	if got := admin.call("manage_script", update); got["status"] != "updated" {
-		t.Fatalf("naming %s's event source: %v", name, got)
+	admin.webhookSet(name, source)
+	if got := admin.webhookSources(name); len(got) != 1 || got[0] != source {
+		t.Fatalf("%s's event sources read %v, want %s", name, got, source)
 	}
-	if got := admin.call("manage_script", map[string]any{"command": "get", "name": name}); got["event_source"] != source {
-		t.Fatalf("%s's event source reads %v, want %s", name, got["event_source"], source)
-	}
-	t.Cleanup(func() {
-		admin.callRaw("manage_script", map[string]any{"command": "update", "name": name, "event_source": ""})
-	})
+	t.Cleanup(func() { admin.webhookOff(name, source) })
 	return name
 }
 
@@ -134,7 +137,7 @@ func TestIssue2332_ASubmissionRunsTheScriptThatNamesItsSource(t *testing.T) {
 	if status, sum := admin.rest(http.MethodGet, "/api/v1/portal/scripts/"+scriptID+"/events", nil); status != http.StatusOK || sum["max_queued"] == nil {
 		t.Fatalf("the script's event summary: %d %v", status, sum)
 	}
-	if status, out := admin.rest(http.MethodPut, "/api/v1/portal/scripts/"+scriptID+"/event-source", jsonBody(t, map[string]any{"source": "form-" + quiet})); status != http.StatusOK || out["source"] != "form-"+quiet {
+	if status, out := admin.rest(http.MethodPost, "/api/v1/portal/scripts/"+scriptID+"/handlers", jsonBody(t, map[string]any{"kind": "webhook", "event_source": "form-" + quiet})); status != http.StatusCreated || out["event_source"] != "form-"+quiet {
 		t.Fatalf("naming another source from the portal: %d %v", status, out)
 	}
 }

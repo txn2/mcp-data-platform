@@ -23,7 +23,7 @@ const (
 var writeActions = map[string]bool{
 	"create": true, "update": true, "delete": true, "register": true, "unregister": true,
 	"replace_content": true, "put": true, "patch": true, "move": true, "share": true,
-	"schedule_set": true, "upload": true, "copy": true, "remove": true,
+	"handler_set": true, "handler_enable": true, "handler_disable": true, "handler_delete": true, "upload": true, "copy": true, "remove": true,
 }
 
 // writeMethods are the HTTP methods that make an API call a write. POST is not
