@@ -323,6 +323,11 @@ def handle(req):
 	assert.False(t, f.audit.events[0].Success)
 }
 
+// A run's memory is measured at a host call, so the handler calls one every
+// 1,000 rows: the budget is crossed within the first few thousand, and the
+// time limit, raised here, is never what stops it. With a call every 50,000
+// rows and the fixture's 5 seconds, a loaded CI runner at -race -cpu=1 reached
+// the time limit first on every run.
 func TestServe_PastItsMemoryIs503(t *testing.T) {
 	f := newFixture(t, `
 def handle(req):
@@ -330,10 +335,11 @@ def handle(req):
     rows = []
     for i in range(200000):
         rows.append({"i": i, "s": "x" * 100})
-        platform.call("lookup", {"id": "1"}) if i % 50000 == 0 else None
+        platform.call("lookup", {"id": "1"}) if i % 1000 == 0 else None
     return {"json": len(rows)}
 `)
 	f.bindings.byName["orders"].MaxMemoryBytes = 1 << 20
+	f.bindings.byName["orders"].TimeoutSeconds = 120
 	resp := f.serve(t, Request{Method: "GET"})
 	assert.Equal(t, http.StatusServiceUnavailable, resp.Status, string(resp.Body))
 	require.Len(t, f.bindings.failures, 1)
