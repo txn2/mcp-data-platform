@@ -56,6 +56,14 @@ const (
 // knowledgeQueueRoute is the portal deep link the alert points at.
 const knowledgeQueueRoute = "/knowledge#review"
 
+// approvalsQueueRoute is the portal page the approvals alert points at.
+const approvalsQueueRoute = "/approvals"
+
+// DefaultApprovalOldestDays is the approvals queue's default age threshold:
+// a held call is someone waiting, so the queue is stale far sooner than a
+// knowledge proposal.
+const DefaultApprovalOldestDays = 2
+
 // Target names one review queue: where its configuration and its last-alert
 // marker live, and what the email it raises says.
 //
@@ -98,6 +106,20 @@ func KnowledgeTarget() Target {
 		Title:             "Knowledge review queue",
 		Route:             knowledgeQueueRoute,
 		DefaultOldestDays: DefaultKnowledgeOldestDays,
+	}
+}
+
+// ApprovalsTarget describes the approvals queue (#2437): held calls and
+// handler versions waiting for a decision.
+func ApprovalsTarget() Target {
+	return Target{
+		Queue:             "approvals",
+		SettingsSection:   "approval_queue_alert",
+		Category:          notification.CategoryReviewQueue,
+		Kind:              notification.KindApprovalQueue,
+		Title:             "Approvals queue",
+		Route:             approvalsQueueRoute,
+		DefaultOldestDays: DefaultApprovalOldestDays,
 	}
 }
 

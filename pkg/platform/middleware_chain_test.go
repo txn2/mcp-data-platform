@@ -2,17 +2,23 @@ package platform
 
 import (
 	"context"
+	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/callhandler"
+	"github.com/txn2/mcp-data-platform/internal/platform/callrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/mwchain"
 	"github.com/txn2/mcp-data-platform/internal/platform/obs"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
+	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
 // TestReceivingMiddlewareChain_CanonicalOrder pins the exact execution order of
@@ -53,6 +59,7 @@ func TestReceivingMiddlewareChain_CanonicalOrder(t *testing.T) {
 		mwCallReference,
 		mwEnrichment,
 		mwResultCapture,
+		mwCallHandlers,
 		mwUnwrapJSON,
 	}
 
@@ -241,4 +248,73 @@ func TestAddTracingMiddleware(t *testing.T) {
 	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
 	p.obs = obs.New(nil, observability.NewTracerFromProvider(tp, observability.TracingConfig{Enabled: true}))
 	p.addTracingMiddleware() // enabled: registers without panic
+}
+
+// lateHandlers is one protecting transform on connection "c", and the script
+// it runs.
+type lateHandlers struct{}
+
+func (lateHandlers) Enabled(context.Context) ([]callhandler.Handler, error) {
+	return []callhandler.Handler{{
+		ID: "h1", ScriptID: "s1", Kind: callhandler.KindTransform, Connection: "c",
+		Enabled: true, Protected: []string{"cat.sch.tbl.ssn"},
+	}}, nil
+}
+
+func (lateHandlers) GetByID(context.Context, string) (*script.Script, error) {
+	return &script.Script{ID: "s1", Name: "mask"}, nil
+}
+
+func (lateHandlers) GetVersion(context.Context, string, int) (*script.Version, error) {
+	return nil, errors.New("not used")
+}
+
+// TestCallHandlers_ReadTheScriptsBoundAfterTheChain: the handlers' layer is
+// registered when the platform is built, and the scripts it reads are bound
+// later, in WireRuntime. A layer that captured the handle at registration saw
+// none on every call, and no policy, transform or watch ran on a tool call.
+func TestCallHandlers_ReadTheScriptsBoundAfterTheChain(t *testing.T) {
+	ctx := context.Background()
+	p := &Platform{}
+	p.mcpServer = mcp.NewServer(&mcp.Implementation{Name: "t", Version: "v0"}, nil)
+	p.mcpServer.AddTool(&mcp.Tool{Name: "q", InputSchema: map[string]any{"type": "object"}},
+		func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ran"}}}, nil
+		})
+	for _, s := range p.receivingMiddlewareChain() {
+		if s.Name == mwCallHandlers {
+			s.Register() // p.scripts is nil here, as in finalizeSetup
+		}
+	}
+	p.mcpServer.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			return next(middleware.WithPlatformContext(ctx, &middleware.PlatformContext{Connection: "c", PersonaName: "analyst"}), method, req)
+		}
+	})
+	fake := lateHandlers{}
+	e := &callrun.Evaluator{
+		Index: &callhandler.Index{Reader: fake}, Scripts: fake,
+		Protect: func(context.Context, string, string, map[string]string) error {
+			return errors.New("ssn is protected by mask")
+		},
+	}
+	require.NoError(t, e.Index.Load(ctx))
+	p.scripts = &scriptlayer.Handle{}
+	p.scripts.SetCallHandlers(&callrun.Runtime{Evaluator: e})
+
+	ct, st := mcp.NewInMemoryTransports()
+	ss, err := p.mcpServer.Connect(ctx, st, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ss.Close() })
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "c", Version: "v0"}, nil).Connect(ctx, ct, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cs.Close() })
+
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "q", Arguments: map[string]any{"sql": "SELECT substr(ssn, 1, 3) FROM cat.sch.tbl"}})
+	require.NoError(t, err)
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	require.True(t, ok, "the result is not text")
+	if !res.IsError || !strings.Contains(tc.Text, "PROTECTED_COLUMN") {
+		t.Fatalf("the transform bound after the chain did not apply: %s", tc.Text)
+	}
 }

@@ -11,6 +11,8 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/mcptask"
 	"github.com/txn2/mcp-data-platform/internal/platform/runcontrol"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer/handlercmd"
+	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
 )
@@ -19,6 +21,9 @@ import (
 const defaultRunsLimit = 20
 
 // handleRuns lists a script's run history, newest first.
+// runNotFound answers a run that does not exist or that the caller may not read.
+const runNotFound = "run not found"
+
 func (h *Handle) handleRuns(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
 	if h.runs == nil {
 		return errorResult("this deployment keeps no script runs"), nil, nil
@@ -37,8 +42,13 @@ func (h *Handle) handleRuns(ctx context.Context, input manageScriptInput) (*mcp.
 		return errorResult("failed to list runs"), nil, nil
 	}
 	summaries := make([]map[string]any, 0, len(runs))
+	admin := h.isAdminPersona(ctx)
 	for i := range runs {
-		summaries = append(summaries, runSummary(sc, &runs[i]))
+		out := runSummary(sc, &runs[i])
+		if runstate.AdminsOnly(runs[i].Trigger) && !admin {
+			out = handlercmd.Withheld(out)
+		}
+		summaries = append(summaries, out)
 	}
 	return jsonResult(map[string]any{
 		fieldName: sc.Name, "runs": summaries, fieldCount: len(summaries),
@@ -65,7 +75,7 @@ func (h *Handle) handleGetRun(ctx context.Context, input manageScriptInput) (*mc
 	}
 	run, err := h.runs.GetRun(ctx, input.RunID)
 	if errors.Is(err, script.ErrRunNotFound) {
-		return errorResult("run not found"), nil, nil
+		return errorResult(runNotFound), nil, nil
 	}
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to read a script run", logKeyRunID, input.RunID, logKeyError, err)
@@ -78,6 +88,9 @@ func (h *Handle) handleGetRun(ctx context.Context, input manageScriptInput) (*mc
 	out := runResult(sc, run)
 	out["requested_by"] = run.RequestedBy
 	out["params"] = run.Params
+	if run.Call != nil {
+		out["call"] = run.Call
+	}
 	out["scheduled_for"] = run.ScheduledFor.UTC()
 	out["steps"] = run.Metrics.Steps
 	return jsonResult(out)
@@ -98,7 +111,7 @@ func (h *Handle) handleCancelRun(ctx context.Context, input manageScriptInput) (
 	}
 	run, err := h.runs.GetRun(ctx, input.RunID)
 	if errors.Is(err, script.ErrRunNotFound) {
-		return errorResult("run not found"), nil, nil
+		return errorResult(runNotFound), nil, nil
 	}
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to read a script run", logKeyRunID, input.RunID, logKeyError, err)
@@ -136,7 +149,12 @@ func (h *Handle) readableRunScript(ctx context.Context, run *script.Run) (*scrip
 	// script: the result was already handed to them when they requested it, and
 	// a run they cannot re-read is a run id they cannot follow.
 	if sc == nil || (!h.ownsScript(ctx, sc) && !requestedBy(run, resolveEmail(ctx))) {
-		return nil, errorResult("run not found")
+		return nil, errorResult(runNotFound)
+	}
+	// A watch's run holds another person's call and what the script printed
+	// for it: an administrator's only, never its owner's (#2635).
+	if runstate.AdminsOnly(run.Trigger) && !h.isAdminPersona(ctx) {
+		return nil, errorResult(runNotFound)
 	}
 	return sc, nil
 }

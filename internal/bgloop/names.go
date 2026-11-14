@@ -95,6 +95,11 @@ const (
 	// NameSiteReleaseSweep prunes releases past each environment's limit and
 	// removes objects no release names (#2602).
 	NameSiteReleaseSweep = "site_release_sweep"
+	// NameCallHandlerSweep removes tool-call handler counts past the longest
+	// window and failures past their week (#2436).
+	NameCallHandlerSweep = "call_handler_sweep"
+	// NameWatchQueue writes the runs watch handlers are owed (#2635).
+	NameWatchQueue = "watch_queue"
 
 	// LISTEN connections (Listen). The two pglisten channels report under
 	// "listen_" + their channel name.

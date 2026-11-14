@@ -8,11 +8,13 @@ import (
 	"io"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/appdbops"
+	"github.com/txn2/mcp-data-platform/internal/calltransform"
 	"github.com/txn2/mcp-data-platform/internal/jsonwalk"
 	"github.com/txn2/mcp-data-platform/internal/pglex"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -166,8 +168,11 @@ type appdbCaller struct {
 	txs map[string]AppDBTx
 	seq int
 	// cursors are the session's open cursors by id, numbered by cursorSeq.
-	cursors   map[string]AppDBCursor
-	cursorSeq int
+	cursors map[string]AppDBCursor
+	// cursorTransforms pass each page a cursor reads through the
+	// transforms that covered its query when it was declared.
+	cursorTransforms map[string]calltransform.Transformer
+	cursorSeq        int
 	// apps is the application whose run role each connection's statements
 	// log in as (#2539), asked once per connection.
 	apps map[string]string
@@ -251,6 +256,10 @@ func (c *appdbCaller) statement(ctx context.Context, name string, args map[strin
 	if err := c.admit(st.Connection); err != nil {
 		return nil, err
 	}
+	transform, err := c.throughHandlers(ctx, operationOf(name), st.Connection, st.SQL)
+	if err != nil {
+		return nil, err
+	}
 	ctx = c.identity(ctx, st.Connection)
 	run := c.db.Runner().Query
 	if name == AppDBExecute {
@@ -260,7 +269,7 @@ func (c *appdbCaller) statement(ctx context.Context, name string, args map[strin
 	if err != nil {
 		return nil, appdbRefusal(err)
 	}
-	return resultMap(res), nil
+	return transformRows(ctx, transform, resultMap(res))
 }
 
 // batch runs platform.batch.
@@ -276,11 +285,15 @@ func (c *appdbCaller) batch(ctx context.Context, args map[string]any) (map[strin
 	if err := c.admit(connection); err != nil {
 		return nil, err
 	}
+	transforms, err := c.batchThroughHandlers(ctx, connection, stmts)
+	if err != nil {
+		return nil, err
+	}
 	res, err := c.db.Runner().Batch(c.identity(ctx, connection), connection, stmts)
 	if err != nil {
 		return nil, appdbRefusal(err)
 	}
-	return resultsMap(res), nil
+	return transformResults(ctx, transforms, resultsMap(res))
 }
 
 // admit authorizes a connection and refuses a statement outside the
@@ -349,11 +362,11 @@ func (c *appdbCaller) inTx(ctx context.Context, name string, args map[string]any
 		tx.Rollback()
 		return map[string]any{argTransaction: id, "committed": false}, nil
 	case AppDBTxBatch:
-		return txBatch(ctx, tx, args)
+		return c.txBatch(ctx, tx, args)
 	case AppDBSavepoint, AppDBRelease, AppDBRollbackTo:
 		return txSavepoint(ctx, tx, name, id, args)
 	}
-	return txStatement(ctx, tx, name == AppDBTxExecute, args)
+	return c.txStatement(ctx, tx, name, args)
 }
 
 // argSavepoint names the savepoint a release or rollback_to ends.
@@ -395,33 +408,41 @@ func (c *appdbCaller) take(id string, ending bool) (AppDBTx, error) {
 }
 
 // txBatch runs tx.batch.
-func txBatch(ctx context.Context, tx AppDBTx, args map[string]any) (map[string]any, error) {
+func (c *appdbCaller) txBatch(ctx context.Context, tx AppDBTx, args map[string]any) (map[string]any, error) {
 	stmts, err := statementsOf(args)
 	if err != nil {
 		return nil, invalid(err)
+	}
+	transforms, err := c.batchThroughHandlers(ctx, tx.Connection(), stmts)
+	if err != nil {
+		return nil, err
 	}
 	res, err := tx.Batch(ctx, stmts)
 	if err != nil {
 		return nil, appdbRefusal(err)
 	}
-	return resultsMap(res), nil
+	return transformResults(ctx, transforms, resultsMap(res))
 }
 
-// txStatement runs tx.query, or tx.execute when write.
-func txStatement(ctx context.Context, tx AppDBTx, write bool, args map[string]any) (map[string]any, error) {
+// txStatement runs tx.query, or tx.execute.
+func (c *appdbCaller) txStatement(ctx context.Context, tx AppDBTx, name string, args map[string]any) (map[string]any, error) {
 	st, err := txStatementOf(args, tx.Connection())
 	if err != nil {
 		return nil, invalid(err)
 	}
+	transform, err := c.throughHandlers(ctx, operationOf(name), tx.Connection(), st.SQL)
+	if err != nil {
+		return nil, err
+	}
 	run := tx.Query
-	if write {
+	if name == AppDBTxExecute {
 		run = tx.Execute
 	}
 	res, err := run(ctx, st)
 	if err != nil {
 		return nil, appdbRefusal(err)
 	}
-	return resultMap(res), nil
+	return transformRows(ctx, transform, resultMap(res))
 }
 
 // The argument keys the application-database calls carry.
@@ -441,7 +462,7 @@ func (c *appdbCaller) close() {
 	}
 	c.mu.Lock()
 	txs, cursors := c.txs, c.cursors
-	c.txs, c.cursors = make(map[string]AppDBTx), make(map[string]AppDBCursor)
+	c.txs, c.cursors, c.cursorTransforms = make(map[string]AppDBTx), make(map[string]AppDBCursor), nil
 	c.mu.Unlock()
 	for _, k := range cursors {
 		k.Close()
@@ -452,38 +473,46 @@ func (c *appdbCaller) close() {
 }
 
 // txCursor declares a cursor in the open transaction id.
-func (c *appdbCaller) txCursor(ctx context.Context, id string, args map[string]any, pageRows int) (AppDBCursor, error) {
+func (c *appdbCaller) txCursor(ctx context.Context, id string, args map[string]any, pageRows int) (AppDBCursor, calltransform.Transformer, error) {
 	tx, err := c.take(id, false)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	st, err := txStatementOf(args, tx.Connection())
 	if err != nil {
-		return nil, invalid(err)
+		return nil, nil, invalid(err)
+	}
+	transform, err := c.throughHandlers(ctx, AppDBQuery, tx.Connection(), st.SQL)
+	if err != nil {
+		return nil, nil, err
 	}
 	k, err := tx.OpenCursor(ctx, st, pageRows)
 	if err != nil {
-		return nil, appdbRefusal(err)
+		return nil, nil, appdbRefusal(err)
 	}
-	return k, nil
+	return k, transform, nil
 }
 
 // ownCursor declares a cursor in a READ ONLY transaction of its own, opened
 // under the session's context, so the run's end closes it rather than the end
 // of the call that opened it.
-func (c *appdbCaller) ownCursor(args map[string]any, pageRows int) (AppDBCursor, error) {
+func (c *appdbCaller) ownCursor(ctx context.Context, args map[string]any, pageRows int) (AppDBCursor, calltransform.Transformer, error) {
 	st, err := statementOf(args)
 	if err != nil {
-		return nil, invalid(err)
+		return nil, nil, invalid(err)
 	}
 	if err := c.admit(st.Connection); err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	transform, err := c.throughHandlers(ctx, AppDBQuery, st.Connection, st.SQL)
+	if err != nil {
+		return nil, nil, err
 	}
 	k, err := c.db.Runner().OpenCursor(c.identity(c.ctx, st.Connection), st, pageRows)
 	if err != nil {
-		return nil, appdbRefusal(err)
+		return nil, nil, appdbRefusal(err)
 	}
-	return k, nil
+	return k, transform, nil
 }
 
 // argCursor names the cursor a fetch or close reads.
@@ -497,8 +526,10 @@ func (c *appdbCaller) cursor(ctx context.Context, name string, args map[string]a
 	id, _ := args[argCursor].(string)
 	c.mu.Lock()
 	k, ok := c.cursors[id]
+	transform := c.cursorTransforms[id]
 	if ok && name == AppDBCursorClose {
 		delete(c.cursors, id)
+		delete(c.cursorTransforms, id)
 	}
 	c.mu.Unlock()
 	if !ok {
@@ -513,7 +544,10 @@ func (c *appdbCaller) cursor(ctx context.Context, name string, args map[string]a
 	if err != nil {
 		return nil, appdbRefusal(err)
 	}
-	out := resultMap(page)
+	out, err := transformRows(ctx, transform, resultMap(page))
+	if err != nil {
+		return nil, err
+	}
 	out["done"] = done
 	return out, nil
 }
@@ -523,13 +557,14 @@ func (c *appdbCaller) cursor(ctx context.Context, name string, args map[string]a
 func (c *appdbCaller) openCursor(ctx context.Context, args map[string]any) (map[string]any, error) {
 	pageRows := intArg(args["page_rows"])
 	var (
-		k   AppDBCursor
-		err error
+		k         AppDBCursor
+		transform calltransform.Transformer
+		err       error
 	)
 	if id, _ := args[argTransaction].(string); id != "" {
-		k, err = c.txCursor(ctx, id, args, pageRows)
+		k, transform, err = c.txCursor(ctx, id, args, pageRows)
 	} else {
-		k, err = c.ownCursor(args, pageRows)
+		k, transform, err = c.ownCursor(ctx, args, pageRows)
 	}
 	if err != nil {
 		return nil, err
@@ -539,6 +574,12 @@ func (c *appdbCaller) openCursor(ctx context.Context, args map[string]any) (map[
 	c.cursorSeq++
 	id := fmt.Sprintf("cursor%d", c.cursorSeq)
 	c.cursors[id] = k
+	if transform != nil {
+		if c.cursorTransforms == nil {
+			c.cursorTransforms = map[string]calltransform.Transformer{}
+		}
+		c.cursorTransforms[id] = transform
+	}
 	return map[string]any{argCursor: id}, nil
 }
 
@@ -767,11 +808,17 @@ func (c *appdbCaller) copyIn(ctx context.Context, args map[string]any) (map[stri
 			return nil, terr
 		}
 		in.Connection = tx.Connection()
+		if herr := c.copyInThroughHandlers(ctx, in); herr != nil {
+			return nil, herr
+		}
 		n, err = tx.CopyIn(ctx, in)
 	} else {
 		in.Connection, _ = args[argConnection].(string)
 		if aerr := c.admit(in.Connection); aerr != nil {
 			return nil, aerr
+		}
+		if herr := c.copyInThroughHandlers(ctx, in); herr != nil {
+			return nil, herr
 		}
 		n, err = c.db.Runner().CopyIn(c.identity(ctx, in.Connection), in)
 	}
@@ -790,6 +837,9 @@ func (c *appdbCaller) copyOut(ctx context.Context, args map[string]any) (map[str
 		return nil, invalid(err)
 	}
 	if err := c.admit(st.Connection); err != nil {
+		return nil, err
+	}
+	if err := c.copyOutThroughHandlers(ctx, st); err != nil {
 		return nil, err
 	}
 	format, _ := args["format"].(string)
@@ -864,6 +914,9 @@ func (c *appdbCaller) maintain(ctx context.Context, args map[string]any) (map[st
 		msg := fmt.Sprintf("platform.maintain on application database %q is for the administrator and the personas its "+
 			"schema_apply_personas names; this run's persona %q is neither", connection, persona)
 		return nil, NewRefusal(msg, refusalEnv(postgres.CodeApplyNotAllowed, msg))
+	}
+	if _, err := c.throughHandlers(ctx, AppDBMaintain, connection, strings.ToUpper(command)+" "+table); err != nil {
+		return nil, err
 	}
 	timeout := time.Duration(0)
 	if deadline, ok := ctx.Deadline(); ok {

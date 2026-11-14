@@ -3,7 +3,6 @@ package scripthttp
 import (
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
@@ -183,10 +182,9 @@ func (h *Handler) landEdit(
 	if !h.applyEdit(w, r, before, after, user) {
 		return
 	}
-	// The recordings the saved tests name are kept past the retention sweep.
-	if err := h.gate().Keep(r.Context(), after, user.owner()); err != nil {
-		slog.Warn("failed to keep the recordings a script's tests name", "script", after.Name, "error", err)
-	}
+	// The recordings the saved tests name are kept past the retention sweep,
+	// and the version's handlers are told who saved it.
+	h.gate().Saved(r.Context(), after, scriptsave.Caller{Email: user.owner(), Admin: user.IsAdmin, Persona: user.Persona, Roles: user.Roles})
 	if shared == nil {
 		shared = []scriptshare.Match{}
 	}

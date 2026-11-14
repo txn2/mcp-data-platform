@@ -26,11 +26,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/txn2/mcp-data-platform/internal/approval"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/approval"
+	"github.com/txn2/mcp-data-platform/internal/platform/callrun"
 	scriptstore "github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	portalstore "github.com/txn2/mcp-data-platform/internal/portal/portalstore"
 	"github.com/txn2/mcp-data-platform/internal/portal/reachstore"
@@ -85,6 +85,11 @@ var otherEngines = map[string]bool{
 	"github.com/txn2/mcp-data-platform/internal/appdbhealth":  true,
 	"github.com/txn2/mcp-data-platform/internal/appdbdrift":   true,
 	"github.com/txn2/mcp-data-platform/internal/appdbconsole": true,
+	// The tool-call handlers' wiring (#2634): a protected column is followed
+	// through a view read from a Trino catalog's information_schema, or from
+	// pg_catalog on an application database, an operator's database, never
+	// the platform's. The package holds no statement the platform runs.
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptwiring": true,
 }
 
 // source is a package that renders its run-time SQL for this gate.
@@ -112,6 +117,7 @@ var sampleSources = map[string]source{
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore": {scriptstore.SQLSamples, 4},
 	"github.com/txn2/mcp-data-platform/internal/thumbdue":             {thumbdue.SQLSamples, 1},
 	"github.com/txn2/mcp-data-platform/internal/approval":             {approval.SQLSamples, 0},
+	"github.com/txn2/mcp-data-platform/internal/platform/callrun":     {callrun.SQLSamples, 0},
 }
 
 func TestStoreStatementsPrepare_RealDB(t *testing.T) {

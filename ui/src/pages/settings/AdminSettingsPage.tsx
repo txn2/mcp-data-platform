@@ -422,6 +422,16 @@ const SECTION_CARDS: Record<SettingsSectionId, (isReadOnly: boolean) => React.Re
       isReadOnly={ro}
     />
   ),
+  "approvals-queue": (ro) => (
+    <ReviewAlertCard
+      queue="approval-queue-alert"
+      title="Approvals queue alert"
+      description="Email when held calls and handler versions wait for a decision"
+      enabledHelp="Check the approvals queue hourly and alert when it crosses a threshold"
+      itemNoun="request"
+      isReadOnly={ro}
+    />
+  ),
   "connection-revocations": (ro) => <ConnectionAlertCard isReadOnly={ro} />,
   "run-failures": (ro) => <ScriptRunAlertCard isReadOnly={ro} />,
   webhooks: (ro) => <WebhookAlertCard isReadOnly={ro} />,

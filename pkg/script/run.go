@@ -52,6 +52,7 @@ const (
 	// read by the person who clicked it, and recording their own click as an
 	// agent's tool call is a false statement about who did what.
 	TriggerPortal = "portal"
+	// A run a watch handler queued carries runstate.TriggerWatch (#2635).
 )
 
 // Run queue and lifecycle errors.
@@ -215,6 +216,13 @@ type Run struct {
 	EventSource string         `json:"event_source,omitempty"`
 	EventID     string         `json:"event_id,omitempty"`
 	Event       map[string]any `json:"event,omitempty"`
+
+	// Call, RunAs and CallHandlerID are a watch run's (#2635): the tool call
+	// it was queued for, handed to the script as run.call; the administrator
+	// whose approval it runs on, and their roles; and the watch.
+	Call          map[string]any  `json:"call,omitempty"`
+	RunAs         *runstate.RunAs `json:"-"`
+	CallHandlerID string          `json:"call_handler_id,omitempty"`
 
 	// Params are the bound, type-checked parameter values the run executes
 	// with. They are bound once, when the run is created, so a re-read of the

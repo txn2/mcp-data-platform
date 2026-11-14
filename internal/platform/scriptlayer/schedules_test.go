@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scripthandler"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer/handlercmd"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -125,7 +126,7 @@ func scheduleHandle(t *testing.T) (*Handle, *handlerWorld) {
 // scheduleSet issues a handler_set kind=schedule for the daily script.
 func scheduleSet(t *testing.T, h *Handle, ctx context.Context, input manageScriptInput) map[string]any { //nolint:revive // t first is this package's testing convention
 	t.Helper()
-	input.Command, input.Kind = cmdHandlerSet, scripthandler.KindSchedule
+	input.Command, input.Kind = handlercmd.Set, scripthandler.KindSchedule
 	if input.Name == "" {
 		input.Name = "daily"
 	}
@@ -248,7 +249,7 @@ func TestScheduleSet_AScriptHoldsSeveralCadences(t *testing.T) {
 	assert.Len(t, all, 2, "changing a cadence adds no schedule")
 
 	listed := resultFields(t, call(t, h, authorCtx(), manageScriptInput{
-		Command: cmdHandlerList, Name: "daily", Kind: scripthandler.KindSchedule,
+		Command: handlercmd.List, Name: "daily", Kind: scripthandler.KindSchedule,
 	}))
 	assert.EqualValues(t, 2, listed["count"])
 }
@@ -259,18 +260,18 @@ func TestScheduleEnableDisable(t *testing.T) {
 	h, _ := scheduleHandle(t)
 	id, _ := scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: "@daily"})["handler"].(string)
 
-	off := resultFields(t, call(t, h, authorCtx(), byID(cmdHandlerDisable, id)))
+	off := resultFields(t, call(t, h, authorCtx(), byID(handlercmd.Disable, id)))
 	assert.Equal(t, false, off["enabled"])
 	assert.NotContains(t, off, "next_run_at", "an author reading a paused schedule is not told it is about to fire")
 
-	on := resultFields(t, call(t, h, authorCtx(), byID(cmdHandlerEnable, id)))
+	on := resultFields(t, call(t, h, authorCtx(), byID(handlercmd.Enable, id)))
 	assert.Equal(t, true, on["enabled"])
 	assert.NotEmpty(t, on["next_run_at"], "and resuming reports the fire again")
 }
 
 func TestHandlerEnable_WithNoHandlerSaysWhichToName(t *testing.T) {
 	h, _ := scheduleHandle(t)
-	for _, cmd := range []string{cmdHandlerGet, cmdHandlerEnable, cmdHandlerDisable, cmdHandlerDelete} {
+	for _, cmd := range []string{handlercmd.Get, handlercmd.Enable, handlercmd.Disable, handlercmd.Delete} {
 		res := call(t, h, authorCtx(), manageScriptInput{Command: cmd, Name: "daily"})
 		assert.True(t, res.IsError, cmd)
 		assert.Contains(t, resultText(res), "handler is required", cmd)
@@ -285,13 +286,13 @@ func TestScheduleDelete(t *testing.T) {
 	scriptID := w.store.schedules[id].ScriptID
 
 	w.store.hasRuns[scriptID] = true
-	res := call(t, h, authorCtx(), byID(cmdHandlerDelete, id))
+	res := call(t, h, authorCtx(), byID(handlercmd.Delete, id))
 	require.True(t, res.IsError)
 	assert.Contains(t, resultText(res), "disable it with handler_disable")
 	assert.Contains(t, w.store.schedules, id)
 
 	w.store.hasRuns[scriptID] = false
-	gone := resultFields(t, call(t, h, authorCtx(), byID(cmdHandlerDelete, id)))
+	gone := resultFields(t, call(t, h, authorCtx(), byID(handlercmd.Delete, id)))
 	assert.Equal(t, true, gone["deleted"])
 	assert.NotContains(t, w.store.schedules, id)
 }
@@ -308,7 +309,7 @@ func TestScheduleSet_ANonOwnerIsRefused(t *testing.T) {
 	require.NotContains(t, byAdmin, "error", byAdmin)
 	id, _ := byAdmin["handler"].(string)
 
-	paused := call(t, h, callerCtx("bob@example.com", "analyst"), byID(cmdHandlerDisable, id))
+	paused := call(t, h, callerCtx("bob@example.com", "analyst"), byID(handlercmd.Disable, id))
 	require.True(t, paused.IsError)
 	assert.Contains(t, resultText(paused), "is not yours")
 }
@@ -318,45 +319,45 @@ func TestHandlerList(t *testing.T) {
 	scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: weekdayMornings})
 
 	t.Run("across scripts", func(t *testing.T) {
-		fields := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdHandlerList}))
+		fields := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: handlercmd.List}))
 		assert.EqualValues(t, 1, fields["count"])
 		assert.EqualValues(t, 1, fields["total"])
 	})
 
 	t.Run("for one named script", func(t *testing.T) {
-		fields := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdHandlerList, Name: "daily"}))
+		fields := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: handlercmd.List, Name: "daily"}))
 		assert.EqualValues(t, 1, fields["count"])
 		assert.Equal(t, "daily", fields["name"])
 	})
 
 	t.Run("narrowed to a kind", func(t *testing.T) {
 		fields := resultFields(t, call(t, h, authorCtx(), manageScriptInput{
-			Command: cmdHandlerList, Kind: scripthandler.KindWebhook,
+			Command: handlercmd.List, Kind: scripthandler.KindWebhook,
 		}))
 		assert.EqualValues(t, 0, fields["count"])
-		res := call(t, h, authorCtx(), manageScriptInput{Command: cmdHandlerList, Kind: "policy"})
+		res := call(t, h, authorCtx(), manageScriptInput{Command: handlercmd.List, Kind: "rule"})
 		require.True(t, res.IsError)
-		assert.Contains(t, resultText(res), `unknown handler kind "policy"`)
+		assert.Contains(t, resultText(res), `unknown handler kind "rule"`)
 	})
 
 	t.Run("a script with no handler says so", func(t *testing.T) {
 		res := call(t, h, authorCtx(), manageScriptInput{Command: cmdCreate, Name: "other", Source: tested(inMain("print(1)\n"))})
 		require.False(t, res.IsError, resultText(res))
-		fields := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdHandlerList, Name: "other"}))
+		fields := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: handlercmd.List, Name: "other"}))
 		assert.EqualValues(t, 0, fields["count"])
 		assert.Equal(t, []any{}, fields["handlers"])
-		assert.Contains(t, fields["message"], cmdHandlerSet)
+		assert.Contains(t, fields["message"], handlercmd.Set)
 	})
 
 	t.Run("another caller sees nothing of a personal script's handlers", func(t *testing.T) {
-		fields := resultFields(t, call(t, h, callerCtx("bob@example.com", "analyst"), manageScriptInput{Command: cmdHandlerList}))
+		fields := resultFields(t, call(t, h, callerCtx("bob@example.com", "analyst"), manageScriptInput{Command: handlercmd.List}))
 		assert.EqualValues(t, 0, fields["count"], "a handler is exactly as visible as the script it belongs to")
-		res := call(t, h, callerCtx("bob@example.com", "analyst"), manageScriptInput{Command: cmdHandlerList, Name: "daily"})
+		res := call(t, h, callerCtx("bob@example.com", "analyst"), manageScriptInput{Command: handlercmd.List, Name: "daily"})
 		assert.True(t, res.IsError)
 	})
 
 	t.Run("an admin sees every handler", func(t *testing.T) {
-		fields := resultFields(t, call(t, h, adminCtx(), manageScriptInput{Command: cmdHandlerList}))
+		fields := resultFields(t, call(t, h, adminCtx(), manageScriptInput{Command: handlercmd.List}))
 		assert.EqualValues(t, 1, fields["count"])
 	})
 }
@@ -366,7 +367,7 @@ func TestHandlerList(t *testing.T) {
 func TestHandlerCommands_WithoutAHandlerStore(t *testing.T) {
 	h, _ := newHandle()
 	createDaily(t, h)
-	for _, command := range []string{cmdHandlerSet, cmdHandlerList, cmdHandlerGet, cmdHandlerEnable, cmdHandlerDisable, cmdHandlerDelete} {
+	for _, command := range []string{handlercmd.Set, handlercmd.List, handlercmd.Get, handlercmd.Enable, handlercmd.Disable, handlercmd.Delete} {
 		res := call(t, h, authorCtx(), manageScriptInput{Command: command, Name: "daily", Cron: "@daily"})
 		assert.True(t, res.IsError, command)
 		assert.Contains(t, resultText(res), "this deployment cannot keep handlers", command)
@@ -381,26 +382,26 @@ func TestHandlerCommands_StoreFailuresAreReportedNotLeaked(t *testing.T) {
 	w.store.scheduleErr = errors.New("pq: relation script_schedules is locked by pid 4242")
 
 	res := call(t, h, authorCtx(), manageScriptInput{
-		Command: cmdHandlerSet, Name: "daily", Cron: "@hourly",
+		Command: handlercmd.Set, Name: "daily", Cron: "@hourly",
 		Kind: scripthandler.KindSchedule,
 	})
 	require.True(t, res.IsError)
 	assert.Contains(t, resultText(res), "the handler could not be read or written; try again")
 	assert.NotContains(t, resultText(res), "pid 4242")
 
-	res = call(t, h, authorCtx(), manageScriptInput{Command: cmdHandlerList, Name: "daily"})
+	res = call(t, h, authorCtx(), manageScriptInput{Command: handlercmd.List, Name: "daily"})
 	require.True(t, res.IsError, "a listing of one script describes each handler, which reads the store")
 	assert.NotContains(t, resultText(res), "pid 4242")
 	w.store.scheduleErr = nil
 
 	w.store.enabledErr = errors.New("pq: deadlock detected")
-	res = call(t, h, authorCtx(), byID(cmdHandlerDisable, id))
+	res = call(t, h, authorCtx(), byID(handlercmd.Disable, id))
 	require.True(t, res.IsError)
 	assert.Contains(t, resultText(res), "could not be read or written")
 	w.store.enabledErr = nil
 
 	w.viewErr = errors.New("pq: connection refused")
-	for _, input := range []manageScriptInput{{Command: cmdHandlerList}, {Command: cmdHandlerList, Name: "daily"}} {
+	for _, input := range []manageScriptInput{{Command: handlercmd.List}, {Command: handlercmd.List, Name: "daily"}} {
 		res = call(t, h, authorCtx(), input)
 		require.True(t, res.IsError)
 		assert.NotContains(t, resultText(res), "connection refused")

@@ -22,6 +22,7 @@ import { AppDBDriftCard } from "./AppDBDriftCard";
 import { AppDBHealthCard } from "./AppDBHealthCard";
 import { AppDBMaintenanceCard } from "./AppDBMaintenanceCard";
 import { AppDBMigrationsCard } from "./AppDBMigrationsCard";
+import { ConnectionHandlersCard } from "./ConnectionHandlersCard";
 
 // ConfigRows renders the raw config key/value pairs of a connection, using the
 // per-kind human labels where one exists and falling back to the raw key.
@@ -242,6 +243,10 @@ export function ConnectionViewer({
           <AppDBConsoleCard connectionName={connection.name} />
         </>
       )}
+
+      {/* The policies, transforms and watches on the connection's calls
+          (#2436, #2634, #2635), for an administrator. */}
+      <ConnectionHandlersCard connectionName={connection.name} />
 
       {/* Runtime reachability for gateway upstreams. Same state the
           list_connections MCP tool reports, so the admin UI and the tool

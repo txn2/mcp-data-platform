@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"cmp"
 	"net/http"
 
 	"github.com/txn2/mcp-data-platform/internal/admin/settingsapi"
@@ -9,14 +10,10 @@ import (
 // requestAuthor resolves the acting admin for audit columns: email, else
 // user ID, else empty.
 func requestAuthor(r *http.Request) string {
-	user := GetUser(r.Context())
-	if user == nil {
-		return ""
+	if user := GetUser(r.Context()); user != nil {
+		return cmp.Or(user.Email, user.UserID)
 	}
-	if user.Email != "" {
-		return user.Email
-	}
-	return user.UserID
+	return ""
 }
 
 // registerSettingsRoutes mounts the platform settings surface (#631; SMTP
@@ -29,6 +26,7 @@ func (h *Handler) registerSettingsRoutes() {
 		SendTest:         h.deps.SendTestEmail,
 		Prefs:            h.deps.NotificationPrefs,
 		ReviewAlert:      h.deps.ReviewQueueAlert,
+		ApprovalAlert:    h.deps.ApprovalQueueAlert,
 		ConnectionAlert:  h.deps.ConnectionAlert,
 		ScriptRunAlert:   h.deps.ScriptRunAlert,
 		Storage:          h.deps.StorageSettings,

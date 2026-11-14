@@ -116,9 +116,9 @@ export type ReviewQueueAlertInput = Omit<
 
 // ReviewAlertQueue is the settings path segment of one review queue. Both
 // queues are the same mechanism with their own thresholds and recipients
-// (#803, #1287), so they are one pair of hooks over a queue rather than two
+// (#803, #2437), so they are one pair of hooks over a queue rather than two
 // copies of it.
-export type ReviewAlertQueue = "review-queue-alert";
+export type ReviewAlertQueue = "review-queue-alert" | "approval-queue-alert";
 
 export function useReviewAlert(queue: ReviewAlertQueue) {
   return useQuery({

@@ -11,73 +11,17 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/endpoint/eppreview"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/scripthandler"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer/handlercmd"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
-// The handler commands (#2441, #2434): what starts a script.
-const (
-	cmdHandlerSet     = "handler_set"
-	cmdHandlerList    = "handler_list"
-	cmdHandlerGet     = "handler_get"
-	cmdHandlerEnable  = "handler_enable"
-	cmdHandlerDisable = "handler_disable"
-	cmdHandlerDelete  = "handler_delete"
-)
-
-// handlerCommands is every handler command, in the order the schema lists
-// them, with form_preview, which opens an endpoint form's preview.
-var handlerCommands = []string{
-	cmdHandlerSet, cmdHandlerList, cmdHandlerGet, cmdHandlerEnable, cmdHandlerDisable, cmdHandlerDelete, epcmd.CmdFormPreview,
-}
-
-// removedCommands are the commands the handler commands replaced, with what
-// replaces each: a call to one is refused naming it, and none is an alias.
-var removedCommands = map[string]string{
-	"endpoint_set":     "handler_set with kind=endpoint",
-	"endpoint_list":    "handler_list with kind=endpoint",
-	"endpoint_enable":  "handler_enable with the handler's id",
-	"endpoint_disable": "handler_disable with the handler's id",
-	"schedule_set":     "handler_set with kind=schedule",
-	"schedule_list":    "handler_list with kind=schedule",
-	"schedule_enable":  "handler_enable with the handler's id",
-	"schedule_disable": "handler_disable with the handler's id",
-}
-
-// HandlerInput is the part of manage_script's input the handler commands
-// read beside each kind's settings.
-type HandlerInput struct {
-	// Kind is the kind of handler handler_set adds or changes, and the kind
-	// handler_list narrows to.
-	Kind string `json:"kind,omitempty"`
-	// Handler is the id of the handler handler_get, handler_enable,
-	// handler_disable and handler_delete act on, and the one handler_set
-	// changes.
-	Handler string `json:"handler,omitempty"`
-}
-
-// handlerProperties is the schema fragment for HandlerInput.
-func handlerProperties() map[string]any {
-	return map[string]any{
-		"kind": map[string]any{
-			keyType: valString, keyEnum: scripthandler.Kinds(),
-			keyDescription: "For handler_set: what starts the script. endpoint answers HTTP requests at /endpoints/<endpoint> " +
-				"with handle(req) (a form, defining form_spec and form_submit, is an endpoint); schedule runs main() on cron; " +
-				"webhook runs main() for each event event_source stores, reading run.event. A script may hold several of each, " +
-				fmt.Sprintf("at most %d of a kind. For handler_list: narrow to one kind.", scripthandler.MaxPerKind),
-		},
-		"handler": map[string]any{
-			keyType: valString,
-			keyDescription: "The id of a handler, as handler_set and handler_list report it: the one handler_get, handler_enable, " +
-				"handler_disable and handler_delete act on, and, with handler_set, the one it changes. handler_set with no handler " +
-				"adds a schedule or a webhook handler, and changes the script's endpoint handler named by endpoint (or its only one) " +
-				"or adds it.",
-		},
-	}
-}
-
 // caller is who calls, as the handler service reads them.
 func (h *Handle) caller(ctx context.Context) scripthandler.Caller {
-	return scripthandler.Caller{Email: resolveEmail(ctx), Admin: h.isAdminPersona(ctx)}
+	c := scripthandler.Caller{Email: resolveEmail(ctx), Admin: h.isAdminPersona(ctx), Roles: callerAuthor(ctx).Roles}
+	if pc := middleware.GetPlatformContext(ctx); pc != nil {
+		c.Persona = pc.PersonaName
+	}
+	return c
 }
 
 // handlerResult answers a handler operation's error as a tool error, logging
@@ -114,6 +58,7 @@ func (h *Handle) handleHandlerSet(ctx context.Context, input manageScriptInput) 
 		Caller: h.caller(ctx), Script: sc, Kind: input.Kind, Handler: input.Handler,
 		Endpoint: input.Input, TimeoutSeconds: input.TimeoutSeconds,
 		Cron: input.Cron, Timezone: input.Timezone, Args: input.Args,
+		Call: input.Patch(input.Connection), Approve: input.Approve,
 	}
 	if input.EventSource != nil {
 		req.EventSource = *input.EventSource
@@ -243,6 +188,15 @@ func (h *Handle) handleFormPreview(ctx context.Context, input manageScriptInput)
 	out, err := h.endpoints.Commands.Preview(ctx, req)
 	if err != nil {
 		return errorResult(err.Error()), nil, nil
+	}
+	return jsonResult(out)
+}
+
+// handleHandlerTest answers handler_test: an administrator's.
+func (h *Handle) handleHandlerTest(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
+	out, refusal := handlercmd.RunTest(ctx, h.isAdminPersona(ctx), h.callTester, input.Connection, input.CallSettings)
+	if refusal != "" {
+		return errorResult(refusal), nil, nil
 	}
 	return jsonResult(out)
 }

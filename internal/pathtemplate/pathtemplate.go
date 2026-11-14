@@ -254,3 +254,19 @@ func BaseCarriesPrefix(baseURL, prefix string) bool {
 func WithinPrefix(path, prefix string) bool {
 	return path == prefix || strings.HasPrefix(path, prefix+sep)
 }
+
+// Params reads the values a concrete path holds at its template's
+// whole-segment placeholders ({id}); a path of another length holds none.
+func Params(template, path string) map[string]string {
+	out := map[string]string{}
+	tSegs, pSegs := Split(template), Split(path)
+	if len(tSegs) != len(pSegs) {
+		return out
+	}
+	for i, seg := range tSegs {
+		if IsPlaceholderSegment(seg) {
+			out[strings.Trim(seg, "{}")] = pSegs[i]
+		}
+	}
+	return out
+}

@@ -16,6 +16,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/calltransform"
 	"github.com/txn2/mcp-data-platform/internal/exportasync"
 	"github.com/txn2/mcp-data-platform/internal/exportstream"
 	"github.com/txn2/mcp-data-platform/internal/exporttrunc"
@@ -580,6 +581,10 @@ func (*Toolkit) runExport(ctx context.Context, a runExportArgs) (*exportOutput, 
 	if err != nil {
 		return nil, fmt.Errorf("reading upstream response: %s", scrubTransportError(ctx, err))
 	}
+	// A transform covering the caller changes the body before any is written (#2634).
+	if body, err = calltransform.Export(ctx, "api_export", body, deps.Config.MaxBytes); err != nil {
+		return nil, err //nolint:wrapcheck // names api_export and the transform
+	}
 
 	if in.Resource != nil {
 		return landExport(ctx, deps, in, upstreamAnswer{body: body, contentType: contentType, status: resp.StatusCode})
@@ -847,7 +852,7 @@ func (*Toolkit) runExportWalk(ctx context.Context, a runExportArgs) (*exportOutp
 	inv := invocation{cfg: a.cfg, auth: a.auth, client: a.client, specs: a.specs, webdavRoutes: a.webdavRoutes, budget: a.budget}
 	pr, pw := io.Pipe()
 	arr := exportstream.NewJSONArrayWriter(pw)
-	walk, err := newPageWalk(inv, exportInvokeInput(in), a.authorize, arr.Write)
+	walk, err := newPageWalk(inv, exportInvokeInput(in), a.authorize, calltransform.Pages(ctx, "api_export", arr.Write))
 	if err != nil {
 		return nil, err
 	}

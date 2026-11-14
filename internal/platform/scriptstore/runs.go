@@ -35,7 +35,19 @@ const runColumns = `id, script_id, script_version_id, version, trigger_kind, sta
 	COALESCE(schedule_id::text, ''), state_revision, state_read, state_written,
 	state_revision_written, result, progress_message, progress_done, progress_total,
 	progress_at, cancel_requested_at, cancel_requested_by, reclaims, attempts, claimed_at,
-	heartbeat_at, failure_cause, created_at, updated_at, state_checkpoint, event_source, event_id, event`
+	heartbeat_at, failure_cause, created_at, updated_at, state_checkpoint, event_source, event_id, event,
+	call, run_as, COALESCE(call_handler_id::text, '')`
+
+// optionalJSON decodes a run column NULL on most runs.
+func optionalJSON(raw []byte, into any, what string) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(raw, into); err != nil {
+		return fmt.Errorf("unmarshal run %s: %w", what, err)
+	}
+	return nil
+}
 
 // StateAtCreation is the VALUES fragment every run insert carries for the two
 // state columns pinned at creation (#1537): the revision the script's state
@@ -109,6 +121,7 @@ func scanRun(sc rowScanner) (*script.Run, error) {
 		paramsJSON, metricsJSON, outputsJSON []byte
 		stateRead, stateWritten              []byte
 		attemptsJSON, eventJSON              []byte
+		callJSON, runAsJSON                  []byte
 		revisionWritten                      sql.NullInt64
 		live                                 liveColumns
 	)
@@ -119,31 +132,21 @@ func scanRun(sc rowScanner) (*script.Run, error) {
 		&revisionWritten, &live.result, &live.message, &live.done, &live.total, &live.at,
 		&r.CancelRequestedAt, &r.CancelRequestedBy, &r.Reclaims, &attemptsJSON, &r.ClaimedAt,
 		&r.HeartbeatAt, &r.Cause, &r.CreatedAt, &r.UpdatedAt, &r.StateCheckpoint,
-		&r.EventSource, &r.EventID, &eventJSON)
+		&r.EventSource, &r.EventID, &eventJSON, &callJSON, &runAsJSON, &r.CallHandlerID)
 	if err != nil {
 		return nil, fmt.Errorf("scanning script run row: %w", err)
 	}
-	// event is NULL on every run but an event run (#2332).
-	if len(eventJSON) > 0 {
-		if err := json.Unmarshal(eventJSON, &r.Event); err != nil {
-			return nil, fmt.Errorf("unmarshal run event: %w", err)
-		}
+	// call and run_as are NULL on every run but a watch's (#2635), event on
+	// every run but an event run's (#2332).
+	if err := errors.Join(optionalJSON(callJSON, &r.Call, "call"), optionalJSON(runAsJSON, &r.RunAs, "identity"),
+		optionalJSON(eventJSON, &r.Event, "event")); err != nil {
+		return nil, err //nolint:wrapcheck // each part names its column
 	}
 	live.apply(r)
-	if err := json.Unmarshal(attemptsJSON, &r.Attempts); err != nil {
-		return nil, fmt.Errorf("unmarshal run attempts: %w", err)
-	}
-	if err := json.Unmarshal(paramsJSON, &r.Params); err != nil {
-		return nil, fmt.Errorf("unmarshal run params: %w", err)
-	}
-	if err := json.Unmarshal(metricsJSON, &r.Metrics); err != nil {
-		return nil, fmt.Errorf("unmarshal run metrics: %w", err)
-	}
-	if err := json.Unmarshal(outputsJSON, &r.Outputs); err != nil {
-		return nil, fmt.Errorf("unmarshal run outputs: %w", err)
-	}
-	if err := json.Unmarshal(stateRead, &r.StateRead); err != nil {
-		return nil, fmt.Errorf("unmarshal run state read: %w", err)
+	if err := errors.Join(optionalJSON(attemptsJSON, &r.Attempts, "attempts"), optionalJSON(paramsJSON, &r.Params, "params"),
+		optionalJSON(metricsJSON, &r.Metrics, "metrics"), optionalJSON(outputsJSON, &r.Outputs, "outputs"),
+		optionalJSON(stateRead, &r.StateRead, "state read")); err != nil {
+		return nil, err //nolint:wrapcheck // each part names its column
 	}
 	// state_written is NULL on a run that saved nothing, which scans as no
 	// bytes; a run that saved {} has bytes and reads back as an empty object.

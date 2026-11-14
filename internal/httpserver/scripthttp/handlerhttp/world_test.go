@@ -10,6 +10,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
+	"github.com/txn2/mcp-data-platform/internal/platform/callhandler"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptevents"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptevents/sourcerule"
 	"github.com/txn2/mcp-data-platform/internal/platform/scripthandler"
@@ -27,7 +28,9 @@ type world struct {
 	webhooks  map[string]scriptevents.Handler
 	hasRuns   map[string]bool
 	sources   []whsource.Source
-	seq       int
+	// calls are the tool-call handlers (#2436).
+	calls map[string]callhandler.Handler
+	seq   int
 	// viewErr fails the view, scheduleErr the schedule table, sourcesErr the
 	// source listing.
 	viewErr, scheduleErr, sourcesErr error
@@ -88,6 +91,9 @@ func (v view) rows() []scripthandler.Handler {
 	}
 	for _, h := range v.w.webhooks {
 		add(h.ID, scripthandler.KindWebhook, h.ScriptID, h.Source, h.Enabled)
+	}
+	for _, h := range v.w.calls {
+		add(h.ID, h.Kind, h.ScriptID, h.Connection, h.Enabled)
 	}
 	slices.SortFunc(out, func(a, b scripthandler.Handler) int { return strings.Compare(a.ID, b.ID) })
 	return out

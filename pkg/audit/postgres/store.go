@@ -72,7 +72,7 @@ var auditColumns = []string{
 	"transport", "source", "enrichment_applied",
 	"enrichment_tokens_full", "enrichment_tokens_dedup",
 	"enrichment_mode", "enrichment_match_kind", "authorized",
-	colEventKind, "call_site",
+	colEventKind, "call_site", "handlers",
 }
 
 // Store implements audit.Logger using PostgreSQL.
@@ -108,8 +108,8 @@ func (s *Store) Log(ctx context.Context, event audit.Event) error {
 
 	query := `
 		INSERT INTO audit_logs
-		(id, timestamp, duration_ms, request_id, session_id, user_id, user_email, persona, tool_name, toolkit_kind, toolkit_name, connection, purpose, parameters, success, error_message, error_category, created_date, response_chars, request_chars, content_blocks, transport, source, enrichment_applied, enrichment_tokens_full, enrichment_tokens_dedup, enrichment_mode, enrichment_match_kind, authorized, event_kind, call_site)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31)
+		(id, timestamp, duration_ms, request_id, session_id, user_id, user_email, persona, tool_name, toolkit_kind, toolkit_name, connection, purpose, parameters, success, error_message, error_category, created_date, response_chars, request_chars, content_blocks, transport, source, enrichment_applied, enrichment_tokens_full, enrichment_tokens_dedup, enrichment_mode, enrichment_match_kind, authorized, event_kind, call_site, handlers)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32)
 	`
 
 	_, err = s.db.ExecContext(ctx, query,
@@ -144,6 +144,7 @@ func (s *Store) Log(ctx context.Context, event audit.Event) error {
 		event.Authorized,
 		string(event.EventKind),
 		pq.Array(event.CallSite),
+		handlersJSON(event.Handlers),
 	)
 	if err != nil {
 		return fmt.Errorf("inserting audit log: %w", err)
@@ -202,11 +203,8 @@ func applyAuditFilter(qb sq.SelectBuilder, filter audit.QueryFilter) sq.SelectBu
 func buildQuery(filter audit.QueryFilter) (query string, args []any, err error) {
 	qb := applyAuditFilter(psq.Select(auditColumns...).From("audit_logs"), filter)
 
-	orderCol := colTimestamp
+	orderCol := sortColumn(filter.SortBy)
 	orderDir := "DESC"
-	if filter.SortBy != "" && audit.ValidSortColumns[filter.SortBy] {
-		orderCol = filter.SortBy
-	}
 	if filter.SortOrder == audit.SortAsc {
 		orderDir = "ASC"
 	}
@@ -219,6 +217,18 @@ func buildQuery(filter audit.QueryFilter) (query string, args []any, err error) 
 	}
 
 	return render(qb, "audit")
+}
+
+// sortColumn is the column a requested sort names, spelled as the allowlist
+// spells it so the statement never carries the caller's string; an unknown or
+// empty one sorts by time.
+func sortColumn(requested string) string {
+	for col := range audit.ValidSortColumns {
+		if col == requested {
+			return col
+		}
+	}
+	return colTimestamp
 }
 
 // Query retrieves audit events matching the filter.
@@ -439,7 +449,7 @@ func (s *Store) executeQuery(ctx context.Context, query string, args []any, limi
 
 func (*Store) scanEvent(rows *sql.Rows) (audit.Event, error) {
 	var event audit.Event
-	var params []byte
+	var params, handlers []byte
 	var eventKind sql.NullString
 	// Nullable on rows written before the purpose column existed (issue #1317).
 	var purpose sql.NullString
@@ -477,9 +487,13 @@ func (*Store) scanEvent(rows *sql.Rows) (audit.Event, error) {
 		&event.Authorized,
 		&eventKind,
 		pq.Array(&event.CallSite),
+		&handlers,
 	)
 	if err != nil {
 		return event, fmt.Errorf("scanning audit log row: %w", err)
+	}
+	if len(handlers) > 0 {
+		_ = json.Unmarshal(handlers, &event.Handlers)
 	}
 
 	if len(params) > 0 {
@@ -627,3 +641,16 @@ func (s *Store) runUnderMaintenanceLock(ctx context.Context, fn func(context.Con
 
 // Verify interface compliance.
 var _ audit.Logger = (*Store)(nil)
+
+// handlersJSON is the handlers that matched a call as stored: NULL for a
+// call none matched, which is nearly every call.
+func handlersJSON(runs []audit.HandlerRun) any {
+	if len(runs) == 0 {
+		return nil
+	}
+	raw, err := json.Marshal(runs)
+	if err != nil {
+		return nil
+	}
+	return raw
+}

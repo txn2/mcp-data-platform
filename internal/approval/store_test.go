@@ -3,6 +3,7 @@ package approval
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"regexp"
 	"testing"
@@ -28,12 +29,19 @@ var columns = []string{
 	"id", "subject_kind", "purpose", "script_id", "name", "version", "source_sha256",
 	"requester_email", "requester_persona", "reason", "changes", "status", "decided_by", "decided_at",
 	"decision_comment", "self_approved", "created_at", "site_release_id", "target", "site_name", "site_id",
+	"decided_roles", "call_tool", "call_connection", "call_operation", "call_arguments", "call_rendering", "call_handlers",
+	"approvers", "calls_asked", "calls_approved", "calls_used", "allowance_until",
 }
 
+// noCall is the call columns of a request that is not a call.
+var noCall = []driver.Value{"{}", "", "", "", nil, "", []byte(`[]`), "{}", 0, 0, 0, nil}
+
 func row(id, status string, decided any) *sqlmock.Rows {
-	return sqlmock.NewRows(columns).AddRow(id, SubjectScriptVersion, PurposeFormPublic, "s1", "intake", 2, "abc",
+	return sqlmock.NewRows(columns).AddRow(append([]driver.Value{
+		id, SubjectScriptVersion, PurposeFormPublic, "s1", "intake", 2, "abc",
 		"jane@example.com", "analyst", "launch", []byte(`{"approved_version":1,"added":3,"removed":1}`), status, "", decided,
-		"", false, at, "", "", "", "")
+		"", false, at, "", "", "", "",
+	}, noCall...)...)
 }
 
 func TestStoreInsert(t *testing.T) {
@@ -84,8 +92,10 @@ func TestStoreGetAndList(t *testing.T) {
 	mock.ExpectQuery("SELECT").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("x"))
 	_, err = s.List(ctx, Filter{})
 	require.Error(t, err, "a row that does not scan")
-	mock.ExpectQuery("SELECT").WillReturnRows(sqlmock.NewRows(columns).AddRow("apr_3", SubjectScriptVersion,
-		PurposeFormPublic, "s1", "intake", 2, "abc", "j", "", "", []byte(`{`), StatusPending, "", nil, "", false, at, "", "", "", ""))
+	mock.ExpectQuery("SELECT").WillReturnRows(sqlmock.NewRows(columns).AddRow(append([]driver.Value{
+		"apr_3", SubjectScriptVersion,
+		PurposeFormPublic, "s1", "intake", 2, "abc", "j", "", "", []byte(`{`), StatusPending, "", nil, "", false, at, "", "", "", "",
+	}, noCall...)...))
 	_, err = s.List(ctx, Filter{})
 	require.ErrorContains(t, err, "decoding")
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -94,7 +104,7 @@ func TestStoreGetAndList(t *testing.T) {
 func TestStoreDecide(t *testing.T) {
 	s, mock := mockStore(t)
 	ctx := context.Background()
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE approval_requests")).WithArgs("apr_1", StatusApproved, "admin@example.com", "ok", true, at).
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE approval_requests")).WithArgs("apr_1", StatusApproved, "admin@example.com", "ok", true, at, sqlmock.AnyArg(), 0, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(regexp.QuoteMeta("WHERE r.id = $1")).WillReturnRows(row("apr_1", StatusApproved, at))
 	r, err := s.Decide(ctx, "apr_1", Decision{Status: StatusApproved, By: "admin@example.com", Comment: "ok", SelfApproved: true, At: at})
@@ -120,9 +130,11 @@ func TestStoreDecide(t *testing.T) {
 func TestStoreReadsASiteRelease(t *testing.T) {
 	s, mock := mockStore(t)
 	mock.ExpectQuery(regexp.QuoteMeta("LEFT JOIN sites st ON st.id = COALESCE(sr.site_id, r.site_id)")).WithArgs("apr_9").
-		WillReturnRows(sqlmock.NewRows(columns).AddRow("apr_9", SubjectSiteRelease, PurposeSitePromote, "", "", 3, "digest",
+		WillReturnRows(sqlmock.NewRows(columns).AddRow(append([]driver.Value{
+			"apr_9", SubjectSiteRelease, PurposeSitePromote, "", "", 3, "digest",
 			"jane@example.com", "", "launch", []byte(`{"approved_version":0}`), StatusPending, "", nil, "", false, at,
-			"srel_1", "prod", "marketing", ""))
+			"srel_1", "prod", "marketing", "",
+		}, noCall...)...))
 	r, err := s.Get(context.Background(), "apr_9")
 	require.NoError(t, err)
 	assert.Equal(t, SubjectSiteRelease, r.SubjectKind)
@@ -140,7 +152,8 @@ func TestStoreInsertCarriesTheRelease(t *testing.T) {
 		RequesterEmail: "jane@example.com", SiteReleaseID: "srel_1", Target: "prod",
 	}
 	mock.ExpectQuery(regexp.QuoteMeta("NULLIF($11, '')")).
-		WithArgs("apr_1", SubjectSiteRelease, PurposeSitePromote, "", 3, "digest", "jane@example.com", "", "", sqlmock.AnyArg(), "srel_1", "prod", "").
+		WithArgs("apr_1", SubjectSiteRelease, PurposeSitePromote, "", 3, "digest", "jane@example.com", "", "", sqlmock.AnyArg(), "srel_1", "prod", "",
+			"", "", "", sqlmock.AnyArg(), "", sqlmock.AnyArg(), sqlmock.AnyArg(), 0).
 		WillReturnRows(sqlmock.NewRows([]string{"status", "created_at"}).AddRow(StatusPending, at))
 	require.NoError(t, s.Insert(context.Background(), r))
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -198,14 +211,17 @@ func TestStoreSiteEnvironmentRequest(t *testing.T) {
 		RequesterEmail: "jane@example.com", SiteID: "site_1", Target: "prod",
 	}
 	mock.ExpectQuery(regexp.QuoteMeta("NULLIF($13, '')")).
-		WithArgs("apr_2", SubjectSiteEnvironment, PurposeSitePublic, "", 0, "public:t0", "jane@example.com", "", "", sqlmock.AnyArg(), "", "prod", "site_1").
+		WithArgs("apr_2", SubjectSiteEnvironment, PurposeSitePublic, "", 0, "public:t0", "jane@example.com", "", "", sqlmock.AnyArg(), "", "prod", "site_1",
+			"", "", "", sqlmock.AnyArg(), "", sqlmock.AnyArg(), sqlmock.AnyArg(), 0).
 		WillReturnRows(sqlmock.NewRows([]string{"status", "created_at"}).AddRow(StatusPending, at))
 	require.NoError(t, s.Insert(context.Background(), r))
 
 	mock.ExpectQuery(regexp.QuoteMeta("WHERE r.id = $1")).WithArgs("apr_2").
-		WillReturnRows(sqlmock.NewRows(columns).AddRow("apr_2", SubjectSiteEnvironment, PurposeSitePublic, "", "", 0, "public:t0",
+		WillReturnRows(sqlmock.NewRows(columns).AddRow(append([]driver.Value{
+			"apr_2", SubjectSiteEnvironment, PurposeSitePublic, "", "", 0, "public:t0",
 			"jane@example.com", "", "", []byte(`{"approved_version":0}`), StatusPending, "", nil, "", false, at,
-			"", "prod", "docs", "site_1"))
+			"", "prod", "docs", "site_1",
+		}, noCall...)...))
 	got, err := s.Get(context.Background(), "apr_2")
 	require.NoError(t, err)
 	assert.Equal(t, "site_1", got.SiteID)

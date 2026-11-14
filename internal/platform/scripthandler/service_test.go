@@ -2,8 +2,8 @@ package scripthandler
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"maps"
 	"testing"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
@@ -12,6 +12,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
+	"github.com/txn2/mcp-data-platform/internal/platform/callhandler"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptevents"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
@@ -70,7 +71,7 @@ func TestSet_Refusals(t *testing.T) {
 		msg  string
 	}{
 		{name: "no kind", req: SetRequest{Caller: jane, Script: daily}, is: ErrInvalid, msg: "kind is required"},
-		{name: "unknown kind", req: SetRequest{Caller: jane, Script: daily, Kind: "policy"}, is: ErrUnknownKind},
+		{name: "unknown kind", req: SetRequest{Caller: jane, Script: daily, Kind: "rule"}, is: ErrUnknownKind},
 		{name: "no script", req: SetRequest{Caller: jane, Kind: KindSchedule}, is: ErrInvalid, msg: "names its script"},
 		{
 			name: "not the owner", req: SetRequest{Caller: bob, Script: daily, Kind: KindSchedule, Cron: "@daily"},
@@ -692,11 +693,10 @@ func TestCheck(t *testing.T) {
 // TestCheckOne_AKindWithAContractOtherThanAnEndpoint names the handler by
 // its kind, and a kind it does not know asks nothing.
 func TestCheckOne_AKindWithAContractOtherThanAnEndpoint(t *testing.T) {
-	saved := kinds
-	t.Cleanup(func() { kinds = saved })
-	kinds = append(append([]Kind{}, saved...), Kind{Name: "watch", Check: func(string) error { return errors.New("defines no watch(rows)") }})
-	assert.Equal(t, "this script holds watch handler w1: defines no watch(rows), so it was not saved",
-		checkOne(Handler{ID: "w1", Kind: "watch", Type: "watch"}, mainSource))
+	assert.Equal(t, "this script holds policy handler p1: a policy calls "+callhandler.Contract(KindPolicy)+
+		", and the source defines no top-level decide taking 1 parameter(s), so it was not saved",
+		checkOne(Handler{ID: "p1", Kind: KindPolicy, Type: KindPolicy}, mainSource))
+	assert.Empty(t, checkOne(Handler{ID: "w1", Kind: KindWatch, Type: KindWatch}, mainSource), "a watch runs main()")
 	assert.Empty(t, checkOne(Handler{ID: "x", Kind: "retired", Type: "retired"}, mainSource))
 }
 
@@ -719,12 +719,21 @@ func TestOffers(t *testing.T) {
 		}
 		return out
 	}
-	assert.Equal(t, map[string]string{
+	adminOnly := func(kind string) string {
+		return "An administrator adds a " + kind + ": it runs with an administrator's authority on other people's calls."
+	}
+	callsRefused := map[string]string{KindPolicy: adminOnly(KindPolicy), KindTransform: adminOnly(KindTransform), KindWatch: adminOnly(KindWatch)}
+	with := func(m map[string]string) map[string]string {
+		maps.Copy(m, callsRefused)
+		return m
+	}
+	assert.Equal(t, with(map[string]string{
 		KindEndpoint: "An administrator adds an endpoint to a script that is not a form.", KindSchedule: "", KindWebhook: "",
-	}, reasons(svc.Offers(lookup, jane)))
-	assert.Equal(t, map[string]string{KindEndpoint: "", KindSchedule: "", KindWebhook: ""}, reasons(svc.Offers(contact, jane)),
+	}), reasons(svc.Offers(lookup, jane)))
+	assert.Equal(t, with(map[string]string{KindEndpoint: "", KindSchedule: "", KindWebhook: ""}), reasons(svc.Offers(contact, jane)),
 		"a form's owner adds its endpoint")
-	assert.Equal(t, map[string]string{KindEndpoint: "", KindSchedule: "", KindWebhook: ""}, reasons(svc.Offers(lookup, admin)))
+	assert.Equal(t, map[string]string{KindEndpoint: "", KindSchedule: "", KindWebhook: "", KindPolicy: "", KindTransform: "", KindWatch: ""},
+		reasons(svc.Offers(lookup, admin)))
 	for _, r := range reasons(svc.Offers(lookup, bob)) {
 		assert.Equal(t, "Only the script's owner or an administrator adds its handlers.", r)
 	}
@@ -732,9 +741,11 @@ func TestOffers(t *testing.T) {
 		assert.Equal(t, "A library is loaded by other scripts and never runs.", r)
 	}
 
-	svc.Endpoints, svc.Sources = nil, nil
+	svc.Endpoints, svc.Sources, svc.Calls = nil, nil, nil
+	noCalls := "This deployment cannot keep tool-call handlers."
 	assert.Equal(t, map[string]string{
 		KindEndpoint: "This deployment cannot bind scripts to endpoints.", KindSchedule: "", KindWebhook: "This deployment has no webhook sources.",
+		KindPolicy: noCalls, KindTransform: noCalls, KindWatch: noCalls,
 	}, reasons(svc.Offers(lookup, admin)))
 }
 

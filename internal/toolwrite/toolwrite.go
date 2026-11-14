@@ -339,7 +339,7 @@ var actionTools = map[string]actionRule{
 	"manage_script": {arg: "command", reads: set(
 		"get", "list", "validate", "help",
 		"locate", "get_content", "outline", "stats", "diff",
-		"versions", "runs", "get_run", "test", "recording", "handler_list", "handler_get",
+		"versions", "runs", "get_run", "test", "recording", "handler_list", "handler_get", "handler_test",
 	), writes: set(
 		"create", "update", "delete", "patch", "run_draft", "cancel_run", "form_preview",
 		"handler_set", "handler_enable", "handler_disable", "handler_delete",

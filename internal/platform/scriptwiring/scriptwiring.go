@@ -14,16 +14,13 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/txn2/mcp-data-platform/internal/bucketsource"
-	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
-
-	"github.com/txn2/mcp-data-platform/internal/approval/apprtool"
-
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/application"
 	"github.com/txn2/mcp-data-platform/internal/application/appsvc"
 	"github.com/txn2/mcp-data-platform/internal/application/appwire"
+	"github.com/txn2/mcp-data-platform/internal/approval/apprtool"
+	"github.com/txn2/mcp-data-platform/internal/bucketsource"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epwire"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/catalogstore"
@@ -42,6 +39,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/sqllineage"
 	"github.com/txn2/mcp-data-platform/internal/scripttoken"
 	"github.com/txn2/mcp-data-platform/internal/secretstore"
+	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
 	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
 	"github.com/txn2/mcp-data-platform/internal/site/sitetool"
 	"github.com/txn2/mcp-data-platform/internal/site/sitewire"
@@ -148,6 +146,9 @@ func Wire(deps Deps) *scriptexec.Handle {
 		Endpoints:    endpoints,
 	})
 	layer.RegisterTool(deps.Server)
+	// Tool-call handlers (#2436, #2634, #2635): policies, transforms and
+	// watches an administrator binds to a connection's calls.
+	callHandlers := wireCallHandlers(deps, endpoints, layer)
 	// Applications (#2411): scripts, assets, sources and a schema released
 	// together, over the same stores.
 	appDeps := applicationDeps(deps, endpoints, layer.SaveGate(), sites)
@@ -161,6 +162,9 @@ func Wire(deps Deps) *scriptexec.Handle {
 	// with no session are served it.
 	if endpoints != nil {
 		tool := &apprtool.Tool{Service: endpoints.Approvals}
+		if callHandlers != nil {
+			tool.Calls = callHandlers.Evaluator
+		}
 		if deps.Authority != nil {
 			tool.Persona = func(roles []string) string { name, _ := deps.Authority(roles); return name }
 		}

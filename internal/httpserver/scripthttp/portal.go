@@ -173,8 +173,9 @@ func (h *Handler) RegisterPortal(mux *http.ServeMux, wrap func(http.Handler) htt
 				if u == nil {
 					return scripthandler.Caller{}, false
 				}
-				return scripthandler.Caller{Email: u.Email, Admin: u.IsAdmin}, true
+				return scripthandler.Caller{Email: u.Email, Admin: u.IsAdmin, Persona: u.Persona, Roles: u.Roles}, true
 			},
+			Tester: h.deps.CallTester,
 		}).Register(mux, wrap)
 	}
 	// Everything the script has ever written (#1569), which no per-run listing
@@ -585,7 +586,7 @@ func (h *Handler) attachLastRuns(ctx context.Context, rows []portalScriptRow) {
 			continue
 		}
 		summary := summarizeRun(&run)
-		if !rows[i].Owned {
+		if !rows[i].Owned || runstate.AdminsOnly(run.Trigger) {
 			summary = forReader(summary)
 		}
 		rows[i].LastRun = &summary
@@ -766,6 +767,13 @@ type portalRunDetail struct {
 	Withheld bool `json:"withheld,omitempty"`
 }
 
+// adminsOnly reports whether run is one only an administrator reads in full:
+// a watch's run holds another person's call (#2635), so its owner, when not
+// an administrator, reads it as anyone else does.
+func adminsOnly(run *script.Run, user *PortalIdentity) bool {
+	return runstate.AdminsOnly(run.Trigger) && !user.IsAdmin
+}
+
 // readerDetail is one run as forReader has it, for the detail route.
 func readerDetail(r *script.Run) portalRunDetail {
 	return portalRunDetail{
@@ -925,7 +933,7 @@ func (h *Handler) portalListOwnRuns(w http.ResponseWriter, r *http.Request, user
 	out := make([]portalScriptRun, 0, len(runs))
 	for i := range runs {
 		summary := summarizeRun(&runs[i])
-		if !owned[runs[i].ScriptID] && !ownsEmail(runs[i].RequestedBy, user.owner()) {
+		if (!owned[runs[i].ScriptID] && !ownsEmail(runs[i].RequestedBy, user.owner())) || adminsOnly(&runs[i], user) {
 			summary = forReader(summary)
 		}
 		out = append(out, portalScriptRun{
@@ -1006,7 +1014,7 @@ func (h *Handler) portalListRuns(w http.ResponseWriter, r *http.Request, user *P
 	out := make([]portalRun, 0, len(runs))
 	for i := range runs {
 		summary := summarizeRun(&runs[i])
-		if !owned && !ownsEmail(runs[i].RequestedBy, user.owner()) {
+		if (!owned && !ownsEmail(runs[i].RequestedBy, user.owner())) || adminsOnly(&runs[i], user) {
 			summary = forReader(summary)
 		}
 		out = append(out, summary)
@@ -1044,7 +1052,7 @@ func (h *Handler) portalGetRun(w http.ResponseWriter, r *http.Request, user *Por
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to get run")
 		return
 	}
-	if !ownsScript(sc, user) && !ownsEmail(run.RequestedBy, user.owner()) {
+	if (!ownsScript(sc, user) && !ownsEmail(run.RequestedBy, user.owner())) || adminsOnly(run, user) {
 		httpjson.WriteJSON(w, http.StatusOK, readerDetail(run))
 		return
 	}
@@ -1078,7 +1086,7 @@ func (h *Handler) ReadableRun(w http.ResponseWriter, r *http.Request, user *Port
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to get run")
 		return nil, false
 	}
-	if run.ScriptID != sc.ID || (!ownsScript(sc, user) && !ownsEmail(run.RequestedBy, user.owner())) {
+	if run.ScriptID != sc.ID || (!ownsScript(sc, user) && !ownsEmail(run.RequestedBy, user.owner())) || adminsOnly(run, user) {
 		httpjson.WriteError(w, http.StatusNotFound, errRunNot)
 		return nil, false
 	}

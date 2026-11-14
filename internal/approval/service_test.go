@@ -31,7 +31,7 @@ func (m *memStore) Insert(_ context.Context, r *Request) error {
 		return m.failIns
 	}
 	for _, x := range m.rows {
-		if x.Status == StatusPending && x.ScriptID == r.ScriptID && x.Purpose == r.Purpose && x.Version == r.Version &&
+		if r.SubjectKind != SubjectCall && x.Status == StatusPending && x.ScriptID == r.ScriptID && x.Purpose == r.Purpose && x.Version == r.Version &&
 			x.SiteReleaseID == r.SiteReleaseID && x.Target == r.Target && x.SiteID == r.SiteID {
 			return ErrPending
 		}
@@ -61,7 +61,8 @@ func (m *memStore) List(_ context.Context, f Filter) ([]Request, error) {
 	out := []Request{}
 	for _, r := range m.rows {
 		if (f.Status == "" || r.Status == f.Status) && (f.Requester == "" || r.RequesterEmail == f.Requester) &&
-			(f.ScriptID == "" || r.ScriptID == f.ScriptID) && (f.SiteID == "" || r.SiteID == f.SiteID) {
+			(f.ScriptID == "" || r.ScriptID == f.ScriptID) && (f.SiteID == "" || r.SiteID == f.SiteID) &&
+			(f.Purpose == "" || r.Purpose == f.Purpose) {
 			out = append(out, *r)
 		}
 	}
@@ -82,6 +83,7 @@ func (m *memStore) Decide(_ context.Context, id string, d Decision) (*Request, e
 	}
 	at := d.At
 	r.Status, r.DecidedBy, r.DecisionComment, r.SelfApproved, r.DecidedAt = d.Status, d.By, d.Comment, d.SelfApproved, &at
+	r.DecidedRoles, r.CallsApproved, r.Until = d.Roles, d.CallsApproved, d.Until
 	c := *r
 	return &c, nil
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
+	"github.com/txn2/mcp-data-platform/internal/platform/callhandler"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptevents"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptevents/sourcerule"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
@@ -44,6 +45,8 @@ type world struct {
 	webhooks  *webhooks
 	rule      *rule
 	sources   *sourceList
+	calls     *calls
+	versions  *versions
 	seq       int
 	// viewErr fails every read of the view; scriptErr every script read.
 	viewErr, scriptErr error
@@ -56,6 +59,8 @@ func newWorld() *world {
 	w.webhooks = &webhooks{w: w, byID: map[string]scriptevents.Handler{}}
 	w.rule = &rule{}
 	w.sources = &sourceList{}
+	w.calls = &calls{w: w, byID: map[string]callhandler.Handler{}}
+	w.versions = &versions{}
 	return w
 }
 
@@ -83,7 +88,7 @@ func (w *world) service() *Service {
 	return &Service{
 		View: view{w}, Scripts: scripts{w}, Endpoints: &epcmd.Handler{Store: w.bindings, BaseURL: "https://data.example.com"},
 		Schedules: w.schedules, Webhooks: w.webhooks, Sources: w.rule, SourceList: w.sources,
-		Now: func() time.Time { return fakeEpoch },
+		Now: func() time.Time { return fakeEpoch }, Calls: w.calls, Versions: w.versions,
 	}
 }
 
@@ -123,6 +128,9 @@ func (v view) rows() []Handler {
 	}
 	for _, h := range v.w.webhooks.byID {
 		row(h.ID, KindWebhook, KindWebhook, h.ScriptID, h.Source, h.Enabled, h.CreatedBy, h.CreatedAt)
+	}
+	for _, h := range v.w.calls.byID {
+		row(h.ID, h.Kind, h.Kind, h.ScriptID, h.Connection, h.Enabled, h.CreatedBy, h.CreatedAt)
 	}
 	slices.SortFunc(out, func(a, b Handler) int {
 		return cmp.Or(strings.Compare(a.ScriptName, b.ScriptName), strings.Compare(a.Kind, b.Kind),
@@ -474,3 +482,132 @@ type sourceList struct {
 }
 
 func (s *sourceList) List(context.Context) ([]whsource.Source, error) { return s.all, s.err }
+
+// calls keeps tool-call handlers in memory.
+type calls struct {
+	w    *world
+	byID map[string]callhandler.Handler
+	// failures are every handler's failures; err fails every write.
+	failures map[string][]callhandler.Failure
+	stats    map[string]callhandler.Stat
+	err      error
+}
+
+func (c *calls) Insert(_ context.Context, h *callhandler.Handler) error {
+	if c.err != nil {
+		return c.err
+	}
+	h.ID, h.CreatedAt = c.w.next("ch"), c.w.stamp()
+	c.byID[h.ID] = *h
+	return nil
+}
+
+func (c *calls) Update(_ context.Context, h *callhandler.Handler) error {
+	if c.err != nil {
+		return c.err
+	}
+	if _, ok := c.byID[h.ID]; !ok {
+		return callhandler.ErrNotFound
+	}
+	c.byID[h.ID] = *h
+	return nil
+}
+
+func (c *calls) Get(_ context.Context, id string) (*callhandler.Handler, error) {
+	h, ok := c.byID[id]
+	if !ok {
+		return nil, callhandler.ErrNotFound
+	}
+	return &h, nil
+}
+
+func (c *calls) ByScript(_ context.Context, scriptID string) ([]callhandler.Handler, error) {
+	var out []callhandler.Handler
+	for _, h := range c.byID {
+		if h.ScriptID == scriptID {
+			out = append(out, h)
+		}
+	}
+	return out, c.err
+}
+
+func (c *calls) SetEnabled(_ context.Context, id string, enabled bool, by string) error {
+	h, ok := c.byID[id]
+	if !ok {
+		return callhandler.ErrNotFound
+	}
+	h.Enabled, h.UpdatedBy = enabled, by
+	c.byID[id] = h
+	return nil
+}
+
+func (c *calls) Delete(_ context.Context, id string) error {
+	if _, ok := c.byID[id]; !ok {
+		return callhandler.ErrNotFound
+	}
+	delete(c.byID, id)
+	return nil
+}
+
+func (c *calls) Failures(_ context.Context, id string, _ int) ([]callhandler.Failure, error) {
+	return append([]callhandler.Failure{}, c.failures[id]...), nil
+}
+
+// versions records what an administrator approved for handlers.
+type versions struct {
+	approved map[string]int
+	by       string
+	waiting  int
+	err      error
+}
+
+func (v *versions) ApproveFor(_ context.Context, c Caller, sc *script.Script, version int) error {
+	if v.err != nil {
+		return v.err
+	}
+	if v.approved == nil {
+		v.approved = map[string]int{}
+	}
+	if version == 0 {
+		version = sc.Version
+	}
+	v.approved[sc.ID], v.by = version, c.Email
+	return nil
+}
+
+func (v *versions) State(_ context.Context, sc *script.Script) (running int, approver string, waiting int) {
+	return v.approved[sc.ID], v.by, v.waiting
+}
+
+func (c *calls) All(context.Context) ([]callhandler.Handler, error) {
+	if c.err != nil {
+		return nil, c.err
+	}
+	out := make([]callhandler.Handler, 0, len(c.byID))
+	for _, h := range c.byID {
+		out = append(out, h)
+	}
+	return out, nil
+}
+
+func (c *calls) Stats(_ context.Context, _ string) (map[string]callhandler.Stat, error) {
+	if c.stats == nil {
+		return nil, errors.New("no stats")
+	}
+	return c.stats, nil
+}
+
+func (c *calls) SetOrder(_ context.Context, ids []string, by string) error {
+	if c.err != nil {
+		return c.err
+	}
+	for i, id := range ids {
+		h, ok := c.byID[id]
+		if !ok {
+			return callhandler.ErrNotFound
+		}
+		h.Order, h.UpdatedBy = i, by
+		c.byID[id] = h
+	}
+	return nil
+}

@@ -5,6 +5,7 @@
 package apprhttp
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -34,6 +35,22 @@ type Config struct {
 	// Actor is who made a request, nil for none.
 	Actor func(r *http.Request) *approval.Actor
 	Audit middleware.AuditLogger
+	// Recent reads a call request's requester's recent calls of its
+	// operation (#2437); nil answers none.
+	Recent func(ctx context.Context, r *approval.Request) ([]RecentCall, error)
+}
+
+// RecentCall is one of a requester's calls of a held call's operation in the
+// last day: when, how many items, and what came of it, never its arguments.
+type RecentCall struct {
+	At      time.Time `json:"at"`
+	Items   int       `json:"items" example:"5"`
+	Outcome string    `json:"outcome" example:"held"`
+}
+
+// RecentCallList is the requester's recent calls, newest first.
+type RecentCallList struct {
+	Data []RecentCall `json:"data"`
 }
 
 type handler struct{ cfg Config }
@@ -48,6 +65,7 @@ func Register(mux *http.ServeMux, wrap func(http.Handler) http.Handler, cfg Conf
 	mux.Handle("POST "+Prefix, wrap(http.HandlerFunc(h.submit)))
 	mux.Handle("GET "+Prefix+"/{id}", wrap(http.HandlerFunc(h.get)))
 	mux.Handle("POST "+Prefix+"/{id}/decide", wrap(http.HandlerFunc(h.decide)))
+	mux.Handle("GET "+Prefix+"/{id}/calls", wrap(http.HandlerFunc(h.calls)))
 }
 
 // submitRequest and decideRequest are the documented request bodies.
@@ -61,6 +79,11 @@ type (
 	decideRequest struct {
 		Decision string `json:"decision" example:"approve"`
 		Comment  string `json:"comment,omitempty"`
+		// Calls and Until are what approving a call request grants: that
+		// many calls (at most what was asked; 0 is what was asked) until a
+		// deadline (24 hours from now when omitted, at most 90 days).
+		Calls int        `json:"calls,omitempty" example:"3"`
+		Until *time.Time `json:"until,omitempty"`
 	}
 	listResponse struct {
 		Requests []approval.Request `json:"requests"`
@@ -71,11 +94,12 @@ type (
 // list answers the requests the caller may read.
 //
 // @Summary      List approval requests
-// @Description  The caller's own requests, or for an administrator every request, newest first. status filters by pending, approved or denied; script_id by script.
+// @Description  The caller's own requests and the held calls whose policies name them, or for an administrator every request, newest first. status filters by pending, approved or denied; script_id by script; kind by call, handler_version, form or site.
 // @Tags         Approvals
 // @Produce      json
 // @Param        status     query  string  false  "pending, approved or denied"
 // @Param        script_id  query  string  false  "One script's requests"
+// @Param        kind       query  string  false  "call, handler_version, form or site"
 // @Success      200  {object}  listResponse
 // @Failure      401  {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
@@ -87,7 +111,7 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
-	rs, err := h.cfg.Service.List(r.Context(), actor, approval.Filter{Status: q.Get("status"), ScriptID: q.Get("script_id")})
+	rs, err := h.cfg.Service.List(r.Context(), actor, approval.Filter{Status: q.Get("status"), ScriptID: q.Get("script_id"), Kind: q.Get("kind")})
 	if err != nil {
 		answer(w, nil, err)
 		return
@@ -115,6 +139,41 @@ func (h *handler) get(w http.ResponseWriter, r *http.Request) {
 	}
 	req, err := h.cfg.Service.Get(r.Context(), actor, r.PathValue("id"))
 	answer(w, req, err)
+}
+
+// calls lists the requester's recent calls of a held call's operation.
+//
+// @Summary      A held call's recent calls
+// @Description  The requester's calls of a call request's operation on its connection in the last 24 hours, newest first, from the audit record: when each was made, how many items it carried, and whether it ran, ran on an allowance, failed, was held or was refused. Never a call's arguments. Readable by whoever may read the request: an administrator, its requester, or an approver its policies name. Any other request answers an empty list.
+// @Tags         Approvals
+// @Produce      json
+// @Param        id  path  string  true  "Request id"
+// @Success      200  {object}  RecentCallList
+// @Failure      401  {object}  httpjson.ProblemDetail
+// @Failure      404  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/approvals/{id}/calls [get]
+func (h *handler) calls(w http.ResponseWriter, r *http.Request) {
+	actor, ok := h.actor(w, r)
+	if !ok {
+		return
+	}
+	req, err := h.cfg.Service.Get(r.Context(), actor, r.PathValue("id"))
+	if err != nil {
+		answer(w, nil, err)
+		return
+	}
+	list := RecentCallList{Data: []RecentCall{}}
+	if h.cfg.Recent != nil {
+		got, err := h.cfg.Recent(r.Context(), req)
+		if err != nil {
+			answer(w, nil, err)
+			return
+		}
+		list.Data = append(list.Data, got...)
+	}
+	answer(w, list, nil)
 }
 
 // submit files a request.
@@ -146,7 +205,7 @@ func (h *handler) submit(w http.ResponseWriter, r *http.Request) {
 // decide records an administrator's decision.
 //
 // @Summary      Decide an approval request
-// @Description  Approves or denies a pending request. Administrators decide every request, their own included (recorded as self-approved); anyone else is refused.
+// @Description  Approves or denies a pending request. A call request a policy held is decided by the approvers its policies named or an administrator, never by its requester unless an administrator, and approving it grants calls until a deadline. Administrators decide every other request, their own included (recorded as self-approved); anyone else is refused.
 // @Tags         Approvals
 // @Accept       json
 // @Produce      json
@@ -168,8 +227,10 @@ func (h *handler) decide(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	req, err := h.cfg.Service.Decide(r.Context(), actor, id, in.Decision, in.Comment)
-	h.record(r, actor, apprtool.CmdDecide, map[string]any{"id": id, "decision": in.Decision}, err)
+	req, err := h.cfg.Service.DecideAllowance(r.Context(), actor, id, approval.Ruling{
+		Decision: in.Decision, Comment: in.Comment, Allowance: approval.Allowance{Calls: in.Calls, Until: in.Until},
+	})
+	h.record(r, actor, apprtool.CmdDecide, map[string]any{"id": id, "decision": in.Decision, "calls": in.Calls}, err)
 	answer(w, req, err)
 }
 

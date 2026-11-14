@@ -327,6 +327,7 @@ func buildMCPAuditEvent(pc *PlatformContext, info auditCallInfo, policy auditPar
 		Authorized:            pc.Authorized,
 		EventKind:             string(audit.EventKindForToolkit(pc.ToolkitKind)),
 		CallSite:              scriptCallSite(pc, info.Request),
+		Handlers:              pc.Handlers,
 	}
 }
 

@@ -103,7 +103,7 @@ func TestParseTypes(t *testing.T) {
 		},
 		{
 			name: "unknown", query: url.Values{"type": {"Schedule"}},
-			wantErr: `unknown type "Schedule": must be one of endpoint, form, schedule, webhook, none`,
+			wantErr: `unknown type "Schedule": must be one of endpoint, form, schedule, webhook, policy, transform, watch, none`,
 		},
 		{name: "removed endpoint=", query: url.Values{"endpoint": {"bound"}}, wantErr: "endpoint= was removed: narrow by handler type with type="},
 	}

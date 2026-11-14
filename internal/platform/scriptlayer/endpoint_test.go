@@ -17,6 +17,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epwire"
 	"github.com/txn2/mcp-data-platform/internal/platform/scripthandler"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer/handlercmd"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
@@ -157,7 +158,7 @@ def test_handle():
 // endpointSet is handler_set kind=endpoint on jane's lookup.
 func endpointSet(in epcmd.Input) manageScriptInput {
 	return manageScriptInput{
-		Command: cmdHandlerSet, Name: "lookup", OwnerEmail: "jane@example.com", TimeoutSeconds: 20, Input: in,
+		Command: handlercmd.Set, Name: "lookup", OwnerEmail: "jane@example.com", TimeoutSeconds: 20, Input: in,
 		Kind: scripthandler.KindEndpoint,
 	}
 }
@@ -183,7 +184,7 @@ func TestHandlerSet_AnAdministratorAddsAnEndpointAndItIsListed(t *testing.T) {
 	id, _ := out["handler"].(string)
 	require.NotEmpty(t, id, "the result names the handler by its id")
 
-	listed := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdHandlerList, Name: "lookup"}))
+	listed := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: handlercmd.List, Name: "lookup"}))
 	assert.Equal(t, float64(1), listed["count"])
 	items, _ := listed["handlers"].([]any)
 	require.Len(t, items, 1)
@@ -192,14 +193,14 @@ func TestHandlerSet_AnAdministratorAddsAnEndpointAndItIsListed(t *testing.T) {
 	assert.Equal(t, scripthandler.KindEndpoint, one["type"])
 	assert.Equal(t, []any{}, one["failures"], "no failed request is [] and never null")
 
-	got := resultFields(t, call(t, h, authorCtx(), byID(cmdHandlerGet, id)))
+	got := resultFields(t, call(t, h, authorCtx(), byID(handlercmd.Get, id)))
 	assert.Equal(t, "order-lookup", got["endpoint"], "the owner reads their script's endpoint by its id")
 
-	mine := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdHandlerList}))
+	mine := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: handlercmd.List}))
 	assert.Equal(t, float64(1), mine["count"], "the owner sees their own script's endpoint")
-	everyone := resultFields(t, call(t, h, adminCtx(), manageScriptInput{Command: cmdHandlerList}))
+	everyone := resultFields(t, call(t, h, adminCtx(), manageScriptInput{Command: handlercmd.List}))
 	assert.Equal(t, float64(1), everyone["count"])
-	nobody := resultFields(t, call(t, h, callerCtx("bob@example.com", "analyst"), manageScriptInput{Command: cmdHandlerList}))
+	nobody := resultFields(t, call(t, h, callerCtx("bob@example.com", "analyst"), manageScriptInput{Command: handlercmd.List}))
 	assert.Equal(t, float64(0), nobody["count"], "a handler is as visible as the script it starts")
 }
 
@@ -223,7 +224,7 @@ func TestHandlerSet_AScriptHoldsSeveralEndpoints(t *testing.T) {
 	assert.Equal(t, "orders-v2", w.bindings.byID[rename.Handler].Name)
 
 	listed := resultFields(t, call(t, h, adminCtx(), manageScriptInput{
-		Command: cmdHandlerList, Name: "lookup", OwnerEmail: "jane@example.com", Kind: scripthandler.KindEndpoint,
+		Command: handlercmd.List, Name: "lookup", OwnerEmail: "jane@example.com", Kind: scripthandler.KindEndpoint,
 	}))
 	assert.Equal(t, float64(2), listed["count"])
 }
@@ -240,7 +241,7 @@ func TestEndpointHandlers_RefuseEveryoneButAnAdministrator(t *testing.T) {
 
 	added := resultFields(t, call(t, h, adminCtx(), endpointSet(epcmd.Input{Endpoint: "x", AuthMode: epbinding.AuthAuthenticated})))
 	id, _ := added["handler"].(string)
-	for _, cmd := range []string{cmdHandlerEnable, cmdHandlerDisable, cmdHandlerDelete} {
+	for _, cmd := range []string{handlercmd.Enable, handlercmd.Disable, handlercmd.Delete} {
 		res := call(t, h, authorCtx(), byID(cmd, id))
 		require.True(t, res.IsError, cmd)
 		assert.Contains(t, resultText(res), "an administrator binds an endpoint that is not a form", cmd)
@@ -249,7 +250,7 @@ func TestEndpointHandlers_RefuseEveryoneButAnAdministrator(t *testing.T) {
 
 	res = call(t, h, callerCtx("bob@example.com", "analyst"), endpointSet(epcmd.Input{Endpoint: "y", AuthMode: epbinding.AuthAuthenticated}))
 	require.True(t, res.IsError)
-	res = call(t, h, callerCtx("bob@example.com", "analyst"), byID(cmdHandlerGet, id))
+	res = call(t, h, callerCtx("bob@example.com", "analyst"), byID(handlercmd.Get, id))
 	require.True(t, res.IsError)
 	assert.Contains(t, resultText(res), "is not yours")
 	assert.Len(t, w.bindings.byID, 1)
@@ -297,20 +298,20 @@ func TestEndpointHandlers_AScriptMustKeepDefiningHandle(t *testing.T) {
 
 func TestEndpointHandlers_DisableEnableDelete(t *testing.T) {
 	h, w := handlerHandle(t, "default")
-	res := call(t, h, adminCtx(), byID(cmdHandlerDisable, "ep_404"))
+	res := call(t, h, adminCtx(), byID(handlercmd.Disable, "ep_404"))
 	require.True(t, res.IsError)
 	assert.Contains(t, resultText(res), "no handler ep_404")
 
 	added := resultFields(t, call(t, h, adminCtx(), endpointSet(epcmd.Input{Endpoint: "order-lookup", AuthMode: epbinding.AuthAuthenticated})))
 	id, _ := added["handler"].(string)
-	res = call(t, h, adminCtx(), byID(cmdHandlerDisable, id))
+	res = call(t, h, adminCtx(), byID(handlercmd.Disable, id))
 	require.False(t, res.IsError, resultText(res))
 	assert.Equal(t, false, resultFields(t, res)["enabled"])
 	assert.False(t, w.bindings.byID[id].Enabled)
 	assert.Equal(t, "admin@example.com", w.bindings.byID[id].UpdatedBy)
-	assert.Equal(t, true, resultFields(t, call(t, h, adminCtx(), byID(cmdHandlerEnable, id)))["enabled"])
+	assert.Equal(t, true, resultFields(t, call(t, h, adminCtx(), byID(handlercmd.Enable, id)))["enabled"])
 
-	gone := resultFields(t, call(t, h, adminCtx(), byID(cmdHandlerDelete, id)))
+	gone := resultFields(t, call(t, h, adminCtx(), byID(handlercmd.Delete, id)))
 	assert.Equal(t, true, gone["deleted"])
 	assert.Empty(t, w.bindings.byID)
 }
@@ -340,7 +341,7 @@ func TestHandlerCommands_AreRefusedInsideARun(t *testing.T) {
 	res := call(t, h, ctx, endpointSet(epcmd.Input{Endpoint: "y", AuthMode: epbinding.AuthAuthenticated}))
 	require.True(t, res.IsError)
 	assert.Contains(t, resultText(res), "manage_script handler_set cannot be called from inside a script run")
-	for _, cmd := range []string{cmdHandlerEnable, cmdHandlerDisable, cmdHandlerDelete} {
+	for _, cmd := range []string{handlercmd.Enable, handlercmd.Disable, handlercmd.Delete} {
 		res := call(t, h, ctx, byID(cmd, id))
 		require.True(t, res.IsError, cmd)
 		assert.Contains(t, resultText(res), "manage_script "+cmd+" cannot be called from inside a script run")
@@ -348,7 +349,7 @@ func TestHandlerCommands_AreRefusedInsideARun(t *testing.T) {
 	assert.Len(t, w.bindings.byID, 1)
 	assert.True(t, w.bindings.byID[id].Enabled)
 
-	res = call(t, h, ctx, byID(cmdHandlerGet, id))
+	res = call(t, h, ctx, byID(handlercmd.Get, id))
 	assert.False(t, res.IsError, "reading a handler changes nothing: %s", resultText(res))
 }
 
