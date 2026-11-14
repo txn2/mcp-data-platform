@@ -42,6 +42,9 @@ const (
 
 // row is one schedule's fires within its section's window.
 type row struct {
+	// ScheduleID is the schedule handler the row lays out: a script holding
+	// several schedules has a row for each (#2434).
+	ScheduleID string `json:"schedule_id"`
 	ScriptID   string `json:"script_id"`
 	ScriptName string `json:"script_name"`
 	// OwnerEmail, Category and Tags are the script's, so the page narrows its
@@ -138,7 +141,7 @@ func Build(schedules []script.Schedule, scripts map[string]*script.Script, viewe
 		w := windows[sectionIndex(section)]
 		fires, count, last := c.FireSpan(w.From, w.To, MaxFiresPerRow)
 		r := row{
-			ScriptID: s.ScriptID, ScriptName: displayName(sc), Tags: []string{},
+			ScheduleID: s.ID, ScriptID: s.ScriptID, ScriptName: displayName(sc), Tags: []string{},
 			CronSpec: s.CronSpec, Timezone: s.Timezone, Enabled: s.Enabled,
 			Rhythm:    rhythmOf(c, week.From),
 			FireCount: count, Truncated: count > len(fires), Fires: fires,
@@ -257,7 +260,11 @@ func compareRows(a, b row) int {
 	if c := cmp.Compare(a.ScriptName, b.ScriptName); c != 0 {
 		return c
 	}
-	return cmp.Compare(a.ScriptID, b.ScriptID)
+	if c := cmp.Compare(a.ScriptID, b.ScriptID); c != 0 {
+		return c
+	}
+	// A script's schedules (#2434) keep one order between reads.
+	return cmp.Compare(a.ScheduleID, b.ScheduleID)
 }
 
 // displayName is what a person calls a script: its display name, else its

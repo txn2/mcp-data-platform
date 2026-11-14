@@ -47,11 +47,11 @@ func newFakeSchedules(sched script.Schedule) *fakeSchedules {
 
 func (*fakeSchedules) SetSchedule(context.Context, *script.Schedule) error { return nil }
 
-func (f *fakeSchedules) GetSchedule(_ context.Context, scriptID string) (*script.Schedule, error) {
+func (f *fakeSchedules) ScheduleByID(_ context.Context, id string) (*script.Schedule, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for i := range f.schedules {
-		if f.schedules[i].ScriptID == scriptID {
+		if f.schedules[i].ID == id {
 			out := f.schedules[i]
 			return &out, nil
 		}
@@ -59,21 +59,23 @@ func (f *fakeSchedules) GetSchedule(_ context.Context, scriptID string) (*script
 	return nil, script.ErrScheduleNotFound
 }
 
+func (*fakeSchedules) DeleteSchedule(context.Context, string) error { return nil }
+
 func (f *fakeSchedules) ListSchedules(context.Context, script.ScheduleFilter) ([]script.Schedule, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]script.Schedule(nil), f.schedules...), nil
 }
 
-func (f *fakeSchedules) SetScheduleEnabled(_ context.Context, scriptID string, enabled bool, _ string) error {
+func (f *fakeSchedules) EnableSchedule(_ context.Context, id string, enabled bool, _ string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.enableErr != nil {
 		return f.enableErr
 	}
-	f.disabled = append(f.disabled, scriptID)
+	f.disabled = append(f.disabled, id)
 	for i := range f.schedules {
-		if f.schedules[i].ScriptID == scriptID {
+		if f.schedules[i].ID == id {
 			f.schedules[i].Enabled = enabled
 		}
 	}
@@ -337,9 +339,41 @@ func TestScheduler_AnUnparseableCadenceIsParked(t *testing.T) {
 
 	_ = s.pass(context.Background())
 
-	assert.Equal(t, []string{sc.ID}, store.disabled)
+	assert.Equal(t, []string{broken.ID}, store.disabled, "the one schedule is parked, by its id")
 	assert.Empty(t, store.materialized())
 	assert.Empty(t, store.advances, "a schedule nobody can compute is not advanced, it is stopped")
+}
+
+// TestScheduler_EachScheduleOfAScriptFiresOnItsOwn is the several-schedules
+// model (#2434): a script's schedules are walked one by one, so a broken one
+// is parked alone while its sibling fires, and the run carries the id of the
+// schedule that produced it.
+func TestScheduler_EachScheduleOfAScriptFiresOnItsOwn(t *testing.T) {
+	fire := time.Date(2026, 8, 14, 7, 0, 0, 0, time.UTC)
+	sc, v, _ := executableState()
+	v.Params = []script.Param{{Name: "report_date", Type: script.ParamTypeDate, Required: true}}
+	good := dueSchedule(sc.ID, fire)
+	broken := dueSchedule(sc.ID, fire)
+	broken.ID, broken.CronSpec = "sched_2", "every other tuesday"
+	store := newFakeSchedules(good)
+	store.schedules = append(store.schedules, broken)
+	s := newScheduler(schedulerConfig{
+		schedules: store, scripts: &fakeScripts{script: sc}, versions: &fakeVersions{version: v},
+		now: func() time.Time { return fire.Add(time.Minute) },
+	})
+
+	_ = s.pass(context.Background())
+
+	assert.Equal(t, []string{"sched_2"}, store.disabled, "only the broken schedule is parked")
+	runs := store.materialized()
+	require.Len(t, runs, 1, "the sibling still fires")
+	assert.Equal(t, good.ID, runs[0].ScheduleID)
+	parked, err := store.ScheduleByID(context.Background(), "sched_2")
+	require.NoError(t, err)
+	assert.False(t, parked.Enabled)
+	kept, err := store.ScheduleByID(context.Background(), good.ID)
+	require.NoError(t, err)
+	assert.True(t, kept.Enabled)
 }
 
 // TestScheduler_AZoneThisBuildCannotLoadIsNotParked pins the difference between
@@ -467,7 +501,7 @@ func TestScheduler_BookkeepingFailuresAreLoggedNotFatal(t *testing.T) {
 func TestScheduler_AFireThatCannotBeNamedIsRefused(t *testing.T) {
 	fire := time.Date(2026, 8, 14, 7, 0, 0, 0, time.UTC)
 	s, store, _ := schedulerOver(t, fire, fire.Add(time.Minute), nil)
-	sched, err := store.GetSchedule(context.Background(), "script_1")
+	sched, err := store.ScheduleByID(context.Background(), "sched_1")
 	require.NoError(t, err)
 
 	// buildRun is exercised directly for this one: the id generator is the

@@ -21,7 +21,7 @@ import (
 //
 // Wire forms: the endpoint is sent a JSON body (application/json) and a form
 // body (application/x-www-form-urlencoded), and no body; manage_script's
-// endpoint_set takes typed arguments sent as literal tools/call params.
+// handler_set kind=endpoint takes typed arguments sent as literal tools/call params.
 
 const issue2172TrinoHandler = `def handle(req):
     """Answers with one row of the warehouse."""
@@ -111,7 +111,7 @@ func TestIssue2172_PastItsTimeoutIs504AndTheFailureIsListed(t *testing.T) {
 	if got.status != http.StatusGatewayTimeout {
 		t.Fatalf("GET past the timeout: %d %s", got.status, got.body)
 	}
-	status, page := admin.rest(http.MethodGet, fmt.Sprintf("/api/v1/portal/scripts/%s/endpoint", id), nil)
+	status, page := admin.portalEndpointOf(id)
 	failures, _ := page["failures"].([]any)
 	if status != http.StatusOK || len(failures) == 0 {
 		t.Fatalf("the script's page lists no failure: %d %v", status, page)

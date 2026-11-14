@@ -108,7 +108,8 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	// An empty id set matches nothing in the store anyway; skipping the read
 	// says the same thing without the round trip.
 	if len(ids) > 0 {
-		schedules, err = h.deps.Schedules.ListSchedules(r.Context(), script.ScheduleFilter{ScriptIDs: ids, Limit: len(ids)})
+		// A script may hold several schedules (#2434), each a row of its own.
+		schedules, err = h.deps.Schedules.ListSchedules(r.Context(), script.ScheduleFilter{ScriptIDs: ids, Limit: len(ids) * maxSchedulesPerScript})
 		if err != nil {
 			httpjson.WriteError(w, http.StatusInternalServerError, "failed to read schedules")
 			return
@@ -116,6 +117,10 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	}
 	httpjson.WriteJSON(w, http.StatusOK, Build(schedules, byID, viewer, time.Now()))
 }
+
+// maxSchedulesPerScript is how many schedule handlers a script may hold
+// (scripthandler.MaxPerKind).
+const maxSchedulesPerScript = 20
 
 // viewerZone reads the zone the caller asked the windows be cut in, answering
 // 400 for one the runtime does not know rather than silently drawing the day

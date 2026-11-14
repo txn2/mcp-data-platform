@@ -23,7 +23,7 @@ function answer(
     data: {
       data: rows,
       total: counts.total ?? rows.length,
-      scheduled: counts.scheduled ?? rows.filter((r) => r.schedule).length,
+      scheduled: counts.scheduled ?? rows.filter((r) => (r.schedules ?? []).length > 0).length,
       failing: counts.failing ?? rows.filter((r) => r.last_run?.status === "failed").length,
     },
     isLoading: false,
@@ -48,14 +48,17 @@ function row(overrides: Partial<PortalScriptRow> = {}): PortalScriptRow {
       version: 2,
       updated_at: new Date().toISOString(),
     },
-    schedule: {
-      id: "sched-001",
-      script_id: "script-001",
-      cron_spec: "0 7 * * 1-5",
-      timezone: "America/Los_Angeles",
-      enabled: true,
-      next_run_at: new Date("2026-08-15T14:00:00Z").toISOString(),
-    },
+    schedules: [
+      {
+        id: "sched-001",
+        script_id: "script-001",
+        cron_spec: "0 7 * * 1-5",
+        timezone: "America/Los_Angeles",
+        enabled: true,
+        next_run_at: new Date("2026-08-15T14:00:00Z").toISOString(),
+      },
+    ],
+    handler_types: ["schedule"],
     last_run: {
       id: "run-001",
       status: "succeeded",
@@ -458,7 +461,8 @@ describe("ScriptListing: libraries", () => {
         library: true,
         loads: [],
       },
-      schedule: undefined,
+      schedules: [],
+      handler_types: [],
       last_run: undefined,
     });
   }
@@ -556,10 +560,10 @@ describe("ScriptListing: libraries", () => {
   it("shows the endpoint a script is bound to, Off when its binding is, and nothing for the rest", () => {
     mockScripts.mockReturnValue(
       answer([
-        row({ endpoint: { name: "orders", path: "/endpoints/orders/{id}", auth_mode: "authenticated", enabled: true } }),
+        row({ endpoints: [{ name: "orders", path: "/endpoints/orders/{id}", auth_mode: "authenticated", enabled: true }] }),
         row({
           script: { ...row().script, id: "script-002", name: "contact" },
-          endpoint: { name: "contact", path: "/endpoints/contact", auth_mode: "bot_check", enabled: false },
+          endpoints: [{ name: "contact", path: "/endpoints/contact", auth_mode: "bot_check", enabled: false }],
         }),
         row({ script: { ...row().script, id: "script-003", name: "nightly" } }),
       ]),
@@ -581,22 +585,116 @@ describe("ScriptListing: libraries", () => {
     expect(within(none).getAllByText("—").length).toBeGreaterThan(0);
   });
 
-  it("asks the server for the bound or the unbound scripts, and for neither once All is chosen", () => {
+  // #2441: a script answers several endpoints; the row shows the first and
+  // counts the rest.
+  it("counts the endpoints past the first beside it", () => {
+    mockScripts.mockReturnValue(
+      answer([
+        row({
+          endpoints: [
+            { name: "orders", path: "/endpoints/orders/{id}", auth_mode: "authenticated", enabled: true },
+            { name: "orders-v2", path: "/endpoints/orders-v2/{id}", auth_mode: "authenticated", enabled: true },
+            { name: "orders-hook", path: "/endpoints/orders-hook", auth_mode: "public", enabled: false },
+          ],
+        }),
+      ]),
+    );
+    list();
+    const cell = within(screen.getByTestId("script-row-script-001")).getByTestId("script-endpoint");
+    expect(cell).toHaveTextContent("orders/{id}");
+    expect(cell).toHaveTextContent("+2 more");
+    expect(cell).not.toHaveTextContent("orders-v2");
+  });
+});
+
+// #2435: what starts each automation, as a badge of each handler type it
+// holds, and a filter the server applies.
+describe("ScriptListing: handler types", () => {
+  function listingFilter(): Record<string, unknown> {
+    const all = filters();
+    return all[all.length - 2] ?? {};
+  }
+
+  function chooseType(option: string) {
+    fireEvent.keyDown(screen.getByLabelText("Filter by type"), { key: "Enter" });
+    fireEvent.click(screen.getByRole("option", { name: option }));
+  }
+
+  it("badges each type of handler a script holds, once each, and nothing for a script with none", () => {
+    mockScripts.mockReturnValue(
+      answer([
+        row({ handler_types: ["form", "schedule"] }),
+        row({ script: { ...row().script, id: "script-002", name: "orders" }, handler_types: ["endpoint", "webhook"] }),
+        row({ script: { ...row().script, id: "script-003", name: "adhoc" }, schedules: [], handler_types: [] }),
+      ]),
+    );
+    list();
+    const form = within(screen.getByTestId("script-row-script-001")).getByTestId("handler-types");
+    expect(within(form).getAllByText(/./).map((b) => b.textContent)).toEqual(["Form", "Schedule"]);
+    const orders = within(screen.getByTestId("script-row-script-002")).getByTestId("handler-types");
+    expect(within(orders).getAllByText(/./).map((b) => b.textContent)).toEqual(["Endpoint", "Webhook"]);
+    expect(within(screen.getByTestId("script-row-script-003")).queryByTestId("handler-types")).toBeNull();
+  });
+
+  it("counts the schedules past the first beside the cadence", () => {
+    mockScripts.mockReturnValue(
+      answer([
+        row({
+          schedules: [
+            ...(row().schedules ?? []),
+            { id: "sched-002", script_id: "script-001", cron_spec: "0 18 * * *", timezone: "UTC", enabled: true },
+          ],
+        }),
+      ]),
+    );
+    list();
+    const r = within(screen.getByTestId("script-row-script-001"));
+    expect(r.getByText(/Every weekday at 7:00 AM/)).toHaveTextContent("+1 more");
+    expect(r.queryByText(/6:00 PM/)).toBeNull();
+  });
+
+  it("offers every type and None, and asks for no type until one is chosen", () => {
     mockScripts.mockReturnValue(answer([row()]));
     list();
-    expect(lastFilter()).not.toHaveProperty("endpoint");
-    const choose = (option: string) => {
-      fireEvent.keyDown(screen.getByLabelText("Filter by endpoint"), { key: "Enter" });
-      fireEvent.click(screen.getByRole("option", { name: option }));
-    };
-    fireEvent.keyDown(screen.getByLabelText("Filter by endpoint"), { key: "Enter" });
-    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["All", "Bound", "Not bound"]);
-    fireEvent.click(screen.getByRole("option", { name: "Bound" }));
-    expect(listingFilter()["endpoint"]).toBe("bound");
-    choose("Not bound");
-    expect(listingFilter()["endpoint"]).toBe("unbound");
-    choose("All");
-    expect(listingFilter()).not.toHaveProperty("endpoint");
+    expect(lastFilter()).not.toHaveProperty("type");
+    fireEvent.keyDown(screen.getByLabelText("Filter by type"), { key: "Enter" });
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "All types",
+      "Endpoint",
+      "Form",
+      "Schedule",
+      "Webhook",
+      "None",
+    ]);
+    expect(screen.queryByLabelText("Filter by endpoint")).not.toBeInTheDocument();
+  });
+
+  it("asks the server for the type chosen, none for the scripts holding no handler, and no type once All types is chosen", () => {
+    mockScripts.mockReturnValue(answer([row()]));
+    list();
+    chooseType("Schedule");
+    expect(listingFilter()["type"]).toBe("schedule");
+    // The vocabulary is read without it, so switching back stays possible.
+    expect(filters()[filters().length - 1]).not.toHaveProperty("type");
+    chooseType("Form");
+    expect(listingFilter()["type"]).toBe("form");
+    chooseType("Webhook");
+    expect(listingFilter()["type"]).toBe("webhook");
+    chooseType("Endpoint");
+    expect(listingFilter()["type"]).toBe("endpoint");
+    chooseType("None");
+    expect(listingFilter()["type"]).toBe("none");
+    chooseType("All types");
+    expect(listingFilter()).not.toHaveProperty("type");
+  });
+
+  it("reads a type that matched nothing as a narrowed listing, not an empty one", () => {
+    mockScripts.mockImplementation((filter) =>
+      (filter as Record<string, unknown> | undefined)?.["type"] === "webhook" ? answer([]) : answer([row()]),
+    );
+    list();
+    chooseType("Webhook");
+    expect(screen.getByText(/No automation you can see matches that/)).toBeInTheDocument();
   });
 });
 
@@ -623,7 +721,7 @@ describe("ScriptListing: layout", () => {
   });
 
   function bound(): PortalScriptRow {
-    return row({ endpoint: { name: "orders", path: "/endpoints/order-intake/v1/orders/{id}", auth_mode: "authenticated", enabled: true } });
+    return row({ endpoints: [{ name: "orders", path: "/endpoints/order-intake/v1/orders/{id}", auth_mode: "authenticated", enabled: true }] });
   }
 
   it("shows every column with room for them", () => {
@@ -645,6 +743,28 @@ describe("ScriptListing: layout", () => {
     expect(screen.getByRole("columnheader", { name: /Updated/ })).toBeInTheDocument();
     const r = screen.getByTestId("script-row-script-001");
     expect(within(r).getByTestId("endpoint-path")).toHaveTextContent("order-intake/v1/orders/{id}");
+  });
+
+  // #2435: the folded endpoint's address stands for its Endpoint badge, so
+  // the second line carries the address and the other types once each.
+  it("shows the folded endpoint's address in place of its Endpoint badge", () => {
+    measureAt(940);
+    mockScripts.mockReturnValue(answer([{ ...bound(), handler_types: ["endpoint", "schedule", "webhook"] }]));
+    list();
+    const r = screen.getByTestId("script-row-script-001");
+    expect(within(r).getByTestId("endpoint-path")).toHaveTextContent("order-intake/v1/orders/{id}");
+    const types = within(r).getByTestId("handler-types");
+    expect(types).toHaveTextContent("Schedule");
+    expect(types).toHaveTextContent("Webhook");
+    expect(types).not.toHaveTextContent("Endpoint");
+  });
+
+  it("shows the Endpoint badge where Endpoint has its own column", () => {
+    measureAt(1200);
+    mockScripts.mockReturnValue(answer([{ ...bound(), handler_types: ["endpoint", "schedule"] }]));
+    list();
+    const r = screen.getByTestId("script-row-script-001");
+    expect(within(r).getByTestId("handler-types")).toHaveTextContent("Endpoint");
   });
 
   it("drops Updated too when narrow", () => {

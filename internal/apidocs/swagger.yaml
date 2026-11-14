@@ -2484,6 +2484,21 @@ definitions:
       timeout_seconds:
         type: integer
     type: object
+  appbundle.Handlers:
+    properties:
+      endpoints:
+        items:
+          $ref: '#/definitions/appbundle.Endpoint'
+        type: array
+      schedules:
+        items:
+          $ref: '#/definitions/appbundle.Schedule'
+        type: array
+      webhooks:
+        items:
+          $ref: '#/definitions/appbundle.Webhook'
+        type: array
+    type: object
   appbundle.Imported:
     properties:
       application:
@@ -2583,9 +2598,19 @@ definitions:
       endpoint:
         $ref: '#/definitions/appbundle.Endpoint'
       event_source:
+        description: |-
+          EventSource, Endpoint and Schedule are a version 1 bundle's one of
+          each, which import reads as handlers.
         type: string
       exclusive:
         type: string
+      handlers:
+        allOf:
+        - $ref: '#/definitions/appbundle.Handlers'
+        description: |-
+          Handlers are what start the script: its endpoints, schedules and
+          webhook sources (format version 2). A tool-call handler governs a
+          deployment's people rather than an application, and is never exported.
       name:
         type: string
       params:
@@ -2609,6 +2634,13 @@ definitions:
         type: array
       version:
         type: integer
+    type: object
+  appbundle.Webhook:
+    properties:
+      enabled:
+        type: boolean
+      source:
+        type: string
     type: object
   appdbapi.driftResponse:
     properties:
@@ -3873,10 +3905,10 @@ definitions:
       description:
         description: Description is the script's or asset's own description.
         type: string
-      event_source:
-        description: EventSource is the webhook source a script runs for, empty for
-          none.
-        type: string
+      event_sources:
+        items:
+          type: string
+        type: array
       id:
         example: 5b0c...
         type: string
@@ -3898,8 +3930,13 @@ definitions:
           RequestsLastDay is how many requests a webhook source accepted in the
           last 24 hours; told to administrators, who manage sources.
         type: integer
-      schedule:
-        $ref: '#/definitions/appsvc.PartSchedule'
+      schedules:
+        description: |-
+          Schedules are a script's schedule handlers and EventSources the
+          webhook sources it runs for (#2434); empty for none.
+        items:
+          $ref: '#/definitions/appsvc.PartSchedule'
+        type: array
       state:
         example: ok
         type: string
@@ -4645,85 +4682,6 @@ definitions:
     - TypeRefreshRotationPersistenceFailed
     - TypeTokenDeletedRevoked
     - TypeTokenDeletedAdmin
-  bindinghttp.bindingRequest:
-    properties:
-      allowed_origins:
-        items:
-          type: string
-        type: array
-      auth_mode:
-        type: string
-      bot_check:
-        type: string
-      caller_rate_limit:
-        type: integer
-      callers:
-        items:
-          type: string
-        type: array
-      checked_methods:
-        items:
-          type: string
-        type: array
-      connection:
-        description: |-
-          Connection and DecryptPersonas are a form's (#2178, #2179): the Trino
-          connection its source's table is created on, and the personas a script
-          run may decrypt its sensitive fields as (nil keeps them).
-        type: string
-      decrypt_personas:
-        items:
-          type: string
-        type: array
-      endpoint:
-        type: string
-      ip_rate_limit:
-        description: |-
-          IPRateLimit is one client address's requests a minute (#2556); nil
-          keeps it, 0 removes it.
-        type: integer
-      max_body_bytes:
-        type: integer
-      max_memory_bytes:
-        type: integer
-      methods:
-        items:
-          type: string
-        type: array
-      page_cdns:
-        items:
-          type: string
-        type: array
-      page_connect_origins:
-        items:
-          type: string
-        type: array
-      page_form_origins:
-        items:
-          type: string
-        type: array
-      page_frame_origins:
-        description: |-
-          PageFrameOrigins, PageConnectOrigins and PageFormOrigins are what a
-          page may frame, call and post to besides its own origin (#2554).
-        items:
-          type: string
-        type: array
-      path:
-        type: string
-      preview_version:
-        description: |-
-          PreviewVersion is the saved version form_preview renders, 0 for the
-          latest (#2494).
-        type: integer
-      rate_limit:
-        type: integer
-      response_mode:
-        description: ResponseMode and PageCDNs make the endpoint a browser page (#2517).
-        type: string
-      timeout_seconds:
-        type: integer
-    type: object
   botcheck.Input:
     properties:
       challenge_ttl_seconds:
@@ -6899,23 +6857,6 @@ definitions:
         additionalProperties: {}
         type: object
     type: object
-  eventshttp.sourceRequest:
-    properties:
-      source:
-        description: Source is the webhook source's name; empty runs the script for
-          none.
-        example: form-contact
-        type: string
-    type: object
-  eventshttp.sourceResponse:
-    properties:
-      message:
-        example: Saved. Each event source form-contact stores runs this script.
-        type: string
-      source:
-        example: form-contact
-        type: string
-    type: object
   eventshttp.summaryResponse:
     properties:
       last_event_run:
@@ -6923,7 +6864,9 @@ definitions:
       last_skipped_at:
         type: string
       max_queued:
-        description: MaxQueued is how many pending event runs the script may hold.
+        description: |-
+          MaxQueued is how many pending event runs each of the script's webhook
+          handlers may hold.
         example: 100
         type: integer
       pending:
@@ -7226,6 +7169,11 @@ definitions:
         type: string
       rhythm:
         example: minutes
+        type: string
+      schedule_id:
+        description: |-
+          ScheduleID is the schedule handler the row lays out: a script holding
+          several schedules has a row for each (#2434).
         type: string
       script_id:
         type: string
@@ -7882,6 +7830,149 @@ definitions:
       schema_hash:
         type: string
       source:
+        type: string
+    type: object
+  handlerhttp.HandlerList:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/scripthandler.Handler'
+        type: array
+      total:
+        example: 3
+        type: integer
+    type: object
+  handlerhttp.ScriptHandlers:
+    properties:
+      add:
+        description: Add is each kind as adding one offers it to the caller.
+        items:
+          $ref: '#/definitions/scripthandler.Offer'
+        type: array
+      endpoint:
+        additionalProperties: {}
+        description: |-
+          Endpoint is what adding an endpoint offers: where its page would
+          answer and, for a form, the connections its submissions could be
+          stored on.
+        type: object
+      handlers:
+        description: |-
+          Handlers are the script's handlers, each as its kind describes it,
+          with its id, kind and type (the kind, or form).
+        items:
+          additionalProperties: {}
+          type: object
+        type: array
+      max_per_kind:
+        description: MaxPerKind is how many handlers of one kind a script may hold.
+        example: 20
+        type: integer
+      sources:
+        description: Sources are the webhook sources the caller may run the script
+          for.
+        items:
+          type: string
+        type: array
+    type: object
+  handlerhttp.SetRequest:
+    properties:
+      allowed_origins:
+        items:
+          type: string
+        type: array
+      args:
+        additionalProperties: {}
+        type: object
+      auth_mode:
+        type: string
+      bot_check:
+        type: string
+      caller_rate_limit:
+        type: integer
+      callers:
+        items:
+          type: string
+        type: array
+      checked_methods:
+        items:
+          type: string
+        type: array
+      connection:
+        description: |-
+          Connection and DecryptPersonas are a form's (#2178, #2179): the Trino
+          connection its source's table is created on, and the personas a script
+          run may decrypt its sensitive fields as (nil keeps them).
+        type: string
+      cron:
+        description: Cron, Timezone and Args are a schedule's.
+        example: 0 7 * * 1-5
+        type: string
+      decrypt_personas:
+        items:
+          type: string
+        type: array
+      endpoint:
+        type: string
+      event_source:
+        description: EventSource is a webhook handler's source.
+        example: form-contact
+        type: string
+      ip_rate_limit:
+        description: |-
+          IPRateLimit is one client address's requests a minute (#2556); nil
+          keeps it, 0 removes it.
+        type: integer
+      kind:
+        description: |-
+          Kind is endpoint, schedule or webhook; a change reads it from the
+          handler and may leave it out.
+        example: schedule
+        type: string
+      max_body_bytes:
+        type: integer
+      max_memory_bytes:
+        type: integer
+      methods:
+        items:
+          type: string
+        type: array
+      page_cdns:
+        items:
+          type: string
+        type: array
+      page_connect_origins:
+        items:
+          type: string
+        type: array
+      page_form_origins:
+        items:
+          type: string
+        type: array
+      page_frame_origins:
+        description: |-
+          PageFrameOrigins, PageConnectOrigins and PageFormOrigins are what a
+          page may frame, call and post to besides its own origin (#2554).
+        items:
+          type: string
+        type: array
+      path:
+        type: string
+      preview_version:
+        description: |-
+          PreviewVersion is the saved version form_preview renders, 0 for the
+          latest (#2494).
+        type: integer
+      rate_limit:
+        type: integer
+      response_mode:
+        description: ResponseMode and PageCDNs make the endpoint a browser page (#2517).
+        type: string
+      timeout_seconds:
+        description: TimeoutSeconds is how long one request to an endpoint may run.
+        type: integer
+      timezone:
+        example: America/Los_Angeles
         type: string
     type: object
   httpjson.ProblemDetail:
@@ -12518,11 +12609,6 @@ definitions:
       enabled:
         example: true
         type: boolean
-      event_source:
-        description: |-
-          EventSource is the webhook source the script runs for (#2332), empty
-          when it runs for none.
-        type: string
       exclusive:
         allOf:
         - $ref: '#/definitions/runstate.ExclusiveMode'
@@ -12574,11 +12660,13 @@ definitions:
           owns the script nor administers the platform: its last run and its
           saved state are left out (ForReader).
         type: boolean
-      schedule:
-        allOf:
-        - $ref: '#/definitions/script.ContractSchedule'
-        description: Schedule is the cadence this script fires on, nil when it has
-          none.
+      schedules:
+        description: |-
+          Schedules are the cadences this script fires on, each a schedule
+          handler of its own (#2434); empty when it has none.
+        items:
+          $ref: '#/definitions/script.ContractSchedule'
+        type: array
       state:
         allOf:
         - $ref: '#/definitions/script.ContractState'
@@ -13120,12 +13208,6 @@ definitions:
       enabled:
         example: true
         type: boolean
-      event_source:
-        description: |-
-          EventSource is the webhook source the script runs for (#2332): each
-          event it stores enqueues one run with trigger event. Empty runs for
-          none. Set by the owner or an administrator, as a schedule is.
-        type: string
       exclusive:
         allOf:
         - $ref: '#/definitions/runstate.ExclusiveMode'
@@ -13683,6 +13765,40 @@ definitions:
         example: 3f2b6c1e-8d4a-4b8e-9f1a-2c3d4e5f6a7b
         type: string
     type: object
+  scripthandler.Handler:
+    properties:
+      created_at:
+        type: string
+      created_by:
+        type: string
+      enabled:
+        type: boolean
+      id:
+        type: string
+      kind:
+        type: string
+      owner_email:
+        type: string
+      script_id:
+        type: string
+      script_name:
+        type: string
+      target:
+        type: string
+      type:
+        type: string
+    type: object
+  scripthandler.Offer:
+    properties:
+      allowed:
+        type: boolean
+      contract:
+        type: string
+      kind:
+        type: string
+      reason:
+        type: string
+    type: object
   scripthttp.adminRun:
     properties:
       cancel_requested:
@@ -13821,7 +13937,7 @@ definitions:
           removal actually took, which is a narrower statement than the
           confirmation makes before the fact: the dialog warns from the script's
           contract, this reports what the delete's own transaction found.
-        example: daily-sales-report is gone, with its saved versions, its schedule,
+        example: daily-sales-report is gone, with its saved versions, its handlers,
           its run history and the state it carried. The assets and resources it wrote
           remain, and they still record that it wrote them.
         type: string
@@ -14266,12 +14382,13 @@ definitions:
     type: object
   scripthttp.portalScriptRow:
     properties:
-      endpoint:
-        allOf:
-        - $ref: '#/definitions/scriptlist.Endpoint'
+      endpoints:
         description: |-
-          Endpoint is the endpoint the script is bound to (#2259), absent when it
-          is bound to none.
+          Endpoints are the endpoints the script answers (#2259, #2441), empty
+          when it answers none.
+        items:
+          $ref: '#/definitions/scriptlist.Endpoint'
+        type: array
       granted:
         description: |-
           Granted marks a script this caller may run because it was granted to
@@ -14279,6 +14396,13 @@ definitions:
           listing.
         example: true
         type: boolean
+      handler_types:
+        description: |-
+          HandlerTypes are the types of the script's handlers (#2435): endpoint,
+          form, schedule, webhook, once each; empty when it has none.
+        items:
+          type: string
+        type: array
       last_run:
         allOf:
         - $ref: '#/definitions/scripthttp.portalRun'
@@ -14293,12 +14417,14 @@ definitions:
           refusal.
         example: true
         type: boolean
-      schedule:
-        allOf:
-        - $ref: '#/definitions/script.Schedule'
+      schedules:
         description: |-
-          Schedule is the script's cadence, absent when it has none. On a row this
-          caller does not own it carries the cadence alone (see reportableSchedule).
+          Schedules are the script's schedule handlers, empty when it has none.
+          On a row this caller does not own each carries the cadence alone (see
+          reportableSchedule).
+        items:
+          $ref: '#/definitions/script.Schedule'
+        type: array
       script:
         $ref: '#/definitions/script.Script'
     type: object
@@ -14463,39 +14589,6 @@ definitions:
       version:
         example: 3
         type: integer
-    type: object
-  scripthttp.scheduleListResponse:
-    properties:
-      data:
-        items:
-          $ref: '#/definitions/script.Schedule'
-        type: array
-      total:
-        example: 2
-        type: integer
-    type: object
-  scripthttp.scheduleRequest:
-    properties:
-      cron:
-        description: Cron is a standard five-field expression or a descriptor (@daily).
-        example: 0 7 * * 1-5
-        type: string
-      enabled:
-        description: |-
-          Enabled turns the schedule on or off; omitted leaves an existing
-          schedule's state alone and starts a new one enabled.
-        type: boolean
-      params:
-        additionalProperties: {}
-        description: |-
-          Params are the values every fire binds, with ${fire_date} left as
-          written: it expands at the fire, so the run records the date it computed.
-        type: object
-      timezone:
-        description: Timezone is the IANA zone the expression is read in; empty means
-          UTC.
-        example: America/Los_Angeles
-        type: string
     type: object
   scripthttp.scriptListResponse:
     properties:
@@ -23566,6 +23659,64 @@ paths:
       summary: Test a gateway connection config
       tags:
       - Connections
+  /admin/handlers:
+    get:
+      description: 'Returns one page of every script''s handlers (Admin > Handlers):
+        each one''s id, kind, type (endpoint, form, schedule or webhook), script,
+        owner, target (an endpoint''s name, a schedule''s cadence, a webhook handler''s
+        source), whether it is on, who created it and when. type narrows to handlers
+        of any of the types named and may be repeated; search narrows to handlers
+        whose script name or target contains it; owner to one person''s scripts; enabled
+        to handlers that are on or off. total counts every match.'
+      parameters:
+      - collectionFormat: multi
+        description: Narrow to these handler types
+        in: query
+        items:
+          type: string
+        name: type
+        type: array
+      - description: Narrow to handlers whose script name or target contains this
+        in: query
+        name: search
+        type: string
+      - description: Narrow to one owner's scripts, by email
+        in: query
+        name: owner
+        type: string
+      - description: Narrow to handlers that are on or off
+        in: query
+        name: enabled
+        type: boolean
+      - description: Page size (default and most 500)
+        in: query
+        name: limit
+        type: integer
+      - description: Rows to skip
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlerhttp.HandlerList'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List every handler
+      tags:
+      - Scripts
   /admin/index-jobs:
     get:
       description: Returns embedding-provider health plus a per-kind rollup (job-state
@@ -25652,144 +25803,6 @@ paths:
       summary: List managed scripts
       tags:
       - Scripts
-  /admin/scripts/{id}/schedule:
-    get:
-      description: Returns the cadence a script runs on, the parameters every fire
-        binds, when it fires next, and how many fires it has missed.
-      parameters:
-      - description: Script ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/script.Schedule'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Get a script's schedule
-      tags:
-      - Scripts
-    put:
-      consumes:
-      - application/json
-      description: 'Creates or replaces the cadence a script runs on. The parameters
-        are validated against the script''s contract. A schedule grants no authority:
-        every fire executes the latest saved version, authorized against the roles
-        captured at that save.'
-      parameters:
-      - description: Script ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Cadence
-        in: body
-        name: schedule
-        required: true
-        schema:
-          $ref: '#/definitions/scripthttp.scheduleRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/script.Schedule'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Set a script's schedule
-      tags:
-      - Scripts
-  /admin/scripts/{id}/schedule/disable:
-    post:
-      description: Stops a schedule firing, keeping the row that explains the runs
-        it produced. There is deliberately no way to delete a schedule.
-      parameters:
-      - description: Script ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/script.Schedule'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Disable a script's schedule
-      tags:
-      - Scripts
-  /admin/scripts/{id}/schedule/enable:
-    post:
-      description: Resumes a paused schedule without touching its cadence. The next
-        fire is the one it was parked on, which the misfire policy then collapses
-        to a single run — the same treatment downtime gets.
-      parameters:
-      - description: Script ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/script.Schedule'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Enable a script's schedule
-      tags:
-      - Scripts
   /admin/scripts/{id}/versions:
     get:
       description: Returns every version of a script with its source, its author,
@@ -25936,27 +25949,6 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: List managed-script runs
-      tags:
-      - Scripts
-  /admin/scripts/schedules:
-    get:
-      description: Returns every managed-script schedule with its cadence, its bound
-        parameters, its next fire, and how many fires it has missed.
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/scripthttp.scheduleListResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: List script schedules
       tags:
       - Scripts
   /admin/secrets:
@@ -33081,6 +33073,227 @@ paths:
       summary: Whether General feedback reaches anyone
       tags:
       - Feedback
+  /portal/handlers/{id}:
+    delete:
+      description: 'Deletes one handler. An endpoint answers nothing at its address
+        from then on, and its failed and refused requests go with it; a form''s webhook
+        source and the submissions stored in it stay. A schedule that produced runs
+        is refused (403): its runs name it, so it is disabled instead. Restricted
+        to the script''s owner and to administrators, by the rules adding one follows.'
+      parameters:
+      - description: Handler ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete a handler
+      tags:
+      - Scripts
+    get:
+      description: 'Returns one handler as its kind describes it: an endpoint''s settings,
+        address, recent failed requests and, for a form, where its submissions are
+        stored; a schedule''s cadence, args, next fire and missed fires; a webhook
+        handler''s source. Restricted to the script''s owner and to administrators.'
+      parameters:
+      - description: Handler ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get a handler
+      tags:
+      - Scripts
+    put:
+      consumes:
+      - application/json
+      description: Changes one handler's settings, by the rules adding one follows.
+        An endpoint's field left out keeps its value; a schedule takes its whole cadence
+        (cron, timezone, args); a webhook handler's source does not change, and saving
+        one leaves it on or off as it was (enable turns it on). Answers the handler
+        as GET /portal/handlers/{id} does.
+      parameters:
+      - description: Handler ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: The handler's settings
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlerhttp.SetRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Change a handler
+      tags:
+      - Scripts
+  /portal/handlers/{id}/disable:
+    post:
+      description: 'Turns one handler off: an endpoint answers nothing, a schedule
+        fires nothing, a webhook source''s events start no run. Answers the handler
+        as GET /portal/handlers/{id} does.'
+      parameters:
+      - description: Handler ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Turn a handler off
+      tags:
+      - Scripts
+  /portal/handlers/{id}/enable:
+    post:
+      description: Turns one handler on. A schedule turned on is due for the fire
+        it was parked on. A form served to callers with no session needs an approved
+        version before anyone but an administrator turns it on. Answers the handler
+        as GET /portal/handlers/{id} does.
+      parameters:
+      - description: Handler ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Turn a handler on
+      tags:
+      - Scripts
   /portal/knowledge-pages:
     get:
       description: Returns canonical, org-shared knowledge pages. Open to every authenticated
@@ -35403,13 +35616,15 @@ paths:
         Administrators see every script either way. The category, tag, search, owner,
         status, enabled and kind parameters narrow the listing; kind=script lists
         the scripts that run and kind=library the libraries other scripts load (#1941),
-        and any other kind is refused; endpoint=bound lists the scripts bound to an
-        endpoint and endpoint=unbound the rest, and each row bound to one carries
-        its endpoint (name, address, access mode, whether it is on); tag may be repeated,
-        and a script matching any of the named tags is returned. sort and dir order
-        it in the store, ahead of the page cap, so an ordering is over every matching
-        script rather than over the page. total counts every script the predicate
-        matches, so it exceeds the rows returned when the listing was capped.'
+        and any other kind is refused; type narrows to the scripts holding a handler
+        of any of the types named (endpoint, form, schedule, webhook) and type=none
+        to the scripts holding none, and may be repeated (endpoint= was removed and
+        is refused); each row carries its handler types, its schedules and its endpoints
+        (name, address, access mode, whether it is on); tag may be repeated, and a
+        script matching any of the named tags is returned. sort and dir order it in
+        the store, ahead of the page cap, so an ordering is over every matching script
+        rather than over the page. total counts every script the predicate matches,
+        so it exceeds the rows returned when the listing was capped.'
       parameters:
       - description: 'Whose scripts to list: all (default), mine, or granted'
         enum:
@@ -35455,14 +35670,14 @@ paths:
         in: query
         name: kind
         type: string
-      - description: Narrow to the scripts bound to an endpoint or to the ones that
-          are not; any other value is refused
-        enum:
-        - bound
-        - unbound
+      - collectionFormat: multi
+        description: Narrow to the scripts holding a handler of any of these types,
+          or none
         in: query
-        name: endpoint
-        type: string
+        items:
+          type: string
+        name: type
+        type: array
       - description: Order by this column; an unknown value falls back to updated_at
         enum:
         - name
@@ -35508,7 +35723,7 @@ paths:
   /portal/scripts/{id}:
     delete:
       description: 'Removes a managed script and everything that belongs to it: its
-        saved versions, its schedule, its run history, and the state it carried between
+        saved versions, its handlers, its run history, and the state it carried between
         runs. Restricted to the script''s owner and to administrators, and answered
         as not-found for anybody else, so the refusal cannot be used to learn that
         a script exists. The assets and resources the script wrote are NOT removed,
@@ -35676,238 +35891,13 @@ paths:
       summary: Dry-run a script's source
       tags:
       - Scripts
-  /portal/scripts/{id}/endpoint:
-    get:
-      description: 'Returns whether the script is bound to an endpoint and, when it
-        is, the binding: its name, address, methods, path template, access mode (authenticated,
-        public or bot_check), the callers an authenticated endpoint admits, the bot
-        check a bot_check endpoint names and the methods it checks, limits and allowed
-        origins, with the requests that failed in the last seven days (status, error
-        and how long each took), newest first. A form (is_form) reports where its
-        submissions are stored (form: source, table, connection, decrypt_personas)
-        or, before its source is made, the connections it could be made on (form_connections),
-        and a bound form its hosted page (page_url, #2331), which a site frames when
-        allowed_origins lists it. Restricted to the script''s owner and to administrators.'
-      parameters:
-      - description: Script ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Get a script's endpoint
-      tags:
-      - Scripts
-    put:
-      consumes:
-      - application/json
-      description: 'Binds the script to /endpoints/{endpoint}, or changes its binding.
-        A field left out keeps what the binding had, or takes the default on a new
-        one. The script must define handle(req), or form_spec(req) and form_submit(req,
-        values) (a form); binding a form makes the webhook source its accepted submissions
-        are stored in, on connection (the Trino connection whose scratch catalog holds
-        webhook_form_<endpoint>, defaulting to the only one, named once), with decrypt_personas
-        the personas a script may decrypt its sensitive fields as. auth_mode is authenticated
-        (a platform API key or a browser session among callers: "*", "persona:<name>"
-        or "api_key:<name>", empty admitting no one but the administrator, who is
-        always admitted), public (anyone, with no check) or bot_check (anyone who
-        passes the bot check bot_check names, one configured under Admin > Settings
-        > Bot checks, on the methods in checked_methods, empty for every method);
-        a binding naming a check that does not exist is refused, and so is signed_in.
-        An administrator binds any script; the script''s owner binds it only when
-        it is a form, and a form served to callers with no session (public or bot_check)
-        needs a version approved first, which an administrator''s binding records
-        for the version it serves. Anyone else is refused.'
-      parameters:
-      - description: Script ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: The binding
-        in: body
-        name: binding
-        required: true
-        schema:
-          $ref: '#/definitions/bindinghttp.bindingRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Bind a script to an endpoint
-      tags:
-      - Scripts
-  /portal/scripts/{id}/endpoint/disable:
-    post:
-      description: 'Turns the endpoint off: it answers 404 until it is turned on,
-        and its binding is kept. An administrator, or the owner of a script that is
-        a form.'
-      parameters:
-      - description: Script ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Turn a script's endpoint off
-      tags:
-      - Scripts
-  /portal/scripts/{id}/endpoint/enable:
-    post:
-      description: 'Turns the endpoint on: it answers requests again. An administrator,
-        or the owner of a script that is a form.'
-      parameters:
-      - description: Script ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Turn a script's endpoint on
-      tags:
-      - Scripts
-  /portal/scripts/{id}/event-source:
-    put:
-      consumes:
-      - application/json
-      description: Each event the named source stores enqueues one run of the script
-        with trigger event, carrying the event as run.event (id, type, key, received_at,
-        source, payload); the run executes through the run queue under the script's
-        saved author roles, as a scheduled run does. An empty source runs it for none.
-        An administrator may name any source; the owner only the source of a form
-        they own (403 otherwise). Restricted to the script's owner and to administrators.
-      parameters:
-      - description: Script ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: The source
-        in: body
-        name: source
-        required: true
-        schema:
-          $ref: '#/definitions/eventshttp.sourceRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/eventshttp.sourceResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Set the webhook source a script runs for
-      tags:
-      - Scripts
   /portal/scripts/{id}/events:
     get:
       description: The script's pending event runs, the events skipped in the last
-        seven days because max_queued event runs were already waiting (each recorded
-        as a run with status skipped_backlog), the newest of each, and the bound (scripts.events.max_queued).
-        Restricted to the script's owner and to administrators.
+        seven days because max_queued event runs of the webhook handler were already
+        waiting (each recorded as a run with status skipped_backlog), the newest of
+        each, and the bound per webhook handler (scripts.events.max_queued). Restricted
+        to the script's owner and to administrators.
       parameters:
       - description: Script ID
         in: path
@@ -36177,6 +36167,112 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Withdraw a script run grant
+      tags:
+      - Scripts
+  /portal/scripts/{id}/handlers:
+    get:
+      description: 'Returns what starts the script: each of its handlers (an endpoint,
+        a form, a schedule or a webhook source) as its kind describes it, with its
+        id, kind, type, settings and whether it is on; an endpoint''s recent failed
+        requests and, for a form, where its submissions are stored; a schedule''s
+        next fire and missed fires. add says, for each kind, whether the caller may
+        add one and why not; endpoint says where a page would answer and, on a form,
+        the connections its submissions could be stored on; sources are the webhook
+        sources the caller may run the script for. Restricted to the script''s owner
+        and to administrators.'
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlerhttp.ScriptHandlers'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List a script's handlers
+      tags:
+      - Scripts
+    post:
+      consumes:
+      - application/json
+      description: 'Adds what starts the script: kind endpoint (the endpoint settings
+        manage_script''s handler_set takes: endpoint, methods, path, auth_mode, callers,
+        bot_check, limits, origins, response_mode; a form adds connection and decrypt_personas),
+        schedule (cron, timezone, args) or webhook (event_source). An endpoint named
+        like one the script already has changes that one; a name another script holds
+        is refused, naming its handler. A schedule with the cadence and args of one
+        the script already has is refused, naming it. A script holds at most max_per_kind
+        handlers of a kind. The script''s owner adds schedules and webhook handlers
+        (a webhook only for the source of a form they own) and the endpoint of their
+        own form; an administrator adds any. Answers the handler as GET /portal/handlers/{id}
+        does.'
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: The handler
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlerhttp.SetRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Add a handler to a script
       tags:
       - Scripts
   /portal/scripts/{id}/metadata:
@@ -36621,162 +36717,6 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: List what a script run posted to channels
-      tags:
-      - Scripts
-  /portal/scripts/{id}/schedule:
-    get:
-      description: Returns the cadence a script runs on and when it fires next, for
-        everyone signed in. Its owner and administrators also get the parameters every
-        fire binds, how many fires it has missed, and who last changed it.
-      parameters:
-      - description: Script ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/script.Schedule'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Get a script's schedule
-      tags:
-      - Scripts
-    put:
-      consumes:
-      - application/json
-      description: 'Creates or replaces the cadence a script the caller owns runs
-        on, with the parameters every fire binds. A schedule grants no authority:
-        every fire executes the latest saved version, authorized against the roles
-        captured at that save. Restricted to the script''s owner and to administrators.'
-      parameters:
-      - description: Script ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Cadence
-        in: body
-        name: schedule
-        required: true
-        schema:
-          $ref: '#/definitions/scripthttp.scheduleRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/script.Schedule'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Set a script's schedule
-      tags:
-      - Scripts
-  /portal/scripts/{id}/schedule/disable:
-    post:
-      description: Stops a schedule on a script the caller owns from firing, keeping
-        the row that explains the runs it produced. There is deliberately no way to
-        delete a schedule. Restricted to the script's owner and to administrators.
-      parameters:
-      - description: Script ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/script.Schedule'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Disable a script's schedule
-      tags:
-      - Scripts
-  /portal/scripts/{id}/schedule/enable:
-    post:
-      description: Resumes a paused schedule on a script the caller owns, without
-        touching its cadence. The next fire is the one it was parked on. Restricted
-        to the script's owner and to administrators.
-      parameters:
-      - description: Script ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/script.Schedule'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Enable a script's schedule
       tags:
       - Scripts
   /portal/scripts/{id}/source:

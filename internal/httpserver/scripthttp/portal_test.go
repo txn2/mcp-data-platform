@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scripthandler"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -22,6 +23,25 @@ var (
 	stranger = &PortalIdentity{UserID: "u2", Email: "bob@example.com", Persona: "analyst"}
 	admin    = &PortalIdentity{UserID: "u3", Email: "admin@example.com", Persona: "admin", IsAdmin: true}
 )
+
+// carol owns the global script in portalStore: the owner of a shared
+// automation who is not an administrator.
+var carol = &PortalIdentity{
+	UserID: "u4", Email: "carol@example.com", Persona: "analyst",
+	Roles: []string{"dp_analyst"}, AuthType: "browser_session",
+}
+
+// servePortalRequest mounts the portal routes and runs one request with a body
+// against them.
+func servePortalRequest(t *testing.T, deps Deps, method, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	mux := http.NewServeMux()
+	New(deps).RegisterPortal(mux, func(h http.Handler) http.Handler { return h })
+	req := httptest.NewRequestWithContext(context.Background(), method, path, strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	return rec
+}
 
 // stubRuns is the run history half of the portal surface.
 type stubRuns struct {
@@ -216,18 +236,97 @@ func TestPortalListScripts_EveryRowCarriesItsLastRun(t *testing.T) {
 	assert.Equal(t, 2, body.Failing, "failing counts the listed rows")
 }
 
-func TestPortalListScripts_CarriesTheCadence(t *testing.T) {
+// TestPortalListScripts_CarriesEveryCadence: a row carries every schedule
+// handler its script holds (#2434), read in one query whose limit leaves room
+// for the most a script may hold; a script with none carries [], not null.
+func TestPortalListScripts_CarriesEveryCadence(t *testing.T) {
 	store := portalStore()
-	store.schedule = &script.Schedule{ID: "sched_1", ScriptID: "script_1", CronSpec: "0 7 * * *", Enabled: true}
+	store.schedules = []script.Schedule{
+		{ID: "sched_1", ScriptID: "script_1", CronSpec: "0 7 * * *", Enabled: true},
+		{ID: "sched_2", ScriptID: "script_1", CronSpec: "0 19 * * *", Enabled: false},
+	}
 	rec := servePortal(t, portalDeps(store, nil, nil, owner), "/api/v1/portal/scripts")
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var body portalScriptListResponse
 	decodeInto(t, rec, &body)
 	require.Len(t, body.Data, 2)
-	require.NotNil(t, body.Data[0].Schedule)
-	assert.Equal(t, "0 7 * * *", body.Data[0].Schedule.CronSpec)
-	assert.Nil(t, body.Data[1].Schedule, "a script with no schedule reports none")
+	require.Len(t, body.Data[0].Schedules, 2)
+	assert.Equal(t, "0 7 * * *", body.Data[0].Schedules[0].CronSpec)
+	assert.Equal(t, "0 19 * * *", body.Data[0].Schedules[1].CronSpec)
+	assert.Empty(t, body.Data[1].Schedules, "a script with no schedule reports none")
+	assert.Contains(t, rec.Body.String(), `"schedules":[]`, "an empty list is [] and never null")
+	assert.Equal(t, 2*scripthandler.MaxPerKind, store.scheduleAsked.Limit, "the read is not cut at one schedule per script")
+}
+
+// TestPortalListScripts_BindingsAreTheOwners pins the line between the cadence
+// and its bindings: everyone entitled to see a script sees when it runs, and
+// only its owner sees the values it runs WITH, on each of its schedules.
+func TestPortalListScripts_BindingsAreTheOwners(t *testing.T) {
+	store := portalStore()
+	store.schedules = []script.Schedule{
+		{
+			ID: "sched_1", ScriptID: "script_2", CronSpec: "@daily", Timezone: "UTC", Enabled: true,
+			Params: map[string]any{"account_id": "acct-9"}, CreatedBy: "carol@example.com",
+		},
+		{
+			ID: "sched_2", ScriptID: "script_2", CronSpec: "@hourly", Timezone: "UTC", Enabled: true,
+			Params: map[string]any{"account_id": "acct-10"}, CreatedBy: "carol@example.com",
+		},
+	}
+
+	rec := servePortalRequest(t, portalDeps(store, nil, nil, stranger), http.MethodGet, "/api/v1/portal/scripts", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	var seen portalScriptListResponse
+	decodeInto(t, rec, &seen)
+	shared := schedulesOf(t, seen, "script_2")
+	require.Len(t, shared, 2)
+	for _, s := range shared {
+		assert.NotEmpty(t, s.CronSpec, "the cadence is contract-level")
+		assert.Nil(t, s.Params, "the values it binds are not")
+		assert.Empty(t, s.CreatedBy)
+	}
+	assert.NotContains(t, rec.Body.String(), "acct-9")
+
+	rec = servePortalRequest(t, portalDeps(store, nil, nil, carol), http.MethodGet, "/api/v1/portal/scripts", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	var owned portalScriptListResponse
+	decodeInto(t, rec, &owned)
+	mine := schedulesOf(t, owned, "script_2")
+	require.Len(t, mine, 2)
+	assert.Equal(t, map[string]any{"account_id": "acct-9"}, mine[0].Params)
+	assert.Equal(t, map[string]any{"account_id": "acct-10"}, mine[1].Params)
+}
+
+// TestPortalListScripts_RowsCarryNoSource pins the listing's payload choice
+// (#2027): no row carries the source, for any caller, administrator included.
+// The source is everyone signed in's to read on the script's own route.
+func TestPortalListScripts_RowsCarryNoSource(t *testing.T) {
+	store := portalStore()
+	store.scripts[0].Source, store.scripts[1].Source = reportSource, reportSource
+
+	for _, who := range []*PortalIdentity{stranger, admin} {
+		rec := servePortalRequest(t, portalDeps(store, nil, nil, who), http.MethodGet, "/api/v1/portal/scripts", "")
+		require.Equal(t, http.StatusOK, rec.Code)
+		var seen portalScriptListResponse
+		decodeInto(t, rec, &seen)
+		require.NotEmpty(t, seen.Data)
+		for i := range seen.Data {
+			assert.Empty(t, seen.Data[i].Script.Source, seen.Data[i].Script.Name)
+		}
+	}
+}
+
+// schedulesOf finds one script's cadences in a listing.
+func schedulesOf(t *testing.T, body portalScriptListResponse, scriptID string) []script.Schedule {
+	t.Helper()
+	for i := range body.Data {
+		if body.Data[i].Script.ID == scriptID {
+			return body.Data[i].Schedules
+		}
+	}
+	t.Fatalf("script %s is not in the listing", scriptID)
+	return nil
 }
 
 // A listing that cannot read the cadence or the last run is still the listing.
@@ -242,7 +341,7 @@ func TestPortalListScripts_DegradesWhenTheExtrasFail(t *testing.T) {
 	var body portalScriptListResponse
 	decodeInto(t, rec, &body)
 	require.Len(t, body.Data, 2)
-	assert.Nil(t, body.Data[0].Schedule)
+	assert.Empty(t, body.Data[0].Schedules)
 	assert.Nil(t, body.Data[0].LastRun)
 }
 
@@ -841,4 +940,26 @@ func TestActsOnScript(t *testing.T) {
 	h := New(portalDeps(store, nil, nil, admin))
 	assert.False(t, h.ActsOnScript(req, nil, id), "an unidentified caller acts on nothing")
 	assert.False(t, h.ActsOnScript(req, admin, "missing"), "a script that cannot be read answers false")
+}
+
+// TestPortalScheduleTimeline_IsMounted: the Schedules tab's timeline
+// (fireshttp, #1891) is a portal route wherever schedules are kept, and lays
+// out every schedule handler of a script as a row of its own (#2434); a
+// deployment keeping none does not mount it.
+func TestPortalScheduleTimeline_IsMounted(t *testing.T) {
+	store := portalStore()
+	store.schedules = []script.Schedule{
+		{ID: "sched_1", ScriptID: "script_1", CronSpec: "0 7 * * *", Timezone: "UTC", Enabled: true},
+		{ID: "sched_2", ScriptID: "script_1", CronSpec: "0 19 * * *", Timezone: "UTC", Enabled: true},
+	}
+	rec := servePortal(t, portalDeps(store, nil, nil, owner), "/api/v1/portal/scripts/fires")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), `"schedule_id":"sched_1"`)
+	assert.Contains(t, rec.Body.String(), `"schedule_id":"sched_2"`)
+
+	deps := portalDeps(store, nil, nil, owner)
+	deps.Schedules = nil
+	rec = servePortal(t, deps, "/api/v1/portal/scripts/fires")
+	assert.NotEqual(t, http.StatusOK, rec.Code, "no schedule store, no timeline")
+	assert.NotContains(t, rec.Body.String(), "schedule_id")
 }

@@ -118,6 +118,7 @@ jobs:
           - {environment: dev, shard: 8/8, id: dev-8}
           - {environment: worker-off, shard: "", id: worker-off}
           - {environment: clickstack, shard: "", id: clickstack}
+          - {environment: embeddings, shard: "", id: embeddings}
     uses: ./.github/workflows/acceptance-run.yml
     with:
       environment: ${{ matrix.environment }}

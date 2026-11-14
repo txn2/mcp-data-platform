@@ -174,10 +174,8 @@ func newStore2558(t *testing.T, ipLimit int) *store2558 {
 			"connection": conn2539, "mode": "outbox", "table": s.schema + ".outbox", "poll_seconds": 300,
 		}},
 	})
-	if got := admin.call("manage_script", map[string]any{"command": "update", "name": s.mail, "event_source": s.source}); got["status"] != "updated" {
-		t.Fatalf("naming the mail script's event source: %v", got)
-	}
-	admin.call("manage_script", map[string]any{"command": "schedule_set", "name": s.mail, "cron": "*/10 * * * *", "timezone": "UTC"})
+	admin.webhookSet(s.mail, s.source)
+	admin.scheduleSet(s.mail, "*/10 * * * *", "UTC", nil)
 	admin.call("manage_application", map[string]any{"command": "add_part", "application": s.app, "kind": "script", "part_id": scriptID2540(admin, s.mail)})
 	admin.call("manage_application", map[string]any{"command": "add_part", "application": s.app, "kind": "source", "part_id": s.source})
 
@@ -186,7 +184,7 @@ func newStore2558(t *testing.T, ipLimit int) *store2558 {
 	t.Cleanup(func() {
 		_, _, _ = admin.callRaw("manage_application", map[string]any{"command": "delete", "application": s.app})
 		_, _, _ = admin.callRaw("manage_site", map[string]any{"command": "delete", "site": s.web})
-		_, _, _ = admin.callRaw("manage_script", map[string]any{"command": "update", "name": s.mail, "event_source": ""})
+		admin.webhookOff(s.mail, s.source)
 		for _, name := range []string{s.api, s.mail} {
 			_, _, _ = admin.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
 		}

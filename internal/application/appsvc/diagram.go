@@ -18,11 +18,11 @@ const (
 )
 
 // DiagramDeps is what the diagram reads besides the service's stores: a
-// script's endpoint binding, an asset version's text, and the tables an
+// script's endpoint bindings, an asset version's text, and the tables an
 // application schema's migrations fill. Each may be nil, which leaves out
 // what it reads.
 type DiagramDeps struct {
-	Binding      func(ctx context.Context, scriptID string) (*appdiagram.Binding, error)
+	Bindings     func(ctx context.Context, scriptID string) ([]appdiagram.Binding, error)
 	AssetContent func(ctx context.Context, assetID string, version int) string
 	SchemaWrites func(ctx context.Context, connection, schema string) []string
 }
@@ -172,20 +172,25 @@ func (r *diagramReader) ScriptVersion(ctx context.Context, id string, version in
 	return r.s.Scripts.GetVersion(ctx, id, version) //nolint:wrapcheck // the diagram leaves out what it cannot read
 }
 
-// Schedule reads a script's schedule.
-func (r *diagramReader) Schedule(ctx context.Context, scriptID string) (*script.Schedule, error) {
+// Schedules reads a script's schedules.
+func (r *diagramReader) Schedules(ctx context.Context, scriptID string) ([]script.Schedule, error) {
 	if r.s.Schedules == nil {
-		return nil, nil //nolint:nilnil // no store, no schedule
+		return nil, nil
 	}
-	return r.s.Schedules.GetSchedule(ctx, scriptID) //nolint:wrapcheck // the diagram leaves out what it cannot read
+	return r.s.Schedules.ListSchedules(ctx, script.ScheduleFilter{ScriptID: scriptID}) //nolint:wrapcheck // the diagram leaves out what it cannot read
 }
 
-// Binding reads a script's endpoint binding.
-func (r *diagramReader) Binding(ctx context.Context, scriptID string) (*appdiagram.Binding, error) {
-	if r.s.Diagrams.Binding == nil {
-		return nil, nil //nolint:nilnil // no store, no binding
+// Bindings reads a script's endpoint bindings.
+func (r *diagramReader) Bindings(ctx context.Context, scriptID string) ([]appdiagram.Binding, error) {
+	if r.s.Diagrams.Bindings == nil {
+		return nil, nil
 	}
-	return r.s.Diagrams.Binding(ctx, scriptID)
+	return r.s.Diagrams.Bindings(ctx, scriptID)
+}
+
+// EventSources reads the webhook sources a script runs for.
+func (r *diagramReader) EventSources(ctx context.Context, scriptID string) []string {
+	return r.s.eventSources(ctx, scriptID)
 }
 
 // Asset reads an asset the caller opens.

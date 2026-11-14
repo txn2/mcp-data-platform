@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -15,7 +14,8 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/application"
 	"github.com/txn2/mcp-data-platform/internal/application/appsvc"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
-	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptevents"
+	"github.com/txn2/mcp-data-platform/internal/platform/scripthandler"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
@@ -35,12 +35,15 @@ type Deps struct {
 		List(ctx context.Context, connection, schema string) ([]postgreskit.Migration, error)
 		Put(ctx context.Context, m postgreskit.Migration) (bool, error)
 	}
+	// Bindings, Schedules and Webhooks read a script's handlers for export.
 	Bindings interface {
-		Get(ctx context.Context, scriptID string) (*epbinding.Binding, error)
+		ByScript(ctx context.Context, scriptID string) ([]epbinding.Binding, error)
 	}
 	Schedules interface {
-		GetSchedule(ctx context.Context, scriptID string) (*script.Schedule, error)
-		SetSchedule(ctx context.Context, sched *script.Schedule) error
+		ListSchedules(ctx context.Context, filter script.ScheduleFilter) ([]script.Schedule, error)
+	}
+	Webhooks interface {
+		Handlers(ctx context.Context, filter scriptevents.HandlerFilter) ([]scriptevents.Handler, error)
 	}
 	// FormConnection is the connection a form's webhook source is on.
 	FormConnection func(ctx context.Context, sourceName string) (string, error)
@@ -66,8 +69,9 @@ type Deps struct {
 		CreateVersion(ctx context.Context, version portaldomain.AssetVersion) (int, error)
 	}
 	Bucket, Prefix string
-	// Endpoints carries out an endpoint command, as manage_script does.
-	Endpoints func(ctx context.Context, req epcmd.Request) (map[string]any, error)
+	// Handlers sets an imported script's handlers, as handler_set does
+	// (#2441); nil imports a script with none, and refuses one that has some.
+	Handlers *scripthandler.Service
 	// HasSchemaConnection reports whether an application database
 	// connection is configured here.
 	HasSchemaConnection func(name string) bool
@@ -294,19 +298,15 @@ func (b *Bundler) buildScript(ctx context.Context, p application.Pin, names coll
 	names.connections.add(report.Connections...)
 	names.connections.add(report.RegisterConnections...)
 	names.secrets.add(secretref.Names(v.Source)...)
-	names.sources.add(sc.EventSource)
 	out := &Script{
 		Name: sc.Name, DisplayName: v.DisplayName, Description: v.Description, Category: v.Category,
 		Tags: orEmpty(v.Tags), Source: v.Source, Params: v.Params, Exclusive: string(sc.Exclusive),
-		EventSource: sc.EventSource, Version: p.Version, DynamicConnections: report.DynamicConnections,
+		Version: p.Version, DynamicConnections: report.DynamicConnections,
 	}
 	if out.Params == nil {
 		out.Params = []script.Param{}
 	}
-	if out.Endpoint, err = b.endpointOf(ctx, sc.ID, names); err != nil {
-		return nil, err
-	}
-	if out.Schedule, err = b.scheduleOf(ctx, sc.ID); err != nil {
+	if out.Handlers, err = b.handlersOf(ctx, sc.ID, names); err != nil {
 		return nil, err
 	}
 	if out.Recordings, err = b.recordingsOf(ctx, sc.Name, v.Source); err != nil {
@@ -337,20 +337,44 @@ func (b *Bundler) recordingsOf(ctx context.Context, name, source string) ([]Reco
 	return out, nil
 }
 
-// endpointOf is the script's binding; nil, nil when it has none, which is not
-// an error: the bundle carries no endpoint for it.
-func (b *Bundler) endpointOf(ctx context.Context, scriptID string, names collected) (*Endpoint, error) {
-	if b.Bindings == nil {
-		return nil, nil //nolint:nilnil // no endpoint store, no endpoint
+// handlersOf is every handler of the script a bundle carries: its
+// endpoints, schedules and webhook sources.
+func (b *Bundler) handlersOf(ctx context.Context, scriptID string, names collected) (*Handlers, error) {
+	h := &Handlers{Endpoints: []Endpoint{}, Schedules: []Schedule{}, Webhooks: []Webhook{}}
+	if b.Bindings != nil {
+		bindings, err := b.Bindings.ByScript(ctx, scriptID)
+		if err != nil {
+			return nil, fmt.Errorf("reading the script's endpoints: %w", err)
+		}
+		for i := range bindings {
+			h.Endpoints = append(h.Endpoints, b.endpointOf(ctx, &bindings[i], names))
+		}
 	}
-	bd, err := b.Bindings.Get(ctx, scriptID)
-	if errors.Is(err, epbinding.ErrNotFound) {
-		return nil, nil //nolint:nilnil // an unbound script has no endpoint
+	if b.Schedules != nil {
+		schedules, err := b.Schedules.ListSchedules(ctx, script.ScheduleFilter{ScriptID: scriptID})
+		if err != nil {
+			return nil, fmt.Errorf("reading the script's schedules: %w", err)
+		}
+		for _, sched := range schedules {
+			h.Schedules = append(h.Schedules, Schedule{CronSpec: sched.CronSpec, Timezone: sched.Timezone, Params: sched.Params, Enabled: sched.Enabled})
+		}
 	}
-	if err != nil {
-		return nil, fmt.Errorf("reading the script's endpoint: %w", err)
+	if b.Webhooks != nil {
+		webhooks, err := b.Webhooks.Handlers(ctx, scriptevents.HandlerFilter{ScriptIDs: []string{scriptID}})
+		if err != nil {
+			return nil, fmt.Errorf("reading the script's webhook sources: %w", err)
+		}
+		for _, w := range webhooks {
+			names.sources.add(w.Source)
+			h.Webhooks = append(h.Webhooks, Webhook{Source: w.Source, Enabled: w.Enabled})
+		}
 	}
-	e := &Endpoint{
+	return h, nil
+}
+
+// endpointOf is one endpoint handler as a bundle carries it.
+func (b *Bundler) endpointOf(ctx context.Context, bd *epbinding.Binding, names collected) Endpoint {
+	e := Endpoint{
 		Name: bd.Name, Methods: orEmpty(bd.Methods), Path: bd.Path, AuthMode: bd.AuthMode, Callers: orEmpty(bd.Callers),
 		BotCheck: bd.BotCheck, CheckedMethods: orEmpty(bd.CheckedMethods), TimeoutSeconds: bd.TimeoutSeconds,
 		MaxMemoryBytes: bd.MaxMemoryBytes, MaxBodyBytes: bd.MaxBodyBytes, AllowedOrigins: orEmpty(bd.AllowedOrigins),
@@ -365,22 +389,7 @@ func (b *Bundler) endpointOf(ctx context.Context, scriptID string, names collect
 			names.connections.add(conn)
 		}
 	}
-	return e, nil
-}
-
-// scheduleOf is the script's schedule; nil, nil when it has none.
-func (b *Bundler) scheduleOf(ctx context.Context, scriptID string) (*Schedule, error) {
-	if b.Schedules == nil {
-		return nil, nil //nolint:nilnil // no schedule store, no schedule
-	}
-	sched, err := b.Schedules.GetSchedule(ctx, scriptID)
-	if errors.Is(err, script.ErrScheduleNotFound) {
-		return nil, nil //nolint:nilnil // an unscheduled script has no schedule
-	}
-	if err != nil {
-		return nil, fmt.Errorf("reading the script's schedule: %w", err)
-	}
-	return &Schedule{CronSpec: sched.CronSpec, Timezone: sched.Timezone, Params: sched.Params, Enabled: sched.Enabled}, nil
+	return e
 }
 
 func (b *Bundler) buildAsset(ctx context.Context, p application.Pin) (*Asset, error) {

@@ -3,6 +3,7 @@ package scriptlayer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -10,35 +11,38 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scripthandler"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
-// The schedule half of the in-memory store. It lives with these tests rather
-// than in the shared fixture because only the schedule commands need it, and
-// the Handle discovers it exactly as it discovers the version store: by asking
-// whether the store it was given implements the contract.
+// The schedule half of the in-memory store, keyed by schedule id: a script
+// holds several (#2434). A replace is held to the schedule's own script, and
+// a schedule of a script with runs is kept on delete, as the real store's
+// foreign key keeps it.
 func (m *memStore) SetSchedule(_ context.Context, sched *script.Schedule) error {
 	if m.scheduleErr != nil {
 		return m.scheduleErr
 	}
-	if prev, ok := m.schedules[sched.ScriptID]; ok {
-		sched.ID = prev.ID
-	} else {
-		sched.ID = "sched_" + sched.ScriptID
+	if sched.ID == "" {
+		m.nextID++
+		sched.ID, sched.CreatedAt = fmt.Sprintf("sched_%d", m.nextID), time.Unix(int64(m.nextID), 0)
+	} else if prev, ok := m.schedules[sched.ID]; !ok || prev.ScriptID != sched.ScriptID {
+		return script.ErrScheduleNotFound
 	}
 	stored := *sched
-	m.schedules[sched.ScriptID] = &stored
+	m.schedules[sched.ID] = &stored
 	return nil
 }
 
-func (m *memStore) GetSchedule(_ context.Context, scriptID string) (*script.Schedule, error) {
+func (m *memStore) ScheduleByID(_ context.Context, id string) (*script.Schedule, error) {
 	if m.scheduleErr != nil {
 		return nil, m.scheduleErr
 	}
 	if m.scheduleReadErr != nil {
 		return nil, m.scheduleReadErr
 	}
-	sched, ok := m.schedules[scriptID]
+	sched, ok := m.schedules[id]
 	if !ok {
 		return nil, script.ErrScheduleNotFound
 	}
@@ -46,34 +50,49 @@ func (m *memStore) GetSchedule(_ context.Context, scriptID string) (*script.Sche
 	return &out, nil
 }
 
-// ListSchedules models the real store's ScriptIDs scope, including the
-// distinction the SQL makes: a nil slice is "no scope" and an empty one matches
-// nothing. A fake that ignored the filter would let a listing test pass while
-// PostgreSQL returned a different set — which is the whole point of the scope.
+// ListSchedules models the real store's scopes, including the distinction
+// the SQL makes: a nil ScriptIDs is "no scope" and an empty one matches
+// nothing.
 func (m *memStore) ListSchedules(_ context.Context, filter script.ScheduleFilter) ([]script.Schedule, error) {
 	if m.scheduleErr != nil {
 		return nil, m.scheduleErr
 	}
 	out := []script.Schedule{}
 	for _, sched := range m.schedules {
+		if filter.ScriptID != "" && sched.ScriptID != filter.ScriptID {
+			continue
+		}
 		if filter.ScriptIDs != nil && !slices.Contains(filter.ScriptIDs, sched.ScriptID) {
 			continue
 		}
 		out = append(out, *sched)
 	}
+	slices.SortFunc(out, func(a, b script.Schedule) int { return a.CreatedAt.Compare(b.CreatedAt) })
 	return out, nil
 }
 
-func (m *memStore) SetScheduleEnabled(_ context.Context, scriptID string, enabled bool, actor string) error {
+func (m *memStore) EnableSchedule(_ context.Context, id string, enabled bool, actor string) error {
 	if m.enabledErr != nil {
 		return m.enabledErr
 	}
-	sched, ok := m.schedules[scriptID]
+	sched, ok := m.schedules[id]
 	if !ok {
 		return script.ErrScheduleNotFound
 	}
 	sched.Enabled = enabled
 	sched.UpdatedBy = actor
+	return nil
+}
+
+func (m *memStore) DeleteSchedule(_ context.Context, id string) error {
+	sched, ok := m.schedules[id]
+	if !ok {
+		return script.ErrScheduleNotFound
+	}
+	if m.hasRuns[sched.ScriptID] {
+		return scriptstore.ErrScheduleHasRuns
+	}
+	delete(m.schedules, id)
 	return nil
 }
 
@@ -93,10 +112,20 @@ func (*memStore) AdvanceSchedule(context.Context, script.ScheduleAdvance) (bool,
 // cannot express.
 const weekdayMornings = "0 7 * * 1-5"
 
-// scheduleSet issues a schedule_set for the daily script.
+// scheduleHandle is a handler-keeping layer with the author's runnable
+// script "daily" saved.
+func scheduleHandle(t *testing.T) (*Handle, *handlerWorld) {
+	t.Helper()
+	h, w := handlerHandle(t)
+	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdCreate, Name: "daily", Source: tested(inMain("print(1)\n"))})
+	require.False(t, res.IsError, resultText(res))
+	return h, w
+}
+
+// scheduleSet issues a handler_set kind=schedule for the daily script.
 func scheduleSet(t *testing.T, h *Handle, ctx context.Context, input manageScriptInput) map[string]any { //nolint:revive // t first is this package's testing convention
 	t.Helper()
-	input.Command = cmdScheduleSet
+	input.Command, input.Kind = cmdHandlerSet, scripthandler.KindSchedule
 	if input.Name == "" {
 		input.Name = "daily"
 	}
@@ -108,22 +137,20 @@ func scheduleSet(t *testing.T, h *Handle, ctx context.Context, input manageScrip
 }
 
 func TestScheduleSet_StoresTheCadenceAndSaysWhatWillHappen(t *testing.T) {
-	h, store, _ := runnableHandle(t)
+	h, w := scheduleHandle(t)
 
-	fields := scheduleSet(t, h, authorCtx(), manageScriptInput{
-		Cron: weekdayMornings, Timezone: "America/Los_Angeles",
-	})
+	fields := scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: weekdayMornings, Timezone: "America/Los_Angeles"})
 	require.NotContains(t, fields, "error", fields)
 	assert.Equal(t, weekdayMornings, fields["cron"])
 	assert.Equal(t, "America/Los_Angeles", fields["timezone"])
 	assert.Equal(t, true, fields["enabled"])
+	assert.Equal(t, scripthandler.KindSchedule, fields["kind"])
 	assert.NotEmpty(t, fields["next_run_at"])
 	assert.Contains(t, fields["message"], "latest saved version")
 	assert.Contains(t, fields["message"], "as the script's own principal")
 
-	sc, err := store.GetByName(context.Background(), "jane@example.com", "daily")
-	require.NoError(t, err)
-	stored, err := store.GetSchedule(context.Background(), sc.ID)
+	id, _ := fields["handler"].(string)
+	stored, err := w.store.ScheduleByID(context.Background(), id)
 	require.NoError(t, err)
 	assert.Equal(t, "jane@example.com", stored.CreatedBy)
 	assert.True(t, stored.NextRunAt.After(time.Now()))
@@ -133,7 +160,7 @@ func TestScheduleSet_StoresTheCadenceAndSaysWhatWillHappen(t *testing.T) {
 // honest report: the schedule is stored, and the author is told plainly that
 // the run gate still refuses the script, in its own words.
 func TestScheduleSet_OnAScriptTheRunGateRefusesSaysNothingWillRunIt(t *testing.T) {
-	h, _, _ := runnableHandle(t)
+	h, _ := scheduleHandle(t)
 	no := false
 	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdUpdate, Name: "daily", Enabled: &no})
 	require.False(t, res.IsError, resultText(res))
@@ -145,11 +172,10 @@ func TestScheduleSet_OnAScriptTheRunGateRefusesSaysNothingWillRunIt(t *testing.T
 }
 
 // TestScheduleSet_BindsAgainstTheLiveContract pins that a schedule's
-// parameters are checked against the live record — what its fires will bind
-// against — when it is set, not silently at the first fire with nobody
-// watching.
+// parameters are checked against the live record when it is set, not
+// silently at the first fire with nobody watching.
 func TestScheduleSet_BindsAgainstTheLiveContract(t *testing.T) {
-	h, _ := newHandle()
+	h, _ := handlerHandle(t)
 	res := call(t, h, authorCtx(), manageScriptInput{
 		Command: cmdCreate, Name: "daily", Source: tested(inMain("print(1)\n")),
 		Params: []script.Param{{Name: "report_date", Type: script.ParamTypeDate, Required: true}},
@@ -157,21 +183,17 @@ func TestScheduleSet_BindsAgainstTheLiveContract(t *testing.T) {
 	require.False(t, res.IsError, resultText(res))
 
 	t.Run("the fire-date token satisfies a date parameter", func(t *testing.T) {
-		fields := scheduleSet(t, h, authorCtx(), manageScriptInput{
-			Cron: "@daily", Args: map[string]any{"report_date": script.FireDateToken},
-		})
+		fields := scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: "@daily", Args: map[string]any{"report_date": script.FireDateToken}})
 		assert.NotContains(t, fields, "error", fields)
 	})
 
 	t.Run("a missing required parameter is refused", func(t *testing.T) {
-		fields := scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: "@daily"})
+		fields := scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: "@hourly"})
 		assert.Contains(t, fields["error"], "required")
 	})
 
 	t.Run("an unknown token is refused", func(t *testing.T) {
-		fields := scheduleSet(t, h, authorCtx(), manageScriptInput{
-			Cron: "@daily", Args: map[string]any{"report_date": "${last_week}"},
-		})
+		fields := scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: "@hourly", Args: map[string]any{"report_date": "${last_week}"}})
 		assert.Contains(t, fields["error"], script.FireDateToken)
 	})
 }
@@ -192,236 +214,195 @@ func TestScheduleSet_Refusals(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h, _, _ := runnableHandle(t)
+			h, _ := scheduleHandle(t)
 			fields := scheduleSet(t, h, tt.ctx, tt.input)
 			assert.Contains(t, fields["error"], tt.wantErr)
 		})
 	}
 }
 
-// TestScheduleSet_ReplacingKeepsTheAutomation pins that editing a cadence does
-// not create a second schedule: the runs already pointing at this one point at
-// the same automation.
-func TestScheduleSet_ReplacingKeepsTheAutomation(t *testing.T) {
-	h, store, _ := runnableHandle(t)
-	scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: "@daily"})
-	scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: weekdayMornings})
+// TestScheduleSet_AScriptHoldsSeveralCadences is the several-schedules model
+// (#2434): a second cadence is a second handler, changing one by its id keeps
+// it (the runs pointing at it point at the same automation), and repeating a
+// cadence the script holds is refused naming the one it repeats.
+func TestScheduleSet_AScriptHoldsSeveralCadences(t *testing.T) {
+	h, w := scheduleHandle(t)
+	daily := scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: "@daily"})
+	mornings := scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: weekdayMornings})
+	require.NotEqual(t, daily["handler"], mornings["handler"])
 
-	all, err := store.ListSchedules(context.Background(), script.ScheduleFilter{})
+	all, err := w.store.ListSchedules(context.Background(), script.ScheduleFilter{})
 	require.NoError(t, err)
-	require.Len(t, all, 1)
-	assert.Equal(t, weekdayMornings, all[0].CronSpec)
+	require.Len(t, all, 2)
+
+	again := scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: "@daily"})
+	assert.Contains(t, again["error"], fmt.Sprintf("already has schedule handler %s on @daily", daily["handler"]))
+
+	dailyID, _ := daily["handler"].(string)
+	require.NotEmpty(t, dailyID)
+	retimed := scheduleSet(t, h, authorCtx(), manageScriptInput{Handler: dailyID, Cron: "@hourly"})
+	require.NotContains(t, retimed, "error", retimed)
+	assert.Equal(t, daily["handler"], retimed["handler"])
+	all, err = w.store.ListSchedules(context.Background(), script.ScheduleFilter{})
+	require.NoError(t, err)
+	assert.Len(t, all, 2, "changing a cadence adds no schedule")
+
+	listed := resultFields(t, call(t, h, authorCtx(), manageScriptInput{
+		Command: cmdHandlerList, Name: "daily", Kind: scripthandler.KindSchedule,
+	}))
+	assert.EqualValues(t, 2, listed["count"])
 }
 
-// TestScheduleEnableDisable pins the retirement path: a schedule is turned off,
-// never deleted, so the row that explains its runs stays.
+// TestScheduleEnableDisable pins the retirement path: a schedule is turned
+// off by its id, and resuming it reports its next fire again.
 func TestScheduleEnableDisable(t *testing.T) {
-	h, _, _ := runnableHandle(t)
-	scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: "@daily"})
+	h, _ := scheduleHandle(t)
+	id, _ := scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: "@daily"})["handler"].(string)
 
-	off := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdScheduleDisable, Name: "daily"}))
+	off := resultFields(t, call(t, h, authorCtx(), byID(cmdHandlerDisable, id)))
 	assert.Equal(t, false, off["enabled"])
-	assert.NotContains(t, off, "next_run_at",
-		"an author reading a paused schedule is not told it is about to fire")
+	assert.NotContains(t, off, "next_run_at", "an author reading a paused schedule is not told it is about to fire")
 
-	on := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdScheduleEnable, Name: "daily"}))
+	on := resultFields(t, call(t, h, authorCtx(), byID(cmdHandlerEnable, id)))
 	assert.Equal(t, true, on["enabled"])
 	assert.NotEmpty(t, on["next_run_at"], "and resuming reports the fire again")
 }
 
-func TestScheduleEnable_WithNoScheduleSaysHowToSetOne(t *testing.T) {
-	h, _, _ := runnableHandle(t)
-	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdScheduleEnable, Name: "daily"})
-	assert.True(t, res.IsError)
-	assert.Contains(t, resultText(res), cmdScheduleSet)
+func TestHandlerEnable_WithNoHandlerSaysWhichToName(t *testing.T) {
+	h, _ := scheduleHandle(t)
+	for _, cmd := range []string{cmdHandlerGet, cmdHandlerEnable, cmdHandlerDisable, cmdHandlerDelete} {
+		res := call(t, h, authorCtx(), manageScriptInput{Command: cmd, Name: "daily"})
+		assert.True(t, res.IsError, cmd)
+		assert.Contains(t, resultText(res), "handler is required", cmd)
+	}
+}
+
+// TestScheduleDelete: a schedule that produced runs is kept, named, and the
+// caller told to disable it; one that did not is deleted.
+func TestScheduleDelete(t *testing.T) {
+	h, w := scheduleHandle(t)
+	id, _ := scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: "@daily"})["handler"].(string)
+	scriptID := w.store.schedules[id].ScriptID
+
+	w.store.hasRuns[scriptID] = true
+	res := call(t, h, authorCtx(), byID(cmdHandlerDelete, id))
+	require.True(t, res.IsError)
+	assert.Contains(t, resultText(res), "disable it with handler_disable")
+	assert.Contains(t, w.store.schedules, id)
+
+	w.store.hasRuns[scriptID] = false
+	gone := resultFields(t, call(t, h, authorCtx(), byID(cmdHandlerDelete, id)))
+	assert.Equal(t, true, gone["deleted"])
+	assert.NotContains(t, w.store.schedules, id)
 }
 
 // TestScheduleSet_ANonOwnerIsRefused pins who decides when a script runs: its
-// owner, and an administrator, who is unrestricted as everywhere else. Anybody
-// else is not told the script is there.
+// owner, and an administrator, who is unrestricted as everywhere else.
 func TestScheduleSet_ANonOwnerIsRefused(t *testing.T) {
-	h, _, _ := runnableHandle(t)
+	h, _ := scheduleHandle(t)
 
 	refused := scheduleSet(t, h, callerCtx("bob@example.com", "analyst"), manageScriptInput{Cron: "@daily"})
 	assert.Contains(t, refused["error"], "not found")
 
-	paused := call(t, h, callerCtx("bob@example.com", "analyst"),
-		manageScriptInput{Command: cmdScheduleDisable, Name: "daily"})
-	require.True(t, paused.IsError)
-	assert.Contains(t, resultText(paused), "not found")
+	byAdmin := scheduleSet(t, h, adminCtx(), manageScriptInput{Cron: "@daily", OwnerEmail: "jane@example.com"})
+	require.NotContains(t, byAdmin, "error", byAdmin)
+	id, _ := byAdmin["handler"].(string)
 
-	byAdmin := scheduleSet(t, h, adminCtx(), manageScriptInput{
-		Cron: "@daily", OwnerEmail: "jane@example.com",
-	})
-	assert.NotContains(t, byAdmin, "error", byAdmin)
+	paused := call(t, h, callerCtx("bob@example.com", "analyst"), byID(cmdHandlerDisable, id))
+	require.True(t, paused.IsError)
+	assert.Contains(t, resultText(paused), "is not yours")
 }
 
-func TestScheduleList(t *testing.T) {
-	h, _, _ := runnableHandle(t)
+func TestHandlerList(t *testing.T) {
+	h, _ := scheduleHandle(t)
 	scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: weekdayMornings})
 
 	t.Run("across scripts", func(t *testing.T) {
-		fields := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdScheduleList}))
+		fields := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdHandlerList}))
 		assert.EqualValues(t, 1, fields["count"])
+		assert.EqualValues(t, 1, fields["total"])
 	})
 
 	t.Run("for one named script", func(t *testing.T) {
-		fields := resultFields(t, call(t, h, authorCtx(),
-			manageScriptInput{Command: cmdScheduleList, Name: "daily"}))
+		fields := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdHandlerList, Name: "daily"}))
 		assert.EqualValues(t, 1, fields["count"])
+		assert.Equal(t, "daily", fields["name"])
 	})
 
-	t.Run("a script with no schedule says so", func(t *testing.T) {
-		res := call(t, h, authorCtx(), manageScriptInput{
-			Command: cmdCreate, Name: "other", Source: tested(inMain("print(1)\n")),
-		})
-		require.False(t, res.IsError, resultText(res))
-		fields := resultFields(t, call(t, h, authorCtx(),
-			manageScriptInput{Command: cmdScheduleList, Name: "other"}))
+	t.Run("narrowed to a kind", func(t *testing.T) {
+		fields := resultFields(t, call(t, h, authorCtx(), manageScriptInput{
+			Command: cmdHandlerList, Kind: scripthandler.KindWebhook,
+		}))
 		assert.EqualValues(t, 0, fields["count"])
-		assert.Contains(t, fields["message"], cmdScheduleSet)
+		res := call(t, h, authorCtx(), manageScriptInput{Command: cmdHandlerList, Kind: "policy"})
+		require.True(t, res.IsError)
+		assert.Contains(t, resultText(res), `unknown handler kind "policy"`)
 	})
 
-	t.Run("another caller sees nothing of a personal script's schedule", func(t *testing.T) {
-		fields := resultFields(t, call(t, h, callerCtx("bob@example.com", "analyst"),
-			manageScriptInput{Command: cmdScheduleList}))
-		assert.EqualValues(t, 0, fields["count"],
-			"a schedule is exactly as visible as the script it belongs to")
+	t.Run("a script with no handler says so", func(t *testing.T) {
+		res := call(t, h, authorCtx(), manageScriptInput{Command: cmdCreate, Name: "other", Source: tested(inMain("print(1)\n"))})
+		require.False(t, res.IsError, resultText(res))
+		fields := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdHandlerList, Name: "other"}))
+		assert.EqualValues(t, 0, fields["count"])
+		assert.Equal(t, []any{}, fields["handlers"])
+		assert.Contains(t, fields["message"], cmdHandlerSet)
 	})
 
-	t.Run("an admin sees every schedule", func(t *testing.T) {
-		fields := resultFields(t, call(t, h, adminCtx(), manageScriptInput{Command: cmdScheduleList}))
+	t.Run("another caller sees nothing of a personal script's handlers", func(t *testing.T) {
+		fields := resultFields(t, call(t, h, callerCtx("bob@example.com", "analyst"), manageScriptInput{Command: cmdHandlerList}))
+		assert.EqualValues(t, 0, fields["count"], "a handler is exactly as visible as the script it belongs to")
+		res := call(t, h, callerCtx("bob@example.com", "analyst"), manageScriptInput{Command: cmdHandlerList, Name: "daily"})
+		assert.True(t, res.IsError)
+	})
+
+	t.Run("an admin sees every handler", func(t *testing.T) {
+		fields := resultFields(t, call(t, h, adminCtx(), manageScriptInput{Command: cmdHandlerList}))
 		assert.EqualValues(t, 1, fields["count"])
 	})
 }
 
-// TestScheduleCommands_WithoutAScheduleStore pins the degraded deployment: the
-// commands answer plainly instead of panicking on a nil store.
-func TestScheduleCommands_WithoutAScheduleStore(t *testing.T) {
-	h := New(Config{Store: &scheduleless{newMemStore()}})
-	res := call(t, h, authorCtx(), manageScriptInput{
-		Command: cmdCreate, Name: "daily", Source: tested(inMain("print(1)\n")),
-	})
-	require.False(t, res.IsError, resultText(res))
-
-	for _, command := range []string{cmdScheduleSet, cmdScheduleList, cmdScheduleEnable, cmdScheduleDisable} {
+// TestHandlerCommands_WithoutAHandlerStore pins the degraded deployment: the
+// commands answer plainly instead of panicking on a nil service.
+func TestHandlerCommands_WithoutAHandlerStore(t *testing.T) {
+	h, _ := newHandle()
+	createDaily(t, h)
+	for _, command := range []string{cmdHandlerSet, cmdHandlerList, cmdHandlerGet, cmdHandlerEnable, cmdHandlerDisable, cmdHandlerDelete} {
 		res := call(t, h, authorCtx(), manageScriptInput{Command: command, Name: "daily", Cron: "@daily"})
 		assert.True(t, res.IsError, command)
-		assert.Contains(t, resultText(res), "cannot store schedules")
+		assert.Contains(t, resultText(res), "this deployment cannot keep handlers", command)
 	}
 }
 
-// scheduleless is the memory store with its schedule half hidden, which is what
-// a store that does not implement the contract looks like to the Handle.
-type scheduleless struct{ inner *memStore }
+// TestHandlerCommands_StoreFailuresAreReportedNotLeaked: a store's failure is
+// the platform's, told to the caller as such and never in the store's words.
+func TestHandlerCommands_StoreFailuresAreReportedNotLeaked(t *testing.T) {
+	h, w := scheduleHandle(t)
+	id, _ := scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: "@daily"})["handler"].(string)
+	w.store.scheduleErr = errors.New("pq: relation script_schedules is locked by pid 4242")
 
-func (s *scheduleless) Create(ctx context.Context, sc *script.Script, a script.Author) error {
-	return s.inner.Create(ctx, sc, a)
-}
+	res := call(t, h, authorCtx(), manageScriptInput{
+		Command: cmdHandlerSet, Name: "daily", Cron: "@hourly",
+		Kind: scripthandler.KindSchedule,
+	})
+	require.True(t, res.IsError)
+	assert.Contains(t, resultText(res), "the handler could not be read or written; try again")
+	assert.NotContains(t, resultText(res), "pid 4242")
 
-func (s *scheduleless) GetByName(ctx context.Context, owner, name string) (*script.Script, error) {
-	return s.inner.GetByName(ctx, owner, name)
-}
+	res = call(t, h, authorCtx(), manageScriptInput{Command: cmdHandlerList, Name: "daily"})
+	require.True(t, res.IsError, "a listing of one script describes each handler, which reads the store")
+	assert.NotContains(t, resultText(res), "pid 4242")
+	w.store.scheduleErr = nil
 
-func (s *scheduleless) Transfer(ctx context.Context, req script.TransferRequest, a script.Author) (script.Transferred, error) {
-	return s.inner.Transfer(ctx, req, a)
-}
+	w.store.enabledErr = errors.New("pq: deadlock detected")
+	res = call(t, h, authorCtx(), byID(cmdHandlerDisable, id))
+	require.True(t, res.IsError)
+	assert.Contains(t, resultText(res), "could not be read or written")
+	w.store.enabledErr = nil
 
-func (s *scheduleless) GetByID(ctx context.Context, id string) (*script.Script, error) {
-	return s.inner.GetByID(ctx, id)
-}
-
-func (s *scheduleless) Update(ctx context.Context, sc *script.Script) error {
-	return s.inner.Update(ctx, sc)
-}
-
-func (s *scheduleless) Delete(ctx context.Context, id string) (script.Removed, error) {
-	return s.inner.Delete(ctx, id)
-}
-
-func (s *scheduleless) List(ctx context.Context, f script.ListFilter) ([]script.Script, error) {
-	return s.inner.List(ctx, f)
-}
-
-func (s *scheduleless) Count(ctx context.Context, f script.ListFilter) (int, error) {
-	rows, err := s.List(ctx, f)
-	return len(rows), err
-}
-
-func (*scheduleless) CountScheduled(context.Context, script.ListFilter) (int, error) {
-	return 0, nil
-}
-
-// TestScheduleSet_StoreFailuresAreReportedNotPanicked covers the read and write
-// failures the commands can meet.
-func TestScheduleSet_StoreFailuresAreReportedNotPanicked(t *testing.T) {
-	h, store, _ := runnableHandle(t)
-	store.scheduleErr = errors.New("boom")
-
-	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdScheduleSet, Name: "daily", Cron: "@daily"})
-	assert.True(t, res.IsError)
-
-	res = call(t, h, authorCtx(), manageScriptInput{Command: cmdScheduleList})
-	assert.True(t, res.IsError)
-
-	res = call(t, h, authorCtx(), manageScriptInput{Command: cmdScheduleList, Name: "daily"})
-	assert.True(t, res.IsError)
-}
-
-// TestScheduleDisable_ReportsTheChangeWhenTheReadBackFails pins that a change
-// that landed is reported as landed: re-reading it is a courtesy, not the
-// outcome.
-func TestScheduleDisable_ReportsTheChangeWhenTheReadBackFails(t *testing.T) {
-	h, store, _ := runnableHandle(t)
-	scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: "@daily"})
-	store.scheduleReadErr = errors.New("boom")
-
-	fields := resultFields(t, call(t, h, authorCtx(),
-		manageScriptInput{Command: cmdScheduleDisable, Name: "daily"}))
-	assert.Equal(t, false, fields["enabled"])
-	assert.Equal(t, "daily", fields["name"])
-}
-
-// TestScheduleNote_SaysWhatADisabledScheduleWillDo pins the third state an
-// author can be in: the script runs, and its schedule is switched off.
-func TestScheduleNote_SaysWhatADisabledScheduleWillDo(t *testing.T) {
-	sc := &script.Script{Enabled: true, Status: script.StatusActive}
-	assert.Contains(t, scheduleNote(sc, &script.Schedule{Enabled: false}), cmdScheduleEnable)
-}
-
-// TestScheduleEnable_AStoreFailureIsReported pins that a failed write is not
-// reported as a change that landed.
-func TestScheduleEnable_AStoreFailureIsReported(t *testing.T) {
-	h, store, _ := runnableHandle(t)
-	scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: "@daily"})
-	store.enabledErr = errors.New("boom")
-
-	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdScheduleEnable, Name: "daily"})
-	assert.True(t, res.IsError)
-	assert.Contains(t, resultText(res), "failed to change the schedule")
-}
-
-// TestScheduleList_ResolvesAScriptTheListingCutOff pins that the listing does
-// not silently shorten itself: a schedule whose script fell outside the bulk
-// lookup is resolved individually and still checked for visibility.
-func TestScheduleList_ResolvesAScriptTheListingCutOff(t *testing.T) {
-	h, store, _ := runnableHandle(t)
-	scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: "@daily"})
-
-	// A schedule pointing at a script the bulk listing does not return.
-	store.schedules["ghost"] = &script.Schedule{ID: "sched_ghost", ScriptID: "ghost", CronSpec: "@daily"}
-	fields := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdScheduleList}))
-	assert.EqualValues(t, 1, fields["count"], "a schedule whose script cannot be read is not listed")
-
-	// And one whose script exists but belongs to somebody else.
-	other := &script.Script{
-		ID: "script_other", Name: "theirs", OwnerEmail: "bob@example.com", Enabled: true, Status: script.StatusActive,
+	w.viewErr = errors.New("pq: connection refused")
+	for _, input := range []manageScriptInput{{Command: cmdHandlerList}, {Command: cmdHandlerList, Name: "daily"}} {
+		res = call(t, h, authorCtx(), input)
+		require.True(t, res.IsError)
+		assert.NotContains(t, resultText(res), "connection refused")
 	}
-	store.scripts[other.ID] = other
-	store.schedules[other.ID] = &script.Schedule{ID: "sched_other", ScriptID: other.ID, CronSpec: "@daily"}
-	fields = resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdScheduleList}))
-	assert.EqualValues(t, 1, fields["count"], "and neither is one the caller may not see")
-
-	fields = resultFields(t, call(t, h, adminCtx(), manageScriptInput{Command: cmdScheduleList}))
-	assert.EqualValues(t, 2, fields["count"], "an admin sees both real scripts' schedules")
 }

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { LibraryUse, ScriptVersion } from "@/api/admin/types";
-import { ApiError, apiFetch } from "../client";
+import { apiFetch } from "../client";
 import type { SharedFunction } from "./sharedCode";
 import { scriptsKey } from "./scriptKeys";
 import { RUN_POLL_MS, hasRunInFlight } from "./scriptRuns";
@@ -259,9 +259,6 @@ export interface ScriptContract {
   enabled: boolean;
   // exclusive is off, refuse or queue (#1986, #2209); absent from an older server.
   exclusive?: ExclusiveMode;
-  // event_source is the webhook source the script runs for (#2332); absent
-  // when it runs for none.
-  event_source?: string;
   params: ScriptParam[];
   // version is the version a run executes: the latest saved one.
   version: number;
@@ -269,12 +266,14 @@ export interface ScriptContract {
   // empty when one would be. A page never reports a script as runnable that
   // run_script would decline.
   refusal?: string;
-  schedule?: {
+  // schedules are the cadences the script fires on, each a schedule handler
+  // of its own (#2434); empty when it has none.
+  schedules?: {
     cron_spec: string;
     timezone: string;
     enabled: boolean;
     next_run_at?: string;
-  };
+  }[];
   last_successful_run?: ScriptContractRun;
   // state says whether this script carries anything between runs (#1537).
   state?: import("./scriptState").ScriptContractState;
@@ -358,17 +357,12 @@ export {
 } from "./scriptExclusive";
 import type { ExclusiveMode } from "./scriptExclusive";
 
-// The webhook source a script runs for (#2332) lives in scriptEvents.ts.
-export {
-  useScriptEventSummary,
-  useSetScriptEventSource,
-  type ScriptEventSummary,
-  type ScriptEventSourceOutcome,
-} from "./scriptEvents";
+// How a script's event runs stand (#2332) lives in scriptEvents.ts.
+export { useScriptEventSummary, type ScriptEventSummary } from "./scriptEvents";
 
 export type {
   PortalScriptRow,
-  ScriptEndpointFilter,
+  ScriptHandlerFilter,
   ScriptKind,
   ScriptListFilter,
   ScriptListResponse,
@@ -478,60 +472,6 @@ export function usePortalScriptVersions(
     queryFn: () =>
       apiFetch<ListResponse<ScriptVersion>>(`/scripts/${scriptID}/versions`),
     enabled: !!scriptID && enabled,
-  });
-}
-
-// useScriptSchedule reads an owned script's cadence in full, including the
-// parameters every fire binds — which the contract deliberately does not carry,
-// because it is the document every surface renders and these are the owner's
-// bindings. A script with no schedule is a normal state rather than a failure,
-// so the 404 the route answers with becomes null here.
-export function useScriptSchedule(scriptID: string | null, owned: boolean) {
-  return useQuery({
-    queryKey: [...scriptsKey, scriptID, "schedule"],
-    queryFn: async () => {
-      try {
-        return await apiFetch<ScriptSchedule>(`/scripts/${scriptID}/schedule`);
-      } catch (e) {
-        if (e instanceof ApiError && e.status === 404) return null;
-        throw e;
-      }
-    },
-    enabled: !!scriptID && owned,
-  });
-}
-
-// useSetScriptSchedule creates or replaces a script's cadence. Every script
-// query is invalidated on success rather than just the schedule: the contract
-// reports the next fire too, and a page showing yesterday's cadence beside
-// today's is worse than one extra read.
-export function useSetScriptSchedule(scriptID: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (body: ScriptScheduleInput) =>
-      apiFetch<ScriptSchedule>(`/scripts/${scriptID}/schedule`, {
-        method: "PUT",
-        body: JSON.stringify(body),
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: scriptsKey }),
-  });
-}
-
-// useSetScriptSchedulePaused pauses or resumes a schedule without touching its
-// cadence. It is a separate route from the cadence for a reason worth keeping
-// here: sending the whole schedule back to turn it off would re-base its next
-// fire, and a paused schedule must resume on the fire it was parked on.
-export function useSetScriptSchedulePaused(scriptID: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (enabled: boolean) =>
-      apiFetch<ScriptSchedule>(
-        `/scripts/${scriptID}/schedule/${enabled ? "enable" : "disable"}`,
-        {
-          method: "POST",
-        },
-      ),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: scriptsKey }),
   });
 }
 

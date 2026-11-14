@@ -304,3 +304,28 @@ func TestBuild_RowsCarryTheScriptsFacets(t *testing.T) {
 	assert.Equal(t, "", rows[2].Category)
 	assert.Equal(t, []string{}, rows[2].Tags)
 }
+
+// TestBuild_EachScheduleOfAScriptIsARowOfItsOwn: a script holding several
+// schedules (#2434) has a row for each, named by its schedule handler, in the
+// section its own rate files it under.
+func TestBuild_EachScheduleOfAScriptIsARowOfItsOwn(t *testing.T) {
+	schedules := []script.Schedule{
+		{ID: "sched_morning", ScriptID: "s1", CronSpec: "0 7 * * *", Timezone: "UTC", Enabled: true},
+		{ID: "sched_evening", ScriptID: "s1", CronSpec: "0 19 * * *", Timezone: "UTC", Enabled: false},
+		{ID: "sched_often", ScriptID: "s1", CronSpec: "*/15 * * * *", Timezone: "UTC", Enabled: true},
+	}
+	scripts := map[string]*script.Script{"s1": {ID: "s1", Name: "daily"}}
+	tl := Build(schedules, scripts, time.UTC, wednesday)
+
+	daily := section(t, tl, SectionMultiDay).Rows
+	require.Len(t, daily, 2)
+	ids := []string{daily[0].ScheduleID, daily[1].ScheduleID}
+	assert.Equal(t, []string{"sched_evening", "sched_morning"}, ids, "one script's schedules keep one order: by handler id")
+	for _, r := range daily {
+		assert.Equal(t, "s1", r.ScriptID)
+		assert.Equal(t, "daily", r.ScriptName)
+	}
+	often := section(t, tl, SectionIntraday).Rows
+	require.Len(t, often, 1)
+	assert.Equal(t, "sched_often", often[0].ScheduleID)
+}

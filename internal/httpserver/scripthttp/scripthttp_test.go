@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -49,10 +51,93 @@ type stubStore struct {
 	deleteErr     error
 	deletedIDs    []string
 	deleteCascade script.Removed
-	// The schedule half, served by the methods in schedules_test.go.
-	schedule         *script.Schedule
+	// The schedule half: a script may hold several (#2434), so they are a
+	// list, read by the listing's one query.
+	schedules        []script.Schedule
 	scheduleErr      error
 	scheduleWriteErr error
+	// scheduleAsked is the filter the listing's schedule read was given.
+	scheduleAsked script.ScheduleFilter
+}
+
+// The schedule half of the stub store, keyed by schedule id.
+func (s *stubStore) SetSchedule(_ context.Context, sched *script.Schedule) error {
+	if s.scheduleWriteErr != nil {
+		return s.scheduleWriteErr
+	}
+	if sched.ID == "" {
+		sched.ID = fmt.Sprintf("sched_%d", len(s.schedules)+1)
+	}
+	for i := range s.schedules {
+		if s.schedules[i].ID == sched.ID {
+			s.schedules[i] = *sched
+			return nil
+		}
+	}
+	s.schedules = append(s.schedules, *sched)
+	return nil
+}
+
+func (s *stubStore) ScheduleByID(_ context.Context, id string) (*script.Schedule, error) {
+	if s.scheduleErr != nil {
+		return nil, s.scheduleErr
+	}
+	for i := range s.schedules {
+		if s.schedules[i].ID == id {
+			out := s.schedules[i]
+			return &out, nil
+		}
+	}
+	return nil, script.ErrScheduleNotFound
+}
+
+func (s *stubStore) ListSchedules(_ context.Context, f script.ScheduleFilter) ([]script.Schedule, error) {
+	s.scheduleAsked = f
+	if s.scheduleErr != nil {
+		return nil, s.scheduleErr
+	}
+	out := []script.Schedule{}
+	for _, sched := range s.schedules {
+		if f.ScriptIDs == nil || slices.Contains(f.ScriptIDs, sched.ScriptID) {
+			out = append(out, sched)
+		}
+	}
+	return out, nil
+}
+
+func (s *stubStore) EnableSchedule(_ context.Context, id string, enabled bool, actor string) error {
+	if s.scheduleWriteErr != nil {
+		return s.scheduleWriteErr
+	}
+	for i := range s.schedules {
+		if s.schedules[i].ID == id {
+			s.schedules[i].Enabled, s.schedules[i].UpdatedBy = enabled, actor
+			return nil
+		}
+	}
+	return script.ErrScheduleNotFound
+}
+
+func (s *stubStore) DeleteSchedule(_ context.Context, id string) error {
+	for i := range s.schedules {
+		if s.schedules[i].ID == id {
+			s.schedules = slices.Delete(s.schedules, i, i+1)
+			return nil
+		}
+	}
+	return script.ErrScheduleNotFound
+}
+
+func (*stubStore) DueSchedules(context.Context, time.Time, int) ([]script.Schedule, error) {
+	return nil, nil
+}
+
+func (*stubStore) MaterializeRun(context.Context, *script.Run) (script.Materialization, error) {
+	return script.MaterializedRun, nil
+}
+
+func (*stubStore) AdvanceSchedule(context.Context, script.ScheduleAdvance) (bool, error) {
+	return true, nil
 }
 
 func (*stubStore) Create(context.Context, *script.Script, script.Author) error { return nil }

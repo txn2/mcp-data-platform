@@ -481,7 +481,7 @@ func (k *canary2363) driveForm(admin *client) {
 			k.read("POST /forms/"+name, raw)
 		}
 	}
-	k.call(admin, "manage_script", map[string]any{"command": "endpoint_list", "name": name})
+	k.call(admin, "manage_script", map[string]any{"command": "handler_list", "name": name, "kind": "endpoint"})
 	k.rest(admin, http.MethodGet, "/api/v1/admin/audit/events?event_kind=endpoint_request&per_page=100", nil)
 }
 

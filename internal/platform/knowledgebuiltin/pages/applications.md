@@ -280,8 +280,8 @@ script with its tests: each runs on a copy of the database built from the
 migrations, with fixtures written by the test.
 
 Bind it as a form on an authenticated endpoint, so `mcp.email` is the
-signed-in customer: `manage_script` `endpoint_set` with `endpoint:
-"checkout"`, `methods: ["GET", "POST"]`, `auth_mode: "authenticated"` and the
+signed-in customer: `manage_script` `handler_set` with `kind: "endpoint"`,
+`endpoint: "checkout"`, `methods: ["GET", "POST"]`, `auth_mode: "authenticated"` and the
 personas that may order as `callers`.
 
 ## 3. The JSON API
@@ -345,8 +345,9 @@ An administrator creates a webhook source with input `postgres`, mode
 `outbox`, the connection and the outbox table the template made (Admin >
 Webhooks, or `POST /api/v1/admin/webhooks/sources` through the platform-admin
 connection). Each order the trigger copies becomes one event, and the
-confirmation script names the source as its `event_source`
-(`manage_script` `update`), so it runs once per order:
+confirmation script runs for the source through a webhook handler
+(`manage_script` `handler_set` with `kind: "webhook"` and `event_source`), so
+it runs once per order:
 
 ```python
 CHANNEL = "order-confirmations"
@@ -398,8 +399,8 @@ never the checkout, and an order cannot be confirmed without existing.
 
 A scheduled script keeps the database healthy: the built-in example
 `example-nightly-maintenance` analyzes it and vacuums the tables that churn,
-outside any transaction. Set its schedule with `manage_script`
-`schedule_set`. Its author's persona must be the administrator or one the
+outside any transaction. Give it a schedule with `manage_script`
+`handler_set` and `kind: "schedule"`. Its author's persona must be the administrator or one the
 connection's `schema_apply_personas` names. The connection page's Health card
 shows what it is keeping in check: a status (healthy, needs attention,
 critical) judged by the same thresholds the database alerts are posted by,
@@ -447,7 +448,7 @@ reads the same list from `/endpoints/shop/products`.
    release moves a site one step as promoting it would. A migration that fails
    refuses the release and changes nothing.
 
-From then on the endpoints, the form, the schedule, the events and
+From then on the endpoints, the forms, the schedules, the events and
 `run_script` run the pinned script versions, and the portal serves the pinned
 asset version. Saving a script or a new asset version changes nothing live
 until the next release, so an application is edited and tested, then released
@@ -457,8 +458,8 @@ reverts none and says which. `releases` lists every release and what each
 changed.
 
 `export` writes a release as a bundle (a managed resource) carrying the
-migrations, script versions with their endpoints and schedules and the
-recorded runs their tests replay, and asset versions, and naming the
+migrations, script versions with every handler each holds (its endpoints,
+schedules and webhook sources) and the recorded runs their tests replay, and asset versions, and naming the
 connections, secrets, webhook sources and bot checks they use; it carries no
 secret value, credential, script state or run history. A recording holds the
 answers its run's calls were given, which can include rows. On another

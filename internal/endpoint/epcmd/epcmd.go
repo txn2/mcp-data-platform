@@ -1,9 +1,9 @@
-// Package epcmd is manage_script's endpoint binding commands (#2171):
-// endpoint_set, endpoint_list, endpoint_enable and endpoint_disable, beside
-// the schedule commands. internal/platform/scriptlayer resolves the script a
-// command names, as it does for every command, and hands it here with who is
-// asking; the input fields and their schema are spliced into manage_script's
-// own.
+// Package epcmd is the endpoint kind of script handler (#2171, #2441): setting,
+// describing, listing, enabling, disabling and deleting a script's endpoint
+// handlers, and form_preview. internal/platform/scripthandler carries out the
+// handler_* commands and the portal's handler routes through it, after
+// resolving the script by the rule every command resolves by; the input
+// fields and their schema are spliced into manage_script's own.
 package epcmd
 
 import (
@@ -22,21 +22,14 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
-// The commands.
+// CmdFormPreview opens a preview of a form for its owner (#2494).
+const CmdFormPreview = "form_preview"
+
+// The keys a result names the script and the endpoint under.
 const (
-	CmdSet     = "endpoint_set"
-	CmdList    = "endpoint_list"
-	CmdEnable  = "endpoint_enable"
-	CmdDisable = "endpoint_disable"
-	// CmdFormPreview opens a preview of a form for its owner (#2494).
-	CmdFormPreview = "form_preview"
+	fieldName   = "name"
+	keyEndpoint = "endpoint"
 )
-
-// Commands is every endpoint command, in the order the schema lists them.
-var Commands = []string{CmdSet, CmdList, CmdEnable, CmdDisable, CmdFormPreview}
-
-// fieldName is the script's name in a result.
-const fieldName = "name"
 
 // failuresShown is how many recent failed requests a listing of one script's
 // binding carries.
@@ -57,12 +50,8 @@ type storeError struct {
 func (e *storeError) Error() string   { return e.msg + ": " + e.err.Error() }
 func (e *storeError) Unwrap() []error { return []error{ErrStore, e.err} }
 
-// Writes reports whether cmd changes a binding, which a script run may not
-// do: a run that could bind a script would be able to publish a route.
-func Writes(cmd string) bool { return cmd == CmdSet || cmd == CmdEnable || cmd == CmdDisable }
-
-// Input is the part of manage_script's input the endpoint commands read.
-// endpoint_set also reads manage_script's timeout_seconds.
+// Input is the part of manage_script's input an endpoint handler reads.
+// handler_set kind=endpoint also reads manage_script's timeout_seconds.
 type Input struct {
 	Endpoint        string   `json:"endpoint,omitempty"`
 	Methods         []string `json:"methods,omitempty"`
@@ -97,15 +86,20 @@ type Input struct {
 	PreviewVersion int `json:"preview_version,omitempty"`
 }
 
-// Request is one endpoint command.
+// Request is one operation on a script's endpoint handlers.
 type Request struct {
-	Command string
-	Input   Input
+	Input Input
 	// TimeoutSeconds is manage_script's timeout_seconds.
 	TimeoutSeconds int
-	// Script is the script the command names, nil for a listing that names
-	// none.
+	// Script is the script whose handlers are acted on, nil for a listing
+	// that names none.
 	Script *script.Script
+	// Binding is the id of the binding a set replaces; empty finds it by the
+	// name in Input, or makes a new one.
+	Binding string
+	// MaxBindings is how many endpoint handlers one script may hold, 0 for
+	// no bound (#2441).
+	MaxBindings int
 	// Visible scopes a listing that names no script to the scripts the caller
 	// may see; nil for an administrator, whose listing is every binding.
 	Visible map[string]*script.Script
@@ -182,41 +176,30 @@ func (h *Handler) formSources() FormSources {
 	return nil
 }
 
-// Run carries out req and returns the result manage_script answers with. An
-// error is the caller's to read.
-func (h *Handler) Run(ctx context.Context, req Request) (map[string]any, error) {
-	if Writes(req.Command) && !req.Admin {
-		if err := ownerMayWrite(req); err != nil {
-			return nil, err
-		}
+// MayWrite reports why the caller of req may not set, enable, disable or
+// delete an endpoint handler of its script, nil when they may.
+func MayWrite(req Request) error {
+	if req.Admin {
+		return nil
 	}
-	switch req.Command {
-	case CmdSet:
-		return h.set(ctx, req)
-	case CmdEnable, CmdDisable:
-		return h.setEnabled(ctx, req)
-	case CmdList:
-		if req.Script != nil {
-			return h.one(ctx, req.Script)
-		}
-		return h.list(ctx, req)
-	case CmdFormPreview:
-		return h.preview(ctx, req)
-	}
-	return nil, fmt.Errorf("unknown endpoint command %q", req.Command)
+	return ownerMayWrite(req)
 }
 
-func (h *Handler) set(ctx context.Context, req Request) (map[string]any, error) {
+// Set creates or changes one of the script's endpoint handlers and returns
+// it as manage_script reports it. The handler changed is the one named by
+// req.Binding, else the script's handler with the name in req.Input, else
+// the script's only one when no name is sent; any other name makes a new one.
+func (h *Handler) Set(ctx context.Context, req Request) (map[string]any, error) {
+	if err := MayWrite(req); err != nil {
+		return nil, err
+	}
 	sc := req.Script
 	if err := epbinding.Callable(sc.Source); err != nil {
 		return nil, fmt.Errorf("script %s cannot be bound: %w", sc.Name, err)
 	}
-	prev, err := h.Store.Get(ctx, sc.ID)
-	switch {
-	case errors.Is(err, epbinding.ErrNotFound):
-		prev = nil
-	case err != nil:
-		return nil, storeErr("failed to read the current binding", err)
+	prev, err := h.previous(ctx, req)
+	if err != nil {
+		return nil, err
 	}
 	in := req.Input
 	b, err := epbinding.Build(sc, prev, epbinding.Request{
@@ -231,35 +214,112 @@ func (h *Handler) set(ctx context.Context, req Request) (map[string]any, error) 
 	if err != nil {
 		return nil, err //nolint:wrapcheck // the binding's own refusal is what the caller reads
 	}
-	if b.AuthMode == epbinding.AuthBotCheck && h.CheckUsable != nil {
-		if err := h.CheckUsable(ctx, b.BotCheck); err != nil {
-			return nil, err
-		}
-	}
-	if err := h.publicApproved(ctx, req, b); err != nil {
-		return nil, err
-	}
-	if err := h.pageAllowed(ctx, b); err != nil {
+	if err := h.checkBinding(ctx, req, b); err != nil {
 		return nil, err
 	}
 	if err := h.Store.Set(ctx, b); err != nil {
-		switch {
-		case errors.Is(err, epbinding.ErrNameTaken):
-			return nil, fmt.Errorf("endpoint name %q is taken by another script's endpoint; choose another", b.Name)
-		case errors.Is(err, epbinding.ErrNoSuchCheck):
-			return nil, err //nolint:wrapcheck // names the check the binding asked for
-		}
-		return nil, storeErr("failed to set the binding", err)
+		return nil, h.setError(ctx, b, err)
 	}
-	out := h.fields(sc.Name, b)
-	out["message"] = fmt.Sprintf("%s now answers %s at %s.", sc.Name, strings.Join(b.Methods, ", "), out["url"])
-	if b.IPRateLimit > 0 && h.NoTrustedProxies {
-		out["warning"] = NoTrustedProxiesWarning
-	}
+	out := h.setOut(sc.Name, b)
 	if err := h.formSource(ctx, req, b, out); err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+// checkBinding refuses a binding its bot check, its approval or its page
+// settings do not allow.
+func (h *Handler) checkBinding(ctx context.Context, req Request, b *epbinding.Binding) error {
+	if b.AuthMode == epbinding.AuthBotCheck && h.CheckUsable != nil {
+		if err := h.CheckUsable(ctx, b.BotCheck); err != nil {
+			return err
+		}
+	}
+	if err := h.publicApproved(ctx, req, b); err != nil {
+		return err
+	}
+	return h.pageAllowed(ctx, b)
+}
+
+// setOut is a binding just set as handler_set reports it.
+func (h *Handler) setOut(scriptName string, b *epbinding.Binding) map[string]any {
+	out := h.fields(scriptName, b)
+	out["message"] = fmt.Sprintf("%s now answers %s at %s.", scriptName, strings.Join(b.Methods, ", "), out["url"])
+	if b.IPRateLimit > 0 && h.NoTrustedProxies {
+		out["warning"] = NoTrustedProxiesWarning
+	}
+	return out
+}
+
+// previous is the binding a set replaces, nil for a new one.
+func (h *Handler) previous(ctx context.Context, req Request) (*epbinding.Binding, error) {
+	sc := req.Script
+	held, err := h.Store.ByScript(ctx, sc.ID)
+	if err != nil {
+		return nil, storeErr("failed to read the script's endpoint handlers", err)
+	}
+	switch name := req.Input.Endpoint; {
+	case req.Binding != "":
+		if b := findBinding(held, func(b *epbinding.Binding) bool { return b.ID == req.Binding }); b != nil {
+			return b, nil
+		}
+		return nil, fmt.Errorf("script %s has no endpoint handler %s: %w", sc.Name, req.Binding, epbinding.ErrNotFound)
+	case name != "":
+		if b := findBinding(held, func(b *epbinding.Binding) bool { return b.Name == name }); b != nil {
+			return b, nil
+		}
+	case len(held) == 1:
+		return &held[0], nil
+	case len(held) > 1:
+		return nil, fmt.Errorf("script %s has %d endpoint handlers (%s): name the one to change with endpoint, or handler with its id",
+			sc.Name, len(held), strings.Join(bindingNames(held), ", "))
+	}
+	if req.MaxBindings > 0 && len(held) >= req.MaxBindings {
+		return nil, fmt.Errorf("script %s already has %d endpoint handlers, the most a script may hold: %w",
+			sc.Name, len(held), epbinding.ErrNotAllowed)
+	}
+	return nil, nil //nolint:nilnil // no binding to replace: a new one
+}
+
+// findBinding is the first binding in held match accepts, nil for none.
+func findBinding(held []epbinding.Binding, match func(*epbinding.Binding) bool) *epbinding.Binding {
+	for i := range held {
+		if match(&held[i]) {
+			return &held[i]
+		}
+	}
+	return nil
+}
+
+// bindingNames is the endpoint names held answers at.
+func bindingNames(held []epbinding.Binding) []string {
+	names := make([]string, 0, len(held))
+	for i := range held {
+		names = append(names, held[i].Name)
+	}
+	return names
+}
+
+// setError is what a store's refusal of a set tells the caller: a name held
+// elsewhere names the handler holding it.
+func (h *Handler) setError(ctx context.Context, b *epbinding.Binding, err error) error {
+	switch {
+	case errors.Is(err, epbinding.ErrNameTaken):
+		holder, gerr := h.Store.GetByName(ctx, b.Name)
+		if gerr != nil {
+			return fmt.Errorf("endpoint name %q is taken by another endpoint handler; choose another", b.Name)
+		}
+		owner := holder.ScriptID
+		if h.ScriptName != nil {
+			if name := h.ScriptName(ctx, holder.ScriptID); name != "" {
+				owner = name
+			}
+		}
+		return fmt.Errorf("endpoint name %q is taken by endpoint handler %s of script %s; choose another", b.Name, holder.ID, owner)
+	case errors.Is(err, epbinding.ErrNoSuchCheck), errors.Is(err, epbinding.ErrNotFound):
+		return err //nolint:wrapcheck // names the check, or the handler, the request named
+	}
+	return storeErr("failed to set the endpoint handler", err)
 }
 
 // addPageState reports where a script's page answers and, when it could not be
@@ -305,7 +365,7 @@ func (h *Handler) formSource(ctx context.Context, req Request, b *epbinding.Bind
 	})
 	if err != nil {
 		return fmt.Errorf("%s is bound at %s, but its submissions have nowhere to be stored: %w; "+
-			"call endpoint_set again once that is fixed", req.Script.Name, out["url"], err)
+			"call handler_set again once that is fixed", req.Script.Name, out["url"], err)
 	}
 	out["form"] = res
 	out["message"] = fmt.Sprintf("%s Each accepted submission is stored as a row of %s on connection %s.",
@@ -313,41 +373,51 @@ func (h *Handler) formSource(ctx context.Context, req Request, b *epbinding.Bind
 	return nil
 }
 
-func (h *Handler) setEnabled(ctx context.Context, req Request) (map[string]any, error) {
-	enabled := req.Command == CmdEnable
+// Enable turns one of the script's endpoint handlers on or off. Turning a
+// public form on by someone other than an administrator needs an approved
+// version, as making it public does.
+func (h *Handler) Enable(ctx context.Context, req Request, b *epbinding.Binding, enabled bool) (map[string]any, error) {
+	if err := MayWrite(req); err != nil {
+		return nil, err
+	}
 	if enabled && !req.Admin {
-		if b, err := h.Store.Get(ctx, req.Script.ID); err == nil {
-			if err := h.publicApproved(ctx, req, b); err != nil {
-				return nil, err
-			}
+		if err := h.publicApproved(ctx, req, b); err != nil {
+			return nil, err
 		}
 	}
-	err := h.Store.SetEnabled(ctx, req.Script.ID, enabled, req.Actor)
+	err := h.Store.Enable(ctx, b.ID, enabled, req.Actor)
 	if errors.Is(err, epbinding.ErrNotFound) {
-		return nil, fmt.Errorf("script %s is not bound to an endpoint; bind it with endpoint_set", req.Script.Name)
+		return nil, fmt.Errorf("script %s has no endpoint handler %s", req.Script.Name, b.ID)
 	}
 	if err != nil {
-		return nil, storeErr("failed to change the binding", err)
+		return nil, storeErr("failed to change the endpoint handler", err)
 	}
-	return map[string]any{fieldName: req.Script.Name, "enabled": enabled}, nil
+	b.Enabled = enabled
+	return h.fields(req.Script.Name, b), nil
 }
 
-func (h *Handler) one(ctx context.Context, sc *script.Script) (map[string]any, error) {
-	b, err := h.Store.Get(ctx, sc.ID)
-	if errors.Is(err, epbinding.ErrNotFound) {
-		out := map[string]any{fieldName: sc.Name, "bound": false}
-		h.addPageState(ctx, out, sc.ID)
-		return out, h.describeForm(ctx, sc, out)
+// Delete removes one of the script's endpoint handlers: /endpoints/<name>
+// answers nothing from then on, and its failed and refused requests go with
+// it. A form's webhook source, and the submissions stored in it, stay.
+func (h *Handler) Delete(ctx context.Context, req Request, b *epbinding.Binding) error {
+	if err := MayWrite(req); err != nil {
+		return err
 	}
-	if err != nil {
-		return nil, storeErr("failed to read the binding", err)
+	if err := h.Store.Delete(ctx, b.ID); err != nil && !errors.Is(err, epbinding.ErrNotFound) {
+		return storeErr("failed to delete the endpoint handler", err)
 	}
+	return nil
+}
+
+// Describe is one endpoint handler as handler_get reports it: its settings,
+// where its page answers, its recent failed requests and, for a form, where
+// its submissions are stored.
+func (h *Handler) Describe(ctx context.Context, sc *script.Script, b *epbinding.Binding) (map[string]any, error) {
 	failures, err := h.Store.Failures(ctx, b.ID, failuresShown)
 	if err != nil {
-		return nil, storeErr("failed to read the binding's failed requests", err)
+		return nil, storeErr("failed to read the endpoint handler's failed requests", err)
 	}
 	out := h.fields(sc.Name, b)
-	out["bound"] = true
 	h.addPageState(ctx, out, b.ScriptID)
 	out["failures"] = failures
 	if err := h.describeForm(ctx, sc, out); err != nil {
@@ -358,6 +428,15 @@ func (h *Handler) one(ctx context.Context, sc *script.Script) (map[string]any, e
 		out["page_url"] = h.BaseURL + epform.PagePrefix + b.Name
 	}
 	return out, nil
+}
+
+// Choices is what adding an endpoint handler to sc offers: where its page
+// would answer, and, for a form, the connections its submissions could be
+// stored on, or the source they are stored in.
+func (h *Handler) Choices(ctx context.Context, sc *script.Script) (map[string]any, error) {
+	out := map[string]any{fieldName: sc.Name}
+	h.addPageState(ctx, out, sc.ID)
+	return out, h.describeForm(ctx, sc, out)
 }
 
 // describeForm says, of a script that is a form, where its submissions are
@@ -382,7 +461,9 @@ func (h *Handler) describeForm(ctx context.Context, sc *script.Script, out map[s
 	return nil
 }
 
-func (h *Handler) list(ctx context.Context, req Request) (map[string]any, error) {
+// List is one page of endpoint handlers: the caller's scripts' (req.Visible),
+// or every one for an administrator.
+func (h *Handler) List(ctx context.Context, req Request) (map[string]any, error) {
 	filter := epbinding.Filter{Limit: req.Limit}
 	if req.Visible != nil {
 		filter.ScriptIDs = make([]string, 0, len(req.Visible))
@@ -407,25 +488,15 @@ func (h *Handler) list(ctx context.Context, req Request) (map[string]any, error)
 	out := map[string]any{"endpoints": items, "count": len(items), "total": total}
 	if total > len(items) {
 		// A listing is one page; the caller is told the rest exist (#2251).
-		out["note"] = fmt.Sprintf("%d of %d endpoints listed; Admin > Automations > Endpoints pages through every one", len(items), total)
+		out["note"] = fmt.Sprintf("%d of %d endpoints listed; Admin > Automations > Handlers pages through every one", len(items), total)
 	}
 	return out, nil
-}
-
-// Bound names the endpoint a script is bound to, "" when it is bound to
-// none or the binding cannot be read: the save gate's question (#2171).
-func (h *Handler) Bound(ctx context.Context, scriptID string) string {
-	b, err := h.Store.Get(ctx, scriptID)
-	if err != nil {
-		return ""
-	}
-	return b.Name
 }
 
 // fields is a binding as manage_script reports it.
 func (h *Handler) fields(scriptName string, b *epbinding.Binding) map[string]any {
 	return map[string]any{
-		fieldName: scriptName, "endpoint": b.Name, "url": h.BaseURL + b.URLPath(), "methods": b.Methods,
+		"handler": b.ID, "kind": keyEndpoint, fieldName: scriptName, keyEndpoint: b.Name, "url": h.BaseURL + b.URLPath(), "methods": b.Methods,
 		"path": b.Path, "auth_mode": b.AuthMode, "callers": b.Callers, "bot_check": b.BotCheck,
 		"checked_methods": b.CheckedMethods, "enabled": b.Enabled,
 		"timeout_seconds": b.TimeoutSeconds, "max_memory_bytes": b.MaxMemoryBytes,
@@ -490,11 +561,11 @@ func (h *Handler) publicApproved(ctx context.Context, req Request, b *epbinding.
 		req.Script.Name, req.Script.ID, req.Script.Version, b.AuthMode, epbinding.ErrNotAllowed)
 }
 
-// preview opens a preview of the script's form for the caller (#2494): its
+// Preview opens a preview of the script's form for the caller (#2494): its
 // owner or an administrator, of a saved version or the unsaved source sent.
 // The link renders only for the person who opened it and expires within the
 // hour.
-func (h *Handler) preview(ctx context.Context, req Request) (map[string]any, error) {
+func (h *Handler) Preview(ctx context.Context, req Request) (map[string]any, error) {
 	if h.Previews == nil {
 		return nil, errors.New("this deployment cannot preview a form")
 	}

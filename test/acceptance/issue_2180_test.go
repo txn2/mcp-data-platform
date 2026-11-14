@@ -20,7 +20,7 @@ import (
 // and shares an asset embedding it through MCP tool calls alone, and an
 // anonymous browser submits it.
 //
-// Wire forms: manage_script create and endpoint_set, save_asset and
+// Wire forms: manage_script create and handler_set kind=endpoint, save_asset and
 // manage_asset share take their arguments as literal tools/call params; a
 // submission is a JSON object; the submissions route is a GET with limit as a
 // query string and the export route a GET with format=csv and format=xlsx.

@@ -63,7 +63,7 @@ export function ScriptDelete({ scriptId, contract, onDeleted }: Props) {
         <p className="text-sm text-muted-foreground">
           {contract.library
             ? "Removing this library takes its saved versions. A library another script still loads is not deleted, because that script would fail at its next run."
-            : "Removing this script takes everything that belongs to it: its saved versions, its schedule, its run history, and the state it carries between runs. The files it wrote are not part of that and stay where they are."}
+            : "Removing this script takes everything that belongs to it: its saved versions, its handlers, its run history, and the state it carries between runs. The files it wrote are not part of that and stay where they are."}
         </p>
         <Button
           size="sm"
@@ -120,7 +120,7 @@ export function ScriptDelete({ scriptId, contract, onDeleted }: Props) {
 // description, which is a paragraph, so a list element here would be invalid
 // markup nested in one.
 function WhatGoes({ contract }: { contract: ScriptContract }) {
-  const schedule = stoppedSchedule(contract.schedule);
+  const schedule = stoppedSchedules(contract.schedules ?? []);
   return (
     <span className="block space-y-2">
       <span className="block">This cannot be undone. Deleting the script also removes:</span>
@@ -128,9 +128,10 @@ function WhatGoes({ contract }: { contract: ScriptContract }) {
         Every saved version of its code, including v{contract.version}, the version a run
         executes.
       </span>
-      {schedule && (
-        <span className="block">Its schedule, {schedule}, so nothing fires it again.</span>
-      )}
+      <span className="block">
+        Every handler that starts it on its own, so nothing starts it again: its endpoints, its webhook
+        sources{schedule ? <>, and its schedules ({schedule})</> : " and its schedules"}.
+      </span>
       <span className="block">
         Its whole run history, which is the record of how this automation has been going.
       </span>
@@ -167,13 +168,17 @@ function LibraryWhatGoes({ contract }: { contract: ScriptContract }) {
   );
 }
 
-// stoppedSchedule is the cadence this delete stops, in words, or null for a
+// stoppedSchedules is the cadences this delete stops, in words, or null for a
 // script nothing fires. A paused one is named as paused: it is a schedule that
 // resumes on the fire it was parked on, so removing it is removing something.
-function stoppedSchedule(schedule: ScriptContract["schedule"]): string | null {
-  if (!schedule) return null;
-  const words = scheduleLine(schedule.cron_spec, schedule.timezone);
-  return schedule.enabled ? words : `${words} (paused)`;
+function stoppedSchedules(schedules: NonNullable<ScriptContract["schedules"]>): string | null {
+  if (schedules.length === 0) return null;
+  return schedules
+    .map((sc) => {
+      const words = scheduleLine(sc.cron_spec, sc.timezone);
+      return sc.enabled ? words : `${words} (paused)`;
+    })
+    .join("; ");
 }
 
 // keepsState reports whether the platform is holding an object for this

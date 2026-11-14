@@ -12,13 +12,13 @@ import (
 // {name...}, so an application's own address answers every path it does not
 // reserve. The handler reads the rest of the path as req["params"]["route"],
 // routes it and chooses each status. A catch-all anywhere but last is refused
-// at endpoint_set; a template without one matches exactly as before; and a
+// at handler_set kind=endpoint; a template without one matches exactly as before; and a
 // path whose segments are empty, relative steps or backslashes never reaches
 // the handler.
 //
 // Wire forms: manage_application takes command, name, application, kind and
 // part_id as strings; manage_script takes command, name and source as strings;
-// endpoint_set takes endpoint, path, auth_mode and response_mode as strings and
+// handler_set kind=endpoint takes endpoint, path, auth_mode and response_mode as strings and
 // methods and callers as lists of strings; save_asset takes name, content and
 // content_type as strings. A page is an HTTP GET naming the page origin in
 // Host.
@@ -136,13 +136,13 @@ func TestIssue2553_TheReservedPathsKeepTheirMeaning(t *testing.T) {
 }
 
 // Criterion 4: a catch-all in a middle segment, or two of them, is refused at
-// endpoint_set naming the path.
+// handler_set kind=endpoint naming the path.
 func TestIssue2553_ACatchAllAnywhereButLastIsRefused(t *testing.T) {
 	a := newApp2553(t)
 	for _, path := range []string{"/{route...}/edit", "/{a...}/{b...}"} {
 		out, text := endpointSet(t, a.admin, a.name, "", map[string]any{"path": path})
 		if out != nil {
-			t.Fatalf("endpoint_set path %q was accepted", path)
+			t.Fatalf("handler_set kind=endpoint path %q was accepted", path)
 		}
 		if !strings.Contains(text, path) || !strings.Contains(text, "only the last segment may be a catch-all") {
 			t.Errorf("path %q refused with %q, want the path named and the rule", path, text)

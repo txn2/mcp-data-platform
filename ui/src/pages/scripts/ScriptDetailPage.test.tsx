@@ -7,6 +7,7 @@ import type {
 } from "@/api/portal/hooks/scripts";
 import type { ScriptVersion } from "@/api/admin/types";
 import { ScriptDetailPage } from "./ScriptDetailPage";
+import { formatWhen } from "./runFormat";
 
 // The page composes four hooks over real child components, so every assertion
 // here is what an owner actually reads on the page.
@@ -28,11 +29,6 @@ vi.mock("@/api/portal/hooks/scripts", () => ({
   useScriptRun: vi.fn(),
   // The runs that have not ended (#1860); none unless a test says otherwise.
   useScriptLiveRuns: vi.fn(() => ({ data: { data: [], total: 0 }, isLoading: false, error: null })),
-  // The schedule editor's hooks. The editor has its own tests; here they only
-  // have to answer, so the page composes with the one section that mutates.
-  useScriptSchedule: vi.fn(),
-  useSetScriptSchedule: vi.fn(),
-  useSetScriptSchedulePaused: vi.fn(),
   // The source editor's and the run panel's hooks. Each has its own tests;
   // here they only have to answer, so the page composes with every section.
   useSaveScriptSource: vi.fn(),
@@ -49,8 +45,7 @@ vi.mock("@/api/portal/hooks/scripts", () => ({
   useRemoveScriptGrant: vi.fn(),
   // The one-run-at-a-time checkbox (#1986); its own test covers it.
   useSetScriptExclusive: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
-  // The webhook source it runs for (#2332); its own test covers it.
-  useSetScriptEventSource: vi.fn(() => ({ mutate: vi.fn(), isPending: false, error: null })),
+  // How its event runs stand (#2332); the webhook handler's test covers it.
   useScriptEventSummary: vi.fn(() => ({ data: undefined })),
   useSetScriptState: vi.fn(),
   useClearScriptState: vi.fn(),
@@ -106,11 +101,21 @@ vi.mock("@/api/portal/hooks/producers", () => ({
   }),
 }));
 
-// The endpoint card (#2171) reads as "cannot bind" here; its own test covers it.
+// The endpoint handler's writes (#2171, #2441); its own test covers them.
 vi.mock("@/api/portal/hooks/scriptEndpoint", () => ({
-  useScriptEndpoint: vi.fn(() => ({ data: null, isLoading: false, error: null })),
-  useSetScriptEndpoint: vi.fn(),
-  useSetScriptEndpointEnabled: vi.fn(),
+  useSetScriptEndpoint: vi.fn(() => ({ mutate: vi.fn(), isPending: false, error: null })),
+  useSetScriptEndpointEnabled: vi.fn(() => ({ mutate: vi.fn(), isPending: false, error: null })),
+}));
+
+// What starts the script (#2435): a schedule and a webhook source here.
+// ScriptHandlers.test.tsx covers the section; here it only has to answer, so
+// the page composes with it. The shape helpers stay the module's own.
+vi.mock("@/api/portal/hooks/scriptHandlers", async (orig) => ({
+  ...(await orig<typeof import("@/api/portal/hooks/scriptHandlers")>()),
+  useScriptHandlers: vi.fn(),
+  useSaveHandler: vi.fn(() => ({ mutate: vi.fn(), isPending: false, error: null })),
+  useSetHandlerEnabled: vi.fn(() => ({ mutate: vi.fn(), isPending: false, error: null })),
+  useDeleteHandler: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
 }));
 
 // The transfer control offers the known-users directory as type-ahead. It has
@@ -139,24 +144,20 @@ import {
   useScriptRun,
   useScriptRuns,
   useSaveScriptSource,
-  useScriptSchedule,
   useScriptState,
-  useSetScriptSchedule,
-  useSetScriptSchedulePaused,
   useSetScriptState,
   useClearScriptState,
   useValidateScriptSource,
 } from "@/api/portal/hooks/scripts";
 import { useTransferScriptOwner } from "@/api/portal/hooks/scriptOwner";
+import { useScriptHandlers } from "@/api/portal/hooks/scriptHandlers";
 
 const mockContract = vi.mocked(useScriptContract);
 const mockTransfer = vi.mocked(useTransferScriptOwner);
 const mockVersions = vi.mocked(usePortalScriptVersions);
 const mockRuns = vi.mocked(useScriptRuns);
 const mockRun = vi.mocked(useScriptRun);
-const mockSchedule = vi.mocked(useScriptSchedule);
-const mockSaveSchedule = vi.mocked(useSetScriptSchedule);
-const mockPauseSchedule = vi.mocked(useSetScriptSchedulePaused);
+const mockHandlers = vi.mocked(useScriptHandlers);
 const mockSaveSource = vi.mocked(useSaveScriptSource);
 const mockValidateSource = vi.mocked(useValidateScriptSource);
 const mockDryRun = vi.mocked(useDryRunScript);
@@ -186,12 +187,14 @@ const contract: ScriptContract = {
     { name: "report_date", type: "date", description: "The business date.", required: true },
   ],
   version: 2,
-  schedule: {
-    cron_spec: "0 7 * * 1-5",
-    timezone: "America/Los_Angeles",
-    enabled: true,
-    next_run_at: "2026-08-15T14:00:00Z",
-  },
+  schedules: [
+    {
+      cron_spec: "0 7 * * 1-5",
+      timezone: "America/Los_Angeles",
+      enabled: true,
+      next_run_at: "2026-08-15T14:00:00Z",
+    },
+  ],
 };
 
 const version: ScriptVersion = {
@@ -285,19 +288,39 @@ beforeEach(() => {
   mockVersions.mockReturnValue(query({ data: [version], total: 1 }));
   mockRuns.mockReturnValue(query({ data: runs, total: runs.length }));
   mockRun.mockReturnValue(query(runDetail));
-  mockSchedule.mockReturnValue(
+  mockHandlers.mockReturnValue(
     query({
-      id: "sched-001",
-      script_id: "script-001",
-      cron_spec: "0 7 * * 1-5",
-      timezone: "America/Los_Angeles",
-      params: { report_date: "${fire_date}" },
-      enabled: true,
-      next_run_at: "2026-08-16T14:00:00Z",
+      handlers: [
+        {
+          handler: "sched-001",
+          kind: "schedule",
+          type: "schedule",
+          name: "daily-sales-report",
+          cron: "0 7 * * 1-5",
+          timezone: "America/Los_Angeles",
+          args: { report_date: "${fire_date}" },
+          enabled: true,
+          next_run_at: "2026-08-16T14:00:00Z",
+          missed_fires: 0,
+        },
+        {
+          handler: "wh-001",
+          kind: "webhook",
+          type: "webhook",
+          name: "daily-sales-report",
+          event_source: "shop-orders",
+          enabled: true,
+        },
+      ],
+      add: [
+        { kind: "endpoint", allowed: false, reason: "An administrator adds an endpoint to a script that is not a form.", contract: "handle(req)" },
+        { kind: "schedule", allowed: true, contract: "main()" },
+        { kind: "webhook", allowed: true, contract: "main()" },
+      ],
+      sources: ["shop-orders"],
+      max_per_kind: 20,
     }),
   );
-  mockSaveSchedule.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
-  mockPauseSchedule.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
   mockSaveSource.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
   mockValidateSource.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
   mockDryRun.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
@@ -330,17 +353,65 @@ describe("ScriptDetailPage: the details", () => {
     expect(screen.getByText("Runs v2")).toBeInTheDocument();
     expect(screen.getByText("v2, the latest saved version")).toBeInTheDocument();
     // The cadence in words, as every other surface states it (#1407): the
-    // expression is read and written in the schedule editor below.
-    expect(
-      screen.getByText("Every weekday at 7:00 AM, America/Los_Angeles"),
-    ).toBeInTheDocument();
+    // expression is read and written in the schedule handler below. Scoped
+    // to Details: the handler's row states the same cadence.
+    const details = within(screen.getByRole("heading", { name: "Details" }).closest("div[data-slot=card]")!);
+    expect(details.getByText("Every weekday at 7:00 AM, America/Los_Angeles")).toBeInTheDocument();
     // The parameters are read in the same section as the facts (#1406), not in
     // a card of their own below them. Scoped to that table: the schedule
-    // editor below also names the parameter, because that is the box its
+    // handler below also names the parameter, because that is the box its
     // binding goes in.
-    const details = within(screen.getByRole("heading", { name: "Details" }).closest("div[data-slot=card]")!);
     expect(details.getByText("report_date")).toBeInTheDocument();
     expect(details.getByText("required")).toBeInTheDocument();
+    // The webhook source is a handler now (#2434), not a fact of its own.
+    expect(details.queryByText("Events")).not.toBeInTheDocument();
+  });
+
+  // #2434: a script fires on several schedules. Details names each, and the
+  // next run is the soonest fire among the ones not paused.
+  it("states every schedule, and the soonest next fire of the ones not paused", () => {
+    mockContract.mockReturnValue(
+      query({
+        contract: {
+          ...contract,
+          schedules: [
+            { cron_spec: "0 7 * * 1-5", timezone: "UTC", enabled: true, next_run_at: "2026-08-17T07:00:00Z" },
+            { cron_spec: "0 18 * * *", timezone: "UTC", enabled: true, next_run_at: "2026-08-15T18:00:00Z" },
+            { cron_spec: "0 1 * * *", timezone: "UTC", enabled: false, next_run_at: "2026-08-15T01:00:00Z" },
+          ],
+        },
+        owned: true,
+      }),
+    );
+    renderPage();
+    const details = within(screen.getByRole("heading", { name: "Details" }).closest("div[data-slot=card]")! as HTMLElement);
+    expect(details.getByText("Schedules")).toBeInTheDocument();
+    // One line each, so none is cut off behind another.
+    for (const line of ["Every weekday at 7:00 AM, UTC", "Every day at 6:00 PM, UTC", "Every day at 1:00 AM, UTC — paused"]) {
+      expect(details.getByText(line)).toBeInTheDocument();
+    }
+    expect(details.getByText("Next run").nextElementSibling).toHaveTextContent(formatWhen("2026-08-15T18:00:00Z"));
+  });
+
+  it("says a script with no schedule runs on demand, with no next run", () => {
+    mockContract.mockReturnValue(query({ contract: { ...contract, schedules: [] }, owned: true }));
+    renderPage();
+    const details = within(screen.getByRole("heading", { name: "Details" }).closest("div[data-slot=card]")! as HTMLElement);
+    expect(details.getByText("Schedule")).toBeInTheDocument();
+    expect(details.getByText("on demand")).toBeInTheDocument();
+    expect(details.getByText("Next run").nextElementSibling).toHaveTextContent("—");
+  });
+
+  // The Handlers section lists what starts the script, each by its type.
+  it("lists the script's handlers, each with its type, target and state", () => {
+    renderPage();
+    const handlers = within(screen.getByTestId("script-handlers"));
+    const rows = handlers.getAllByTestId("handler-row");
+    expect(rows.map((r) => r.textContent)).toEqual([
+      "ScheduleEvery weekday at 7:00 AM, America/Los_AngelesOn",
+      "WebhookEach event of shop-ordersOn",
+    ]);
+    expect(handlers.getByRole("button", { name: /Add handler/ })).toBeInTheDocument();
   });
 
   // The section used to be titled "Contract", which is the platform's word for
@@ -363,9 +434,9 @@ describe("ScriptDetailPage: the details", () => {
       .map((h) => h.textContent);
     expect(sections).toEqual([
       "Details",
-      "Schedule",
-      // The webhook source it runs for (#2332), beside its schedule.
-      "Events",
+      // What starts it (#2435): its schedules, endpoints and webhook
+      // sources, in one section.
+      "Handlers",
       "About",
       "Run history",
       "Files written (1)",
@@ -565,9 +636,7 @@ describe("ScriptDetailPage: what an owner may read", () => {
       screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent),
     ).toEqual([
       "Details",
-      "Schedule",
-      // The webhook source it runs for (#2332), beside its schedule.
-      "Events",
+      "Handlers",
       "About",
       "Run history",
       "Files written (1)",

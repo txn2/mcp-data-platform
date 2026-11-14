@@ -15,6 +15,9 @@ export type ScheduleRhythm = "minutes" | "hours" | "days" | "weeks" | "months";
 
 /** ScheduleFireRow is one schedule's fires within its section's window. */
 export interface ScheduleFireRow {
+  /** schedule_id is the schedule the row lays out; a script with several
+   * schedules has a row for each (#2434). */
+  schedule_id?: string;
   script_id: string;
   script_name: string;
   // The script's owner, category and tags (#1992), which the tab's filters

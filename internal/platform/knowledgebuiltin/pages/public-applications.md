@@ -103,7 +103,7 @@ Save it as `store-api`, add it to the application (`manage_application add_part
 kind=script`), and bind it:
 
 ```
-manage_script command=endpoint_set endpoint=store-api methods=["GET", "POST"]
+manage_script command=handler_set kind=endpoint endpoint=store-api methods=["GET", "POST"]
   path="/{route...}" auth_mode=public rate_limit=600 ip_rate_limit=60
 ```
 
@@ -450,8 +450,9 @@ signed. An administrator creates a webhook source for it (Admin > Webhooks,
 Sender Stripe, which is `auth.preset: "stripe"`, with the endpoint's signing
 secret), and the processor is given `https://<platform>/hooks/store-payments`.
 The source checks the signature and the timestamp before it stores anything; a
-request that fails is refused and never becomes an event. A script naming the
-source as its `event_source` marks the order paid:
+request that fails is refused and never becomes an event. A script with a
+webhook handler for the source (`manage_script command=handler_set
+kind=webhook event_source=store-payments`) marks the order paid:
 
 ```python
 MARK_PAID = "UPDATE store.orders SET paid_at = now() WHERE id = :id AND paid_at IS NULL"
@@ -489,8 +490,8 @@ The mail provider is an `api` connection (an administrator adds it under Admin
 > Connections with the provider's base URL, `auth_mode: api_key` and the key as
 `{{secret:mail-provider-key}}`). An administrator creates a webhook source with
 input `postgres`, mode `outbox` and the schema's `outbox` table, and one script
-names it as its `event_source` and also runs on a schedule: an event sends its
-mail at once, and the schedule sends whatever is still owed.
+holds two handlers, a webhook handler for that source and a schedule: an event
+sends its mail at once, and the schedule sends whatever is still owed.
 
 ```python
 CONNECTION = "orders"
@@ -574,7 +575,8 @@ def test_a_provider_that_is_down_leaves_the_mail_for_the_schedule():
     assert.eq(state_of(mail_id), {"sent": True, "attempts": 2})
 ```
 
-Set its schedule with `manage_script schedule_set` (`cron: "*/10 * * * *"`).
+Add its handlers with `manage_script handler_set`: `kind: "webhook"` with the
+source as `event_source`, and `kind: "schedule"` with `cron: "*/10 * * * *"`.
 The platform does not run a failed run again on its own, which is why the
 failure is recorded in `attempts` and `last_error` and the schedule picks it up:
 a provider that is down delays the mail, never the order, which committed
@@ -592,7 +594,7 @@ must say.
 on each replica, beside `rate_limit` for the whole endpoint. An IPv6 visitor is
 counted by their /64. The handler reads the same address as `req["client_ip"]`.
 Behind a load balancer or ingress the platform sees only the proxy unless
-`server.trusted_proxies` names it; with no proxy trusted, `endpoint_set` warns
+`server.trusted_proxies` names it; with no proxy trusted, `handler_set` warns
 that every visitor then shares one address and one limit.
 
 Asking for a sign-in link costs the shop a mail, so put it behind a bot check

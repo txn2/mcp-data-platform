@@ -24,7 +24,7 @@ type Entry struct {
 
 // indexVersion names what a render's output is a function of beyond its tree: a
 // new version of the renderer or its engine renders everything again.
-const indexVersion = reviewedEngine + "/1"
+const indexVersion = reviewedEngine + "/2"
 
 // Index is what a render produced and what produced it.
 type Index struct {

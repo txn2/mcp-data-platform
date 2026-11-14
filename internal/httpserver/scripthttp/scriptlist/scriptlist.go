@@ -10,8 +10,11 @@ package scriptlist
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
+	"slices"
+	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -41,27 +44,24 @@ func ParseKind(v string) (library, named bool, err error) {
 	}
 }
 
-// The values endpoint= narrows to (#2259): the scripts bound to an endpoint,
-// and the ones that are not.
-const (
-	EndpointBound   = "bound"
-	EndpointUnbound = "unbound"
-)
+// handlerTypes are the values type= narrows to (#2435): the scripts holding a
+// handler of the type, and none, the scripts holding no handler.
+var handlerTypes = []string{"endpoint", "form", "schedule", "webhook", "none"}
 
-// ParseEndpoint reads endpoint=: whether it names the bound scripts, and
-// whether it names either (an absent value lists both), or an error for a
-// value that names neither.
-func ParseEndpoint(v string) (bound, named bool, err error) {
-	switch v {
-	case "":
-		return false, false, nil
-	case EndpointBound:
-		return true, true, nil
-	case EndpointUnbound:
-		return false, true, nil
-	default:
-		return false, false, fmt.Errorf("unknown endpoint %q: must be %s or %s", v, EndpointBound, EndpointUnbound)
+// ParseTypes reads type=, repeatable, or an error for a value that names no
+// handler type. endpoint= was removed: it is answered by a refusal naming
+// type= rather than ignored.
+func ParseTypes(query url.Values) ([]string, error) {
+	if query.Has("endpoint") {
+		return nil, errors.New("endpoint= was removed: narrow by handler type with type=endpoint, type=form, type=none (#2435)")
 	}
+	types := nonEmpty(query["type"])
+	for _, t := range types {
+		if !slices.Contains(handlerTypes, t) {
+			return nil, fmt.Errorf("unknown type %q: must be one of %s", t, strings.Join(handlerTypes, ", "))
+		}
+	}
+	return types, nil
 }
 
 // nonEmpty drops the empty values a repeated query parameter can carry, so
@@ -120,11 +120,11 @@ func Filter(owner string, isAdmin bool, query url.Values) script.ListFilter {
 	if library, named, err := ParseKind(query.Get("kind")); err == nil && named {
 		filter.Library = &library
 	}
-	// endpoint=bound lists the scripts bound to an endpoint and
-	// endpoint=unbound the rest (#2259); the handler refuses any other value
-	// through ParseEndpoint.
-	if bound, named, err := ParseEndpoint(query.Get("endpoint")); err == nil && named {
-		filter.Endpoint = &bound
+	// type= lists the scripts holding a handler of any type named, and
+	// type=none the scripts holding none (#2435); the handler refuses any
+	// other value through ParseTypes.
+	if types, err := ParseTypes(query); err == nil {
+		filter.HandlerTypes = types
 	}
 	// owner narrows to one author, and naming one is itself a way of asking
 	// about somebody other than yourself: it selects the population rather
@@ -178,25 +178,28 @@ type Endpoint struct {
 	Enabled  bool   `json:"enabled" example:"true"`
 }
 
-// Endpoints is the endpoint each script ids names is bound to, by script id,
-// read with list in one call whose limit is the number of scripts, so no
-// bound one is cut off. A script bound to none is absent, and so is every
-// script when the read fails: a listing that cannot report an endpoint is
-// still a listing.
+// Endpoints is the endpoints each script ids names answers, by script id,
+// read with list in one call (#2441): a script may hold several. A script
+// with none is absent, and so is every script when the read fails: a listing
+// that cannot report an endpoint is still a listing.
 func Endpoints(
 	ctx context.Context, list func(context.Context, epbinding.Filter) ([]epbinding.Binding, int, error), ids []string,
-) map[string]*Endpoint {
-	out := map[string]*Endpoint{}
+) map[string][]Endpoint {
+	out := map[string][]Endpoint{}
 	if len(ids) == 0 {
 		return out
 	}
-	bindings, _, err := list(ctx, epbinding.Filter{ScriptIDs: ids, Limit: len(ids)})
+	bindings, _, err := list(ctx, epbinding.Filter{ScriptIDs: ids, Limit: len(ids) * maxEndpointsPerScript})
 	if err != nil {
 		return out
 	}
 	for i := range bindings {
 		b := bindings[i]
-		out[b.ScriptID] = &Endpoint{Name: b.Name, Path: b.URLPath(), AuthMode: b.AuthMode, Enabled: b.Enabled}
+		out[b.ScriptID] = append(out[b.ScriptID], Endpoint{Name: b.Name, Path: b.URLPath(), AuthMode: b.AuthMode, Enabled: b.Enabled})
 	}
 	return out
 }
+
+// maxEndpointsPerScript is how many endpoint handlers a script may hold
+// (scripthandler.MaxPerKind), so a page's read cuts none off.
+const maxEndpointsPerScript = 20

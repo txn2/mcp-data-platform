@@ -325,7 +325,7 @@ func mountScriptPortalAPI(mux *http.ServeMux, p *platform.Platform, portalWrap f
 	// A form's stored submissions and their export (#2180), the owner's.
 	submissionshttp.ForPortal(scripts, deps, formwire.Submissions(p)).Register(mux, wrap)
 	// The webhook source it runs for (#2332), and how its event runs stand.
-	eventshttp.ForPortal(scripts, deps, eventshttp.ConfigFor(p.DB(), p.RestEncryptor(), p.Config().Scripts.Events.MaxQueued)).Register(mux, wrap)
+	eventshttp.ForPortal(scripts, eventshttp.ConfigFor(p.DB(), p.Config().Scripts.Events.MaxQueued)).Register(mux, wrap)
 }
 
 // scriptDeps assembles the surface-independent script handler dependencies,
@@ -361,11 +361,9 @@ func scriptDeps(p *platform.Platform) (scripthttp.Deps, bool) {
 	if auditStore := p.Audit().Store(); auditStore != nil {
 		deps.Audit = auditStore
 	}
-	// A script's endpoint (#2171), and the save gate's refusal of a bound
-	// script's source that defines no handle(req), as manage_script's.
-	if e := p.Endpoints(); e != nil {
-		deps.Endpoints = e.Commands
-	}
+	// A script's handlers (#2441): its endpoints, schedules and webhook
+	// sources, carried out as manage_script's handler commands are.
+	deps.Handlers = savegatewire.Handlers(p)
 	return deps, true
 }
 

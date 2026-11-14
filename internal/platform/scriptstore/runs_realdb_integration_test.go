@@ -297,7 +297,7 @@ func TestRealDB_DeletingAScriptTakesItsRunsWithIt(t *testing.T) {
 	removed, delErr := s.Delete(ctx, sc.ID)
 	require.NoError(t, delErr, "a script with run history must still be deletable")
 	assert.True(t, removed.Runs, "the delete reports the run history it took (#1593)")
-	assert.False(t, removed.Schedule)
+	assert.False(t, removed.Handlers)
 	assert.False(t, removed.State)
 	_, err := s.GetRun(ctx, "dpx_a")
 	assert.ErrorIs(t, err, script.ErrRunNotFound)

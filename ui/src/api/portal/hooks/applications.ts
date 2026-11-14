@@ -99,9 +99,10 @@ export interface ApplicationPartView {
   /** The newest version; null for a webhook source and a part not read. */
   latest_version: number | null;
   owner_email?: string;
-  schedule?: { cron_spec: string; timezone: string; enabled: boolean };
-  /** The webhook source a script runs for. */
-  event_source?: string;
+  /** A script's schedule handlers (#2434). */
+  schedules?: { cron_spec: string; timezone: string; enabled: boolean }[];
+  /** The webhook sources a script runs for (#2434). */
+  event_sources?: string[];
   content_type?: string;
   updated_at?: string;
   /** Requests a webhook source accepted in the last day; administrators only. */

@@ -34,7 +34,7 @@ const issue1912WritingPageTitle = "Writing a managed script"
 func TestIssue1912_PlatformInfoSaysAnAutomationIsBuiltWithManageScript(t *testing.T) {
 	c := connect(t)
 	composed, _ := c.call("platform_info", nil)["agent_instructions"].(string)
-	for _, want := range []string{"Automations are scripts", "asks for an automation", "`manage_script`", "`schedule_set`"} {
+	for _, want := range []string{"Automations are scripts", "asks for an automation", "`manage_script`", "`handler_set`"} {
 		if !strings.Contains(composed, want) {
 			t.Errorf("platform_info does not say %q:\n%s", want, composed)
 		}

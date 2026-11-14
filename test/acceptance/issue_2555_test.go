@@ -24,7 +24,7 @@ import (
 //
 // Wire forms: manage_application takes command, name, application, kind and
 // part_id as strings; manage_script takes command, name and source as strings;
-// endpoint_set takes endpoint, path, auth_mode and response_mode as strings and
+// handler_set kind=endpoint takes endpoint, path, auth_mode and response_mode as strings and
 // methods and callers as lists of strings. A request is an HTTP GET or POST
 // naming the page origin in Host and carrying a Cookie header.
 
@@ -238,7 +238,7 @@ func TestIssue2555_TheBoundsAreRefused(t *testing.T) {
 		}
 		found := false
 		for range 20 {
-			listed := a.admin.call("manage_script", map[string]any{"command": "endpoint_list", "name": a.bad})
+			listed := a.admin.endpointOf(a.bad, "")
 			if strings.Contains(fmt.Sprint(listed["failures"]), want) {
 				found = true
 				break
@@ -291,7 +291,7 @@ func TestIssue2555_ACookieValueReachesNoSink(t *testing.T) {
 	if !strings.Contains(string(raw), "[REDACTED:cookie]") {
 		t.Errorf("the platform call's row does not show the value replaced: %s", raw)
 	}
-	listed := a.admin.call("manage_script", map[string]any{"command": "endpoint_list", "name": a.read})
+	listed := a.admin.endpointOf(a.read, "")
 	failures, _ := json.Marshal(listed["failures"])
 	if !strings.Contains(string(failures), "no cart for session") {
 		t.Fatalf("the failure was not kept: %s", failures)

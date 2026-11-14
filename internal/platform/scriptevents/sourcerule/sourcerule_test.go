@@ -25,8 +25,8 @@ func (f fakeSources) Get(_ context.Context, name string) (whsource.Source, error
 	return s, nil
 }
 
-func rule() Rule {
-	return Rule{
+func rule() *Rule {
+	return &Rule{
 		Sources: fakeSources{
 			"shop":         {Name: "shop"},
 			"form-contact": {Name: "form-contact", Config: whsource.Config{Input: whsource.InputForm, Form: &whsource.Form{ScriptID: "scr_contact"}}},
@@ -46,7 +46,6 @@ func rule() Rule {
 func TestRule(t *testing.T) {
 	ctx := context.Background()
 	r := rule()
-	require.NoError(t, r.Check(ctx, "", "bo@example.com", false), "running for none is anyone's choice")
 	require.NoError(t, r.Check(ctx, "shop", "admin@example.com", true))
 	require.NoError(t, r.Check(ctx, "form-contact", "jane@example.com", false), "the form's owner")
 
@@ -59,8 +58,26 @@ func TestRule(t *testing.T) {
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, ErrSourceRefused, "a read that failed is not a refusal")
 	require.ErrorContains(t, r.Check(ctx, "form-other", "jane@example.com", false), "reading the form source's script")
-	require.ErrorIs(t, Rule{}.Check(ctx, "shop", "admin@example.com", true), ErrSourceRefused)
-	require.ErrorIs(t, Rule{Sources: r.Sources}.Check(ctx, "form-contact", "jane@example.com", false), ErrSourceRefused)
+	require.ErrorIs(t, (&Rule{}).Check(ctx, "shop", "admin@example.com", true), ErrSourceRefused)
+	require.ErrorIs(t, (&Rule{Sources: r.Sources}).Check(ctx, "form-contact", "jane@example.com", false), ErrSourceRefused)
+}
+
+// A webhook handler names one source (#2434): an empty one is refused, by
+// anyone, naming the setting; and a deployment with no rule (no database,
+// so no webhook sources) refuses every source rather than panicking.
+func TestRule_RefusesNoSourceAndNoRule(t *testing.T) {
+	ctx := context.Background()
+	for _, admin := range []bool{false, true} {
+		err := rule().Check(ctx, "", "jane@example.com", admin)
+		require.ErrorIs(t, err, ErrSourceRefused)
+		assert.Contains(t, err.Error(), "event_source is required")
+	}
+
+	var none *Rule
+	err := none.Check(ctx, "shop", "admin@example.com", true)
+	require.ErrorIs(t, err, ErrSourceRefused)
+	assert.Contains(t, err.Error(), "this deployment has no webhook sources")
+	assert.Nil(t, NewRule(nil, nil))
 }
 
 func TestOwnerOf(t *testing.T) {
@@ -82,27 +99,4 @@ func TestOwnerOf(t *testing.T) {
 	assert.Empty(t, got, "a script that does not exist owns nothing")
 	_, err = owner(context.Background(), "broken")
 	require.ErrorContains(t, err, "reading script broken")
-}
-
-// Set applies a source the caller may name, leaves the script alone for a
-// source not sent or unchanged, and refuses on a deployment with no rule.
-func TestRuleSet(t *testing.T) {
-	ctx := context.Background()
-	r := rule()
-	sc := &script.Script{EventSource: "shop"}
-	require.NoError(t, r.Set(ctx, sc, nil, "jane@example.com", false), "nothing sent")
-	same := "shop"
-	require.NoError(t, r.Set(ctx, sc, &same, "jane@example.com", false), "unchanged needs no check")
-	form := "form-contact"
-	require.NoError(t, r.Set(ctx, sc, &form, "jane@example.com", false))
-	assert.Equal(t, "form-contact", sc.EventSource)
-	require.ErrorIs(t, r.Set(ctx, sc, &same, "jane@example.com", false), ErrSourceRefused)
-	assert.Equal(t, "form-contact", sc.EventSource, "a refused source is not set")
-
-	var none *Rule
-	require.ErrorIs(t, none.Set(ctx, sc, &same, "admin@example.com", true), ErrSourceRefused)
-	cleared := ""
-	require.NoError(t, none.Set(ctx, sc, &cleared, "admin@example.com", true), "running for none needs no sources")
-	assert.Empty(t, sc.EventSource)
-	assert.Nil(t, NewRule(nil, nil))
 }

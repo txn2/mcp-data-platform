@@ -107,14 +107,11 @@ func TestIssue1844_TheRunRouteAndAScheduleBindAList(t *testing.T) {
 		t.Errorf("the run stores params.ids = %v; want the JSON array", params["ids"])
 	}
 
-	sched := c.call("manage_script", map[string]any{
-		"command": "schedule_set", "name": name, "cron": "0 7 * * 1-5", "timezone": "UTC",
-		"args": map[string]any{"ids": []any{"c"}},
-	})
+	sched := c.scheduleSet(name, "0 7 * * 1-5", "UTC", map[string]any{"ids": []any{"c"}})
 	if msg, _ := sched["error"].(string); msg != "" {
 		t.Fatalf("a schedule binding a list was refused: %v", sched)
 	}
-	_, _, _ = c.callRaw("manage_script", map[string]any{"command": "schedule_disable", "name": name})
+	c.schedulesOff(name)
 }
 
 func TestIssue1844_AWrongListValueIsRefusedNamingIt(t *testing.T) {

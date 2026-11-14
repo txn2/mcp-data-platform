@@ -73,8 +73,8 @@ func TestRealDB_AnEventMakesOneRun(t *testing.T) {
 	g := newRig(t)
 	ctx := context.Background()
 	sc, v := g.savedScript(ctx, t, "on-sale")
-	sc.EventSource = "shop"
-	require.NoError(t, g.scripts.Update(ctx, sc))
+	_, _, err := g.events.AddHandler(ctx, sc.ID, "shop", "jane@example.com")
+	require.NoError(t, err)
 
 	bound, err := g.events.EventBindings(ctx)
 	require.NoError(t, err)
@@ -122,7 +122,7 @@ func TestRealDB_ABurstPastTheBoundIsRecordedAsSkipped(t *testing.T) {
 	assert.Equal(t, runstate.StatusSkippedBacklog, skipped.Status)
 	assert.True(t, skipped.Terminal())
 	assert.NotNil(t, skipped.FinishedAt)
-	assert.Contains(t, skipped.Error, "3 event runs of this script were already waiting")
+	assert.Contains(t, skipped.Error, "3 event runs of this script for source shop were already waiting")
 
 	summary, err := g.events.EventSummary(ctx, sc.ID, time.Now().Add(-time.Hour))
 	require.NoError(t, err)
@@ -137,6 +137,51 @@ func TestRealDB_ABurstPastTheBoundIsRecordedAsSkipped(t *testing.T) {
 	got, err = g.events.EnqueueEvents(ctx, eventRuns(sc, v, "shop", "ev9"), 3)
 	require.NoError(t, err)
 	assert.Equal(t, EventEnqueue{Enqueued: 1}, got)
+
+	// The bound is each webhook handler's (#2434): a full backlog for one
+	// source leaves the script's other sources their own.
+	got, err = g.events.EnqueueEvents(ctx, eventRuns(sc, v, "esp", "e1", "e2"), 3)
+	require.NoError(t, err)
+	assert.Equal(t, EventEnqueue{Enqueued: 2}, got)
+}
+
+// TestRealDB_TwoScriptsForOneSourceEachRunOncePerEvent is #2434's acceptance
+// on the schema: two scripts bound to one source each get exactly one run per
+// event, a redelivered event included.
+func TestRealDB_TwoScriptsForOneSourceEachRunOncePerEvent(t *testing.T) {
+	g := newRig(t)
+	ctx := context.Background()
+	a, va := g.savedScript(ctx, t, "on-sale")
+	b, vb := g.savedScript(ctx, t, "on-sale-audit")
+	for _, sc := range []*script.Script{a, b} {
+		_, _, err := g.events.AddHandler(ctx, sc.ID, "shop", "jane@example.com")
+		require.NoError(t, err)
+	}
+	bound, err := g.events.EventBindings(ctx)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{a.ID, b.ID}, bound["shop"])
+
+	for _, delivery := range []string{"first", "redelivered"} {
+		for _, pair := range []struct {
+			sc *script.Script
+			v  *script.Version
+		}{{a, va}, {b, vb}} {
+			runs := eventRuns(pair.sc, pair.v, "shop", "ev1")
+			runs[0].ID += "_" + delivery
+			got, err := g.events.EnqueueEvents(ctx, runs, 100)
+			require.NoError(t, err)
+			if delivery == "first" {
+				assert.Equal(t, EventEnqueue{Enqueued: 1}, got, pair.sc.Name)
+			} else {
+				assert.Equal(t, EventEnqueue{Already: 1}, got, "a redelivery makes no second run of %s", pair.sc.Name)
+			}
+		}
+	}
+	for _, sc := range []*script.Script{a, b} {
+		runs, err := g.scripts.ListRuns(ctx, script.RunFilter{ScriptID: sc.ID})
+		require.NoError(t, err)
+		assert.Len(t, runs, 1, "exactly one run of %s", sc.Name)
+	}
 }
 
 func TestRealDB_AnExclusiveScriptsEventRunsWaitTheirTurn(t *testing.T) {

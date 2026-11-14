@@ -155,7 +155,7 @@ func TestIssue1944_AScriptSavedBeforeRunsAsItDid(t *testing.T) {
 		t.Fatalf("run_script on the older script: %v", ran)
 	}
 
-	c.call("manage_script", map[string]any{"command": "schedule_set", "name": name, "cron": "0 3 * * *", "timezone": "UTC"})
+	c.scheduleSet(name, "0 3 * * *", "UTC", nil)
 	issue1904Exec(t, db, `UPDATE script_schedules SET next_run_at = NOW() - interval '1 second'
 		WHERE script_id = (SELECT id FROM scripts WHERE name = $1)`, name)
 	issue1904Await(t, "the scheduled run of the older script", func() bool {

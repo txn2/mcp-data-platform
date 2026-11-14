@@ -61,7 +61,8 @@ func newEngine(m *meter, store render.TemplateStore) (*engine, error) {
 }
 
 // addFilters replaces the filters whose result can be many times the size of
-// their input, and the one that reads the clock.
+// their input, the one that reads the clock, and the arithmetic whose integer
+// results nothing can read back as an integer.
 func (e *engine) addFilters() {
 	replace := func(s, old, n string) (string, error) {
 		if err := e.meter.produced(int64(strings.Count(s, old)+1)*int64(max(len(n), 1)) + int64(len(s))); err != nil {
@@ -73,6 +74,7 @@ func (e *engine) addFilters() {
 	e.cfg.AddFilter("date", dateFilter)
 	join := filtersJoin(e.meter)
 	e.cfg.AddFilter("join", join)
+	e.addArithmetic()
 }
 
 func filtersJoin(m *meter) func([]any, func(string) string) (string, error) {

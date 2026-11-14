@@ -170,7 +170,7 @@ INSERT INTO inventory (sku, on_hand) VALUES ('mug', 5), ('tee', 1);`, "down": "D
 	// The example maintains public.orders; this shop's orders are shop.orders.
 	s.saveWithItsTests(t, s.maintain, strings.ReplaceAll(strings.Replace(msrc, `CONNECTION = "orders"`, fmt.Sprintf("CONNECTION = %q", s.conn), 1),
 		"public", shopSchema2413))
-	admin.call("manage_script", map[string]any{"command": "schedule_set", "name": s.maintain, "cron": "0 3 * * *", "timezone": "UTC"})
+	admin.scheduleSet(s.maintain, "0 3 * * *", "UTC", nil)
 
 	// 3. The front: the checkout as a form and the API as an endpoint, both
 	// for signed-in customers; the storefront as an asset.
@@ -216,7 +216,7 @@ INSERT INTO inventory (sku, on_hand) VALUES ('mug', 5), ('tee', 1);`, "down": "D
 	t.Cleanup(func() { admin.rest(http.MethodDelete, "/api/v1/admin/webhooks/sources/"+s.source, http.NoBody) })
 	putChannel(t, admin, "order-confirmations", map[string]any{"kind": "email", "recipients": []string{"orders-2413@example.com"}})
 	t.Cleanup(func() { deleteChannel(t, admin, "order-confirmations") })
-	admin.call("manage_script", map[string]any{"command": "update", "name": s.confirm, "event_source": s.source})
+	admin.webhookSet(s.confirm, s.source)
 	admin.call("manage_application", map[string]any{"command": "add_part", "application": s.app, "kind": "source", "part_id": s.source})
 	admin.call("manage_application", map[string]any{"command": "release", "application": s.app, "note": "with the confirmation"})
 	return s

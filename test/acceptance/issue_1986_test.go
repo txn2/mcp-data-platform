@@ -128,15 +128,12 @@ func runs1986(t *testing.T, c *client, name string) []map[string]any {
 // and makes its next fire due now.
 func schedule1986(t *testing.T, c *client, name, scriptID string) {
 	t.Helper()
-	out := c.call("manage_script", map[string]any{
-		"command": "schedule_set", "name": name, "cron": "* * * * *", "timezone": "UTC",
-		"args": map[string]any{"hold_ms": holdMS1986, "holds": holds1986},
-	})
+	out := c.scheduleSet(name, "* * * * *", "UTC", map[string]any{"hold_ms": holdMS1986, "holds": holds1986})
 	if out["cron"] == nil && out["status"] == nil {
-		t.Fatalf("schedule_set answered %v", out)
+		t.Fatalf("handler_set kind=schedule answered %v", out)
 	}
 	t.Cleanup(func() {
-		_, _, _ = c.callRaw("manage_script", map[string]any{"command": "schedule_disable", "name": name})
+		c.schedulesOff(name)
 	})
 	fireNow1986(t, scriptID)
 }

@@ -55,7 +55,7 @@ func sample() *epbinding.Binding {
 
 func TestSet_StoresAndReadsBackTheIdentity(t *testing.T) {
 	s, mock := newMock(t)
-	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO script_endpoints")).
+	mock.ExpectQuery(`^\s*INSERT INTO script_endpoints [^;]*RETURNING id, created_by, created_at, updated_at$`).
 		WithArgs("s1", "orders", sqlmock.AnyArg(), "", epbinding.AuthAuthenticated, sqlmock.AnyArg(), "", sqlmock.AnyArg(),
 			10, int64(64<<20), 1<<20, sqlmock.AnyArg(), 600, 120, true, "a@example.com", "", sqlmock.AnyArg(),
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), 0).
@@ -64,7 +64,40 @@ func TestSet_StoresAndReadsBackTheIdentity(t *testing.T) {
 	b := sample()
 	require.NoError(t, s.Set(context.Background(), b))
 	assert.Equal(t, "e1", b.ID)
+	assert.Equal(t, "first@example.com", b.CreatedBy)
+}
+
+// TestSet_ReplacesTheBindingWithItsID pins the replace half of the write
+// (#2441): a binding with an id updates that row, held to its own script, so
+// an id read from another script's binding changes nothing and reads as
+// ErrNotFound; the creator and creation stamp the row had are kept.
+func TestSet_ReplacesTheBindingWithItsID(t *testing.T) {
+	update := regexp.QuoteMeta("WHERE id = $23 AND script_id = $1")
+	created := rowTime.Add(-time.Hour)
+
+	s, mock := newMock(t)
+	mock.ExpectQuery(update).
+		WithArgs("s1", "orders", sqlmock.AnyArg(), "", epbinding.AuthAuthenticated, sqlmock.AnyArg(), "", sqlmock.AnyArg(),
+			10, int64(64<<20), 1<<20, sqlmock.AnyArg(), 600, 120, true, "a@example.com", "", sqlmock.AnyArg(),
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), 0, "e1").
+		WillReturnRows(sqlmock.NewRows([]string{"created_by", "created_at", "updated_at"}).
+			AddRow("first@example.com", created, rowTime))
+	b := sample()
+	b.ID = "e1"
+	require.NoError(t, s.Set(context.Background(), b))
+	assert.Equal(t, "e1", b.ID, "the binding keeps its id")
 	assert.Equal(t, "first@example.com", b.CreatedBy, "the creator of the binding replaced is kept")
+	assert.Equal(t, created, b.CreatedAt)
+
+	mock.ExpectQuery(update).WillReturnRows(sqlmock.NewRows([]string{"created_by", "created_at", "updated_at"}))
+	other := sample()
+	other.ID = "e-of-another-script"
+	require.ErrorIs(t, s.Set(context.Background(), other), epbinding.ErrNotFound)
+
+	mock.ExpectQuery(update).WillReturnError(&pq.Error{Code: "23505", Constraint: nameConstraint})
+	renamed := sample()
+	renamed.ID = "e1"
+	require.ErrorIs(t, s.Set(context.Background(), renamed), epbinding.ErrNameTaken)
 }
 
 func TestSet_ANameAnotherScriptHasIsErrNameTaken(t *testing.T) {
@@ -87,17 +120,22 @@ func TestSet_ANameAnotherScriptHasIsErrNameTaken(t *testing.T) {
 	assert.NotErrorIs(t, err, epbinding.ErrNameTaken)
 }
 
-func TestGetAndGetByName(t *testing.T) {
+func TestGetByIDAndGetByName(t *testing.T) {
 	s, mock := newMock(t)
-	mock.ExpectQuery(regexp.QuoteMeta("WHERE script_id = $1")).WithArgs("s1").
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE id = $1")).WithArgs("e1").
 		WillReturnRows(sqlmock.NewRows(bindingColumns).AddRow(bindingRow()...))
-	b, err := s.Get(context.Background(), "s1")
+	b, err := s.GetByID(context.Background(), "e1")
 	require.NoError(t, err)
+	assert.Equal(t, "e1", b.ID)
 	assert.Equal(t, []string{"GET", "POST"}, b.Methods)
 	assert.Equal(t, []string{}, b.AllowedOrigins)
 	assert.Equal(t, []string{"https://js.stripe.com"}, b.PageFrameOrigins, "#2554's lists are read back")
 	assert.Equal(t, []string{}, b.PageFormOrigins, "a NULL list reads as empty")
 	assert.Equal(t, 30, b.IPRateLimit, "#2556's limit is read back")
+
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE id = $1")).WithArgs("nope").WillReturnError(sql.ErrNoRows)
+	_, err = s.GetByID(context.Background(), "nope")
+	require.ErrorIs(t, err, epbinding.ErrNotFound)
 
 	mock.ExpectQuery(regexp.QuoteMeta("WHERE name = $1")).WithArgs("nope").WillReturnError(sql.ErrNoRows)
 	_, err = s.GetByName(context.Background(), "nope")
@@ -157,17 +195,69 @@ func TestList_PagesFiltersAndCounts(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestSetEnabled(t *testing.T) {
+func TestEnable(t *testing.T) {
 	s, mock := newMock(t)
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE script_endpoints SET enabled")).WithArgs("s1", false, "a@example.com").
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE script_endpoints SET enabled")).WithArgs("e1", false, "a@example.com").
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	require.NoError(t, s.SetEnabled(context.Background(), "s1", false, "a@example.com"))
+	require.NoError(t, s.Enable(context.Background(), "e1", false, "a@example.com"))
 
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE script_endpoints SET enabled")).WillReturnResult(sqlmock.NewResult(0, 0))
-	require.ErrorIs(t, s.SetEnabled(context.Background(), "s2", true, ""), epbinding.ErrNotFound)
+	mock.ExpectExec(regexp.QuoteMeta("WHERE id = $1")).WillReturnResult(sqlmock.NewResult(0, 0))
+	require.ErrorIs(t, s.Enable(context.Background(), "e2", true, ""), epbinding.ErrNotFound)
 
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE script_endpoints SET enabled")).WillReturnError(errors.New("boom"))
-	require.ErrorContains(t, s.SetEnabled(context.Background(), "s2", true, ""), "set endpoint binding enabled")
+	require.ErrorContains(t, s.Enable(context.Background(), "e2", true, ""), "set endpoint binding enabled")
+}
+
+// TestByScript reads every binding a script holds (#2441), by name, and an
+// empty list rather than null for a script with none.
+func TestByScript(t *testing.T) {
+	s, mock := newMock(t)
+	second := bindingRow()
+	second[0], second[2] = "e2", "zeta"
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE script_id = $1 ORDER BY name")).WithArgs("s1").
+		WillReturnRows(sqlmock.NewRows(bindingColumns).AddRow(bindingRow()...).AddRow(second...))
+	held, err := s.ByScript(context.Background(), "s1")
+	require.NoError(t, err)
+	require.Len(t, held, 2)
+	assert.Equal(t, []string{"e1", "e2"}, []string{held[0].ID, held[1].ID})
+	assert.Equal(t, "zeta", held[1].Name)
+
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE script_id = $1")).WithArgs("s2").
+		WillReturnRows(sqlmock.NewRows(bindingColumns))
+	none, err := s.ByScript(context.Background(), "s2")
+	require.NoError(t, err)
+	assert.Equal(t, []epbinding.Binding{}, none, "a script with no binding is [] and never null")
+
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE script_id = $1")).WillReturnError(errors.New("boom"))
+	_, err = s.ByScript(context.Background(), "s1")
+	require.ErrorContains(t, err, "list a script's endpoint bindings")
+
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE script_id = $1")).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("e1"))
+	_, err = s.ByScript(context.Background(), "s1")
+	require.ErrorContains(t, err, "scan endpoint binding")
+
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE script_id = $1")).
+		WillReturnRows(sqlmock.NewRows(bindingColumns).AddRow(bindingRow()...).RowError(0, errors.New("boom")))
+	_, err = s.ByScript(context.Background(), "s1")
+	require.ErrorContains(t, err, "iterate endpoint bindings")
+}
+
+// TestDelete removes one binding by its id; an id no binding has is
+// ErrNotFound, and a failed statement is not mistaken for one.
+func TestDelete(t *testing.T) {
+	s, mock := newMock(t)
+	del := regexp.QuoteMeta("DELETE FROM script_endpoints WHERE id = $1")
+	mock.ExpectExec(del).WithArgs("e1").WillReturnResult(sqlmock.NewResult(0, 1))
+	require.NoError(t, s.Delete(context.Background(), "e1"))
+
+	mock.ExpectExec(del).WithArgs("gone").WillReturnResult(sqlmock.NewResult(0, 0))
+	require.ErrorIs(t, s.Delete(context.Background(), "gone"), epbinding.ErrNotFound)
+
+	mock.ExpectExec(del).WillReturnError(errors.New("boom"))
+	err := s.Delete(context.Background(), "e1")
+	require.ErrorContains(t, err, "delete endpoint binding")
+	assert.NotErrorIs(t, err, epbinding.ErrNotFound)
 }
 
 func TestFailures(t *testing.T) {

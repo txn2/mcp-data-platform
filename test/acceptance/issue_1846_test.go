@@ -167,7 +167,7 @@ func TestIssue1846_ABoundParameterIsTheKeysAndNothingElse(t *testing.T) {
 
 	// A script with a caller-bound parameter has no caller on a schedule.
 	_, text, err := admin.callRaw("manage_script", map[string]any{
-		"command": "schedule_set", "name": name, "cron": "0 7 * * *", "timezone": "UTC",
+		"command": "handler_set", "kind": "schedule", "name": name, "cron": "0 7 * * *", "timezone": "UTC",
 	})
 	if err != nil {
 		t.Fatal(err)

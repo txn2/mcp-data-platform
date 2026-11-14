@@ -379,13 +379,13 @@ type deleteResponse struct {
 	// removal actually took, which is a narrower statement than the
 	// confirmation makes before the fact: the dialog warns from the script's
 	// contract, this reports what the delete's own transaction found.
-	Message string `json:"message" example:"daily-sales-report is gone, with its saved versions, its schedule, its run history and the state it carried. The assets and resources it wrote remain, and they still record that it wrote them."`
+	Message string `json:"message" example:"daily-sales-report is gone, with its saved versions, its handlers, its run history and the state it carried. The assets and resources it wrote remain, and they still record that it wrote them."`
 }
 
 // portalDeleteScript removes a script.
 //
 // @Summary      Delete a script
-// @Description  Removes a managed script and everything that belongs to it: its saved versions, its schedule, its run history, and the state it carried between runs. Restricted to the script's owner and to administrators, and answered as not-found for anybody else, so the refusal cannot be used to learn that a script exists. The assets and resources the script wrote are NOT removed, and the records naming it as their producer remain. It is the same removal manage_script command=delete performs, through the same store. A library another script's current source loads is not removed: the answer is 409, naming the scripts (#1941).
+// @Description  Removes a managed script and everything that belongs to it: its saved versions, its handlers, its run history, and the state it carried between runs. Restricted to the script's owner and to administrators, and answered as not-found for anybody else, so the refusal cannot be used to learn that a script exists. The assets and resources the script wrote are NOT removed, and the records naming it as their producer remain. It is the same removal manage_script command=delete performs, through the same store. A library another script's current source loads is not removed: the answer is 409, naming the scripts (#1941).
 // @Tags         Scripts
 // @Produce      json
 // @Param        id  path  string  true  "Script ID"

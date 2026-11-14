@@ -70,35 +70,27 @@ func scan(r rowScanner) (*epbinding.Binding, error) {
 	return b, nil
 }
 
-// Set creates or replaces a script's binding, keyed by its script, keeping
-// the id and creation stamp of the one it replaces.
+// Set creates a binding when its ID is empty and replaces the one with its ID
+// otherwise, keeping its creation stamp (#2441). The replace is held to the
+// binding's own script, so an id read from another script's binding changes
+// nothing.
 func (s *Store) Set(ctx context.Context, b *epbinding.Binding) error {
-	row := s.db.QueryRowContext(ctx, `
-		INSERT INTO script_endpoints (script_id, name, methods, path, auth_mode, callers, bot_check, checked_methods,
-		                              timeout_seconds, max_memory_bytes, max_body_bytes, allowed_origins, rate_limit,
-		                              caller_rate_limit, enabled, created_by, updated_by, response_mode, page_cdns,
-		                              page_frame_origins, page_connect_origins, page_form_origins, ip_rate_limit)
-		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9, $10, $11, $12, $13, $14, $15, $16, $16, COALESCE(NULLIF($17, ''), 'api'), $18,
-		        $19, $20, $21, $22)
-		ON CONFLICT (script_id) DO UPDATE
-		   SET name = EXCLUDED.name, methods = EXCLUDED.methods, path = EXCLUDED.path,
-		       auth_mode = EXCLUDED.auth_mode, callers = EXCLUDED.callers, bot_check = EXCLUDED.bot_check,
-		       checked_methods = EXCLUDED.checked_methods,
-		       timeout_seconds = EXCLUDED.timeout_seconds, max_memory_bytes = EXCLUDED.max_memory_bytes,
-		       max_body_bytes = EXCLUDED.max_body_bytes, allowed_origins = EXCLUDED.allowed_origins,
-		       rate_limit = EXCLUDED.rate_limit, caller_rate_limit = EXCLUDED.caller_rate_limit,
-		       enabled = EXCLUDED.enabled, updated_by = EXCLUDED.updated_by, updated_at = NOW(),
-		       response_mode = EXCLUDED.response_mode, page_cdns = EXCLUDED.page_cdns,
-		       page_frame_origins = EXCLUDED.page_frame_origins, page_connect_origins = EXCLUDED.page_connect_origins,
-		       page_form_origins = EXCLUDED.page_form_origins, ip_rate_limit = EXCLUDED.ip_rate_limit
-		RETURNING id, created_by, created_at, updated_at`,
+	args := []any{
 		b.ScriptID, b.Name, pq.Array(b.Methods), b.Path, b.AuthMode, pq.Array(nonNil(b.Callers)), b.BotCheck,
 		pq.Array(nonNil(b.CheckedMethods)), b.TimeoutSeconds, b.MaxMemoryBytes, b.MaxBodyBytes,
 		pq.Array(nonNil(b.AllowedOrigins)), b.RateLimit, b.CallerRateLimit, b.Enabled, b.UpdatedBy, b.ResponseMode, pq.Array(nonNil(b.PageCDNs)),
-		pq.Array(nonNil(b.PageFrameOrigins)), pq.Array(nonNil(b.PageConnectOrigins)), pq.Array(nonNil(b.PageFormOrigins)), b.IPRateLimit)
-	err := row.Scan(&b.ID, &b.CreatedBy, &b.CreatedAt, &b.UpdatedAt)
+		pq.Array(nonNil(b.PageFrameOrigins)), pq.Array(nonNil(b.PageConnectOrigins)), pq.Array(nonNil(b.PageFormOrigins)), b.IPRateLimit,
+	}
+	var err error
+	if b.ID == "" {
+		err = s.db.QueryRowContext(ctx, insertBinding, args...).Scan(&b.ID, &b.CreatedBy, &b.CreatedAt, &b.UpdatedAt)
+	} else {
+		err = s.db.QueryRowContext(ctx, updateBinding, append(args, b.ID)...).Scan(&b.CreatedBy, &b.CreatedAt, &b.UpdatedAt)
+	}
 	var pqErr *pq.Error
 	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return epbinding.ErrNotFound
 	case errors.As(err, &pqErr) && pqErr.Code == "23505" && pqErr.Constraint == nameConstraint:
 		return epbinding.ErrNameTaken
 	case errors.As(err, &pqErr) && pqErr.Code == "23503" && pqErr.Constraint == checkConstraint:
@@ -109,6 +101,27 @@ func (s *Store) Set(ctx context.Context, b *epbinding.Binding) error {
 	return nil
 }
 
+// insertBinding creates a binding.
+const insertBinding = `
+		INSERT INTO script_endpoints (script_id, name, methods, path, auth_mode, callers, bot_check, checked_methods,
+		                              timeout_seconds, max_memory_bytes, max_body_bytes, allowed_origins, rate_limit,
+		                              caller_rate_limit, enabled, created_by, updated_by, response_mode, page_cdns,
+		                              page_frame_origins, page_connect_origins, page_form_origins, ip_rate_limit)
+		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9, $10, $11, $12, $13, $14, $15, $16, $16, COALESCE(NULLIF($17, ''), 'api'), $18,
+		        $19, $20, $21, $22)
+		RETURNING id, created_by, created_at, updated_at`
+
+// updateBinding replaces the binding $23 of the script $1.
+const updateBinding = `
+		UPDATE script_endpoints
+		   SET name = $2, methods = $3, path = $4, auth_mode = $5, callers = $6, bot_check = NULLIF($7, ''),
+		       checked_methods = $8, timeout_seconds = $9, max_memory_bytes = $10, max_body_bytes = $11,
+		       allowed_origins = $12, rate_limit = $13, caller_rate_limit = $14, enabled = $15,
+		       updated_by = $16, updated_at = NOW(), response_mode = COALESCE(NULLIF($17, ''), 'api'), page_cdns = $18,
+		       page_frame_origins = $19, page_connect_origins = $20, page_form_origins = $21, ip_rate_limit = $22
+		 WHERE id = $23 AND script_id = $1
+		RETURNING created_by, created_at, updated_at`
+
 // nonNil is list, or an empty list for nil: a NOT NULL array column takes no
 // NULL.
 func nonNil(list []string) []string {
@@ -118,9 +131,42 @@ func nonNil(list []string) []string {
 	return list
 }
 
-// Get returns a script's binding.
-func (s *Store) Get(ctx context.Context, scriptID string) (*epbinding.Binding, error) {
-	return s.one(ctx, selectBinding+` WHERE script_id = $1`, scriptID)
+// GetByID returns one binding.
+func (s *Store) GetByID(ctx context.Context, id string) (*epbinding.Binding, error) {
+	return s.one(ctx, selectBinding+` WHERE id = $1`, id)
+}
+
+// ByScript returns a script's bindings by name.
+func (s *Store) ByScript(ctx context.Context, scriptID string) ([]epbinding.Binding, error) {
+	rows, err := s.db.QueryContext(ctx, selectBinding+` WHERE script_id = $1 ORDER BY name`, scriptID)
+	if err != nil {
+		return nil, fmt.Errorf("list a script's endpoint bindings: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := []epbinding.Binding{}
+	for rows.Next() {
+		b, err := scan(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan endpoint binding: %w", err)
+		}
+		out = append(out, *b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate endpoint bindings: %w", err)
+	}
+	return out, nil
+}
+
+// Delete removes one binding; its failed and refused requests go with it.
+func (s *Store) Delete(ctx context.Context, id string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM script_endpoints WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete endpoint binding: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return epbinding.ErrNotFound
+	}
+	return nil
 }
 
 // GetByName returns the binding a name serves.
@@ -213,11 +259,11 @@ func (w withTotal) Scan(dest ...any) error {
 	return w.rows.Scan(append(dest, w.total)...) //nolint:wrapcheck // scan's caller names the read
 }
 
-// SetEnabled turns a script's binding on or off.
-func (s *Store) SetEnabled(ctx context.Context, scriptID string, enabled bool, actor string) error {
+// Enable turns one binding on or off.
+func (s *Store) Enable(ctx context.Context, id string, enabled bool, actor string) error {
 	res, err := s.db.ExecContext(ctx, `
 		UPDATE script_endpoints SET enabled = $2, updated_by = $3, updated_at = NOW()
-		 WHERE script_id = $1`, scriptID, enabled, actor)
+		 WHERE id = $1`, id, enabled, actor)
 	if err != nil {
 		return fmt.Errorf("set endpoint binding enabled: %w", err)
 	}

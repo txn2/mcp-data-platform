@@ -586,9 +586,11 @@ mounts the same detail page for every script.
 The surface writes five things, and none of them is an authority beyond the
 author's own:
 
-- A script's cadence, by the person who owns it
-  (`internal/httpserver/scripthttp/portalschedule.go`), which carries nothing:
-  the run gate and the persona filter are re-read at every fire.
+- A script's handlers (its schedules, and its webhook sources and a form's
+  endpoint within their own rules), by the person who owns it
+  (`internal/httpserver/scripthttp/handlerhttp`, carried out by
+  `internal/platform/scripthandler`), which carry nothing: the run gate and the
+  persona filter are re-read at every fire, request and event.
 - A script's SOURCE (`portaledit.go`), which crosses `script.ApplyEdit` — the
   one gate every mutation surface crosses — and lands on the live row as the
   version that runs, recording the roles its editor held, which is exactly what
@@ -626,9 +628,9 @@ acting on it, and reading what it did, is its owner's and an administrator's.
 | That a script exists, its contract, its source, its parameters and its version history | Everyone signed in, on the portal listing and a script's page, through `manage_script` `list`, `get`, `get_content`, `outline`, `stats`, `locate`, `diff` and `versions` (#1795, #1866), and through `search`, `fetch`, a prompt's reference, a knowledge page's citation and the knowledge graph (#2027) | A script is how a resource or an asset was produced, and somebody given the output can read how it was made. Reading the code grants nothing: a run still presents its author's captured roles |
 | The files it produced | Named to each reader only where that reader can open the file (an asset's owner, an administrator, the people it or a collection holding it is shared with; a resource by its scope), and counted without a name otherwise, on `fetch` and in the knowledge graph | The definition is everyone's; the outputs are as private as each file is |
 | The roles each version's author held at the save | The script's owner, and administrators | They are that person's identity data; `versions` and the portal history leave them out for everyone else |
-| Its run history, its live runs, its last successful run, its state, and the values its schedule BINDS | The script's owner, and administrators; anyone else's contract carries `runs_withheld` | A run's log is free text the script printed while presenting its author's captured roles and may echo rows the reader has no access to of their own; a schedule's bindings are what the owner configured this automation to ask about |
+| Its run history, its live runs, its last successful run, its state, and the values its schedules BIND | The script's owner, and administrators; anyone else's contract carries `runs_withheld` | A run's log is free text the script printed while presenting its author's captured roles and may echo rows the reader has no access to of their own; a schedule's bindings are what the owner configured this automation to ask about |
 | One run in particular | The above, plus whoever requested that run | The result was handed to them when they asked for it, so a run id they hold stays followable |
-| Running it, changing it, deleting it, and setting, re-timing, pausing, and resuming its cadence | The script's owner, and administrators; a run grant (#1846) lets another principal run it from the portal | A cadence is not an authority: the run gate and the persona filter are re-read at every fire, so re-timing reaches nothing new |
+| Running it, changing it, deleting it, and adding, re-timing, pausing, resuming and deleting its [handlers](handlers.md) | The script's owner, and administrators; a run grant (#1846) lets another principal run it from the portal; an endpoint on a script that is not a form is an administrator's, and a webhook source a non-administrator names must be one made for a form whose script they own | A cadence is not an authority: the run gate and the persona filter are re-read at every fire, so re-timing reaches nothing new |
 
 A portal route that serves the third or fourth rows answers "not yours" and "no
 such script" identically. `manage_script` names the rule when a command that
@@ -802,9 +804,11 @@ A schedule confers no authority. It names when the script runs and with which
 parameters, and every other property of that run — which code executes, which
 roles it presents, which connections it may reach — comes from the latest saved
 version and the persona filter, which a schedule cannot touch. Setting one is
-therefore an owner-or-admin action, the same rule reading a script answers to
-(`internal/platform/scriptlayer/schedules.go`, `schedulable`;
-`internal/httpserver/scripthttp/portalschedule.go`).
+therefore an owner-or-admin action, the same rule editing a script answers to,
+decided in one place for `manage_script handler_set` and the portal's handler
+routes alike (`internal/platform/scripthandler/service.go`, `mayAct`). A script
+may hold several schedules, at most 20 (`MaxPerKind`), so one script cannot
+multiply its own load past that.
 
 The consequences:
 

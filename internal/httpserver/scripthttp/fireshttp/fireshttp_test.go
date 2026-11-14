@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scripthandler"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -154,7 +155,8 @@ func TestList_EveryReaderSeesEverySchedule(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Empty(t, scripts.lastFilter.OwnerEmail, "an administrator's listing is every script")
 	assert.Equal(t, []string{"s1", "s2"}, schedules.lastFilter.ScriptIDs)
-	assert.Equal(t, 2, schedules.lastFilter.Limit)
+	assert.Equal(t, 2*maxSchedulesPerScript, schedules.lastFilter.Limit,
+		"the read leaves room for every schedule each script may hold (#2434)")
 }
 
 // TestList_NoScriptsSkipsTheScheduleRead pins that a caller with no scripts is
@@ -192,4 +194,11 @@ func TestList_Failures(t *testing.T) {
 func decode(t *testing.T, rec *httptest.ResponseRecorder, out any) {
 	t.Helper()
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(out))
+}
+
+// The listing reads as many schedules per script as a script may hold
+// (#2434): a smaller bound would drop a script's later schedules from the
+// timeline.
+func TestTheListingReadsEverySchedule(t *testing.T) {
+	assert.Equal(t, scripthandler.MaxPerKind, maxSchedulesPerScript)
 }

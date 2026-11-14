@@ -1,8 +1,10 @@
 package scriptevents
 
 import (
+	"database/sql/driver"
 	"errors"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -34,12 +36,12 @@ func runFor(id string) *script.Run {
 func TestEventBindings(t *testing.T) {
 	s, mock := mockStore(t)
 	mock.ExpectQuery(regexp.QuoteMeta(eventBindingsSQL)).
-		WillReturnRows(sqlmock.NewRows([]string{"event_source", "id"}).AddRow("shop", "s1").AddRow("shop", "s2").AddRow("esp", "s3"))
+		WillReturnRows(sqlmock.NewRows([]string{"source", "script_id"}).AddRow("shop", "s1").AddRow("shop", "s2").AddRow("esp", "s3"))
 	got, err := s.EventBindings(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, map[string][]string{"shop": {"s1", "s2"}, "esp": {"s3"}}, got)
 
-	mock.ExpectQuery(regexp.QuoteMeta(eventBindingsSQL)).WillReturnRows(sqlmock.NewRows([]string{"event_source", "id"}))
+	mock.ExpectQuery(regexp.QuoteMeta(eventBindingsSQL)).WillReturnRows(sqlmock.NewRows([]string{"source", "script_id"}))
 	got, err = s.EventBindings(t.Context())
 	require.NoError(t, err)
 	assert.Empty(t, got)
@@ -49,7 +51,7 @@ func TestEventBindings(t *testing.T) {
 	require.ErrorIs(t, err, errDown)
 
 	mock.ExpectQuery(regexp.QuoteMeta(eventBindingsSQL)).
-		WillReturnRows(sqlmock.NewRows([]string{"event_source", "id"}).AddRow("shop", "s1").RowError(0, errDown))
+		WillReturnRows(sqlmock.NewRows([]string{"source", "script_id"}).AddRow("shop", "s1").RowError(0, errDown))
 	_, err = s.EventBindings(t.Context())
 	require.ErrorIs(t, err, errDown)
 
@@ -64,12 +66,22 @@ func TestEventBindings(t *testing.T) {
 func expectEnqueue(mock sqlmock.Sqlmock, pending int) {
 	mock.ExpectBegin()
 	mock.ExpectExec(regexp.QuoteMeta(lockScriptSQL)).WithArgs("s1").WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectQuery(regexp.QuoteMeta(pendingEventRunsSQL)).WithArgs("s1").
+	mock.ExpectQuery(regexp.QuoteMeta(pendingEventRunsSQL)).WithArgs("s1", "shop").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(pending))
 }
 
+// containsArg matches a string argument holding want.
+type containsArg string
+
+func (c containsArg) Match(v driver.Value) bool {
+	s, ok := v.(string)
+	return ok && strings.Contains(s, string(c))
+}
+
 // #2332: an event's run is pending while the script is under the bound,
-// skipped past it, and nothing when the event already has a run.
+// skipped past it, and nothing when the event already has a run. The bound
+// is each webhook handler's (#2434): the count is of the script's pending
+// runs for the one source, and the skip says which.
 func TestEnqueueEvents(t *testing.T) {
 	s, mock := mockStore(t)
 	expectEnqueue(mock, 1)
@@ -77,7 +89,8 @@ func TestEnqueueEvents(t *testing.T) {
 	mock.ExpectExec(insert).WithArgs("dpx_a", "s1", "v1", 2, script.RunStatusPending, sqlmock.AnyArg(), "jane@example.com",
 		"shop", "a", sqlmock.AnyArg(), "").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(insert).WithArgs("dpx_b", "s1", "v1", 2, runstate.StatusSkippedBacklog, sqlmock.AnyArg(), "jane@example.com",
-		"shop", "b", sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+		"shop", "b", sqlmock.AnyArg(), containsArg("event runs of this script for source shop were already waiting")).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(insert).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectCommit()
 	mock.ExpectExec(regexp.QuoteMeta("SELECT pg_notify")).WillReturnResult(sqlmock.NewResult(0, 0))

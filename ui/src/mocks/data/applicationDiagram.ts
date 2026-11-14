@@ -32,7 +32,7 @@ const NODE_KIND: Record<ApplicationPartKind, ApplicationDiagramNode["kind"]> = {
 function partDetail(d: ApplicationDetail, kind: ApplicationPartKind, id: string): string[] {
   const view = d.parts.find((p) => p.kind === kind && p.id === id);
   const out: string[] = [];
-  if (view?.schedule) out.push(`schedule ${view.schedule.cron_spec} ${view.schedule.timezone}`);
+  for (const sc of view?.schedules ?? []) out.push(`schedule ${sc.cron_spec} ${sc.timezone}`);
   if (kind === "script" && id === "script-002") out.push("endpoint /endpoints/shop-orders/");
   return out;
 }

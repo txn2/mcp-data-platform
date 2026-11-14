@@ -2,7 +2,9 @@ package appwire
 
 import (
 	"context"
+	"database/sql/driver"
 	"errors"
+	"regexp"
 	"testing"
 	"time"
 
@@ -10,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/application/appdiagram"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 )
 
@@ -56,7 +59,7 @@ func TestAssetContentAndDeps(t *testing.T) {
 	assert.Empty(t, assetContent(versions{&portaldomain.AssetVersion{SizeBytes: maxDiagramContent + 1}}, blobs{"x"})(ctx, "a", 1))
 	assert.Empty(t, assetContent(versions{&portaldomain.AssetVersion{}}, blobs{})(ctx, "a", 1))
 
-	assert.Nil(t, diagramDeps(Deps{}).Binding, "nothing without a database")
+	assert.Nil(t, diagramDeps(Deps{}).Bindings, "nothing without a database")
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
@@ -68,4 +71,27 @@ func TestAssetContentAndDeps(t *testing.T) {
 	assert.Equal(t, []string{"products"}, deps.SchemaWrites(ctx, "orders", "shop"))
 	mock.ExpectQuery("FROM appdb_migrations").WillReturnError(errors.New("down"))
 	assert.Nil(t, deps.SchemaWrites(ctx, "orders", "shop"))
+
+	// Every endpoint a script holds is on its card (#2441).
+	cols := []string{
+		"id", "script_id", "name", "methods", "path", "auth_mode", "callers", "bot_check", "checked_methods", "timeout_seconds",
+		"max_memory_bytes", "max_body_bytes", "allowed_origins", "rate_limit", "caller_rate_limit", "enabled",
+		"created_by", "updated_by", "created_at", "updated_at", "response_mode", "page_cdns",
+		"page_frame_origins", "page_connect_origins", "page_form_origins", "ip_rate_limit",
+	}
+	row := func(id, name, path string) []driver.Value {
+		return []driver.Value{
+			id, "s1", name, "{GET}", path, "authenticated", "{}", "", "{}", 10, int64(1), 1, "{}", 60, 6, true,
+			"a@example.com", "a@example.com", time.Now(), time.Now(), "api", "{}", "{}", "{}", "{}", 0,
+		}
+	}
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE script_id = $1 ORDER BY name")).WithArgs("s1").
+		WillReturnRows(sqlmock.NewRows(cols).AddRow(row("e1", "orders", "/")...).AddRow(row("e2", "orders-v2", "/{id}")...))
+	held, err := deps.Bindings(ctx, "s1")
+	require.NoError(t, err)
+	assert.Equal(t, []appdiagram.Binding{{Name: "orders", Path: "/"}, {Name: "orders-v2", Path: "/{id}"}}, held)
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE script_id = $1 ORDER BY name")).WillReturnError(errors.New("down"))
+	_, err = deps.Bindings(ctx, "s1")
+	require.Error(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
 }

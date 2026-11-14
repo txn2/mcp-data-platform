@@ -28,7 +28,7 @@ import (
 //
 // Wire forms: manage_script takes command, name and source as strings and
 // allow_writes as a boolean; manage_schema takes command, connection, schema,
-// name and up as strings and version as an integer; endpoint_set takes
+// name and up as strings and version as an integer; handler_set kind=endpoint takes
 // endpoint, path and auth_mode as strings, methods and callers as lists of
 // strings and timeout_seconds, rate_limit and caller_rate_limit as integers;
 // an endpoint request is an HTTP GET or POST with a bearer key and, for POST,

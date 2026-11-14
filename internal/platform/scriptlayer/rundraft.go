@@ -57,7 +57,7 @@ func (h *Handle) handleValidate(ctx context.Context, input manageScriptInput) (*
 		"dynamic_tools":           report.DynamicTools,
 		"reads_state":             report.Reads,
 		"saves_state":             report.Saves,
-		"library":                 report.Library,
+		fieldLibrary:              report.Library,
 		"libraries":               report.Libraries, "resources": report.Resources,
 		// The managed-resource libraries the exports file in (#2080); {} is
 		// the library of the person the run acts for.

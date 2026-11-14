@@ -60,11 +60,9 @@ func source2408(t *testing.T, admin *client, prefix string, pg map[string]any) (
 	})
 	script = endpointName(prefix + "-run")
 	admin.saveScript(map[string]any{"command": "create", "name": script, "source": echo2408}, nil)
-	if got := admin.call("manage_script", map[string]any{"command": "update", "name": script, "event_source": source}); got["status"] != "updated" {
-		t.Fatalf("naming %s's event source: %v", script, got)
-	}
+	admin.webhookSet(script, source)
 	t.Cleanup(func() {
-		admin.callRaw("manage_script", map[string]any{"command": "update", "name": script, "event_source": ""})
+		admin.webhookOff(script, source)
 		admin.callRaw("manage_script", map[string]any{"command": "delete", "name": script})
 	})
 	return source, script

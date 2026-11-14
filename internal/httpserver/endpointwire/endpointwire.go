@@ -132,6 +132,16 @@ func mountOver(mux *http.ServeMux, e *epwire.Endpoints, id identity, settings fu
 	slog.Info("Endpoints on /endpoints/ and the bot checks admin API on /api/v1/admin/bot-checks enabled")
 }
 
+// Raw routes a request under /endpoints/ with an empty or dot segment to the
+// endpoint router before next (the mux) would redirect it (#2628); next alone
+// where the deployment has no endpoints.
+func Raw(p *platform.Platform, next http.Handler) http.Handler {
+	if p == nil || p.Endpoints() == nil || p.Endpoints().Handler == nil {
+		return next
+	}
+	return p.Endpoints().Handler.Raw(next)
+}
+
 // previewOwners reads who opened a preview, for its page.
 type previewOwners struct{ store *eppreview.Store }
 

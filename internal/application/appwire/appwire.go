@@ -22,9 +22,10 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/application/appstore"
 	"github.com/txn2/mcp-data-platform/internal/application/appsvc"
 	"github.com/txn2/mcp-data-platform/internal/application/apptool"
-	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/migrationstore"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptevents"
+	"github.com/txn2/mcp-data-platform/internal/platform/scripthandler"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
@@ -69,8 +70,9 @@ type Deps struct {
 		Source(ctx context.Context, ref string, claims resource.Claims, limit int64) (string, error)
 	}
 	Claims func(ctx context.Context) resource.Claims
-	// Endpoints carries out an endpoint command, as manage_script does.
-	Endpoints func(ctx context.Context, req epcmd.Request) (map[string]any, error)
+	// Handlers sets an imported script's handlers, as manage_script's
+	// handler_set does (#2441).
+	Handlers *scripthandler.Service
 	// SaveGate is the gate a script's source save crosses, which an import
 	// puts each script through (#2476); nil refuses importing a script.
 	SaveGate appbundle.SaveGate
@@ -102,6 +104,7 @@ func Service(d Deps) *appsvc.Service {
 		Scripts:   scripts,
 		Sources:   sources{db: d.DB},
 		Schedules: scripts,
+		Webhooks:  scriptevents.NewStore(d.DB),
 		Activity:  sources{db: d.DB},
 		Schema:    &appschema.Schema{Kit: Kit(d.Toolkits), Store: migrationstore.New(d.DB)},
 		// A connection named at create must be an application database
@@ -138,7 +141,7 @@ func Bundler(svc *appsvc.Service, d Deps) *appbundle.Bundler {
 	b := appbundle.Deps{
 		Service: svc, Migrations: migrationstore.New(d.DB), Bindings: epstore.New(d.DB), Schedules: scripts,
 		FormConnection: formConnection(d.DB), Blobs: d.Blobs, Lander: d.Lander, Reader: d.Reader, Claims: d.Claims,
-		Scripts: scripts, Bucket: d.Bucket, Prefix: d.Prefix, Endpoints: d.Endpoints,
+		Scripts: scripts, Bucket: d.Bucket, Prefix: d.Prefix, Handlers: d.Handlers, Webhooks: scriptevents.NewStore(d.DB),
 		HasSchemaConnection: hasConnection(d.Toolkits), SaveGate: d.SaveGate,
 	}
 	if d.Recordings != nil {

@@ -37,6 +37,7 @@ import { applicationHandlers } from "./handlers/applications";
 import { siteHandlers } from "./handlers/sites";
 import { approvalHandlers } from "./handlers/approvals";
 import { scriptHandlers } from "./handlers/scripts";
+import { handlerRouteMocks } from "./handlers/handlerRoutes";
 import { sessionHandlers } from "./handlers/sessions";
 import { callHandlers } from "./handlers/calls";
 import { assetRefHandlers, rewriteRefs } from "./handlers/assetRefs";
@@ -4851,6 +4852,7 @@ export const handlers = [
   ...siteHandlers,
   ...approvalHandlers,
   ...scriptHandlers,
+  ...handlerRouteMocks,
   ...sessionHandlers,
   ...callHandlers,
   ...assetRefHandlers,

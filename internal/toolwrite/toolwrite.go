@@ -339,11 +339,10 @@ var actionTools = map[string]actionRule{
 	"manage_script": {arg: "command", reads: set(
 		"get", "list", "validate", "help",
 		"locate", "get_content", "outline", "stats", "diff",
-		"versions", "runs", "get_run", "schedule_list", "test", "recording", "endpoint_list",
+		"versions", "runs", "get_run", "test", "recording", "handler_list", "handler_get",
 	), writes: set(
-		"create", "update", "delete", "patch", "run_draft", "cancel_run",
-		"schedule_set", "schedule_enable", "schedule_disable", "form_preview",
-		"endpoint_set", "endpoint_enable", "endpoint_disable",
+		"create", "update", "delete", "patch", "run_draft", "cancel_run", "form_preview",
+		"handler_set", "handler_enable", "handler_disable", "handler_delete",
 	), split: map[string]actionRule{
 		"state": {arg: "state_action", reads: set("", "get"), writes: set("set", "clear")},
 	}},

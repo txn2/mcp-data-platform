@@ -256,3 +256,44 @@ func run(t *testing.T, root, name string, args ...string) string {
 	}
 	return string(out)
 }
+
+// writeEnvironments writes the environment manifest with one environment
+// holding the criteria pattern matches.
+func writeEnvironments(t *testing.T, root, pattern string) {
+	t.Helper()
+	path := filepath.Join(root, "test", "acceptance", "environments.txt")
+	// #nosec G703 -- root is t.TempDir() and the join is a constant path.
+	require(t, os.WriteFile(path, []byte("embeddings  "+pattern+"  DEV_EMBEDDING_PROVIDER=ollama\n"), 0o600))
+}
+
+// #2637: in a file mixing plain criteria with an environment's, the plain
+// stack's recording is checked for the plain ones, and the environment's run
+// proves the rest; one it recorded as failed still fails the gate, and a file
+// of an environment's criteria alone is read whole from that run.
+func TestAMixedFileIsCheckedForItsPlainCriteria(t *testing.T) {
+	t.Parallel()
+	root := newRepo(t)
+	writeEnvironments(t, root, "^TestIssue(9005_Vectors|9006_.*)$")
+	mixed := writeCriteria(t, root, "9005", "TestIssue9005_Plain", "TestIssue9005_Vectors")
+	writeTranscript(t, root, "9005", "Wire forms: object.")
+
+	writeRun(t, root, "9005", map[string]string{"TestIssue9005_Plain": "pass"})
+	if out, ok := gate(t, root, "check", mixed); !ok {
+		t.Fatalf("the plain stack's run of a mixed file was refused:\n%s", out)
+	}
+	writeRun(t, root, "9005", map[string]string{"TestIssue9005_Vectors": "pass"})
+	if out, ok := gate(t, root, "check", mixed); ok || !strings.Contains(out, "TestIssue9005_Plain never ran") {
+		t.Fatalf("a run missing the plain criterion passed:\n%s", out)
+	}
+	writeRun(t, root, "9005", map[string]string{"TestIssue9005_Plain": "pass", "TestIssue9005_Vectors": "fail"})
+	if out, ok := gate(t, root, "check", mixed); ok || !strings.Contains(out, "TestIssue9005_Vectors fail") {
+		t.Fatalf("a recorded failure of the environment's criterion passed:\n%s", out)
+	}
+
+	only := writeCriteria(t, root, "9006", "TestIssue9006_First", "TestIssue9006_Second")
+	writeTranscript(t, root, "9006", "Wire forms: object.")
+	writeRun(t, root, "9006", map[string]string{"TestIssue9006_First": "pass"})
+	if out, ok := gate(t, root, "check", only); ok || !strings.Contains(out, "TestIssue9006_Second never ran") {
+		t.Fatalf("an environment-only file was not read whole:\n%s", out)
+	}
+}

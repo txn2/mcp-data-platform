@@ -31,7 +31,7 @@ import (
 // persona it does not is refused; and after the key is rotated a submission
 // made before the rotation still decrypts.
 //
-// Wire forms: manage_script create, endpoint_set (decrypt_personas as a list
+// Wire forms: manage_script create, handler_set kind=endpoint (decrypt_personas as a list
 // of strings) and run_script take their arguments as literal tools/call
 // params; a submission is an application/json object; trino_query takes
 // string connection, sql and purpose; the submissions and audit routes are

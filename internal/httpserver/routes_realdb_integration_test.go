@@ -68,7 +68,6 @@ var routesUnmountedHere = []struct {
 	{regexp.MustCompile(`^GET /api/v1/portal/scripts/\{id\}/submissions`), "submissionshttp.ForPortal: a form's submissions are read through Trino, and the test platform has no Trino connection"},
 	{regexp.MustCompile(`^(GET|PUT|DELETE) /api/v1/admin/bot-checks(/\{name\})?$`), "endpointwire.Mount: endpoints are assembled by Platform.Start with the script layer, which this test does not run"},
 	{regexp.MustCompile(`^GET /api/v1/admin/endpoints(/\{name\})?$`), "endpointwire.Mount: endpoints are assembled by Platform.Start with the script layer, which this test does not run"},
-	{regexp.MustCompile(`^(GET|PUT|POST) /api/v1/portal/scripts/\{id\}/endpoint`), "bindinghttp: the script routes' endpoint deps come from Platform.Start, which this test does not run"},
 }
 
 // TestEveryRouteReportsItsTemplate_RealDB is the gate for #1889: every

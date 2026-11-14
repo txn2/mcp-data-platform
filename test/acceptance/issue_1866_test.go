@@ -125,7 +125,7 @@ func TestIssue1866_ActingOnAnotherPersonsScriptStaysTheOwners(t *testing.T) {
 	owner, peer := connectAs(t, devOwnerAPIKey), connectAs(t, devPeerAPIKey)
 	name, _ := script1866(t, owner)
 
-	for _, command := range []string{"runs", "state", "update", "delete", "schedule_set"} {
+	for _, command := range []string{"runs", "state", "update", "delete", "handler_set"} {
 		args := map[string]any{"command": command, "name": name, "owner_email": devOwnerEmail, "display_name": "taken"}
 		res, text, err := peer.callRaw("manage_script", args)
 		if err != nil {

@@ -10,6 +10,12 @@
 # says so; ACCEPTANCE_ENV=<name> runs only one environment's criteria. Each
 # criterion fails, naming what it needs, when it runs anywhere else.
 #
+# embeddings holds the criteria that read real vectors (#2637): index_jobs rows,
+# stored embeddings, hybrid or semantic ranking, embedding_calls_total, the
+# postgres.vector_search span, the index listener, the recall-first supersede
+# of a memory, the stalled-embedder pause. The plain stack runs with no
+# embedder (noop) and ranks lexically, so its runs embed nothing.
+#
 # An environment marked manual has no nightly job: its criteria run by hand.
 # The E2E Nightly runs every other one (.github/workflows/e2e-nightly.yml, held
 # to this file by TestEveryAcceptanceEnvironmentRunsNightly).
@@ -17,3 +23,4 @@
 worker-off  ^TestIssue1897_AStoppedSchedulerShowsItsDueSchedulesAging$  DEV_SCRIPT_WORKER_ENABLED=false
 clickstack  ^TestIssue(1900|1901)_  DEV_OTLP_ENDPOINT=localhost:14317 DEV_DEPLOYMENT_ID_B=acme-dev-b  +clickstack
 slack  ^TestIssue(1824_|2241_(TheChannelListIsTheBotsChannels|SlackShowsThePreviewInTheChannelAndTheShareURL)$)  manual
+embeddings  ^TestIssue(1551_DiscoveryReturnsAScriptOutputToItsOwner|1585_ACappedSourceSaysSoOnTheWire|1585_ASingleSourceHonoursLimitAboveTheFetchDepth|1592_FindToolsReturnsDiscover|1592_RankingModesArePreserved|1626_HybridStopsWhereTheMatchesEnd|1626_TheAdminCatalogAnswersATwoTokenQuery|1627_AFileWithOneRegistrationReportsIt|1627_AFileWithTwoRegistrationsReportsBoth|1627_AnUnregisteredFileCarriesNoTables|1675_ExportIsListedOnTheServerWithItsTitleAndDescription|1837_InFlightAndRetryBackoffSeeBehindTheBacklog|1837_ThroughputAndLatencyComeFromTheMetrics|1895_ASearchThatEmbedsIsCountedUnderItsModel|1896_ASearchRanksUnderAVectorSearchSpan|1897_ALostListenConnectionIsCountedAsAReconnect|1904_AForgottenMemoryIsRemovedAfterItsRetention|1919_SearchReturnsAChangedDescription|1980_MarkingACallerRemovesItsRecordsVectorsAndUnits|1987_ACaptureAnswersWhileTheEmbedderIsStalled|1987_TheNewerRestatementSupersedesTheOlder|1988_ATableOfValuesIsEmbeddedOnItsMetadata|1988_ASearchIsNotQueuedBehindABacklog|2111_ARuleMappingAFolderToNoneDoesTheSame|2111_PostersAScriptWritesAreSearchableByTitleAndTags|2111_AnUploadedPDFIsSearchableByItsContents|2230_AFileIsFoundByTheWordsOfItsName|2276_EveryReplicaRanksWithTheEmbeddingsAPeerWrote|2292_AWordInHalfTheLibraryIsRankedWithinTheBound|2292_TheSameSearchWithEverySourceKeepsTheResourcesGroup|2381_ACappedIndexKeepsTablesAndReadsShort|2448_EachTopicFindsItsPageAndFetchReadsIt|2500_SearchInEveryScopeCoversWhatTheCallerCanOpen)$  DEV_EMBEDDING_PROVIDER=ollama

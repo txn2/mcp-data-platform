@@ -69,8 +69,12 @@ fi
 # diff changes, by name or through a helper (#2543): its recorded run has to
 # pass and be newer than the change. On #2542 six unchanged files failed the
 # nightly after the merge.
+#
+# An unchanged acceptance file calling a helper this diff changes in another
+# acceptance file is checked too (#2627): the evidence script reads the
+# helpers' lines from the diff against the merge base.
 # shellcheck disable=SC2086 # the file list is newline-separated by construction
-printf '%s\n' "$changed" | python3 scripts/acceptance-evidence.py check --merge-base "$MERGE_BASE" --changed-stdin $acceptance
+printf '%s\n' "$changed" | ACCEPTANCE_DIFF_RANGE="$MERGE_BASE" python3 scripts/acceptance-evidence.py check --merge-base "$MERGE_BASE" --changed-stdin $acceptance
 if [ -n "$acceptance" ]; then
     exit 0
 fi

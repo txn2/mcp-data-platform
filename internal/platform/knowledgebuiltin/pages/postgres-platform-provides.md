@@ -28,8 +28,8 @@ flowchart LR
 |---------------------------|---------------------|-----------------------------|
 | Run something every night | `pg_cron` | a managed script's schedule: a cron expression and an IANA time zone, a run record with its log, its cause when it fails and whether running it again is expected to help, and failure mail |
 | A job queue with workers | a jobs table claimed with `SKIP LOCKED`, a worker process, a reaper | a script run per event or per schedule; the run queue, its leases and its reclaim are the platform's |
-| React to a row as it changes | a trigger calling out, or `LISTEN` in a long-lived process | `manage_schema add` with `template="outbox"`, and a webhook source in `outbox` mode that files each row as an event for the scripts naming it |
-| Publish an event to several consumers | `NOTIFY`, a pub/sub table | webhook events: each script naming the source runs once per event |
+| React to a row as it changes | a trigger calling out, or `LISTEN` in a long-lived process | `manage_schema add` with `template="outbox"`, and a webhook source in `outbox` mode that files each row as an event for the scripts with a webhook handler for it |
+| Publish an event to several consumers | `NOTIFY`, a pub/sub table | webhook events: each script with a webhook handler for the source runs once per event |
 | Store an uploaded file | a `bytea` column | managed resources: object storage with versions, a library, scopes and a URL |
 | Serve an HTTP API | a separate service | an endpoint: a managed script bound to `/endpoints/{name}/...`, with authentication, rate limits and an audit row |
 | Serve a browser page or a static site | a web host and a CDN | an endpoint with `response_mode: "page"` on the application's own origin, or `manage_site`: see mcp:knowledge_page:platform-pages-and-sites |

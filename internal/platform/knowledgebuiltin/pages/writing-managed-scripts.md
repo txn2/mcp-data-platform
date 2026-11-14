@@ -47,10 +47,11 @@ Steps 2 and 3 act on the `source` you send with the call, and on the saved
 version when you send none. That is what makes them a loop: a save is
 immediately the version `run_script` executes and a schedule fires, so sending
 the edit is how you try a change without making it live.
-4. Once saved, `run_script` executes the latest saved version — on demand or
-   on a schedule — as the script's own principal, presenting the roles you held
-   at the save. A script that belongs to a released application runs the
-   version its application's release pins instead (`manage_application`).
+4. Once saved, `run_script` executes the latest saved version — on demand, or
+   started by one of the script's handlers — as the script's own principal,
+   presenting the roles you held at the save. A script that belongs to a
+   released application runs the version its application's release pins
+   instead (`manage_application`).
 
 A form (a script defining `form_spec(req)` and `form_submit(req, values)`)
 is seen before anything is bound: `command=form_preview` returns a link to the
@@ -59,8 +60,8 @@ form rendered as `/forms/<endpoint>` renders it, from the latest saved version,
 hour; its `form_spec` and `form_submit` run as drafts under your identity, so
 a submission there writes nothing, stores nothing and saves no file. Hand the
 link to the person to open in their browser. Its owner then publishes it with
-`endpoint_set` `auth_mode=authenticated`; serving it to people who are not
-signed in takes a version an administrator approved (`manage_approval`).
+`handler_set` `kind=endpoint` `auth_mode=authenticated`; serving it to people who
+are not signed in takes a version an administrator approved (`manage_approval`).
 
 ## Reuse a library before writing a helper
 
@@ -289,27 +290,49 @@ and nothing more — including the tools that write. A disabled, deprecated, or
 superseded script is the only thing the run gate refuses.
 
 A script that is part of a released application (`manage_application`,
-mcp:knowledge_page:platform-applications) is the exception: its endpoint,
-schedule, events and `run_script` execute the version the application's
+mcp:knowledge_page:platform-applications) is the exception: its endpoints,
+schedules, events and `run_script` execute the version the application's
 current release pins, so a saved version goes live at the application's next
 release, and a rollback puts the earlier version back. `get` reports
 `released_version` beside `version` for such a script.
 
 A script is yours to act on: you are the only person who edits it, runs it, and
-schedules it, and administrators do all three on every script. Everyone signed in
-reads its source and versions, and on the portal its schedule and how its runs
+sets its handlers, and administrators do all three on every script. Everyone signed in
+reads its source and versions, and on the portal its schedules and how its runs
 have gone; what a run was given, printed and wrote stays yours and an
 administrator's. An administrator can also move a script to another owner, which
 hands over all of that at once.
 
-A script can also run for each event a webhook source stores, a form's
-submissions among them: `manage_script command=update event_source=<source>`.
-Each event enqueues one run, which reads it as `run.event` (`id`, `type`, `key`,
-`received_at`, `source`, `payload`; a form submission's payload holds its
-`values`), and runs through the queue under your saved roles, as a fire does.
-You may name the source of a form you own (`form-<endpoint>`); an
-administrator any source. Past `scripts.events.max_queued` waiting event runs
-an event is recorded as `skipped_backlog` and not run.
+## What starts a script: handlers
+
+A script's handlers are what start it besides someone running it, and
+`manage_script command=handler_set` adds one of a `kind`:
+
+- `schedule` runs `main()` on a cadence: `cron`, `timezone` and the `args`
+  every fire binds.
+- `endpoint` answers HTTP requests at `/endpoints/<endpoint>` with
+  `handle(req)`; a form (a script defining `form_spec` and `form_submit`) is an
+  endpoint. An administrator adds one; you add one to a form you own.
+- `webhook` runs `main()` once for each event a webhook source stores
+  (`event_source`), a form's submissions among them. The run reads the event as
+  `run.event` (`id`, `type`, `key`, `received_at`, `source`, `payload`; a form
+  submission's payload holds its `values`), and runs through the queue under
+  your saved roles, as a fire does. You may name the source of a form you own
+  (`form-<endpoint>`); an administrator any source. Past
+  `scripts.events.max_queued` waiting event runs of the handler an event is
+  recorded as `skipped_backlog` and not run.
+
+A script may hold several handlers of each kind, at most 20 of a kind: two
+schedules fire on two cadences, and one script may run for several sources.
+`handler_set` answers the handler with its id (`handler`); `handler_list`
+lists a script's handlers (`name`), `handler_get`, `handler_enable`,
+`handler_disable` and `handler_delete` act on one by `handler`, and
+`handler_set` with `handler` changes that one. A schedule that produced runs is
+disabled rather than deleted. A save that removes a function a handler needs
+(`handle(req)`, or a form's `form_spec` and `form_submit`) is refused, naming
+the handler. `endpoint_set`, `schedule_set` and the other `endpoint_*` and
+`schedule_*` commands, and `update` with `event_source`, were removed: each is
+refused naming its replacement.
 
 ## The dialect contract
 

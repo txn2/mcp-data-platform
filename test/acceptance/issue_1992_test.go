@@ -48,10 +48,8 @@ func schedule1992(t *testing.T, c *client, name, category string, tags []any) st
 	t.Cleanup(func() {
 		_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
 	})
-	if out := c.call("manage_script", map[string]any{
-		"command": "schedule_set", "name": name, "cron": "0 7 * * *", "timezone": "UTC",
-	}); out["error"] != nil {
-		t.Fatalf("schedule_set refused: %v", out)
+	if out := c.scheduleSet(name, "0 7 * * *", "UTC", nil); out["error"] != nil {
+		t.Fatalf("handler_set kind=schedule refused: %v", out)
 	}
 	return id
 }

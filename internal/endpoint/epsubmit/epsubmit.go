@@ -54,7 +54,7 @@ const (
 )
 
 // ErrNoForm is a script with no form source: it was never bound as a form.
-var ErrNoForm = errors.New("this script stores no form submissions: bind it as a form with manage_script endpoint_set")
+var ErrNoForm = errors.New("this script stores no form submissions: give it an endpoint handler with manage_script handler_set kind=endpoint")
 
 // Viewer is who reads the submissions.
 type Viewer struct {

@@ -12,9 +12,11 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/libraryuse"
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/openrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexamples"
+	"github.com/txn2/mcp-data-platform/internal/platform/scripthandler"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptpending"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
@@ -69,7 +71,7 @@ func (h *Handle) handleCreate(ctx context.Context, input manageScriptInput) (*mc
 		"next": "Saved, and it runs: run_script executes it under the access you held when you saved it, and a schedule you set will fire it. Use run_draft to iterate on changes before saving them.",
 	}
 	if sc.Library {
-		out["library"] = true
+		out[fieldLibrary] = true
 		out["next"] = fmt.Sprintf("Saved as a library, which is never run itself. A script loads this version with "+
 			"load(\"lib:%s@%d\", \"<function>\"); every later save is a new version, and a script keeps the version it names.", sc.Name, sc.Version)
 	}
@@ -178,8 +180,9 @@ func (h *Handle) applyUpdates(ctx context.Context, sc *script.Script, input mana
 	if input.Exclusive != nil {
 		sc.Exclusive = *input.Exclusive
 	}
-	if err := h.eventRule.Set(ctx, sc, input.EventSource, resolveEmail(ctx), h.isAdminPersona(ctx)); err != nil {
-		return nil, errorResult(err.Error())
+	if input.EventSource != nil {
+		return nil, errorResult("event_source on update was removed: run the script for a webhook source with " +
+			"handler_set kind=webhook event_source=<source> (#2434)")
 	}
 	if errResult := h.applyStatus(ctx, sc, input); errResult != nil {
 		return nil, errResult
@@ -331,8 +334,23 @@ func (h *Handle) handleGet(ctx context.Context, input manageScriptInput) (*mcp.C
 	// with its author's roles (#1866).
 	if h.ownsOrAdmin(ctx, sc) {
 		fields["live_runs"] = h.liveRuns(ctx, sc)
+		fields[fieldHandlers] = h.handlerRows(ctx, sc.ID)
 	}
 	return jsonResult(fields)
+}
+
+// handlerRows is what starts the script (#2441), for its owner's get; a read
+// that fails lists none rather than failing the script's own read.
+func (h *Handle) handlerRows(ctx context.Context, scriptID string) []scripthandler.Handler {
+	if h.handlers == nil {
+		return []scripthandler.Handler{}
+	}
+	rows, _, err := h.handlers.List(ctx, scripthandler.Filter{ScriptIDs: []string{scriptID}}, scripthandler.Caller{Admin: true})
+	if err != nil {
+		slog.WarnContext(ctx, "failed to read a script's handlers", logKeyError, logsan.SanitizeForLog(err.Error()))
+		return []scripthandler.Handler{}
+	}
+	return rows
 }
 
 // liveRunsLimit caps the runs a script lists as not yet ended.
@@ -368,10 +386,9 @@ func scriptFields(sc *script.Script) map[string]any {
 	return map[string]any{
 		"id": sc.ID, fieldName: sc.Name, "display_name": sc.DisplayName,
 		"description": sc.Description, fieldSource: sc.Source, "params": sc.Params,
-		"owner_email": sc.OwnerEmail,
-		"category":    sc.Category, "tags": sc.Tags, "enabled": sc.Enabled, fieldStatus: sc.Status,
+		fieldOwner:    sc.OwnerEmail,
+		fieldCategory: sc.Category, fieldTags: sc.Tags, "enabled": sc.Enabled, fieldStatus: sc.Status,
 		"exclusive":       sc.Exclusive,
-		"event_source":    sc.EventSource,
 		fieldVersion:      sc.Version,
 		"executable_note": script.ExecutionNote(sc),
 		"created_at":      sc.CreatedAt, "updated_at": sc.UpdatedAt,
@@ -403,12 +420,12 @@ func (h *Handle) handleList(ctx context.Context, input manageScriptInput) (*mcp.
 		sc := &scripts[i]
 		items = append(items, map[string]any{
 			fieldName: sc.Name, "display_name": sc.DisplayName, "description": sc.Description,
-			"owner_email": sc.OwnerEmail, fieldStatus: sc.Status,
-			fieldVersion: sc.Version,
-			"category":   sc.Category, "tags": sc.Tags, "library": sc.Library,
+			fieldOwner: sc.OwnerEmail, fieldStatus: sc.Status,
+			fieldVersion:  sc.Version,
+			fieldCategory: sc.Category, fieldTags: sc.Tags, fieldLibrary: sc.Library,
 		})
 	}
-	return jsonResult(map[string]any{"scripts": items, "count": len(items)})
+	return jsonResult(map[string]any{"scripts": items, fieldCount: len(items)})
 }
 
 // refusedReport renders a validation refusal: the reason, plus the findings an

@@ -780,9 +780,7 @@ func issue1870StartReader(t *testing.T, c *client, source string) *issue1870Read
 		t.Fatalf("the reader script was not saved: %v", out)
 	}
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": r.script}) })
-	if sched := c.call("manage_script", map[string]any{
-		"command": "schedule_set", "name": r.script, "cron": "* * * * *", "timezone": "UTC",
-	}); sched["error"] != nil {
+	if sched := c.scheduleSet(r.script, "* * * * *", "UTC", nil); sched["error"] != nil {
 		t.Fatalf("scheduling the reader was refused: %v", sched)
 	}
 	return r

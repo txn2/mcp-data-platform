@@ -161,10 +161,10 @@ type Script struct {
 	// no other run of the script is running. Under off runs may overlap and
 	// the state check is the only guard.
 	Exclusive runstate.ExclusiveMode `json:"exclusive"`
-	// EventSource is the webhook source the script runs for (#2332): each
-	// event it stores enqueues one run with trigger event. Empty runs for
-	// none. Set by the owner or an administrator, as a schedule is.
-	EventSource string `json:"event_source,omitempty"`
+	// IsForm is whether the version the record carries defines form_spec(req)
+	// and form_submit(req, values): an endpoint handler on it is a form
+	// (#2441). The store writes it from the source on every save.
+	IsForm bool `json:"-"`
 
 	// Lifecycle.
 	Status       string     `json:"status" example:"active"`
@@ -328,10 +328,11 @@ type ListFilter struct {
 	// Library narrows to libraries when true and to the scripts that run
 	// when false (#1941); nil lists both.
 	Library *bool
-	// Endpoint narrows to the scripts bound to an endpoint when true and to
-	// the ones that are not when false (#2259); nil lists both.
-	Endpoint *bool
-	Limit    int // cap the number of rows returned; 0 means the store default
+	// HandlerTypes narrows to the scripts holding a handler of any of these
+	// types (endpoint, form, schedule, webhook), and "none" to the scripts
+	// holding none (#2435); empty lists every script.
+	HandlerTypes []string
+	Limit        int // cap the number of rows returned; 0 means the store default
 	// Sort names the column to order by and Desc the direction. An empty or
 	// unrecognized Sort falls back to the default, most-recently-updated
 	// first: a listing answers with the wrong order rather than refusing,

@@ -33,14 +33,14 @@ persona's rules takes effect on the script's next run.
 
 Who may save is the edit rule: a script is one person's, so its owner saves it
 and so does an administrator. Deleting it is the same rule, and it takes the
-script's schedule and history with it — nobody else could see it, run it, or
+script's handlers and history with it — nobody else could see it, run it, or
 notice it go.
 
 A delete is made from the script's page in the portal
 (`DELETE /api/v1/portal/scripts/{id}`) or with `manage_script command=delete`.
 Both call the same store, so the two surfaces remove exactly the same rows: the
-script, its saved versions, its schedule, its run history and the state it
-carried. Both also answer with the same account of the removal, composed once
+script, its saved versions, its [handlers](handlers.md) (its schedules,
+endpoints and webhook handlers), its run history and the state it carried. Both also answer with the same account of the removal, composed once
 in `script.DeleteMessage` and naming only what the script actually had, so a
 script that was never scheduled and carried no state is not reported as having
 lost either:
@@ -377,7 +377,7 @@ so a typo in one id among twenty is refused naming the element rather than
 silently matching nothing, and it reaches the script as a list that
 `platform.query` binds as a parenthesized list:
 
-```python fragment
+```{ .python .fragment }
 rows = platform.query(connection="warehouse",
     sql="SELECT * FROM stores WHERE id IN :ids", params={"ids": run.params["ids"]})["rows"]
 ```
@@ -519,7 +519,7 @@ behind one waits no longer than it allows.
 `platform.progress(message, done=None, total=None)` reports how far a run has
 got (#1847):
 
-```python fragment
+```{ .python .fragment }
 for i, entity in enumerate(entities):
     platform.progress("entities", done=i, total=len(entities))
     # ... work on entity ...
@@ -587,7 +587,7 @@ above, waiting up to `wait_seconds`. The export tools (`trino_export`,
 
 A schedule is what turns a script into an automation: a cadence, a timezone,
 and the parameter values every fire binds. Every fire executes the latest saved
-version.
+version. A schedule is one kind of a script's [handlers](handlers.md) (#2434).
 
 ![A script's schedule, paused](../images/screenshots/light/user-script-schedule-paused-light.webp#only-light)![A script's schedule, paused](../images/screenshots/dark/user-script-schedule-paused-dark.webp#only-dark)
 
@@ -597,7 +597,8 @@ and the note that a gap is never caught up on.
 
 ```json
 {
-  "command": "schedule_set",
+  "command": "handler_set",
+  "kind": "schedule",
   "name": "daily-sales",
   "cron": "0 7 * * 1-5",
   "timezone": "America/Los_Angeles",
@@ -611,26 +612,32 @@ The cadence is a standard five-field cron expression or a descriptor (`@daily`,
 stays on its wall clock across a daylight-saving change instead of drifting by
 an hour. The floor is one fire a minute.
 
-A script has at most one schedule. Setting one again replaces the cadence in
-place, keeping the same automation and the run history that points at it; a
-second cadence over the same code is a second script.
+A script may hold several schedules, at most 20, and each fires on its own
+cadence; its runs record which schedule fired them. A schedule with the same
+cadence, timezone and args as one the script already holds is refused, naming
+it. Sending `handler` with a schedule's id replaces that schedule's cadence in
+place, keeping the run history that points at it.
 
 | Command | Does |
 |---|---|
-| `manage_script command=schedule_set name=… cron=… timezone=… args=…` | Create or replace the cadence |
-| `manage_script command=schedule_list` | The schedules of the scripts you can see |
-| `manage_script command=schedule_disable name=…` | Stop it firing |
-| `manage_script command=schedule_enable name=…` | Start it again |
+| `manage_script command=handler_set kind=schedule name=… cron=… timezone=… args=…` | Add a schedule, or replace the one `handler` names |
+| `manage_script command=handler_list kind=schedule` | The schedules of your scripts (every script's for an administrator); with `name`, one script's |
+| `manage_script command=handler_disable handler=…` | Stop it firing |
+| `manage_script command=handler_enable handler=…` | Start it again |
+| `manage_script command=handler_delete handler=…` | Delete a schedule that never fired a run |
 
-The admin API carries the same four actions: `GET
-/api/v1/admin/scripts/schedules`, `GET` and `PUT
-/api/v1/admin/scripts/{id}/schedule`, and `POST
-/api/v1/admin/scripts/{id}/schedule/enable` and `.../disable`. Pausing is its
-own action rather than a field of the cadence, because re-sending a schedule to
+The portal carries the same actions on the script's **Handlers** section,
+through `POST /api/v1/portal/scripts/{id}/handlers`, `PUT
+/api/v1/portal/handlers/{id}` and `POST /api/v1/portal/handlers/{id}/enable`
+and `.../disable` (see [Handlers](handlers.md#routes)). Pausing is its own
+action rather than a field of the cadence, because re-sending a schedule to
 turn it off would re-base the fire it resumes on.
 
-There is deliberately no way to delete a schedule. Disabling one stops it and
-leaves the row that explains the runs it produced.
+A schedule that produced runs cannot be deleted: its runs name it, and
+`handler_delete` refuses it, saying to disable it instead. Disabling one stops
+it and leaves the row that explains the runs it produced. `schedule_set`,
+`schedule_list`, `schedule_enable` and `schedule_disable` were removed and are
+refused naming their replacements.
 
 ### Editing from the portal
 
@@ -1232,12 +1239,12 @@ builder cannot express is still settable, through its Custom field, and an
 expression an agent wrote through `manage_script` opens there as itself rather
 than being rewritten into something near it.
 
-The same three actions are on the portal, on the pages the owner already reads
-their script on: `GET` and `PUT /api/v1/portal/scripts/{id}/schedule`, and `POST
-/api/v1/portal/scripts/{id}/schedule/enable` and `.../disable`, restricted to
-the script's owner and to administrators and answering "not yours" exactly as
-they answer "no such script". See
-[Automations in the portal](../portal/scripts.md#the-schedule).
+The same actions are on the portal, in the **Handlers** section of the page the
+owner already reads their script on: `POST /api/v1/portal/scripts/{id}/handlers`
+adds a schedule, `PUT /api/v1/portal/handlers/{id}` changes one, and `POST
+/api/v1/portal/handlers/{id}/enable` and `.../disable` resume and pause it, all
+restricted to the script's owner and to administrators. See
+[Automations in the portal](../portal/scripts.md#handlers).
 
 A cadence on a disabled or retired script saves and stays inert — which both
 the tool and the page say plainly rather than leaving an owner waiting on an
@@ -1276,8 +1283,9 @@ what runs overnight.
 
 ![When every schedule fires](../images/screenshots/light/user-scripts-schedules-light.webp#only-light)![When every schedule fires](../images/screenshots/dark/user-scripts-schedules-dark.webp#only-dark)
 
-Each scheduled script is one row, labeled with its name, its schedule in words
-and how many times it fires in the window. A mark stands at each fire. Schedules
+Each schedule is one row, labeled with its script's name, its schedule in words
+and how many times it fires in the window; a script with several schedules has a
+row for each, and each row carries its `schedule_id`. A mark stands at each fire. Schedules
 fire at rates too different for one time axis, so each is drawn on one of three:
 
 | Section | Axis | Holds the schedules that fire |
@@ -1408,10 +1416,13 @@ is what it will resume on, not a fire anything is going to produce.
 
 ## Running one for each event a webhook source stores
 
-A script can name a [webhook source](../server/webhooks.md) it runs for
-(#2332): a form's source (`form-<endpoint>`), a source an external system posts
-to, or an imap source. Each event the source stores enqueues one run of the
-script with trigger `event`, once the event is durable: the enqueue is one
+A script runs for a [webhook source](../server/webhooks.md) through a webhook
+[handler](handlers.md) (#2332, #2434): a form's source (`form-<endpoint>`), a
+source an external system posts to, an imap source or an application database's
+outbox. Several scripts may run for one source and one script for several, each
+pair a handler of its own. Each event the source stores enqueues one run of each
+script with an enabled handler for it, with trigger `event`, once the event is
+durable: the enqueue is one
 database transaction before the sender is answered, and the run itself never
 executes inside the sender's request, so a slow or failing automation cannot
 slow the sender, and a failure to enqueue is logged without refusing an event
@@ -1438,11 +1449,15 @@ def main():
 default, since an event passes none; a script with a required parameter and no
 default enqueues nothing, and the platform logs why.
 
-Set it with `manage_script update` and `event_source`, or on the automation's
-page under **Events**, beside the schedule; `event_source=""` stops it. The
-owner and an administrator set it, as they set a cadence. Naming a source is
-reading every event it stores, so an administrator may name any source and
-the owner only the source of a form they own.
+Add one with `manage_script command=handler_set kind=webhook
+event_source=<source>`, or on the automation's page with **Add handler** >
+Webhook; `handler_disable` pauses it and `handler_delete` removes it, leaving
+the runs it started. The owner and an administrator add one, as they add a
+schedule. Naming a source is reading every event it stores, so an administrator
+may name any source and anyone else only the source of a form whose script they
+own. `manage_script update` with `event_source` was removed and is refused,
+naming `handler_set kind=webhook`; migration `000247` moved each script's
+`event_source` into a webhook handler.
 
 **One event, one run.** A run is made once per (script, source, event id): a
 retried delivery, or a second replica noticing the same event, makes no second
@@ -1450,21 +1465,23 @@ run. A run that fails is recorded with its cause like any run, the owner is
 mailed as for a failed scheduled run, and the platform does not run it again on
 its own; the next event still runs.
 
-**A burst is bounded.** A script holds at most `scripts.events.max_queued`
-pending event runs (default 100). An event past it is recorded as a run with
-status `skipped_backlog`, the reason saying the queue was full and that the
-event is in its source, and never executed; the **Events** section counts the
-skips of the last seven days (`GET /api/v1/portal/scripts/{id}/events`). A
+**A burst is bounded.** Each webhook handler holds at most
+`scripts.events.max_queued` pending event runs (default 100), counted for its
+script and its source. An event past it is recorded as a run with status
+`skipped_backlog`, the reason saying the queue was full and that the event is in
+its source, and never executed; a webhook handler's row on the script's page
+counts the skips of the last seven days
+(`GET /api/v1/portal/scripts/{id}/events`). A
 script set to run one at a time (`exclusive` `refuse` or `queue`) runs its
 event runs one at a time, in the order they arrived: an event run is never
 refused for an open run, it waits.
 
-**A source with no automation costs a delivery nothing.** Which scripts name
-each source is kept in memory on every replica (#2480): read whole, at most
-every 5 seconds, and again at once when any replica creates, edits or deletes a
-script's source (a trigger on `scripts` notifies `script_event_sources`,
-migration 000230). A delivery to a source no script names makes no database
-query, so a sender's burst does not hold the shared pool; a source with
+**A source with no automation costs a delivery nothing.** Which scripts run for
+each source is kept in memory on every replica (#2480): read whole from the
+enabled webhook handlers, at most every 5 seconds, and again at once when any
+replica adds, changes or deletes a webhook handler (a trigger on
+`script_webhook_handlers` notifies `script_event_sources`, migration 000247). A
+delivery to a source no script runs for makes no database query, so a sender's burst does not hold the shared pool; a source with
 automations still enqueues its runs in the delivery's request, as before. A
 script bound in the few milliseconds before the notification arrives can miss
 an event delivered in that window.
@@ -1472,7 +1489,7 @@ an event delivered in that window.
 ```yaml
 scripts:
   events:
-    max_queued: 100   # pending event runs one script may hold
+    max_queued: 100   # pending event runs one webhook handler may hold
 ```
 
 ## Where runs execute
@@ -1495,8 +1512,8 @@ of the same binary with the worker on, reading the same queue, and the waiting
 call picks the result up on its next poll of the run row.
 
 The same switch decides where schedules are materialized. A worker-off replica
-serves the schedule commands and the admin routes — setting a cadence is a write
-to a table — but never turns a due schedule into a run, because a replica that
+serves the handler commands and routes — setting a cadence is a write to a
+table — but never turns a due schedule into a run, because a replica that
 will not claim gains nothing by producing rows for one that will. A deployment
 whose workers are all off therefore stores schedules that nothing fires, which
 is the same shape as a deployment whose workers are all off storing runs that
@@ -1752,7 +1769,7 @@ with any number of versions can be registered (#1851). See
 `platform.export` takes two optional arguments that identify an output beyond
 its name:
 
-```python fragment
+```{ .python .fragment }
 platform.export("sales", rows, format="csv",
     tags=["report:sales", "tenant:" + run.params["tenant"]],
     metadata={"region": "west", "period": run.params["period"]})
@@ -1830,7 +1847,7 @@ extension the platform assigns the document's content type — `.md`, `.txt`,
 bold header row, column widths, frozen panes and an optional title row (#1849).
 The body describes the workbook as data; it is not a styling API.
 
-```python fragment
+```{ .python .fragment }
 platform.export("sales", {
     "sheets": [
         {"name": "Summary", "title": "Sales by region",
@@ -2225,7 +2242,7 @@ file, registers the file as a table, and runs `INSERT ... SELECT` from it with
 `platform.execute`, binding the table by the record the export returned. One
 call does the first two steps:
 
-```python fragment
+```{ .python .fragment }
 out = platform.export(
     name="ACME tickets staging",
     rows=tickets,
@@ -2504,9 +2521,9 @@ so a test of a polling script runs in no time. `help` reports the bound as
 `sleep_max_seconds`.
 
 **Two runs, one revision.** The schedule overlap policy already keeps two fires
-of one schedule from running at once. A `run_script` call during a scheduled
-run, or a reclaimed run whose predecessor is still winding down, can both read
-revision N (a script set to run one at a time, above, never has two runs open). One of them writes N+1; the other fails at its write with a message
+of one schedule from running at once. Two schedules of one script firing
+together, a `run_script` call during a scheduled run, or a reclaimed run whose
+predecessor is still winding down, can both read revision N (a script set to run one at a time, above, never has two runs open). One of them writes N+1; the other fails at its write with a message
 naming the run that wrote, and its outputs stand, since they were produced
 from the state it read. The failure is what makes the interleaving visible
 instead of silently losing one of the two writes. It holds across replicas

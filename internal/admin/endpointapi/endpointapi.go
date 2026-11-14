@@ -6,7 +6,7 @@
 //
 // An endpoint answers HTTP with platform data, and a public one answers
 // anyone. The only views of a binding were one script's page and
-// manage_script endpoint_list; an administrator could not see what the
+// manage_script handler_list; an administrator could not see what the
 // deployment exposes, under whose script, and who is calling it, without
 // opening scripts one at a time.
 package endpointapi

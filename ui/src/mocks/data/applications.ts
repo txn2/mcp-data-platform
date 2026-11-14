@@ -127,7 +127,7 @@ export const mockPartCatalog: Record<string, Omit<ApplicationPartView, "state" |
   "script/script-001": {
     kind: "script", id: "script-001", name: "Daily sales report", description: "Summarizes yesterday's sales by region",
     latest_version: 5, owner_email: "sarah.chen@example.com", updated_at: "2025-01-21T11:00:00Z",
-    schedule: { cron_spec: "0 7 * * *", timezone: "UTC", enabled: true },
+    schedules: [{ cron_spec: "0 7 * * *", timezone: "UTC", enabled: true }],
   },
   "script/script-002": {
     kind: "script", id: "script-002", name: "Order intake API", description: "Answers the storefront's order calls",
@@ -135,7 +135,7 @@ export const mockPartCatalog: Record<string, Omit<ApplicationPartView, "state" |
   },
   "script/script-004": {
     kind: "script", id: "script-004", name: "Intake form", description: "Files each customer intake submission",
-    latest_version: 1, owner_email: "j.martinez@example.com", updated_at: "2025-01-20T10:00:00Z", event_source: "intake-form",
+    latest_version: 1, owner_email: "j.martinez@example.com", updated_at: "2025-01-20T10:00:00Z", event_sources: ["intake-form"],
   },
   "script/script-005": {
     kind: "script", id: "script-005", name: "Monthly revenue close", latest_version: 3,

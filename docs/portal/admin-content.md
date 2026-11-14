@@ -90,12 +90,14 @@ than gating anything. See
 
 ![Admin Automations](../images/screenshots/light/admin-admin-scripts-light.webp#only-light)![Admin Automations](../images/screenshots/dark/admin-admin-scripts-dark.webp#only-dark)
 
-**All automations** lists every script by name, kind, owner, schedule and last run. The
+**All automations** lists every script by name, kind, owner, schedule and last run, with a
+badge for each type of [handler](../scripts/handlers.md) that starts it. The
 schedule is the cadence in words — "Every weekday at 7:00 AM,
 America/Los_Angeles" — with what it is doing underneath it (the next fire,
-paused, or no fire due), and a script with no cadence reads **On demand**; the
-cron expression is read and written in the schedule editor on the script's own
-page and appears nowhere else. A script that will execute nothing carries a
+paused, or no fire due), and a script with no cadence reads **On demand**; a
+script with several schedules shows its first and how many more it has. The
+cron expression is read and written in the schedule's own row of the script's
+Handlers section and appears nowhere else. A script that will execute nothing carries a
 badge beside its name (**disabled**, or its lifecycle status), which is the
 exception a listing is scanned for; the version a run executes is a fact about
 every healthy script and is stated on the script's page rather than in a column
@@ -109,7 +111,7 @@ administrators. Opening a row opens the script.
 One health line above the table counts the listing — how many scripts, how many
 are scheduled, how many failed their last run, the last of which also filters to
 them — and one filter bar narrows it: a search box and a facet each for author,
-category, tag and status, every one a query predicate answered by the server over
+category, tag, status and handler type, every one a query predicate answered by the server over
 every script rather than over the rows this page happened to load. The Script,
 Author and Updated headers order it, in the store and ahead of the page cap. It
 is the same listing the owners read on their own Automations page, without the scope
@@ -123,17 +125,17 @@ The script page an administrator opens is the page its owner opens.
 ![One script](../images/screenshots/light/admin-admin-script-detail-light.webp#only-light)![One script](../images/screenshots/dark/admin-admin-script-detail-dark.webp#only-dark)
 
 Everything an owner does is here for every script — edit the source, validate
-and dry-run the edit, run it, set or pause the schedule, read the version
-history and the run history — plus the one thing only an administrator does:
-**Owner**, which moves the script to another person.
+and dry-run the edit, run it, add, change, pause and delete its handlers, read
+the version history and the run history — plus what only an administrator does:
+**Owner**, which moves the script to another person, and an endpoint on a script
+that is not a form.
 
-Two of the sections fold. **Schedule** is folded by default and states what the
-script runs in its header ("Runs: Every weekday at 7:00 AM,
-America/Los_Angeles", or "Not scheduled"), with the builder and the bindings
-behind the reveal and the pause control on the header either way: the cadence is
-set once and read constantly. **About** is open, because a reader who opens a
-script wants to know what it is, and folds away when the document is long enough
-to be in the way.
+**Handlers** lists what starts the script, one row per handler with its type
+badge, what it answers to ("Every weekday at 7:00 AM, America/Los_Angeles", an
+endpoint's path, a webhook source) and whether it is on; a row opens onto that
+kind's controls, the schedule builder and its pause control among them.
+**About** is open, because a reader who opens a script wants to know what it is,
+and folds away when the document is long enough to be in the way.
 
 ![Transferring a script](../images/screenshots/light/admin-admin-script-owner-light.webp#only-light)![Transferring a script](../images/screenshots/dark/admin-admin-script-owner-dark.webp#only-dark)
 
@@ -170,6 +172,15 @@ administrator is reading, so it covers every script rather than one person's.
 describes the three axes and what a row's color and marks say.
 
 ![Script schedules](../images/screenshots/light/admin-admin-script-schedules-light.webp#only-light)![Script schedules](../images/screenshots/dark/admin-admin-script-schedules-dark.webp#only-dark)
+
+### Handlers
+
+The **Handlers** tab (`/portal/admin/automations/handlers`, #2435) lists every
+handler of every script: its type (Endpoint, Form, Schedule or Webhook), its
+script and owner, what it answers to and whether it is on. It filters by type, by
+owner and by state (On or Off), searches the script's name and the target, and
+pages through the rest; a row opens its script. It reads
+`GET /api/v1/admin/handlers`. See [Handlers](../scripts/handlers.md).
 
 ### Runs
 

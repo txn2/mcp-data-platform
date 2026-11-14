@@ -87,9 +87,9 @@ function schemaPieces(v: ApplicationSchemaView, release: number): string[] {
 function scriptPieces(p: ApplicationPartView): string[] {
   const pieces: string[] = [];
   if (p.description) pieces.push(p.description);
-  if (p.event_source) pieces.push(`runs on each ${p.event_source} event`);
-  if (p.schedule) {
-    pieces.push(p.schedule.enabled ? lowerFirst(scheduleLine(p.schedule.cron_spec, p.schedule.timezone)) : "schedule paused");
+  for (const source of p.event_sources ?? []) pieces.push(`runs on each ${source} event`);
+  for (const sc of p.schedules ?? []) {
+    pieces.push(sc.enabled ? lowerFirst(scheduleLine(sc.cron_spec, sc.timezone)) : "schedule paused");
   }
   return pieces;
 }

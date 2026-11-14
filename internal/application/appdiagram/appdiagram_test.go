@@ -18,8 +18,9 @@ import (
 type fake struct {
 	scripts   map[string]*script.Script
 	sources   map[string]map[int]string
-	schedules map[string]*script.Schedule
-	bindings  map[string]*Binding
+	schedules map[string][]script.Schedule
+	bindings  map[string][]Binding
+	events    map[string][]string
 	assets    map[string][2]string
 	hidden    map[string]bool
 	content   map[string]string
@@ -42,11 +43,13 @@ func (f *fake) ScriptVersion(_ context.Context, id string, v int) (*script.Versi
 	return &script.Version{ScriptID: id, Version: v, Source: src}, nil
 }
 
-func (f *fake) Schedule(_ context.Context, id string) (*script.Schedule, error) {
+func (f *fake) Schedules(_ context.Context, id string) ([]script.Schedule, error) {
 	return f.schedules[id], nil
 }
 
-func (f *fake) Binding(_ context.Context, id string) (*Binding, error) { return f.bindings[id], nil }
+func (f *fake) Bindings(_ context.Context, id string) ([]Binding, error) { return f.bindings[id], nil }
+
+func (f *fake) EventSources(_ context.Context, id string) []string { return f.events[id] }
 
 func (f *fake) Asset(_ context.Context, id string) (name, identity string, ok bool) {
 	a, found := f.assets[id]
@@ -74,7 +77,7 @@ const (
 func shop() (*fake, Input) {
 	f := &fake{
 		scripts: map[string]*script.Script{
-			intake:  {ID: intake, Name: "intake", EventSource: "form-signup"},
+			intake:  {ID: intake, Name: "intake"},
 			refresh: {ID: refresh, Name: "refresh"},
 			api:     {ID: api, Name: "api"},
 			form:    {ID: form, Name: "signup"},
@@ -87,8 +90,15 @@ func shop() (*fake, Input) {
 			form:    {1: "def form_spec(req):\n    \"\"\"Spec.\"\"\"\n    return {}\n\ndef form_submit(req, values):\n    \"\"\"Accepts.\"\"\"\n    return {}\n"},
 			lib:     {3: "def fmt(x):\n    \"\"\"Formats.\"\"\"\n    return x\n"},
 		},
-		schedules: map[string]*script.Schedule{refresh: {CronSpec: "0 6 * * *", Timezone: "UTC", Enabled: true}},
-		bindings:  map[string]*Binding{api: {Name: "shop-api", Path: "/"}, form: {Name: "signup", Path: "/"}},
+		schedules: map[string][]script.Schedule{refresh: {
+			{CronSpec: "0 6 * * *", Timezone: "UTC", Enabled: true},
+			{CronSpec: "0 18 * * *", Timezone: "UTC", Enabled: true},
+		}},
+		bindings: map[string][]Binding{
+			api:  {{Name: "shop-api", Path: "/"}, {Name: "shop-api-v2", Path: "/{id}"}},
+			form: {{Name: "signup", Path: "/"}},
+		},
+		events: map[string][]string{intake: {"form-signup", "shop-orders"}},
 		assets: map[string][2]string{
 			"dash-asset": {"Dashboard", script.OutputIdentityKey(refresh, "dash")},
 			"store":      {"Storefront", ""},
@@ -144,6 +154,7 @@ func TestBuild_EveryLinkOfTheShop(t *testing.T) {
 		{From: "asset:store", To: "script:" + form, Kind: LinkEmbeds},
 		{From: "script:" + form, To: "source:form-signup", Kind: LinkSubmits},
 		{From: "source:form-signup", To: "script:" + intake, Kind: LinkEvent},
+		{From: "source:shop-orders", To: "script:" + intake, Kind: LinkEvent},
 		{From: "script:" + intake, To: signups, Kind: LinkWrites},
 		{From: "script:" + refresh, To: signups, Kind: LinkReads},
 		{From: "script:" + refresh, To: "asset:dash-asset", Kind: LinkRefresh},
@@ -157,7 +168,11 @@ func TestBuild_EveryLinkOfTheShop(t *testing.T) {
 	require.NotNil(t, node(d, signups))
 	assert.Equal(t, GroupSchema, node(d, signups).Group, "a table of the application's schema is drawn in it")
 	assert.Contains(t, node(d, "script:"+refresh).Detail, "schedule 0 6 * * * UTC", "a schedule is on its script's card")
+	assert.Contains(t, node(d, "script:"+refresh).Detail, "schedule 0 18 * * * UTC", "and every other schedule it holds (#2434)")
 	assert.Contains(t, node(d, "script:"+api).Detail, "endpoint /endpoints/shop-api/")
+	assert.Contains(t, node(d, "script:"+api).Detail, "endpoint /endpoints/shop-api-v2/{id}", "and every other endpoint (#2441)")
+	require.NotNil(t, node(d, "source:shop-orders"), "a second source a script runs for is drawn")
+	assert.Equal(t, GroupOutside, node(d, "source:shop-orders").Group, "outside the application, which holds no such part")
 	assert.Equal(t, NodeLibrary, node(d, "script:"+lib).Kind)
 	assert.Equal(t, GroupOutside, node(d, "channel:ops").Group)
 

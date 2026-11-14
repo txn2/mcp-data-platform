@@ -22,15 +22,17 @@ import (
 // POST naming the hostname in Host, with and without Cookie, and a request line
 // whose target is absolute or protocol-relative.
 
-// siteURL2579 is the address the platform advertises for the site, which is
-// where a browser ends up after the handoff: the portal's public port.
+// siteURL2579 is the address the platform advertises for dev, where every
+// publish lands (#2617), which is where a browser ends up after the handoff:
+// the portal's public port. The site's main address serves prod.
 func siteURL2579(t *testing.T, s *site2559) string {
 	t.Helper()
 	status, got := rest2559(t, keyEngineer2559, http.MethodGet, s.path(""), nil)
 	want2559(t, "reading the site", status, http.StatusOK, got)
-	address, _ := got["address"].(string)
+	pages, _ := got["pages_addresses"].(map[string]any)
+	address, _ := pages["dev"].(string)
 	if !strings.Contains(address, "://"+s.host()) {
-		t.Fatalf("the site's address is %q", address)
+		t.Fatalf("dev's address is %q, want one on %s", address, s.host())
 	}
 	return strings.TrimSuffix(address, "/")
 }

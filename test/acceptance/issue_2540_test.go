@@ -75,7 +75,7 @@ func TestIssue2540_TheDiagramDrawsEveryLinkOfTheApplication(t *testing.T) {
 			".signups (email) VALUES (:e)\", connection = \"orders\", params = {\"e\": \"a@example.com\"})\n",
 	}, nil)
 	t.Cleanup(func() { _, _, _ = admin.callRaw("manage_script", map[string]any{"command": "delete", "name": intake}) })
-	admin.call("manage_script", map[string]any{"command": "update", "name": intake, "event_source": source})
+	admin.webhookSet(intake, source)
 
 	refresh := "acc2540-refresh-" + stamp
 	// It writes the dashboard on its first run and refreshes its data region
@@ -93,9 +93,14 @@ func TestIssue2540_TheDiagramDrawsEveryLinkOfTheApplication(t *testing.T) {
 	ran := admin.call("run_script", map[string]any{"name": refresh, "wait_seconds": 120})
 	dash := firstAssetID2540(t, ran)
 	t.Cleanup(func() { _, _, _ = admin.callRaw("manage_asset", map[string]any{"action": "delete", "asset_id": dash}) })
-	if status, out := admin.rest(http.MethodPut, "/api/v1/portal/scripts/"+refreshID+"/schedule",
-		jsonBody(t, map[string]any{"cron": "0 6 * * *", "timezone": "UTC", "enabled": false})); status != http.StatusOK {
-		t.Fatalf("scheduling the refresh: %d %v", status, out)
+	// A schedule handler, turned off so it never fires during the run (#2434).
+	status, sched := admin.rest(http.MethodPost, "/api/v1/portal/scripts/"+refreshID+"/handlers",
+		jsonBody(t, map[string]any{"kind": "schedule", "cron": "0 6 * * *", "timezone": "UTC"}))
+	if !succeeded(status) || idOf(sched) == "" {
+		t.Fatalf("scheduling the refresh: %d %v", status, sched)
+	}
+	if status, out := admin.rest(http.MethodPost, "/api/v1/portal/handlers/"+idOf(sched)+"/disable", http.NoBody); status != http.StatusOK {
+		t.Fatalf("turning the refresh's schedule off: %d %v", status, out)
 	}
 
 	// A script whose export name the source computes.

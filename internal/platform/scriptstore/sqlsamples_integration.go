@@ -23,18 +23,18 @@ func SQLSamples() map[string]string {
 	}
 	// The listing's own filter, carrying every axis at once so the rendered
 	// statement exercises each clause the builders can emit.
-	library, bound := false, true
+	library := false
 	listing := script.ListFilter{
-		Library:    &library,
-		Endpoint:   &bound,
-		OwnerEmail: "owner@example.com",
-		IDs:        []string{"3f2b6c1e-8d4a-4b8e-9f1a-2c3d4e5f6a7b"},
-		Category:   "reports",
-		Tags:       []string{"weekly"},
-		Status:     "active",
-		Search:     "refresh",
-		Sort:       script.SortName,
-		Limit:      25,
+		Library:      &library,
+		HandlerTypes: []string{"schedule", "none"},
+		OwnerEmail:   "owner@example.com",
+		IDs:          []string{"3f2b6c1e-8d4a-4b8e-9f1a-2c3d4e5f6a7b"},
+		Category:     "reports",
+		Tags:         []string{"weekly"},
+		Status:       "active",
+		Search:       "refresh",
+		Sort:         script.SortName,
+		Limit:        25,
 	}
 	return map[string]string{
 		"buildHybridSearch":  buildHybridSearch(q),

@@ -22,8 +22,9 @@ import "strings"
 // is what a delete of a script that was never scheduled, never ran and never
 // saved state reports.
 type Removed struct {
-	// Schedule is true when a cadence row went with the script.
-	Schedule bool
+	// Handlers is true when handlers went with the script (#2441): its
+	// endpoints, schedules and webhook sources.
+	Handlers bool
 	// Runs is true when the script had run history.
 	Runs bool
 	// State is true when the script carried a state object between runs.
@@ -45,8 +46,8 @@ type Removed struct {
 // exists to hold, which is that both surfaces say the same words.
 func DeleteMessage(name string, rm Removed) string {
 	went := []string{"its saved versions"}
-	if rm.Schedule {
-		went = append(went, "its schedule")
+	if rm.Handlers {
+		went = append(went, "its handlers (its endpoints, schedules and webhook sources)")
 	}
 	if rm.Runs {
 		went = append(went, "its run history")

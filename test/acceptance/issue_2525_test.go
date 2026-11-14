@@ -13,7 +13,7 @@ import (
 // for twelve hours, so it is a credential, and req.headers drops it with the
 // platform's other credentials.
 //
-// Wire forms: manage_script endpoint_set takes methods a JSON array of
+// Wire forms: manage_script handler_set kind=endpoint takes methods a JSON array of
 // strings and endpoint and auth_mode strings, sent as the literal tools/call
 // params; the endpoint itself is called over HTTP with the headers as sent by
 // a browser.

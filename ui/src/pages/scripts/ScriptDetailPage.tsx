@@ -14,15 +14,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useAuthStore } from "@/stores/auth";
-import { ScriptEndpointSections } from "./ScriptEndpointSections";
+import { ScriptHandlers } from "./ScriptHandlers";
+import { ScriptSubmissions } from "./ScriptSubmissions";
 import { scheduleLine } from "./cadence";
 import { executionState, formatWhen } from "./runFormat";
 import { ScriptDelete } from "./ScriptDelete";
 import { ScriptDocumentation } from "./ScriptDocumentation";
 import { ScriptOwnerTransfer } from "./ScriptOwnerTransfer";
 import type { ProducedTargetKind } from "@/api/portal/hooks/producers";
-import { ScriptScheduleEditor } from "./ScriptScheduleEditor";
-import { ScriptEventsCard } from "./ScriptEventsCard";
 import { ScriptSourceEditor } from "./ScriptSourceEditor";
 import { ScriptCodeCard } from "./ScriptCodeCard";
 import { ScriptFlowView } from "./flow/ScriptFlowView";
@@ -162,13 +161,11 @@ function ScriptDetail({
           runs for (#1943), read by owner and reader alike. */}
       <ScriptChanges scriptId={scriptId} />
 
-      {/* When it runs: its schedule, and the webhook source it runs for
-          (#2332) beside it. */}
-      {runs && <ScriptTriggers scriptId={scriptId} contract={contract} />}
-
-      {/* Its endpoint (#2171): what an HTTP request to /endpoints/{name}
-          runs, read by its owner and bound only by an administrator. */}
-      {runs && <ScriptEndpointSections scriptId={scriptId} />}
+      {/* What starts it (#2435): its endpoints, schedules and webhook
+          sources, read and changed by its owner and an administrator, and a
+          form's stored submissions (#2180). */}
+      {runs && <ScriptHandlers key={`handlers-${scriptId}`} scriptId={scriptId} contract={contract} />}
+      {runs && <ScriptSubmissions key={`submissions-${scriptId}`} scriptId={scriptId} />}
 
       <ScriptDocumentation scriptId={scriptId} contract={contract} owned={owned} />
 
@@ -365,6 +362,15 @@ function draftParamsOf(data: {
   return data.draft_params ?? data.contract.params ?? [];
 }
 
+// nextFire is the soonest next fire among a script's enabled schedules. The
+// times are the server's UTC ISO stamps, which compare as strings.
+function nextFire(schedules: NonNullable<ScriptContract["schedules"]>): string | undefined {
+  return schedules
+    .filter((sc) => sc.enabled && sc.next_run_at)
+    .map((sc) => sc.next_run_at as string)
+    .reduce<string | undefined>((soonest, at) => (soonest === undefined || at < soonest ? at : soonest), undefined);
+}
+
 // ScriptFacts is the summary the whole page rests on: who owns it, which
 // version runs, when it next fires, and what a run binds. Ownership is the
 // whole of who may see it, so there is no second visibility line to read
@@ -373,36 +379,23 @@ function draftParamsOf(data: {
 // The parameters used to be a section of their own, one card below these five
 // lines. They are the same kind of statement — what this script is and what it
 // takes — so they are read here rather than found separately (#1406).
-// ScriptTriggers is what starts the script unattended: its schedule and the
-// webhook source it runs for.
-function ScriptTriggers({ scriptId, contract }: { scriptId: string; contract: ScriptContract }) {
-  return (
-    <>
-      <ScriptScheduleEditor scriptId={scriptId} contract={contract} />
-      <ScriptEventsCard key={`events-${scriptId}`} scriptId={scriptId} contract={contract} />
-    </>
-  );
-}
-
 function ScriptFacts({ contract }: { contract: ScriptContract }) {
   if (contract.library) return <LibraryFacts contract={contract} />;
   // In words, as every other surface states a cadence (#1405, #1407): the
   // expression is read and written in the schedule editor below, and a reader
   // asking what this script does is not asking what its cron field says.
-  const schedule = contract.schedule
-    ? `${scheduleLine(contract.schedule.cron_spec, contract.schedule.timezone)}${contract.schedule.enabled ? "" : " — paused"}`
-    : "on demand";
+  const schedules = contract.schedules ?? [];
+  const scheduleLines = schedules.map(
+    (sc) => `${scheduleLine(sc.cron_spec, sc.timezone)}${sc.enabled ? "" : " — paused"}`,
+  );
+  const next = nextFire(schedules);
   return (
     <div className="space-y-4">
       <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
         <Fact label="Owner" value={contract.owner_email || "nobody"} />
         <Fact label="Runs" value={`v${contract.version}, the latest saved version`} />
-        <Fact label="Schedule" value={schedule} />
-        <Fact label="Events" value={contract.event_source ? `each event of ${contract.event_source}` : "none"} />
-        <Fact
-          label="Next run"
-          value={contract.schedule?.enabled ? formatWhen(contract.schedule.next_run_at) : "—"}
-        />
+        <ScheduleFact lines={scheduleLines} />
+        <Fact label="Next run" value={next ? formatWhen(next) : "—"} />
         <Fact
           label="Status"
           value={contract.enabled ? contract.status : `${contract.status} (disabled)`}
@@ -456,7 +449,28 @@ function Fact({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
       <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="truncate">{value}</dd>
+      <dd className="truncate" title={value}>
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+// ScheduleFact is a script's schedules, one to a line, so none is cut off
+// behind another (#2434).
+function ScheduleFact({ lines }: { lines: string[] }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs text-muted-foreground">{lines.length > 1 ? "Schedules" : "Schedule"}</dt>
+      {lines.length === 0 ? (
+        <dd>on demand</dd>
+      ) : (
+        lines.map((line) => (
+          <dd key={line} className="truncate" title={line}>
+            {line}
+          </dd>
+        ))
+      )}
     </div>
   );
 }

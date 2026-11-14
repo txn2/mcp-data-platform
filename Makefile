@@ -846,7 +846,7 @@ acceptance:
 ## dev-smoke: One call through the platform per service the dev stack runs, in under a minute (#2248)
 ## A managed resource read back by digest (the TLS store), a portal asset read
 ## back (the plain store), a query on each scratch catalog, a Keycloak sign-in,
-## a search hit on a just-embedded asset (Ollama) and a drawn tile (renderer):
+## a search hit on a just-saved asset (lexical, #2637) and a drawn tile (renderer):
 ## test/acceptance/devsmoke_test.go. With no stack answering it fails and says so.
 dev-smoke:
 	@set -a; [ -f dev/.dev-ports.env ] && . ./dev/.dev-ports.env; set +a; \
@@ -1561,7 +1561,7 @@ dev-up:
 ## the portal has made and the queue starts the whole library again from zero.
 dev-stop:
 	@echo "Stopping ACME dev environment (keeping volumes)..."
-	$(DEV_COMPOSE) --profile replicas stop
+	$(DEV_COMPOSE) --profile replicas --profile embeddings stop
 	$(MAKE) --no-print-directory dev-kill-hosts
 	@echo "ACME dev environment stopped. Data kept; 'make dev' resumes it."
 
@@ -1571,7 +1571,7 @@ dev-stop:
 ## without losing any of that, use `make dev-stop`.
 dev-down:
 	@echo "Stopping ACME dev environment and REMOVING its volumes (data will be lost)..."
-	$(DEV_COMPOSE) --profile replicas down -v
+	$(DEV_COMPOSE) --profile replicas --profile embeddings down -v
 	$(MAKE) --no-print-directory dev-kill-hosts
 	@echo "ACME dev environment stopped and its data removed."
 

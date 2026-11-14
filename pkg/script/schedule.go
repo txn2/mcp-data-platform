@@ -52,7 +52,7 @@ var tokenPattern = regexp.MustCompile(`\$\{[^}]*\}`)
 // Schedule errors.
 var (
 	// ErrScheduleNotFound reports a lookup for a schedule that does not exist.
-	ErrScheduleNotFound = errors.New("this script has no schedule")
+	ErrScheduleNotFound = errors.New("no such schedule")
 
 	// ErrUnknownToken marks a parameter binding that carries a token the
 	// vocabulary does not define.
@@ -478,22 +478,20 @@ type ScheduleFilter struct {
 // once across every replica is the unique index this store's insert conflicts
 // against.
 type ScheduleStore interface {
-	// SetSchedule creates or replaces the schedule of one script, assigning ID
-	// when empty. A script has at most one schedule: a second cadence is a
-	// second script, which keeps the run history of "the 07:00 report" from
-	// interleaving with another cadence's.
+	// SetSchedule creates a schedule when its ID is empty and replaces the
+	// schedule with its ID otherwise, which must be one of its script's. A
+	// script may hold several schedules (#2434); each fires on its own and
+	// its runs carry its id.
 	SetSchedule(ctx context.Context, s *Schedule) error
 
-	// GetSchedule returns one script's schedule, or ErrScheduleNotFound.
-	GetSchedule(ctx context.Context, scriptID string) (*Schedule, error)
+	// ScheduleByID returns one schedule, or ErrScheduleNotFound.
+	ScheduleByID(ctx context.Context, id string) (*Schedule, error)
 
 	// ListSchedules returns schedules matching the filter.
 	ListSchedules(ctx context.Context, filter ScheduleFilter) ([]Schedule, error)
 
-	// SetScheduleEnabled turns one script's schedule on or off, recording who
-	// did it. Disabling is how a schedule is retired: the row stays, because a
-	// schedule that produced runs is part of the explanation of those runs.
-	SetScheduleEnabled(ctx context.Context, scriptID string, enabled bool, actor string) error
+	// EnableSchedule turns one schedule on or off, recording who did it.
+	EnableSchedule(ctx context.Context, id string, enabled bool, actor string) error
 
 	// DueSchedules returns enabled schedules whose next fire has arrived.
 	DueSchedules(ctx context.Context, now time.Time, limit int) ([]Schedule, error)

@@ -29,6 +29,32 @@ vi.mock("@/api/portal/hooks/scheduleTimeline", async (importActual) => ({
   })),
 }));
 
+// The Handlers tab (#2435) reads every handler; HandlersTab.test.tsx covers
+// its filters, so here it only has to answer.
+vi.mock("@/api/admin/hooks/handlers", () => ({
+  useAdminHandlers: vi.fn(() => ({
+    data: {
+      data: [
+        {
+          id: "sched-001",
+          kind: "schedule",
+          type: "schedule",
+          script_id: "script-001",
+          script_name: "daily-sales-report",
+          owner_email: "sarah.chen@example.com",
+          target: "0 7 * * 1-5 America/Los_Angeles",
+          enabled: true,
+          created_by: "sarah.chen@example.com",
+          created_at: "2026-10-16T15:20:00Z",
+        },
+      ],
+      total: 1,
+    },
+    isLoading: false,
+    isError: false,
+  })),
+}));
+
 import { useScriptListing, useScriptRunListing } from "@/api/portal/hooks/scripts";
 
 const mockScripts = vi.mocked(useScriptListing);
@@ -76,8 +102,9 @@ afterEach(cleanup);
 
 describe("AdminScriptsPage", () => {
   // #1891: a third tab, between the two that were there, and the page still
-  // opens on the listing. #1965 removed the fourth; #2208 added Endpoints.
-  it("reads Automations, Schedules, Runs, Endpoints, and opens on Automations", () => {
+  // opens on the listing. #1965 removed the fourth; #2208 added Endpoints and
+  // #2435 Handlers.
+  it("reads Automations, Schedules, Runs, Endpoints, Handlers, and opens on Automations", () => {
     render(<AdminScriptsPage onNavigate={onNavigate} />);
     // The page's own strip is the first; the listing has a scope switch below it.
     const strip = screen.getAllByRole("tablist")[0]!;
@@ -86,8 +113,29 @@ describe("AdminScriptsPage", () => {
       "Schedules",
       "Runs",
       "Endpoints",
+      "Handlers",
     ]);
     expect(screen.getByRole("tab", { name: "Automations" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  // Handlers has an address of its own (#2435), so a bookmark and a back link
+  // land on it, and leaving it goes back to the section's address.
+  it("moves to Handlers' own address, and back to the section's on leaving it", () => {
+    render(<AdminScriptsPage onNavigate={onNavigate} />);
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Handlers" }));
+    expect(onNavigate).toHaveBeenLastCalledWith("/admin/automations/handlers");
+    expect(screen.getByRole("tab", { name: "Handlers" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("admin-handler-row")).toHaveTextContent("daily-sales-report");
+
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Runs" }));
+    expect(onNavigate).toHaveBeenLastCalledWith("/admin/automations");
+  });
+
+  it("opens on Handlers when the address names it", () => {
+    render(<AdminScriptsPage onNavigate={onNavigate} tab="handlers" />);
+    expect(screen.getByRole("tab", { name: "Handlers" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByTestId("admin-handler-row"));
+    expect(onNavigate).toHaveBeenCalledWith("/admin/automations/script-001");
   });
 
   it("sends a reader with nothing scheduled from Schedules back to Automations", () => {

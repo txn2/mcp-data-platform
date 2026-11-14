@@ -45,9 +45,13 @@ func TestScheduleColumnsMatchTheScanOrder(t *testing.T) {
 		"scheduleColumns and the scan order in scanSchedule must list the same columns")
 }
 
-func TestSetSchedule_UpsertsOnTheScript(t *testing.T) {
+// TestSetSchedule_CreatesWhenTheIDIsEmpty pins the create half of the write
+// (#2434): a schedule with no id is a new row, never an upsert on its script,
+// since a script may hold several.
+func TestSetSchedule_CreatesWhenTheIDIsEmpty(t *testing.T) {
 	s, mock := newMock(t)
-	mock.ExpectQuery(regexp.QuoteMeta("ON CONFLICT (script_id) DO UPDATE")).
+	mock.ExpectQuery(`^\s*INSERT INTO script_schedules[^;]*RETURNING id, created_at, updated_at\s*$`).
+		WithArgs("script_1", "@daily", "UTC", []byte(`{}`), true, rowTime, "jane@example.com").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).
 			AddRow("sched_1", rowTime, rowTime))
 
@@ -58,6 +62,52 @@ func TestSetSchedule_UpsertsOnTheScript(t *testing.T) {
 	require.NoError(t, s.SetSchedule(context.Background(), sched))
 	assert.Equal(t, "sched_1", sched.ID)
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestSetSchedule_ReplacesTheScheduleWithItsID pins the replace half: it is
+// held to the schedule's own script, keeps the creation stamp the row had,
+// and an id that is not that script's is ErrScheduleNotFound rather than a
+// silent no-op.
+func TestSetSchedule_ReplacesTheScheduleWithItsID(t *testing.T) {
+	created := rowTime.Add(-time.Hour)
+	update := regexp.QuoteMeta("WHERE id = $1 AND script_id = $2")
+
+	t.Run("replaces and keeps the creation stamp", func(t *testing.T) {
+		s, mock := newMock(t)
+		mock.ExpectQuery(update).
+			WithArgs("sched_1", "script_1", "@hourly", "UTC", []byte(`{}`), false, rowTime, "joe@example.com").
+			WillReturnRows(sqlmock.NewRows([]string{"created_by", "created_at", "updated_at"}).
+				AddRow("jane@example.com", created, rowTime))
+
+		sched := &script.Schedule{
+			ID: "sched_1", ScriptID: "script_1", CronSpec: "@hourly", Timezone: "UTC",
+			NextRunAt: rowTime, UpdatedBy: "joe@example.com",
+		}
+		require.NoError(t, s.SetSchedule(context.Background(), sched))
+		assert.Equal(t, "sched_1", sched.ID)
+		assert.Equal(t, "jane@example.com", sched.CreatedBy)
+		assert.Equal(t, created, sched.CreatedAt)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("an id that is not the script's is not found", func(t *testing.T) {
+		s, mock := newMock(t)
+		mock.ExpectQuery(update).
+			WillReturnRows(sqlmock.NewRows([]string{"created_by", "created_at", "updated_at"}))
+
+		err := s.SetSchedule(context.Background(), &script.Schedule{ID: "sched_9", ScriptID: "script_1"})
+		assert.ErrorIs(t, err, script.ErrScheduleNotFound)
+	})
+
+	t.Run("the write failed", func(t *testing.T) {
+		s, mock := newMock(t)
+		mock.ExpectQuery(update).WillReturnError(errors.New("boom"))
+
+		err := s.SetSchedule(context.Background(), &script.Schedule{ID: "sched_1", ScriptID: "script_1"})
+		require.Error(t, err)
+		assert.NotErrorIs(t, err, script.ErrScheduleNotFound)
+		assert.Contains(t, err.Error(), "set script schedule")
+	})
 }
 
 // TestSetSchedule_AZeroNextFireBindsNull pins the parked case: an expression
@@ -76,15 +126,16 @@ func TestSetSchedule_AZeroNextFireBindsNull(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestGetSchedule(t *testing.T) {
+func TestScheduleByID(t *testing.T) {
 	t.Run("found", func(t *testing.T) {
 		s, mock := newMock(t)
-		mock.ExpectQuery(regexp.QuoteMeta("FROM script_schedules WHERE script_id = $1")).
-			WithArgs("script_1").
+		mock.ExpectQuery(regexp.QuoteMeta("FROM script_schedules WHERE id = $1")).
+			WithArgs("sched_1").
 			WillReturnRows(sqlmock.NewRows(scheduleSelectColumns).AddRow(scheduleRow(rowTime)...))
 
-		sched, err := s.GetSchedule(context.Background(), "script_1")
+		sched, err := s.ScheduleByID(context.Background(), "sched_1")
 		require.NoError(t, err)
+		assert.Equal(t, "sched_1", sched.ID)
 		assert.Equal(t, "0 7 * * 1-5", sched.CronSpec)
 		assert.Equal(t, map[string]any{"report_date": script.FireDateToken}, sched.Params)
 		assert.Equal(t, rowTime, sched.NextRunAt)
@@ -95,7 +146,7 @@ func TestGetSchedule(t *testing.T) {
 		mock.ExpectQuery(regexp.QuoteMeta("FROM script_schedules")).
 			WillReturnRows(sqlmock.NewRows(scheduleSelectColumns).AddRow(scheduleRow(nil)...))
 
-		sched, err := s.GetSchedule(context.Background(), "script_1")
+		sched, err := s.ScheduleByID(context.Background(), "sched_1")
 		require.NoError(t, err)
 		assert.True(t, sched.NextRunAt.IsZero())
 	})
@@ -105,7 +156,7 @@ func TestGetSchedule(t *testing.T) {
 		mock.ExpectQuery(regexp.QuoteMeta("FROM script_schedules")).
 			WillReturnRows(sqlmock.NewRows(scheduleSelectColumns))
 
-		_, err := s.GetSchedule(context.Background(), "nope")
+		_, err := s.ScheduleByID(context.Background(), "nope")
 		assert.ErrorIs(t, err, script.ErrScheduleNotFound)
 	})
 
@@ -113,7 +164,7 @@ func TestGetSchedule(t *testing.T) {
 		s, mock := newMock(t)
 		mock.ExpectQuery(regexp.QuoteMeta("FROM script_schedules")).WillReturnError(errors.New("boom"))
 
-		_, err := s.GetSchedule(context.Background(), "script_1")
+		_, err := s.ScheduleByID(context.Background(), "sched_1")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "get script schedule")
 	})
@@ -125,35 +176,55 @@ func TestGetSchedule(t *testing.T) {
 		mock.ExpectQuery(regexp.QuoteMeta("FROM script_schedules")).
 			WillReturnRows(sqlmock.NewRows(scheduleSelectColumns).AddRow(row...))
 
-		_, err := s.GetSchedule(context.Background(), "script_1")
+		_, err := s.ScheduleByID(context.Background(), "sched_1")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unmarshal schedule params")
 	})
 }
 
+// TestListSchedules_FiltersAndCaps pins the limit a listing binds: the
+// default when none is named, the limit named, and the ceiling past it. A
+// page of scripts asks for every schedule each may hold (#2434), which the
+// default alone would cut off, rendering a scheduled script as on demand.
 func TestListSchedules_FiltersAndCaps(t *testing.T) {
-	s, mock := newMock(t)
 	enabled := true
-	mock.ExpectQuery(regexp.QuoteMeta("WHERE script_id = $1 AND enabled = $2")).
-		WithArgs("script_1", true, defaultScheduleListLimit).
-		WillReturnRows(sqlmock.NewRows(scheduleSelectColumns).AddRow(scheduleRow(rowTime)...))
+	cases := []struct {
+		name  string
+		limit int
+		bound int
+	}{
+		{name: "no limit is the default", limit: 0, bound: defaultScheduleListLimit},
+		{name: "a negative limit is the default", limit: -1, bound: defaultScheduleListLimit},
+		{name: "a page of scripts' schedules is honored past the default", limit: 200 * 20, bound: 4000},
+		{name: "a limit past the ceiling is the ceiling", limit: 10000, bound: maxScheduleListLimit},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s, mock := newMock(t)
+			mock.ExpectQuery(regexp.QuoteMeta("WHERE script_id = $1 AND enabled = $2")).
+				WithArgs("script_1", true, tc.bound).
+				WillReturnRows(sqlmock.NewRows(scheduleSelectColumns).AddRow(scheduleRow(rowTime)...))
 
-	out, err := s.ListSchedules(context.Background(), script.ScheduleFilter{
-		ScriptID: "script_1", Enabled: &enabled, Limit: 10000,
-	})
-	require.NoError(t, err)
-	assert.Len(t, out, 1)
-	require.NoError(t, mock.ExpectationsWereMet())
+			out, err := s.ListSchedules(context.Background(), script.ScheduleFilter{
+				ScriptID: "script_1", Enabled: &enabled, Limit: tc.limit,
+			})
+			require.NoError(t, err)
+			assert.Len(t, out, 1)
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+	assert.Greater(t, maxScheduleListLimit, defaultScheduleListLimit*20-1,
+		"the ceiling holds a full page of scripts each holding the most schedules a script may")
 }
 
-func TestSetScheduleEnabled(t *testing.T) {
-	t.Run("applies", func(t *testing.T) {
+func TestEnableSchedule(t *testing.T) {
+	t.Run("applies to the one schedule", func(t *testing.T) {
 		s, mock := newMock(t)
-		mock.ExpectExec(regexp.QuoteMeta("UPDATE script_schedules")).
-			WithArgs("script_1", false, "jane@example.com").
+		mock.ExpectExec(regexp.QuoteMeta("WHERE id = $1")).
+			WithArgs("sched_2", false, "jane@example.com").
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
-		require.NoError(t, s.SetScheduleEnabled(context.Background(), "script_1", false, "jane@example.com"))
+		require.NoError(t, s.EnableSchedule(context.Background(), "sched_2", false, "jane@example.com"))
 		require.NoError(t, mock.ExpectationsWereMet())
 	})
 
@@ -162,8 +233,49 @@ func TestSetScheduleEnabled(t *testing.T) {
 		mock.ExpectExec(regexp.QuoteMeta("UPDATE script_schedules")).
 			WillReturnResult(sqlmock.NewResult(0, 0))
 
-		err := s.SetScheduleEnabled(context.Background(), "nope", true, "jane@example.com")
+		err := s.EnableSchedule(context.Background(), "nope", true, "jane@example.com")
 		assert.ErrorIs(t, err, script.ErrScheduleNotFound)
+	})
+}
+
+// TestDeleteSchedule pins the three answers a delete gives (#2434): the row
+// goes, a schedule that produced runs is refused by the database's foreign
+// key and reported as ErrScheduleHasRuns, and an id no schedule has is
+// ErrScheduleNotFound.
+func TestDeleteSchedule(t *testing.T) {
+	del := regexp.QuoteMeta("DELETE FROM script_schedules WHERE id = $1")
+
+	t.Run("removes the row", func(t *testing.T) {
+		s, mock := newMock(t)
+		mock.ExpectExec(del).WithArgs("sched_1").WillReturnResult(sqlmock.NewResult(0, 1))
+
+		require.NoError(t, s.DeleteSchedule(context.Background(), "sched_1"))
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("a schedule its runs name is kept", func(t *testing.T) {
+		s, mock := newMock(t)
+		mock.ExpectExec(del).WillReturnError(&pq.Error{Code: "23503", Constraint: "script_runs_schedule_id_fkey"})
+
+		assert.ErrorIs(t, s.DeleteSchedule(context.Background(), "sched_1"), ErrScheduleHasRuns)
+	})
+
+	t.Run("no schedule has the id", func(t *testing.T) {
+		s, mock := newMock(t)
+		mock.ExpectExec(del).WillReturnResult(sqlmock.NewResult(0, 0))
+
+		assert.ErrorIs(t, s.DeleteSchedule(context.Background(), "nope"), script.ErrScheduleNotFound)
+	})
+
+	t.Run("any other failure is wrapped", func(t *testing.T) {
+		s, mock := newMock(t)
+		mock.ExpectExec(del).WillReturnError(errors.New("boom"))
+
+		err := s.DeleteSchedule(context.Background(), "sched_1")
+		require.Error(t, err)
+		assert.NotErrorIs(t, err, ErrScheduleHasRuns)
+		assert.NotErrorIs(t, err, script.ErrScheduleNotFound)
+		assert.Contains(t, err.Error(), "delete script schedule")
 	})
 }
 
@@ -363,16 +475,16 @@ func TestSetSchedule_Failures(t *testing.T) {
 		mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO script_schedules")).WillReturnError(errors.New("boom"))
 		err := s.SetSchedule(context.Background(), &script.Schedule{ScriptID: "script_1"})
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "set script schedule")
+		assert.Contains(t, err.Error(), "create script schedule")
 	})
 }
 
-// TestSetScheduleEnabled_FailureIsWrapped pins that a store fault is not
+// TestEnableSchedule_FailureIsWrapped pins that a store fault is not
 // mistaken for "there is no schedule".
-func TestSetScheduleEnabled_FailureIsWrapped(t *testing.T) {
+func TestEnableSchedule_FailureIsWrapped(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE script_schedules")).WillReturnError(errors.New("boom"))
-	err := s.SetScheduleEnabled(context.Background(), "script_1", true, "jane@example.com")
+	err := s.EnableSchedule(context.Background(), "sched_1", true, "jane@example.com")
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, script.ErrScheduleNotFound)
 	assert.Contains(t, err.Error(), "set script schedule enabled")

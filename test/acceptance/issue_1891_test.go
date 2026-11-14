@@ -47,11 +47,9 @@ func schedule1891(t *testing.T, c *client, label, cron, zone string) string {
 	t.Cleanup(func() {
 		_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
 	})
-	sched := c.call("manage_script", map[string]any{
-		"command": "schedule_set", "name": name, "cron": cron, "timezone": zone,
-	})
+	sched := c.scheduleSet(name, cron, zone, nil)
 	if msg, _ := sched["error"].(string); msg != "" {
-		t.Fatalf("schedule_set %q refused: %v", cron, sched)
+		t.Fatalf("handler_set kind=schedule %q refused: %v", cron, sched)
 	}
 	return id
 }
@@ -185,7 +183,7 @@ func TestIssue1891_APausedScheduleKeepsItsMarks(t *testing.T) {
 	c := connectAs(t, devOwnerAPIKey)
 	id := schedule1891(t, c, "paused", "0 * * * *", "UTC")
 	_, _, name := c.scriptByID1891(t, id)
-	c.call("manage_script", map[string]any{"command": "schedule_disable", "name": name})
+	c.schedulesOff(name)
 
 	_, row := row1891(t, fires1891(t, c, "UTC"), id)
 	if row == nil {

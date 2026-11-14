@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/application"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptevents"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -25,7 +26,7 @@ const (
 
 // Schedules reads a script's schedule; script.ErrScheduleNotFound for none.
 type Schedules interface {
-	GetSchedule(ctx context.Context, scriptID string) (*script.Schedule, error)
+	ListSchedules(ctx context.Context, filter script.ScheduleFilter) ([]script.Schedule, error)
 }
 
 // SourceActivity counts the requests a webhook source accepted since a time.
@@ -56,11 +57,12 @@ type PartView struct {
 	Description string `json:"description,omitempty"`
 	// LatestVersion is the script's or asset's newest version; nil for a
 	// webhook source and for a part not read.
-	LatestVersion *int          `json:"latest_version"`
-	OwnerEmail    string        `json:"owner_email,omitempty"`
-	Schedule      *PartSchedule `json:"schedule,omitempty"`
-	// EventSource is the webhook source a script runs for, empty for none.
-	EventSource string `json:"event_source,omitempty"`
+	LatestVersion *int   `json:"latest_version"`
+	OwnerEmail    string `json:"owner_email,omitempty"`
+	// Schedules are a script's schedule handlers and EventSources the
+	// webhook sources it runs for (#2434); empty for none.
+	Schedules    []PartSchedule `json:"schedules,omitempty"`
+	EventSources []string       `json:"event_sources,omitempty"`
 	// ContentType is an asset's media type.
 	ContentType string     `json:"content_type,omitempty"`
 	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
@@ -99,16 +101,39 @@ func (s *Service) describeScript(ctx context.Context, v *PartView) {
 		v.State = PartDeleted
 		return
 	}
-	v.Name, v.Description, v.OwnerEmail, v.EventSource = scriptName(sc), sc.Description, sc.OwnerEmail, sc.EventSource
+	v.Name, v.Description, v.OwnerEmail = scriptName(sc), sc.Description, sc.OwnerEmail
+	v.EventSources = s.eventSources(ctx, sc.ID)
 	v.LatestVersion = new(sc.Version)
 	updated := sc.UpdatedAt
 	v.UpdatedAt = &updated
 	if s.Schedules == nil {
 		return
 	}
-	if sched, err := s.Schedules.GetSchedule(ctx, sc.ID); err == nil && sched != nil {
-		v.Schedule = &PartSchedule{CronSpec: sched.CronSpec, Timezone: sched.Timezone, Enabled: sched.Enabled}
+	if schedules, err := s.Schedules.ListSchedules(ctx, script.ScheduleFilter{ScriptID: sc.ID}); err == nil {
+		for _, sched := range schedules {
+			v.Schedules = append(v.Schedules, PartSchedule{CronSpec: sched.CronSpec, Timezone: sched.Timezone, Enabled: sched.Enabled})
+		}
 	}
+}
+
+// eventSources is the webhook sources a script runs for: those of its
+// webhook handlers that are on, since a handler turned off runs nothing.
+// None when the service reads no webhook handlers.
+func (s *Service) eventSources(ctx context.Context, scriptID string) []string {
+	if s.Webhooks == nil {
+		return nil
+	}
+	held, err := s.Webhooks.Handlers(ctx, scriptevents.HandlerFilter{ScriptIDs: []string{scriptID}})
+	if err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(held))
+	for _, h := range held {
+		if h.Enabled {
+			out = append(out, h.Source)
+		}
+	}
+	return out
 }
 
 func (s *Service) describeAsset(ctx context.Context, actor application.Actor, v *PartView, view AssetViewer) {

@@ -21,11 +21,12 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epwire"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifylayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptbgdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
-	"github.com/txn2/mcp-data-platform/internal/platform/scriptevents/sourcerule"
+	"github.com/txn2/mcp-data-platform/internal/platform/scripthandler"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptpending"
@@ -147,7 +148,9 @@ type Handle struct {
 	recordings scriptrec.Store
 	gate       *scriptsave.Gate
 	endpoints  *epwire.Endpoints
-	eventRule  *sourcerule.Rule // who may name which webhook source (#2332)
+	// handlers carries out the handler commands (#2441); nil with no
+	// database.
+	handlers *scripthandler.Service
 }
 
 // New assembles the script layer.
@@ -176,11 +179,13 @@ func New(cfg Config) *Handle {
 		Contracts:   toolanswer.Live{Kits: cfg.Toolkits, Extra: notifylayer.AnswerContracts()},
 		CannotServe: scriptsave.PassthroughConnections{Kits: cfg.Toolkits}.CannotServe, Resources: cfg.Sources,
 	}
-	if h.endpoints = cfg.Endpoints; h.endpoints != nil {
-		h.gate.Endpoint = h.endpoints.Commands.Bound
+	h.endpoints = cfg.Endpoints
+	var commands *epcmd.Handler
+	if h.endpoints != nil {
+		commands = h.endpoints.Commands
 	}
-	if cfg.DB != nil {
-		h.eventRule = sourcerule.NewRule(cfg.DB, h.store.GetByID)
+	if h.handlers = scripthandler.New(cfg.DB, commands, h.store); h.handlers != nil {
+		h.gate.Handlers = h.handlers.Check
 	}
 	h.gate.Libraries, _ = h.store.(scriptlib.Source)
 	h.gate.Shared, _ = h.store.(scriptshare.Sources)
@@ -189,6 +194,11 @@ func New(cfg Config) *Handle {
 	h.states, _ = h.store.(script.StateStore)
 	return h
 }
+
+// Handlers is the handler service the handler commands carry out (#2441),
+// which the portal and an application import act through too; nil with no
+// database.
+func (h *Handle) Handlers() *scripthandler.Service { return h.handlers }
 
 // SaveGate is the gate sources are saved through; an import uses it too (#2476).
 func (h *Handle) SaveGate() *scriptsave.Gate { return h.gate }

@@ -28,9 +28,10 @@ func (h heard) Notify() {
 	h.ch <- struct{}{}
 }
 
-// #2480: binding a script to a source, moving it and clearing it each reach
-// every replica's map through migration 000230's trigger and a LISTEN, with
-// no wait on MaxAge.
+// #2480, #2434: adding, turning off and deleting a webhook handler each reach
+// every replica's map through the trigger on script_webhook_handlers and a
+// LISTEN, with no wait on MaxAge. Several scripts may run for one source and
+// one script for several sources.
 func TestRealDB_ASourceChangeDropsTheBindings(t *testing.T) {
 	db, dsn := testdb.NewWithDSN(t)
 	ctx := context.Background()
@@ -41,37 +42,66 @@ func TestRealDB_ASourceChangeDropsTheBindings(t *testing.T) {
 	require.NoError(t, l.Start(ctx))
 	t.Cleanup(l.Stop)
 
+	author := script.Author{Email: "jane@example.com", Roles: []string{"analyst"}}
 	sc := &script.Script{Name: "on-sale", Source: "def main():\n    print(1)\n", OwnerEmail: "jane@example.com", Enabled: true}
-	require.NoError(t, scripts.Create(ctx, sc, script.Author{Email: "jane@example.com", Roles: []string{"analyst"}}))
+	require.NoError(t, scripts.Create(ctx, sc, author))
+	other := &script.Script{Name: "on-sale-audit", Source: "def main():\n    print(2)\n", OwnerEmail: "jane@example.com", Enabled: true}
+	require.NoError(t, scripts.Create(ctx, other, author))
 	ids, err := b.For(ctx, "shop")
 	require.NoError(t, err)
 	assert.Empty(t, ids)
 
-	step := func(source string) {
+	heardIt := func(what string) {
 		t.Helper()
-		live, err := scripts.GetByID(ctx, sc.ID)
-		require.NoError(t, err)
-		live.EventSource = source
-		require.NoError(t, scripts.Update(ctx, live))
 		select {
 		case <-h.ch:
 		case <-time.After(10 * time.Second):
-			t.Fatalf("no NOTIFY on %s after setting event_source to %q", BindingsChannel, source)
+			t.Fatalf("no NOTIFY on %s after %s", BindingsChannel, what)
 		}
 	}
+	add := func(scriptID, source string) Handler {
+		t.Helper()
+		w, created, err := events.AddHandler(ctx, scriptID, source, "jane@example.com")
+		require.NoError(t, err)
+		require.True(t, created)
+		heardIt("binding " + source)
+		return w
+	}
 
-	step("shop")
+	shop := add(sc.ID, "shop")
 	ids, err = b.For(ctx, "shop")
 	require.NoError(t, err)
 	assert.Equal(t, []string{sc.ID}, ids, "a script bound on any replica is seen without waiting out MaxAge")
 
-	step("esp")
+	add(other.ID, "shop")
+	ids, _ = b.For(ctx, "shop")
+	assert.ElementsMatch(t, []string{sc.ID, other.ID}, ids, "two scripts run for one source")
+
+	add(sc.ID, "esp")
+	ids, _ = b.For(ctx, "esp")
+	assert.Equal(t, []string{sc.ID}, ids, "one script runs for a second source")
+
+	again, created, err := events.AddHandler(ctx, sc.ID, "shop", "admin@example.com")
+	require.NoError(t, err)
+	assert.False(t, created, "binding a source the script holds answers its handler")
+	assert.Equal(t, shop.ID, again.ID)
+	heardIt("binding shop again")
+
+	require.NoError(t, events.EnableHandler(ctx, shop.ID, false, "admin@example.com"))
+	heardIt("turning a handler off")
+	ids, _ = b.For(ctx, "shop")
+	assert.Equal(t, []string{other.ID}, ids, "a handler turned off runs nothing")
+
+	require.NoError(t, events.DeleteHandler(ctx, shop.ID))
+	heardIt("deleting a handler")
+	held, err := events.Handlers(ctx, HandlerFilter{ScriptIDs: []string{sc.ID}})
+	require.NoError(t, err)
+	require.Len(t, held, 1)
+	assert.Equal(t, "esp", held[0].Source)
+
+	_, err = scripts.Delete(ctx, other.ID)
+	require.NoError(t, err)
+	heardIt("deleting a script, which takes its handlers")
 	ids, _ = b.For(ctx, "shop")
 	assert.Empty(t, ids)
-	ids, _ = b.For(ctx, "esp")
-	assert.Equal(t, []string{sc.ID}, ids, "a moved binding")
-
-	step("")
-	ids, _ = b.For(ctx, "esp")
-	assert.Empty(t, ids, "a cleared binding")
 }

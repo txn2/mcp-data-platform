@@ -175,7 +175,7 @@ func (s *Service) checkMailbox(ctx context.Context, src whsource.Source) error {
 
 // ErrFormSource refuses an administrator's create of a form's source, which
 // the platform makes when the form is bound (CreateForm).
-var ErrFormSource = whsource.Refusal("a form's source is made by the platform when a form script is bound to an endpoint (manage_script endpoint_set)")
+var ErrFormSource = whsource.Refusal("a form's source is made by the platform when a form script is given an endpoint handler (manage_script handler_set kind=endpoint)")
 
 // Create makes a source: its tables, the proof its connection can hold them,
 // its record and its registration. A failure part-way removes what was made.

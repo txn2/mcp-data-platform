@@ -18,9 +18,10 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/connchoicehttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/handlerhttp"
+	"github.com/txn2/mcp-data-platform/internal/platform/scripthandler"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
 
-	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptgrant"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
@@ -102,9 +103,10 @@ type Deps struct {
 	// Grants keeps who other than the owner may run each script (#1846). Nil
 	// leaves the grant routes unmounted and every run the owner's.
 	Grants scriptgrant.Store
-	// Endpoints carries a script's endpoint binding out (#2171); nil leaves
-	// the binding routes unmounted.
-	Endpoints *epcmd.Handler
+	// Handlers carries a script's handlers out (#2441): its endpoints,
+	// schedules and webhook sources. Nil leaves the handler routes
+	// unmounted.
+	Handlers *scripthandler.Service
 
 	// Produced lists everything a script has written across every run (#1569).
 	// Nil leaves that route unmounted, which is the shape of a deployment that
@@ -141,16 +143,14 @@ const (
 	// keyScriptID is the script's id as both a log attribute and an audit
 	// parameter. One name for both is deliberate: an act on a script is found
 	// by the same key whichever record somebody is reading.
-	keyScriptID      = "script_id"
-	pathVersion      = "version"
-	pathRunID        = "runID"
-	errScriptNot     = "script not found"
-	errGetScript     = "failed to get script"
-	errVersionNot    = "version not found"
-	errRunNot        = "run not found"
-	errListVersions  = "failed to list versions"
-	errScheduleNot   = "this script has no schedule"
-	errListSchedules = "failed to read schedules"
+	keyScriptID     = "script_id"
+	pathVersion     = "version"
+	pathRunID       = "runID"
+	errScriptNot    = "script not found"
+	errGetScript    = "failed to get script"
+	errVersionNot   = "version not found"
+	errRunNot       = "run not found"
+	errListVersions = "failed to list versions"
 )
 
 // RegisterAdmin mounts the admin script routes under prefix, each wrapped in
@@ -164,18 +164,10 @@ func (h *Handler) RegisterAdmin(mux *http.ServeMux, prefix string, wrap func(htt
 	}
 	mux.Handle("GET "+prefix+"/scripts/{id}/versions", wrap(http.HandlerFunc(h.listVersions)))
 	mux.Handle("GET "+prefix+"/scripts/{id}/versions/{version}", wrap(http.HandlerFunc(h.getVersion)))
-	if h.deps.Schedules == nil {
-		return
+	// Admin > Handlers: every handler of every script (#2435).
+	if h.deps.Handlers != nil {
+		handlerhttp.New(handlerhttp.Deps{Handlers: h.deps.Handlers, Scripts: h.deps.Scripts}).RegisterAdmin(mux, prefix, wrap)
 	}
-	mux.Handle("GET "+prefix+"/scripts/schedules", wrap(http.HandlerFunc(h.listSchedules)))
-	mux.Handle("GET "+prefix+"/scripts/{id}/schedule", wrap(http.HandlerFunc(h.getSchedule)))
-	mux.Handle("PUT "+prefix+"/scripts/{id}/schedule", wrap(http.HandlerFunc(h.setSchedule)))
-	// Pausing is its own action rather than a field of the cadence. Sending the
-	// whole schedule back to turn it off would re-base its next fire, which is
-	// exactly what pausing must not do: a paused schedule resumes on the fire it
-	// was parked on.
-	mux.Handle("POST "+prefix+"/scripts/{id}/schedule/enable", wrap(http.HandlerFunc(h.enableSchedule)))
-	mux.Handle("POST "+prefix+"/scripts/{id}/schedule/disable", wrap(http.HandlerFunc(h.disableSchedule)))
 }
 
 // scriptListResponse is the script listing payload.

@@ -496,6 +496,8 @@ jobs:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           if [ -n "${DELTA_BASE:-}" ]; then range="$DELTA_BASE"; else range="$PR_BASE_SHA...HEAD"; fi
+          # The helpers a criterion calls are read from this diff (#2627).
+          export ACCEPTANCE_DIFF_RANGE="$range"
           changed=$(git diff --name-only "$range" | python3 scripts/acceptance-pr-paths.py)
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
           echo "The diff changes the dev stack or the suite's harness: $changed"

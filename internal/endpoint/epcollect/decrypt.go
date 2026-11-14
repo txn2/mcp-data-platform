@@ -39,7 +39,7 @@ func (d *Decrypter) Decrypt(ctx context.Context, req scripttoken.DecryptRequest)
 	if !req.Admin && (req.Persona == "" || !slices.Contains(personas, req.Persona)) {
 		d.audit(ctx, req, src, nil, "refused: persona not among decrypt_personas")
 		return nil, nil, fmt.Errorf("form %s does not let persona %q decrypt its sensitive fields; its decrypt_personas are [%s], "+
-			"set with manage_script endpoint_set", req.Form, req.Persona, strings.Join(personas, ", "))
+			"set with manage_script handler_set kind=endpoint", req.Form, req.Persona, strings.Join(personas, ", "))
 	}
 	stored, sensitive := PayloadValues(req.Payload)
 	values, err = Reveal(d.Sealer, src.Name, stored, sensitive)

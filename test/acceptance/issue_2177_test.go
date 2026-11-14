@@ -29,7 +29,7 @@ import (
 //
 // Wire forms: save_asset's content and content_type as strings and
 // references as a list of strings; manage_asset share's access_mode and
-// expires_in as strings; endpoint_set as in #2178; the browser's own
+// expires_in as strings; handler_set kind=endpoint as in #2178; the browser's own
 // navigations, the form page's GET and its JSON POST of the fields with
 // X-Bot-Check absent; X-Form-Viewer as a header on a GET and a JSON POST with
 // Origin: null.

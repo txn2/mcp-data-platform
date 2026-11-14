@@ -107,8 +107,8 @@ var capabilities = []capability{
 	{tool: toolManageScript, line: func(map[string]bool) string {
 		return "Automations are scripts. Explore with the query tools; once the logic is " +
 			"settled and will repeat, or the user asks for an automation or scheduled work, " +
-			"build it with `manage_script` (command `help` first), and `schedule_set` when it " +
-			"should repeat, so it is re-run rather than re-derived."
+			"build it with `manage_script` (command `help` first), and `handler_set` when it " +
+			"should run on its own, so it is re-run rather than re-derived."
 	}},
 	{tool: toolManageApp, line: func(map[string]bool) string {
 		return "A system built on the platform (an application database schema, scripts with their " +

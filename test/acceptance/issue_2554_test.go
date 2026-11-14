@@ -18,7 +18,7 @@ import (
 // a bad shape, naming the field; the endpoint on the portal's own origin stays
 // sandboxed; and an application export and import carries them.
 //
-// Wire forms: endpoint_set takes endpoint, path, auth_mode and response_mode
+// Wire forms: handler_set kind=endpoint takes endpoint, path, auth_mode and response_mode
 // as strings and methods, callers, page_cdns, page_frame_origins,
 // page_connect_origins and page_form_origins as lists of strings (a list is
 // the only form each admits); manage_application takes command, name,
@@ -190,7 +190,7 @@ func TestIssue2554_AnExportAndImportCarryTheFields(t *testing.T) {
 	if ok, text := importMCP2476(t, second, []byte(got.body), map[string]string{}); !ok {
 		t.Fatalf("the import was refused: %s", text)
 	}
-	bound := second.admin.call("manage_script", map[string]any{"command": "endpoint_list", "name": p.name})
+	bound := second.admin.endpointOf(p.name, "")
 	for field, want := range map[string]string{"page_frame_origins": frame2554, "page_connect_origins": connect2554, "page_form_origins": form2554} {
 		if !strings.Contains(fmt.Sprint(bound[field]), want) {
 			t.Errorf("the imported binding's %s is %v, want %s", field, bound[field], want)

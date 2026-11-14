@@ -42,9 +42,6 @@ type Contract struct {
 	// Exclusive is whether the script's runs may overlap: off, refuse or
 	// queue (#1986, #2209).
 	Exclusive runstate.ExclusiveMode `json:"exclusive"`
-	// EventSource is the webhook source the script runs for (#2332), empty
-	// when it runs for none.
-	EventSource string `json:"event_source,omitempty"`
 
 	// Params is the typed parameter contract a run binds against: the live
 	// record's, which is the latest saved version's.
@@ -57,8 +54,9 @@ type Contract struct {
 	// when one would be admitted.
 	Refusal string `json:"refusal,omitempty" example:"the script is disabled"`
 
-	// Schedule is the cadence this script fires on, nil when it has none.
-	Schedule *ContractSchedule `json:"schedule,omitempty"`
+	// Schedules are the cadences this script fires on, each a schedule
+	// handler of its own (#2434); empty when it has none.
+	Schedules []ContractSchedule `json:"schedules"`
 
 	// LastRun is the most recent successful run, nil when the script has never
 	// completed one. It answers "what does this produce" with evidence rather
@@ -252,9 +250,9 @@ func (c Contract) Text() string {
 	if c.Library {
 		parts = append(parts, c.usedByLine())
 	}
-	if c.Schedule != nil {
+	for i := range c.Schedules {
 		parts = append(parts, fmt.Sprintf("Schedule: %s (%s)%s",
-			c.Schedule.CronSpec, c.Schedule.Timezone, c.Schedule.stateSuffix()))
+			c.Schedules[i].CronSpec, c.Schedules[i].Timezone, c.Schedules[i].stateSuffix()))
 	}
 	if c.RunsWithheld {
 		parts = append(parts, "Last successful run: shown to the script's owner and administrators.")
@@ -358,13 +356,13 @@ func (c Contract) OwnedBy(email string) bool {
 }
 
 // BuildContract renders the contract for one script from the records that
-// define it: the live row, the schedule (nil when it has none), and the last
+// define it: the live row, its schedules, and the last
 // successful run (nil when it has never had one).
 //
 // It is a pure function over records the caller has already read, so every
 // surface that resolves a script reference produces the identical document and
 // none of them needs its own composition rule.
-func BuildContract(sc *Script, sched *Schedule, lastRun *Run) Contract {
+func BuildContract(sc *Script, schedules []Schedule, lastRun *Run) Contract {
 	if sc == nil {
 		return Contract{}
 	}
@@ -379,7 +377,6 @@ func BuildContract(sc *Script, sched *Schedule, lastRun *Run) Contract {
 		Status:      sc.Status,
 		Enabled:     sc.Enabled,
 		Exclusive:   sc.Exclusive,
-		EventSource: sc.EventSource,
 		Params:      sc.Params,
 		Version:     sc.Version,
 		Refusal:     refusalText(RefuseRun(sc)),
@@ -387,9 +384,10 @@ func BuildContract(sc *Script, sched *Schedule, lastRun *Run) Contract {
 		Loads:       append([]string{}, sc.Loads...),
 		UsedBy:      []libraryuse.Use{},
 		Source:      sc.Source,
+		Schedules:   []ContractSchedule{},
 	}
-	if sched != nil {
-		c.Schedule = contractSchedule(sched)
+	for i := range schedules {
+		c.Schedules = append(c.Schedules, *contractSchedule(&schedules[i]))
 	}
 	if lastRun != nil {
 		c.LastRun = contractRun(lastRun)

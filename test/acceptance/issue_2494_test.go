@@ -27,7 +27,7 @@ import (
 // The owner is the dev stack's ordinary person acme-owner-key, the peer the
 // other ordinary person acme-peer-key, the administrator the default key.
 //
-// Wire forms: manage_script create, update, form_preview and endpoint_set and
+// Wire forms: manage_script create, update, form_preview and handler_set kind=endpoint and
 // manage_approval submit, list, get and decide take their arguments as the
 // literal tools/call params (version and preview_version as JSON numbers,
 // callers as an array of strings). A preview's spec is a GET carrying the
@@ -177,7 +177,7 @@ func issue2494Post(t *testing.T, base, path string, header http.Header, fields m
 func TestIssue2494_TheOwnerPreviewsAnUnboundForm(t *testing.T) {
 	owner := connectAs(t, devOwnerAPIKey)
 	name := issue2494Save(t, owner, "acc-2494-preview")
-	if bound := owner.call("manage_script", map[string]any{"command": "endpoint_list", "name": name}); bound["bound"] != false {
+	if bound := owner.endpointOf(name, ""); bound["bound"] != false {
 		t.Fatalf("the form is bound before it was published: %v", bound)
 	}
 	path := issue2494Preview(t, owner, name, nil)
@@ -245,7 +245,7 @@ func TestIssue2494_APreviewSubmitsNothing(t *testing.T) {
 		t.Fatalf("the multipart submission: %d %s", got.status, got.body)
 	}
 
-	if bound := owner.call("manage_script", map[string]any{"command": "endpoint_list", "name": name}); bound["bound"] != false || bound["form"] != nil {
+	if bound := owner.endpointOf(name, ""); bound["bound"] != false || bound["form"] != nil {
 		t.Errorf("a preview made a binding or a form source: %v", bound)
 	}
 	db := issue2257DB(t)
@@ -324,10 +324,10 @@ func TestIssue2494_TheOwnerPublishesAnInternalForm(t *testing.T) {
 	bindEndpoint(t, owner, name, "", map[string]any{
 		"endpoint": name, "auth_mode": "authenticated", "callers": []string{"*"}, "methods": []string{"GET", "POST"}, "connection": formsConn,
 	})
-	if out := owner.call("manage_script", map[string]any{"command": "endpoint_disable", "name": name}); out["enabled"] != false {
+	if out := owner.endpointEnable(name, false); out["enabled"] != false {
 		t.Fatalf("the owner turning the form off: %v", out)
 	}
-	if out := owner.call("manage_script", map[string]any{"command": "endpoint_enable", "name": name}); out["enabled"] != true {
+	if out := owner.endpointEnable(name, true); out["enabled"] != true {
 		t.Fatalf("the owner turning the form on: %v", out)
 	}
 	_, token := issue2494Spec(t, peer.base, "/endpoints/"+name, bearer(devPeerAPIKey))

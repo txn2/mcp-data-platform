@@ -279,7 +279,7 @@ webhook kind with `format: json` delivers through such a connection, signed.
 
 A source with `config.input: form` holds a form's accepted submissions, one
 event each (#2178). The platform makes it when a form script is bound to an
-endpoint (`manage_script endpoint_set`), named `form-<endpoint>`, and it is
+endpoint (`manage_script handler_set kind=endpoint`), named `form-<endpoint>`, and it is
 never posted to: `/hooks/form-<endpoint>` answers 404, and the create route
 refuses `input: form`. `config.form` names the script and endpoint it collects
 for and the personas a script may decrypt the form's sensitive fields as
@@ -417,8 +417,8 @@ under `imap`, one entry per folder checked.
 
 A source with `config.input: postgres` is not posted to either. It reads an
 [application database](appdb.md) and files what it reads as events (#2408),
-which land, compact and run the scripts naming the source like every other
-source's.
+which land, compact and run the scripts with a webhook handler for the source
+like every other source's.
 
 ```bash
 curl -X POST https://platform.example.com/api/v1/admin/webhooks/sources \

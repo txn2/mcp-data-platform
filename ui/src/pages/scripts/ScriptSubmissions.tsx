@@ -1,5 +1,6 @@
 import { Lock } from "lucide-react";
-import { useScriptEndpoint, type FormSource } from "@/api/portal/hooks/scriptEndpoint";
+import type { FormSource } from "@/api/portal/hooks/scriptEndpoint";
+import { useScriptHandlers } from "@/api/portal/hooks/scriptHandlers";
 import {
   submissionsExportURL,
   useScriptSubmissions,
@@ -18,9 +19,13 @@ import { formatBytes, formatWhen } from "./runFormat";
 // form whose source exists.
 
 export function ScriptSubmissions({ scriptId }: { scriptId: string }) {
-  const { data: endpoint } = useScriptEndpoint(scriptId, true);
-  if (!endpoint?.form) return null;
-  return <Submissions scriptId={scriptId} form={endpoint.form} />;
+  const { data } = useScriptHandlers(scriptId, true);
+  // Every form endpoint of a script stores into the one source made for it.
+  // The source outlives its endpoints: deleting a form's last endpoint keeps
+  // its submissions, which what adding an endpoint offers still names.
+  const form = (data?.handlers.find((h) => h.form)?.form ?? data?.endpoint?.form) as FormSource | undefined;
+  if (!form) return null;
+  return <Submissions scriptId={scriptId} form={form} />;
 }
 
 function Submissions({ scriptId, form }: { scriptId: string; form: FormSource }) {

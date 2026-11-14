@@ -34,7 +34,7 @@ var scriptSelectColumns = []string{
 	"id", "name", "display_name", "description", "category", "source_code", "params",
 	"owner_email", "tags", "enabled", "status",
 	"superseded_by", "deprecated_at", "version",
-	"created_at", "updated_at", "library", "library_loads", "exclusive", "event_source", "released_version",
+	"created_at", "updated_at", "library", "library_loads", "exclusive", "is_form", "released_version",
 }
 
 var rowTime = time.Unix(1700000000, 0).UTC()
@@ -49,6 +49,7 @@ type rowSpec struct {
 	category   string
 	exclusive  runstate.ExclusiveMode
 	released   int
+	isForm     bool
 }
 
 // scriptRow returns one full result row in scriptColumns order.
@@ -61,7 +62,7 @@ func scriptRow(spec rowSpec) []driver.Value {
 		spec.id, spec.name, "Daily", "A daily report", spec.category, source, spec.paramsJSON,
 		spec.owner, pq.Array([]string{}), true, "active",
 		"", nil, 1, rowTime, rowTime,
-		false, pq.Array([]string{}), string(spec.exclusive.Or()), "", spec.released,
+		false, pq.Array([]string{}), string(spec.exclusive.Or()), spec.isForm, spec.released,
 	}
 }
 
@@ -172,8 +173,8 @@ func TestCreate_WritesTheRowAndItsFirstSnapshot(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO scripts")).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).
-			AddRow("script_1", rowTime, rowTime))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "is_form"}).
+			AddRow("script_1", rowTime, rowTime, false))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_versions")).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_resource_pins")).WillReturnResult(sqlmock.NewResult(0, 0))
@@ -191,8 +192,8 @@ func TestCreate_RollsBackWhenTheSnapshotFails(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO scripts")).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).
-			AddRow("script_1", rowTime, rowTime))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "is_form"}).
+			AddRow("script_1", rowTime, rowTime, false))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_versions")).WillReturnError(errors.New("boom"))
 	mock.ExpectRollback()
 
@@ -218,12 +219,12 @@ func TestUpdate_MissingRowIsAnError(t *testing.T) {
 // removes anything: the lock on the script row, which is what stops a child
 // row arriving between the read and the delete, and the read of what hangs
 // off it.
-func expectLockedCascadeRead(mock sqlmock.Sqlmock, id string, schedule, runs, state bool) {
+func expectLockedCascadeRead(mock sqlmock.Sqlmock, id string, handlers, runs, state bool) {
 	mock.ExpectQuery(regexp.QuoteMeta("FROM scripts WHERE id = $1 FOR UPDATE")).WithArgs(id).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(id))
 	expectLibraryUnused(mock, id)
-	mock.ExpectQuery(regexp.QuoteMeta("FROM script_schedules")).WithArgs(id).
-		WillReturnRows(sqlmock.NewRows([]string{"a", "b", "c"}).AddRow(schedule, runs, state))
+	mock.ExpectQuery(regexp.QuoteMeta("FROM script_handlers")).WithArgs(id).
+		WillReturnRows(sqlmock.NewRows([]string{"a", "b", "c"}).AddRow(handlers, runs, state))
 }
 
 // expectLibraryUnused queues the read that refuses deleting a library another
@@ -309,7 +310,7 @@ func TestDelete(t *testing.T) {
 	mock.ExpectCommit()
 	removed, err := s.Delete(context.Background(), "script_1")
 	require.NoError(t, err)
-	assert.Equal(t, script.Removed{Schedule: true, Runs: true, State: true}, removed)
+	assert.Equal(t, script.Removed{Handlers: true, Runs: true, State: true}, removed)
 
 	// A script that was never scheduled, never ran and saved no state reports
 	// none of the three, which is what keeps the caller's account of the
@@ -353,7 +354,7 @@ func TestDelete(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("FOR UPDATE")).WithArgs("unreadable").
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("unreadable"))
 	expectLibraryUnused(mock, "unreadable")
-	mock.ExpectQuery(regexp.QuoteMeta("FROM script_schedules")).WithArgs("unreadable").
+	mock.ExpectQuery(regexp.QuoteMeta("FROM script_handlers")).WithArgs("unreadable").
 		WillReturnError(errors.New("boom"))
 	mock.ExpectRollback()
 	_, err = s.Delete(context.Background(), "unreadable")
@@ -402,17 +403,56 @@ func TestBuildListQuery_Kind(t *testing.T) {
 	assert.Equal(t, true, args[0])
 }
 
-// TestBuildListQuery_Endpoint narrows to the scripts bound to an endpoint, or
-// to the rest (#2259), in the listing and in both counts.
-func TestBuildListQuery_Endpoint(t *testing.T) {
-	bound := false
-	query, args := buildListQuery(script.ListFilter{Endpoint: &bound})
-	assert.Contains(t, query, "EXISTS (SELECT 1 FROM script_endpoints WHERE script_endpoints.script_id = scripts.id) = $1")
-	assert.Equal(t, false, args[0])
-	count, _ := buildCountQuery(script.ListFilter{Endpoint: &bound})
-	assert.Contains(t, count, "FROM script_endpoints")
-	scheduled, _ := buildScheduledCountQuery(script.ListFilter{Endpoint: &bound})
-	assert.Contains(t, scheduled, "FROM script_endpoints")
+// TestBuildListQuery_HandlerTypes narrows to the scripts holding a handler of
+// a type, to the scripts holding none, or to either (#2435), read from the
+// script_handlers view, in the listing and in both counts.
+func TestBuildListQuery_HandlerTypes(t *testing.T) {
+	holds := "EXISTS (SELECT 1 FROM script_handlers h WHERE h.script_id = scripts.id AND h.type = ANY($1))"
+	empty := "NOT EXISTS (SELECT 1 FROM script_handlers h WHERE h.script_id = scripts.id)"
+	cases := []struct {
+		name     string
+		types    []string
+		contains []string
+		absent   []string
+		firstArg any
+	}{
+		{
+			name: "kinds", types: []string{"schedule", "form"},
+			contains: []string{holds}, absent: []string{empty},
+			firstArg: pq.Array([]string{"schedule", "form"}),
+		},
+		{
+			name: "none alone takes no argument", types: []string{"none"},
+			contains: []string{"WHERE " + empty}, absent: []string{"h.type = ANY"},
+			firstArg: defaultListLimit,
+		},
+		{
+			name: "none or a kind is a disjunction", types: []string{"none", "webhook"},
+			contains: []string{"(" + holds + " OR " + empty + ")"},
+			firstArg: pq.Array([]string{"webhook"}),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := script.ListFilter{HandlerTypes: tc.types}
+			query, args := buildListQuery(f)
+			count, _ := buildCountQuery(f)
+			scheduled, _ := buildScheduledCountQuery(f)
+			for _, q := range []string{query, count, scheduled} {
+				for _, want := range tc.contains {
+					assert.Contains(t, q, want)
+				}
+				for _, not := range tc.absent {
+					assert.NotContains(t, q, not)
+				}
+			}
+			assert.Equal(t, tc.firstArg, args[0])
+		})
+	}
+
+	// No types is no filter.
+	query, _ := buildListQuery(script.ListFilter{HandlerTypes: []string{}})
+	assert.NotContains(t, query, "script_handlers")
 }
 
 func TestBuildListQuery_FacetAxes(t *testing.T) {

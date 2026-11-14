@@ -207,8 +207,8 @@ func TestCreate_SnapshotsAnAuthorWithNoRoles(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO scripts")).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).
-			AddRow("script_1", rowTime, rowTime))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "is_form"}).
+			AddRow("script_1", rowTime, rowTime, false))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_versions")).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_resource_pins")).WillReturnResult(sqlmock.NewResult(0, 0))
@@ -274,7 +274,7 @@ func TestCreate_WritesTheTestReport(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO scripts")).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).AddRow("script_1", rowTime, rowTime))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "is_form"}).AddRow("script_1", rowTime, rowTime, false))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_versions")).
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),

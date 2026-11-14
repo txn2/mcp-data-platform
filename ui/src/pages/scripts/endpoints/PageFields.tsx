@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useEndpointIds } from "./endpointIds";
 import type { ScriptEndpoint } from "@/api/portal/hooks/scriptEndpoint";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
@@ -101,6 +102,7 @@ export function PageFields({
   onMode: (v: "api" | "page") => void;
   onList: (key: keyof PageLists, v: string) => void;
 }) {
+  const eid = useEndpointIds();
   if (endpoint.page_problem && responseMode !== "page") {
     return (
       <Alert data-testid="page-needs-application">
@@ -110,8 +112,8 @@ export function PageFields({
   }
   return (
     <>
-      <Field id="endpoint-response-mode" label="Answers with">
-        <select id="endpoint-response-mode" className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={responseMode} onChange={(e) => onMode(e.target.value as "api" | "page")}>
+      <Field id={eid("endpoint-response-mode")} label="Answers with">
+        <select id={eid("endpoint-response-mode")} className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={responseMode} onChange={(e) => onMode(e.target.value as "api" | "page")}>
           <option value="page">A browser page</option>
           <option value="api">JSON or text</option>
         </select>
@@ -126,9 +128,9 @@ export function PageFields({
             </div>
           )}
           {PAGE_LISTS.map((l) => (
-            <Field key={l.key} id={`endpoint-page-${l.key}`} label={l.label}>
+            <Field key={l.key} id={eid(`endpoint-page-${l.key}`)} label={l.label}>
               <Textarea
-                id={`endpoint-page-${l.key}`}
+                id={eid(`endpoint-page-${l.key}`)}
                 rows={2}
                 value={lists[l.key]}
                 placeholder={l.key === "cdns" ? "https://cdn.jsdelivr.net" : "https://js.stripe.com"}

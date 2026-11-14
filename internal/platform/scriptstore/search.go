@@ -339,12 +339,9 @@ func (s *Store) Contract(ctx context.Context, id string) (*script.Contract, erro
 	if sc == nil {
 		return nil, nil //nolint:nilnil // Searcher contract: nil, nil means not found
 	}
-	sched, err := s.GetSchedule(ctx, id)
-	if err != nil && !errors.Is(err, script.ErrScheduleNotFound) {
+	schedules, err := s.ListSchedules(ctx, script.ScheduleFilter{ScriptID: id})
+	if err != nil {
 		return nil, err
-	}
-	if errors.Is(err, script.ErrScheduleNotFound) {
-		sched = nil
 	}
 	lastRun, err := s.lastSuccessfulRun(ctx, id)
 	if err != nil {
@@ -354,7 +351,7 @@ func (s *Store) Contract(ctx context.Context, id string) (*script.Contract, erro
 	if err != nil {
 		return nil, err
 	}
-	c := script.BuildContract(sc, sched, lastRun)
+	c := script.BuildContract(sc, schedules, lastRun)
 	// What the source does with state is read from the source, the same read
 	// validate reports; the revision is the store's. Together they tell a
 	// reader whether the next run continues from the last one's save.

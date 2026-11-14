@@ -11,17 +11,35 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/application"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptevents"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
-type fakeSchedules map[string]*script.Schedule
+type fakeSchedules map[string][]script.Schedule
 
-func (f fakeSchedules) GetSchedule(_ context.Context, id string) (*script.Schedule, error) {
-	if s, ok := f[id]; ok {
-		return s, nil
+func (f fakeSchedules) ListSchedules(_ context.Context, filter script.ScheduleFilter) ([]script.Schedule, error) {
+	if filter.ScriptID == "fails" {
+		return nil, errors.New("db down")
 	}
-	return nil, script.ErrScheduleNotFound
+	return f[filter.ScriptID], nil
+}
+
+// fakeWebhooks is the webhook handlers by script.
+type fakeWebhooks struct {
+	byScript map[string][]scriptevents.Handler
+	err      error
+}
+
+func (f fakeWebhooks) Handlers(_ context.Context, filter scriptevents.HandlerFilter) ([]scriptevents.Handler, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	var out []scriptevents.Handler
+	for _, id := range filter.ScriptIDs {
+		out = append(out, f.byScript[id]...)
+	}
+	return out, nil
 }
 
 type fakeActivity map[string]int64
@@ -86,7 +104,13 @@ func TestDescribeNamesEachPart(t *testing.T) {
 	scripts.scripts[scriptA].Version = 4
 	assets.assets["as1"].ContentType = "text/html"
 	assets.assets["as1"].CurrentVersion = 7
-	svc.Schedules = fakeSchedules{scriptA: {CronSpec: "0 2 * * *", Timezone: "UTC", Enabled: true}}
+	svc.Schedules = fakeSchedules{scriptA: {
+		{CronSpec: "0 2 * * *", Timezone: "UTC", Enabled: true},
+		{CronSpec: "0 14 * * *", Timezone: "America/Chicago", Enabled: false},
+	}}
+	svc.Webhooks = fakeWebhooks{byScript: map[string][]scriptevents.Handler{
+		scriptA: {{Source: "orders-hook", Enabled: true}, {Source: "esp", Enabled: true}, {Source: "paused-hook"}},
+	}}
 	svc.Activity = fakeActivity{"orders-hook": 1284}
 
 	parts := []application.Part{
@@ -106,8 +130,11 @@ func TestDescribeNamesEachPart(t *testing.T) {
 	assert.Equal(t, "Answers the storefront", got[0].Description)
 	require.NotNil(t, got[0].LatestVersion)
 	assert.Equal(t, 4, *got[0].LatestVersion)
-	require.NotNil(t, got[0].Schedule)
-	assert.Equal(t, "0 2 * * *", got[0].Schedule.CronSpec)
+	assert.Equal(t, []PartSchedule{
+		{CronSpec: "0 2 * * *", Timezone: "UTC", Enabled: true},
+		{CronSpec: "0 14 * * *", Timezone: "America/Chicago", Enabled: false},
+	}, got[0].Schedules, "every schedule handler the script holds (#2434)")
+	assert.Equal(t, []string{"orders-hook", "esp"}, got[0].EventSources, "every source it runs for; a handler turned off runs it for none")
 	assert.Equal(t, jane.Email, got[0].AddedBy)
 
 	assert.Equal(t, PartDeleted, got[1].State)
@@ -208,4 +235,23 @@ func TestFindCandidates(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, none.Candidates)
 	assert.NotNil(t, none.Candidates, "an empty list is [], never null")
+}
+
+// TestEventSources is the webhook sources a script runs for, read from its
+// webhook handlers that are on (#2434): none when the service reads no
+// handlers or the read fails, which leaves a part described rather than
+// failing it.
+func TestEventSources(t *testing.T) {
+	ctx := context.Background()
+	svc := &Service{}
+	assert.Nil(t, svc.eventSources(ctx, scriptA), "no handler store reads none")
+
+	svc.Webhooks = fakeWebhooks{byScript: map[string][]scriptevents.Handler{scriptA: {
+		{Source: "shop", Enabled: true}, {Source: "paused"}, {Source: "esp", Enabled: true},
+	}}}
+	assert.Equal(t, []string{"shop", "esp"}, svc.eventSources(ctx, scriptA), "a handler turned off runs the script for nothing")
+	assert.Equal(t, []string{}, svc.eventSources(ctx, scriptB), "a script running for no source")
+
+	svc.Webhooks = fakeWebhooks{err: errors.New("db down")}
+	assert.Nil(t, svc.eventSources(ctx, scriptA))
 }

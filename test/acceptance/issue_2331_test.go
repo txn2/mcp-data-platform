@@ -22,7 +22,7 @@ import (
 // form answers 404; an authenticated form opened directly sends the browser
 // to sign in; and the page in light and dark at desktop and phone width.
 //
-// Wire forms: manage_script create and endpoint_set take their arguments as
+// Wire forms: manage_script create and handler_set kind=endpoint take their arguments as
 // literal tools/call params (allowed_origins as an array of strings); the
 // form page is a plain GET; the browser submits the form as the page does, a
 // JSON object; trino_query takes string connection, sql and purpose.

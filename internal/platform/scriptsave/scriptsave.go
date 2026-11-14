@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptbehavior"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlint"
@@ -65,10 +64,10 @@ type Gate struct {
 	// connection, which the source is warned of for each one it names
 	// (#2086); nil warns of none.
 	CannotServe func(connection string) bool
-	// Endpoint names the endpoint a saved script is bound to, "" for none
-	// (#2171); a bound script's source must define handle(req). Nil checks
-	// nothing.
-	Endpoint func(ctx context.Context, scriptID string) string
+	// Handlers is why a saved script's handlers could not serve the new
+	// source, "" when they could (#2441): an endpoint's needs handle(req), a
+	// form's form_spec(req) and form_submit(req, values). Nil checks nothing.
+	Handlers func(ctx context.Context, sc *script.Script, source string) string
 	// Shared reads the sources a save is compared with for functions a
 	// library or another script already defines (#2273); nil compares none.
 	Shared scriptshare.Sources
@@ -176,7 +175,7 @@ func (g *Gate) Check(ctx context.Context, req Request) Result {
 		res.Lint.Findings = append(res.Lint.Findings, warn...)
 		res.Lint.Warnings = append(res.Lint.Warnings, warn...)
 	}
-	if res.Refusal = g.checkEndpoint(ctx, req, source); res.Refusal != "" {
+	if res.Refusal = g.checkHandlers(ctx, req, source); res.Refusal != "" {
 		return res
 	}
 	if res.Refusal = checkLibraryReach(req, source); res.Refusal != "" {
@@ -204,20 +203,12 @@ func (g *Gate) Check(ctx context.Context, req Request) Result {
 	return res
 }
 
-// checkEndpoint refuses a source a script bound to an endpoint could no
-// longer answer with: one that defines no handle(req).
-func (g *Gate) checkEndpoint(ctx context.Context, req Request, source string) string {
-	if g.Endpoint == nil || req.Existing == nil {
+// checkHandlers refuses a source the script's handlers could not serve.
+func (g *Gate) checkHandlers(ctx context.Context, req Request, source string) string {
+	if g.Handlers == nil || req.Existing == nil {
 		return ""
 	}
-	name := g.Endpoint(ctx, req.Existing.ID)
-	if name == "" {
-		return ""
-	}
-	if err := epbinding.Callable(source); err != nil {
-		return fmt.Sprintf("this script answers the endpoint %q: %s, so it was not saved", name, err)
-	}
-	return ""
+	return g.Handlers(ctx, req.Existing, source)
 }
 
 // checkTests runs the new source's tests and returns why they refuse the

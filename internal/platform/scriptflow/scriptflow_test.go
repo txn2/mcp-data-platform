@@ -856,3 +856,22 @@ func TestAPICalls(t *testing.T) {
 		t.Errorf("a source that does not parse names no calls: %+v", calls)
 	}
 }
+
+// TestDerive_HandlerCommandsWrite: a script calling manage_script to add,
+// turn on or off or delete a handler is drawn writing (#2441, #2434); the
+// handler reads are drawn reading.
+func TestDerive_HandlerCommandsWrite(t *testing.T) {
+	cases := map[string]string{
+		"handler_set": RoleWrites, "handler_enable": RoleWrites, "handler_disable": RoleWrites, "handler_delete": RoleWrites,
+		"handler_list": RoleReads, "handler_get": RoleReads,
+	}
+	for command, role := range cases {
+		t.Run(command, func(t *testing.T) {
+			g := deriveGraph(`platform.call("manage_script", {"command": "` + command + `", "name": "daily"})` + "\n")
+			require.True(t, g.OK, "%+v", g.Findings)
+			n := nodeByTitle(t, g, "manage script")
+			assert.Equal(t, command, n.Subtitle)
+			assert.Equal(t, role, n.Role)
+		})
+	}
+}

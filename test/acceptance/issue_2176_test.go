@@ -25,7 +25,7 @@ import (
 // Wire forms: the GET carries customer_id as a query string; a submission is
 // sent once as application/x-www-form-urlencoded and once as an
 // application/json object with the same fields; manage_script create and
-// endpoint_set take their arguments as the literal tools/call params.
+// handler_set kind=endpoint take their arguments as the literal tools/call params.
 //
 // The forms here are public, so nothing but the form contract stands between
 // a request and the script. That the submission is stored is #2178's; here

@@ -418,7 +418,7 @@ func runScriptSchema() any {
 				keyType:        valString,
 				keyDescription: "Name of the script to run.",
 			},
-			"owner_email": map[string]any{
+			fieldOwner: map[string]any{
 				keyType:        valString,
 				keyDescription: "Owner of the script; admins use it to address another person's script.",
 			},

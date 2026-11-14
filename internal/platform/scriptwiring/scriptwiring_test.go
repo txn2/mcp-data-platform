@@ -97,9 +97,9 @@ func TestScriptLineage(t *testing.T) {
 	assert.NotNil(t, scriptLineage(Deps{DB: db, Toolkits: registry.NewRegistry()}))
 }
 
-// Applications are assembled from the same stores and the endpoint commands
-// the script layer has (#2411, #2412), and a store a deployment lacks stays
-// nil rather than an interface holding a nil.
+// Applications are assembled from the same stores the script layer has
+// (#2411, #2412), and a store a deployment lacks stays nil rather than an
+// interface holding a nil.
 func TestApplicationDeps(t *testing.T) {
 	db, _, err := sqlmock.New()
 	require.NoError(t, err)
@@ -110,7 +110,7 @@ func TestApplicationDeps(t *testing.T) {
 	assert.Nil(t, bare.Assets)
 	assert.Nil(t, bare.AssetVersions)
 	assert.Nil(t, bare.Blobs)
-	assert.Nil(t, bare.Endpoints)
+	assert.Nil(t, bare.Handlers, "the handler service is the script layer's, set by Wire")
 	assert.NotNil(t, bare.Claims)
 	assert.Nil(t, bare.SaveGate, "no gate stays nil, never an interface holding a nil")
 	assert.Nil(t, bare.Sites, "no sites stays nil, never an interface holding a nil")
@@ -118,7 +118,6 @@ func TestApplicationDeps(t *testing.T) {
 	gate := &scriptsave.Gate{}
 	sites := &sitewire.Runtime{Service: &sitesvc.Service{}}
 	with := applicationDeps(Deps{DB: db}, &epwire.Endpoints{Commands: &epcmd.Handler{}}, gate, sites)
-	assert.NotNil(t, with.Endpoints, "an import binds endpoints through the endpoint commands")
 	assert.Same(t, gate, with.SaveGate, "an import saves each script through the layer's gate (#2476)")
 	assert.Same(t, sites.Service, with.Sites, "the application service reads the site service manage_site serves (#2613)")
 }
