@@ -113,6 +113,7 @@ nav:
       - Automations:
         - Managed Scripts: scripts/running.md
         - Handlers: scripts/handlers.md
+        - Tool-call handlers: scripts/call-handlers.md
         - Endpoints: scripts/endpoints.md
         - Reading XML in a Script: scripts/xml.md
         - Formatting, Patterns and Hashes: scripts/text.md

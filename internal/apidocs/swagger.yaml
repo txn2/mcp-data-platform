@@ -3717,12 +3717,39 @@ definitions:
         example: 2
         type: integer
     type: object
+  apprhttp.RecentCall:
+    properties:
+      at:
+        type: string
+      items:
+        example: 5
+        type: integer
+      outcome:
+        example: held
+        type: string
+    type: object
+  apprhttp.RecentCallList:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/apprhttp.RecentCall'
+        type: array
+    type: object
   apprhttp.decideRequest:
     properties:
+      calls:
+        description: |-
+          Calls and Until are what approving a call request grants: that
+          many calls (at most what was asked; 0 is what was asked) until a
+          deadline (24 hours from now when omitted, at most 90 days).
+        example: 3
+        type: integer
       comment:
         type: string
       decision:
         example: approve
+        type: string
+      until:
         type: string
     type: object
   apprhttp.listResponse:
@@ -3766,10 +3793,38 @@ definitions:
       truncated:
         type: boolean
     type: object
+  approval.HandlerAsk:
+    properties:
+      id:
+        type: string
+      script:
+        type: string
+      summary:
+        type: string
+    type: object
   approval.Request:
     properties:
+      approvers:
+        description: |-
+          Approvers are the people or personas the policies named; empty is an
+          administrator.
+        items:
+          type: string
+        type: array
+      arguments:
+        additionalProperties: {}
+        type: object
+      calls_approved:
+        type: integer
+      calls_asked:
+        type: integer
+      calls_used:
+        type: integer
       changes:
         $ref: '#/definitions/approval.Changes'
+      connection:
+        example: billing-api
+        type: string
       created_at:
         type: string
       decided_at:
@@ -3778,13 +3833,32 @@ definitions:
         type: string
       decision_comment:
         type: string
+      handlers:
+        description: Handlers are the policies that held the call, with what each
+          said.
+        items:
+          $ref: '#/definitions/approval.HandlerAsk'
+        type: array
       id:
         example: apr_0f3c9d2e
+        type: string
+      kind:
+        description: |-
+          Kind is what the request is about: call, handler_version, form or
+          site.
+        type: string
+      operation:
+        example: addSubscribers
         type: string
       purpose:
         example: form_public
         type: string
       reason:
+        type: string
+      rendering:
+        description: |-
+          Rendering is the platform's own reading of the call, which the
+          approver reads, never only a summary someone wrote.
         type: string
       requester_email:
         example: jane@example.com
@@ -3821,6 +3895,11 @@ definitions:
         type: string
       target:
         example: prod
+        type: string
+      tool:
+        example: api_invoke_endpoint
+        type: string
+      until:
         type: string
       version:
         example: 2
@@ -4379,6 +4458,14 @@ definitions:
           "resource_read", "resource_move", "script_run", and "admin". See the
           EventType constants in event.go for the complete set.
         example: mcp_tool_call
+      handlers:
+        description: |-
+          Handlers are the tool-call handlers that matched this call (#2436):
+          each one's id, kind, script, what it did and how long it took. Never
+          what it was given or printed.
+        items:
+          $ref: '#/definitions/audit.HandlerRun'
+        type: array
       id:
         example: evt_a1b2c3d4e5f6
         type: string
@@ -4461,6 +4548,19 @@ definitions:
     - EventTypeScriptRun
     - EventTypeEndpointRequest
     - EventTypeFormDecrypt
+  audit.HandlerRun:
+    properties:
+      id:
+        type: string
+      kind:
+        type: string
+      ms:
+        type: integer
+      outcome:
+        type: string
+      script:
+        type: string
+    type: object
   audit.Overview:
     properties:
       avg_duration_ms:
@@ -4776,6 +4876,39 @@ definitions:
         type: string
       prefix:
         type: string
+    type: object
+  callhandler.Condition:
+    properties:
+      equals:
+        type: string
+      in:
+        type: string
+      name:
+        type: string
+    type: object
+  callhandler.Failure:
+    properties:
+      at:
+        type: string
+      call:
+        additionalProperties: {}
+        type: object
+      duration_ms:
+        type: integer
+      error:
+        type: string
+      handler_id:
+        type: string
+      id:
+        type: string
+      outcome:
+        type: string
+      prints:
+        type: string
+      user:
+        type: string
+      version:
+        type: integer
     type: object
   callrecord.Artifact:
     properties:
@@ -7832,6 +7965,21 @@ definitions:
       source:
         type: string
     type: object
+  handlerhttp.ConnectionHandlerList:
+    properties:
+      data:
+        items:
+          additionalProperties: {}
+          type: object
+        type: array
+    type: object
+  handlerhttp.FailureList:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/callhandler.Failure'
+        type: array
+    type: object
   handlerhttp.HandlerList:
     properties:
       data:
@@ -7841,6 +7989,13 @@ definitions:
       total:
         example: 3
         type: integer
+    type: object
+  handlerhttp.OrderRequest:
+    properties:
+      ids:
+        items:
+          type: string
+        type: array
     type: object
   handlerhttp.ScriptHandlers:
     properties:
@@ -7881,6 +8036,11 @@ definitions:
         items:
           type: string
         type: array
+      approve:
+        description: |-
+          Approve approves the script's latest version for handlers as the
+          administrator setting the handler.
+        type: boolean
       args:
         additionalProperties: {}
         type: object
@@ -7897,6 +8057,10 @@ definitions:
       checked_methods:
         items:
           type: string
+        type: array
+      conditions:
+        items:
+          $ref: '#/definitions/callhandler.Condition'
         type: array
       connection:
         description: |-
@@ -7923,6 +8087,9 @@ definitions:
           IPRateLimit is one client address's requests a minute (#2556); nil
           keeps it, 0 removes it.
         type: integer
+      items_path:
+        example: subscribers
+        type: string
       kind:
         description: |-
           Kind is endpoint, schedule or webhook; a change reads it from the
@@ -7937,6 +8104,19 @@ definitions:
         items:
           type: string
         type: array
+      on_failure:
+        example: hold
+        type: string
+      operations:
+        description: |-
+          The tool-call kinds' settings (policy, transform, watch; #2436): each
+          left out keeps its value on a change. Connection is the connection
+          setting endpoints share.
+        items:
+          type: string
+        type: array
+      order:
+        type: integer
       page_cdns:
         items:
           type: string
@@ -7958,21 +8138,59 @@ definitions:
         type: array
       path:
         type: string
+      personas:
+        items:
+          type: string
+        type: array
       preview_version:
         description: |-
           PreviewVersion is the saved version form_preview renders, 0 for the
           latest (#2494).
         type: integer
+      protected:
+        items:
+          type: string
+        type: array
       rate_limit:
         type: integer
       response_mode:
         description: ResponseMode and PageCDNs make the endpoint a browser page (#2517).
         type: string
+      timeout_ms:
+        example: 2000
+        type: integer
       timeout_seconds:
         description: TimeoutSeconds is how long one request to an endpoint may run.
         type: integer
       timezone:
         example: America/Los_Angeles
+        type: string
+      users:
+        items:
+          type: string
+        type: array
+      writes:
+        additionalProperties:
+          type: boolean
+        type: object
+    type: object
+  handlerhttp.TestRequest:
+    properties:
+      arguments:
+        additionalProperties: {}
+        type: object
+      as_persona:
+        example: marketing
+        type: string
+      as_user:
+        example: jo@example.com
+        type: string
+      at:
+        example: "2026-11-13T15:40:00Z"
+        type: string
+      result: {}
+      tool:
+        example: api_invoke_endpoint
         type: string
     type: object
   httpjson.ProblemDetail:
@@ -26300,6 +26518,55 @@ paths:
       summary: Set where API change reports are sent
       tags:
       - API Catalogs
+  /admin/settings/approval-queue-alert:
+    get:
+      description: 'Returns the approvals queue staleness alert configuration (#2437):
+        held calls and handler versions waiting for a decision. Before an operator
+        has written one, the platform defaults are returned with no recipients, and
+        warnings state that nothing will be delivered.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/reviewalert.SettingsView'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get approvals queue alert settings
+      tags:
+      - Settings
+    put:
+      consumes:
+      - application/json
+      description: 'Upserts the approvals queue staleness alert configuration: the
+        pending-count and age thresholds, the re-alert cooldown, and the recipients
+        and channels the alert is delivered to.'
+      parameters:
+      - description: Approvals queue alert settings
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/reviewalert.SettingsInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/reviewalert.SettingsView'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/settingsapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update approvals queue alert settings
+      tags:
+      - Settings
   /admin/settings/connection-alert:
     get:
       description: Returns the configuration for the alert raised when an upstream
@@ -29295,9 +29562,10 @@ paths:
       - Applications
   /portal/approvals:
     get:
-      description: The caller's own requests, or for an administrator every request,
-        newest first. status filters by pending, approved or denied; script_id by
-        script.
+      description: The caller's own requests and the held calls whose policies name
+        them, or for an administrator every request, newest first. status filters
+        by pending, approved or denied; script_id by script; kind by call, handler_version,
+        form or site.
       parameters:
       - description: pending, approved or denied
         in: query
@@ -29306,6 +29574,10 @@ paths:
       - description: One script's requests
         in: query
         name: script_id
+        type: string
+      - description: call, handler_version, form or site
+        in: query
+        name: kind
         type: string
       produces:
       - application/json
@@ -29393,12 +29665,50 @@ paths:
       summary: Read an approval request
       tags:
       - Approvals
+  /portal/approvals/{id}/calls:
+    get:
+      description: 'The requester''s calls of a call request''s operation on its connection
+        in the last 24 hours, newest first, from the audit record: when each was made,
+        how many items it carried, and whether it ran, ran on an allowance, failed,
+        was held or was refused. Never a call''s arguments. Readable by whoever may
+        read the request: an administrator, its requester, or an approver its policies
+        name. Any other request answers an empty list.'
+      parameters:
+      - description: Request id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/apprhttp.RecentCallList'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: A held call's recent calls
+      tags:
+      - Approvals
   /portal/approvals/{id}/decide:
     post:
       consumes:
       - application/json
-      description: Approves or denies a pending request. Administrators decide every
-        request, their own included (recorded as self-approved); anyone else is refused.
+      description: Approves or denies a pending request. A call request a policy held
+        is decided by the approvers its policies named or an administrator, never
+        by its requester unless an administrator, and approving it grants calls until
+        a deadline. Administrators decide every other request, their own included
+        (recorded as self-approved); anyone else is refused.
       parameters:
       - description: Request id
         in: path
@@ -32951,6 +33261,141 @@ paths:
       summary: Search collections
       tags:
       - Collections
+  /portal/connections/{connection}/handlers:
+    get:
+      description: 'Every policy, transform and watch that applies to the connection,
+        as its page lists them: policies, transforms in the order they run, then watches,
+        each with its match (operations, personas, users, conditions), settings, state,
+        the version it runs and who approved it, the version waiting for approval,
+        and stats, its last 24 hours from the audit rows of the calls it matched (matched,
+        denied, held, errors, queued, p50_ms, p99_ms). An administrator''s only.'
+      parameters:
+      - description: Connection name
+        in: path
+        name: connection
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlerhttp.ConnectionHandlerList'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List a connection's tool-call handlers
+      tags:
+      - Scripts
+  /portal/connections/{connection}/handlers/order:
+    put:
+      consumes:
+      - application/json
+      description: 'Sets the order the connection''s transforms run in: ids, first
+        to last. Answers the connection''s handlers as GET /portal/connections/{connection}/handlers
+        does. An administrator''s only.'
+      parameters:
+      - description: Connection name
+        in: path
+        name: connection
+        required: true
+        type: string
+      - description: The transforms' ids, first to last
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlerhttp.OrderRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlerhttp.ConnectionHandlerList'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Order a connection's transforms
+      tags:
+      - Scripts
+  /portal/connections/{connection}/handlers/test:
+    post:
+      consumes:
+      - application/json
+      description: What every handler on the connection would make of a call, without
+        the upstream being called or any count or allowance spent; a handler's own
+        reads run. Answers the outcome (runs, held or denied), each matching handler
+        in order with what it did and how long it took, a refusal's reason, a hold's
+        approvers and message, and, given a result, what the transforms would make
+        of it. An administrator's only.
+      parameters:
+      - description: Connection name
+        in: path
+        name: connection
+        required: true
+        type: string
+      - description: The call
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlerhttp.TestRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Test a call against a connection's handlers
+      tags:
+      - Scripts
   /portal/content/{token}:
     get:
       description: Serves the asset version a signed content URL names, with no session.
@@ -33292,6 +33737,44 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Turn a handler on
+      tags:
+      - Scripts
+  /portal/handlers/{id}/failures:
+    get:
+      description: 'The newest failures of a policy or transform, kept seven days:
+        the call it was given (its arguments as the caller sent them, a stored secret
+        still its placeholder), what its script printed, the error and how the call
+        was then treated. An administrator''s only; anyone else, the script''s owner
+        included, is answered 404.'
+      parameters:
+      - description: Handler ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlerhttp.FailureList'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List a tool-call handler's failures
       tags:
       - Scripts
   /portal/knowledge-pages:

@@ -14,3 +14,10 @@ func TestCauseRetryable(t *testing.T) {
 		assert.Equal(t, want, CauseRetryable(cause), cause)
 	}
 }
+
+// TestAdminsOnly: only a watch's run is an administrator's to read in full.
+func TestAdminsOnly(t *testing.T) {
+	if !AdminsOnly(TriggerWatch) || AdminsOnly("schedule") {
+		t.Error("AdminsOnly reads only a watch's run as an administrator's")
+	}
+}

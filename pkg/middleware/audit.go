@@ -3,6 +3,8 @@ package middleware
 import (
 	"context"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/pkg/audit"
 )
 
 // AuditLogger logs tool calls for auditing.
@@ -55,6 +57,8 @@ type AuditEvent struct {
 	// CallSite is where in a managed script the call was made (#1907), read
 	// from the request's _meta on a script's calls only.
 	CallSite []string `json:"call_site,omitempty"`
+	// Handlers are the tool-call handlers that matched the call (#2436).
+	Handlers []audit.HandlerRun `json:"handlers,omitempty"`
 }
 
 // NoopAuditLogger discards all audit events.

@@ -41,7 +41,7 @@ var selectColumns = []string{
 	"transport", "source", "enrichment_applied",
 	"enrichment_tokens_full", "enrichment_tokens_dedup",
 	"enrichment_mode", "enrichment_match_kind", "authorized",
-	"event_kind", "call_site",
+	"event_kind", "call_site", "handlers",
 }
 
 const (
@@ -140,6 +140,7 @@ func TestLog_Success(t *testing.T) {
 		event.Authorized,
 		string(event.EventKind),
 		pq.Array(event.CallSite),
+		nil,
 	).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	err = store.Log(context.Background(), event)
@@ -172,6 +173,7 @@ func TestLog_NilParameters(t *testing.T) {
 		event.EnrichmentMode, event.EnrichmentMatchKind, event.Authorized,
 		string(event.EventKind),
 		pq.Array(event.CallSite),
+		nil,
 	).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	err = store.Log(context.Background(), event)
@@ -215,6 +217,7 @@ func testEventRows(mock sqlmock.Sqlmock, events ...audit.Event) {
 			event.EnrichmentTokensFull, event.EnrichmentTokensDedup,
 			event.EnrichmentMode, event.EnrichmentMatchKind, event.Authorized,
 			string(event.EventKind),
+			nil,
 			nil,
 		)
 	}
@@ -276,6 +279,7 @@ func TestQuery_AllFilters(t *testing.T) {
 		event.EnrichmentTokensFull, event.EnrichmentTokensDedup,
 		event.EnrichmentMode, event.EnrichmentMatchKind, event.Authorized,
 		string(event.EventKind),
+		nil,
 		nil,
 	)
 
@@ -439,6 +443,7 @@ func TestScanEvent_AllFields(t *testing.T) {
 		event.Authorized,
 		string(event.EventKind),
 		"{9:6,31:20}",
+		nil,
 	)
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WillReturnRows(rows)
 
@@ -499,6 +504,7 @@ func TestScanEvent_CorruptParametersJSON(t *testing.T) {
 		event.EnrichmentMatchKind,
 		event.Authorized,
 		string(event.EventKind),
+		nil,
 		nil,
 	)
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WillReturnRows(rows)
@@ -823,6 +829,7 @@ func TestQuery_MultipleRows(t *testing.T) {
 			ev.EnrichmentMode, ev.EnrichmentMatchKind, ev.Authorized,
 			string(ev.EventKind),
 			nil,
+			nil,
 		)
 	}
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WillReturnRows(rows)
@@ -858,6 +865,7 @@ func TestQuery_EmptyParameters(t *testing.T) {
 		event.EnrichmentTokensFull, event.EnrichmentTokensDedup,
 		event.EnrichmentMode, event.EnrichmentMatchKind, event.Authorized,
 		string(event.EventKind),
+		nil,
 		nil,
 	)
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WillReturnRows(rows)
@@ -948,6 +956,7 @@ func TestQuery_IDFilter(t *testing.T) {
 		event.EnrichmentTokensFull, event.EnrichmentTokensDedup,
 		event.EnrichmentMode, event.EnrichmentMatchKind, event.Authorized,
 		string(event.EventKind),
+		nil,
 		nil,
 	)
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WithArgs("evt-specific").WillReturnRows(rows)

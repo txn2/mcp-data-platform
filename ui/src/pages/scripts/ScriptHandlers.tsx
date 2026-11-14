@@ -4,14 +4,21 @@ import type { ScriptContract } from "@/api/portal/hooks/scripts";
 import {
   HANDLER_TYPE_LABELS,
   endpointOf,
+  isCallHandlerKind,
   scheduleOf,
   useDeleteHandler,
+  useSaveHandler,
   useScriptHandlers,
   type HandlerDetail,
   type HandlerKind,
   type HandlerOffer,
   type ScriptHandlers as Handlers,
 } from "@/api/portal/hooks/scriptHandlers";
+import type { CallHandlerDetail } from "@/api/portal/hooks/callHandlers";
+import { useAuthStore } from "@/stores/auth";
+import { CallHandlerForm } from "./callhandlers/CallHandlerForm";
+import { CallHandlerPanel } from "./callhandlers/CallHandlerPanel";
+import { operationsText } from "./callhandlers/format";
 import type { ScriptEndpoint } from "@/api/portal/hooks/scriptEndpoint";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { EmptyState } from "@/components/patterns/EmptyState";
@@ -38,7 +45,14 @@ import { AddWebhook, WebhookHandler } from "./WebhookHandler";
 // handler offers the kinds the viewer may add, and says why for the ones they
 // may not. A script may hold several handlers of each kind.
 
-const KIND_LABELS: Record<HandlerKind, string> = { endpoint: "Endpoint", schedule: "Schedule", webhook: "Webhook" };
+const KIND_LABELS: Record<HandlerKind, string> = {
+  endpoint: "Endpoint",
+  schedule: "Schedule",
+  webhook: "Webhook",
+  policy: "Policy",
+  transform: "Transform",
+  watch: "Watch",
+};
 
 export function ScriptHandlers({ scriptId, contract }: { scriptId: string; contract: ScriptContract }) {
   const { data, isLoading, error } = useScriptHandlers(scriptId, true);
@@ -68,6 +82,7 @@ export function ScriptHandlers({ scriptId, contract }: { scriptId: string; contr
           </Alert>
         )}
         <SaveWarning warning={warning} />
+        {data && <HandlerVersionBanner scriptId={scriptId} contract={contract} handlers={data.handlers} />}
         {data && adding && (
           <AddHandler
             key={adding}
@@ -162,6 +177,12 @@ function kindHint(kind: HandlerKind, isForm: boolean): string {
       return "Run on a cadence";
     case "webhook":
       return "Run for each event a webhook source stores";
+    case "policy":
+      return "Decide whether calls on a connection run";
+    case "transform":
+      return "Change what calls on a connection return";
+    case "watch":
+      return "Run after calls on a connection succeed";
   }
 }
 
@@ -196,6 +217,14 @@ function AddHandler({
           scriptId={scriptId}
           sources={data.sources}
           held={data.handlers.filter((h) => h.kind === "webhook").map((h) => String(h.event_source ?? ""))}
+          onDone={() => onDone()}
+        />
+      )}
+      {isCallHandlerKind(kind) && (
+        <CallHandlerForm
+          scriptId={scriptId}
+          kind={kind}
+          approval={{ latest: contract.version, running: runningVersion(data.handlers) }}
           onDone={() => onDone()}
         />
       )}
@@ -250,6 +279,7 @@ function HandlerItem({
 
 // handlerTarget is what a handler answers to, in words.
 export function handlerTarget(h: HandlerDetail): string {
+  if (isCallHandlerKind(h.kind)) return `${String(h.connection ?? "")} · ${operationsText(h as CallHandlerDetail)}`;
   switch (h.kind) {
     case "endpoint":
       return `/endpoints/${String(h.endpoint ?? "")}${String(h.path ?? "")}`;
@@ -258,6 +288,7 @@ export function handlerTarget(h: HandlerDetail): string {
     case "webhook":
       return `Each event of ${String(h.event_source ?? "")}`;
   }
+  return "";
 }
 
 function HandlerPanel({
@@ -276,6 +307,10 @@ function HandlerPanel({
       return <ScheduleHandler scriptId={scriptId} contract={contract} schedule={scheduleOf(handler)} />;
     case "webhook":
       return <WebhookHandler scriptId={scriptId} handler={handler} />;
+    case "policy":
+    case "transform":
+    case "watch":
+      return <CallHandlerPanel handler={handler as CallHandlerDetail} contract={contract} />;
   }
 }
 
@@ -317,7 +352,16 @@ function DeleteHandler({ handler }: { handler: HandlerDetail }) {
   );
 }
 
+// CALL_WHAT_GOES is what deleting a tool-call handler of each kind ends.
+const CALL_WHAT_GOES: Record<string, string> = {
+  policy: "are no longer decided by this script. Its failures go with it.",
+  transform: "return what the tool answers, unchanged by this script. Its failures go with it.",
+  watch: "stop starting runs of this script. The runs they already started stay.",
+};
+
 function whatGoes(h: HandlerDetail): string {
+  const call = CALL_WHAT_GOES[h.kind];
+  if (call) return `Calls on ${String(h.connection ?? "")} ${call}`;
   switch (h.kind) {
     case "endpoint":
       return `/endpoints/${String(h.endpoint ?? "")} answers nothing from then on, and its failed requests go with it. A form's submissions stay stored.`;
@@ -326,4 +370,61 @@ function whatGoes(h: HandlerDetail): string {
     case "webhook":
       return `Events of ${String(h.event_source ?? "")} stop starting runs of this script. The runs they already started stay.`;
   }
+  return "";
+}
+
+// runningVersion is the version a script's tool-call handlers run, 0 when
+// none is approved.
+function runningVersion(handlers: HandlerDetail[]): number {
+  for (const h of handlers) {
+    if (isCallHandlerKind(h.kind)) return (h as CallHandlerDetail).running_version ?? 0;
+  }
+  return 0;
+}
+
+// HandlerVersionBanner says when a newer version of a script that decides,
+// changes or follows other people's calls waits for an administrator (#2436):
+// the approved version keeps running meanwhile. An administrator approves it
+// here; its owner is told it waits.
+function HandlerVersionBanner({
+  scriptId,
+  contract,
+  handlers,
+}: {
+  scriptId: string;
+  contract: ScriptContract;
+  handlers: HandlerDetail[];
+}) {
+  const isAdmin = useAuthStore((s) => s.isAdmin());
+  const first = handlers.find((h) => isCallHandlerKind(h.kind)) as CallHandlerDetail | undefined;
+  const approve = useSaveHandler(scriptId, first?.handler);
+  if (!first) return null;
+  const running = first.running_version ?? 0;
+  const waiting = first.waiting_version ?? 0;
+  const latest = Math.max(waiting, contract.version);
+  if (latest <= running) {
+    return isAdmin ? null : (
+      <p className="text-xs text-muted-foreground" data-testid="handler-runs-note">
+        This script decides, changes or follows other people&apos;s calls. What those calls carried, and what the script
+        printed for them, is visible to administrators only.
+      </p>
+    );
+  }
+  const runs = running > 0 ? `Version ${running} keeps running.` : "Nothing runs until one is approved.";
+  return (
+    <Alert data-testid="handler-version-banner">
+      <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
+        <span>
+          {isAdmin
+            ? `Version ${latest} waits for approval for handlers. ${runs}`
+            : `Version ${latest} waits for an administrator. ${runs}`}
+        </span>
+        {isAdmin && (
+          <Button size="sm" disabled={approve.isPending} onClick={() => approve.mutate({ approve: true })}>
+            Approve version {latest}
+          </Button>
+        )}
+      </AlertDescription>
+    </Alert>
+  );
 }

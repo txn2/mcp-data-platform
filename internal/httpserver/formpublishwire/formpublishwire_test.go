@@ -13,6 +13,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/approval"
 	"github.com/txn2/mcp-data-platform/internal/approval/apprhttp"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/eppreview"
+	"github.com/txn2/mcp-data-platform/internal/platform/callrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -90,7 +91,8 @@ func TestActorAndOpener(t *testing.T) {
 	assert.Nil(t, Opener(isAdmin)(r))
 	r = r.WithContext(portal.ContextWithUser(r.Context(), &portal.User{UserID: "u1", Email: "a@b.io", Roles: []string{"admin"}, AuthType: "oidc"}))
 	a := Actor(isAdmin, func([]string) string { return "admin" })(r)
-	assert.Equal(t, approval.Actor{Email: "a@b.io", Admin: true, Persona: "admin"}, *a)
+	assert.Equal(t, approval.Actor{Email: "a@b.io", Admin: true, Persona: "admin", Roles: []string{"admin"}}, *a,
+		"the roles a handler version this administrator approves runs with")
 	o := Opener(isAdmin)(r)
 	assert.Equal(t, "u1", o.UserID)
 	assert.True(t, o.Admin)
@@ -118,7 +120,7 @@ func TestRegister(t *testing.T) {
 	register(mux, Deps{IsAdmin: isAdmin, Wrap: func(h http.Handler) http.Handler { wrapped++; return h }}, routes{
 		approvals: &approval.Service{}, previews: &eppreview.Previews{}, db: db, personaOf: func([]string) string { return "" },
 	})
-	assert.Equal(t, 5, wrapped, "one preview route and four approval routes, all behind the portal's authentication")
+	assert.Equal(t, 6, wrapped, "one preview route and five approval routes (a held call's recent calls among them), all behind the portal's authentication")
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet, apprhttp.Prefix, http.NoBody))
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
@@ -135,4 +137,23 @@ func TestWireNoticesAndPersonaName(t *testing.T) {
 	_ = reg.Register(&persona.Persona{Name: "analyst", Roles: []string{"analyst"}})
 	assert.Equal(t, "analyst", personaName(reg)([]string{"analyst"}))
 	assert.Empty(t, personaName(reg)([]string{"nobody"}))
+}
+
+// TestRecentCalls reads a held call's recent calls through the tool-call
+// handlers' evaluator, and nothing with no handlers wired.
+func TestRecentCalls(t *testing.T) {
+	assert.Nil(t, recentCalls(nil, nil))
+	assert.Nil(t, recentCalls(&callrun.Runtime{}, nil))
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	read := recentCalls(&callrun.Runtime{Evaluator: &callrun.Evaluator{}}, db)
+	got, err := read(context.Background(), &approval.Request{SubjectKind: approval.SubjectScriptVersion})
+	assert.NoError(t, err)
+	assert.Empty(t, got, "a request that is not a call's has no calls")
+	mock.ExpectQuery("FROM audit_logs").WillReturnError(errors.New("down"))
+	_, err = read(context.Background(), &approval.Request{SubjectKind: approval.SubjectCall, CallTool: "t", CallConnection: "c"})
+	assert.Error(t, err)
 }

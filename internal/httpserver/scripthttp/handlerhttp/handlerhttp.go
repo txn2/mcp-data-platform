@@ -18,6 +18,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/platform/callhandler"
 	"github.com/txn2/mcp-data-platform/internal/platform/scripthandler"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -39,6 +40,9 @@ type Deps struct {
 	Owned func(w http.ResponseWriter, r *http.Request) (scriptID, actor string, ok bool)
 	// Caller is the request's caller, ok false when it carries none.
 	Caller func(r *http.Request) (c scripthandler.Caller, ok bool)
+	// Tester answers the test panel (#2436); nil answers that the
+	// deployment cannot test calls.
+	Tester Tester
 }
 
 // Handler serves the routes.
@@ -57,6 +61,7 @@ func (h *Handler) Register(mux *http.ServeMux, wrap func(http.Handler) http.Hand
 	mux.Handle("DELETE /api/v1/portal/handlers/{id}", wrap(http.HandlerFunc(h.remove)))
 	mux.Handle("POST /api/v1/portal/handlers/{id}/enable", wrap(http.HandlerFunc(h.enable)))
 	mux.Handle("POST /api/v1/portal/handlers/{id}/disable", wrap(http.HandlerFunc(h.disable)))
+	h.registerCalls(mux, wrap)
 }
 
 // RegisterAdmin mounts Admin > Handlers under prefix, wrapped in the admin
@@ -80,6 +85,22 @@ type SetRequest struct {
 	Args     map[string]any `json:"args,omitempty"`
 	// EventSource is a webhook handler's source.
 	EventSource string `json:"event_source,omitempty" example:"form-contact"`
+	// The tool-call kinds' settings (policy, transform, watch; #2436): each
+	// left out keeps its value on a change. Connection is the connection
+	// setting endpoints share.
+	Operations *[]string                `json:"operations,omitempty"`
+	Personas   *[]string                `json:"personas,omitempty"`
+	Users      *[]string                `json:"users,omitempty"`
+	Conditions *[]callhandler.Condition `json:"conditions,omitempty"`
+	TimeoutMS  *int                     `json:"timeout_ms,omitempty" example:"2000"`
+	OnFailure  *string                  `json:"on_failure,omitempty" example:"hold"`
+	ItemsPath  *string                  `json:"items_path,omitempty" example:"subscribers"`
+	Writes     *map[string]bool         `json:"writes,omitempty"`
+	Protected  *[]string                `json:"protected,omitempty"`
+	Order      *int                     `json:"order,omitempty"`
+	// Approve approves the script's latest version for handlers as the
+	// administrator setting the handler.
+	Approve bool `json:"approve,omitempty"`
 }
 
 // ScriptHandlers is a script's handlers and what adding one offers.
@@ -209,10 +230,20 @@ func decode(w http.ResponseWriter, r *http.Request) (SetRequest, bool) {
 }
 
 func setRequest(c scripthandler.Caller, sc *script.Script, body SetRequest) scripthandler.SetRequest {
-	return scripthandler.SetRequest{
+	req := scripthandler.SetRequest{
 		Caller: c, Script: sc, Kind: body.Kind, Endpoint: body.Input, TimeoutSeconds: body.TimeoutSeconds,
-		Cron: body.Cron, Timezone: body.Timezone, Args: body.Args, EventSource: body.EventSource,
+		Cron: body.Cron, Timezone: body.Timezone, Args: body.Args, EventSource: body.EventSource, Approve: body.Approve,
+		Call: callhandler.Patch{
+			Operations: body.Operations, Personas: body.Personas, Users: body.Users, Conditions: body.Conditions,
+			TimeoutMS: body.TimeoutMS, OnFailure: body.OnFailure, ItemsPath: body.ItemsPath, Writes: body.Writes,
+			Protected: body.Protected, Order: body.Order,
+		},
 	}
+	if body.Connection != "" {
+		conn := body.Connection
+		req.Call.Connection = &conn
+	}
+	return req
 }
 
 // add adds a handler to a script.

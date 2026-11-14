@@ -8,12 +8,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scripthandler"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer/handlercmd"
 )
 
 // webhookSet is handler_set kind=webhook for daily.
 func webhookSet(source string) manageScriptInput {
 	return manageScriptInput{
-		Command: cmdHandlerSet, Name: "daily", OwnerEmail: "jane@example.com", EventSource: &source,
+		Command: handlercmd.Set, Name: "daily", OwnerEmail: "jane@example.com", EventSource: &source,
 		Kind: scripthandler.KindWebhook,
 	}
 }
@@ -45,12 +46,12 @@ func TestWebhookHandlers_TheRuleDecidesWhichSource(t *testing.T) {
 	assert.Len(t, w.webhooks.byID, 2)
 
 	listed := resultFields(t, call(t, h, authorCtx(), manageScriptInput{
-		Command: cmdHandlerList, Name: "daily", Kind: scripthandler.KindWebhook,
+		Command: handlercmd.List, Name: "daily", Kind: scripthandler.KindWebhook,
 	}))
 	assert.EqualValues(t, 2, listed["count"])
 
 	res = call(t, h, authorCtx(), manageScriptInput{
-		Command: cmdHandlerSet, Name: "daily", Kind: scripthandler.KindWebhook,
+		Command: handlercmd.Set, Name: "daily", Kind: scripthandler.KindWebhook,
 	})
 	require.True(t, res.IsError, "no event_source names no source")
 	assert.Contains(t, resultText(res), "event_source is required")
@@ -70,21 +71,21 @@ func TestWebhookHandlers_TurningOneOnIsHeldToTheRule(t *testing.T) {
 	shop, _ := resultFields(t, call(t, h, adminCtx(), webhookSet("shop")))["handler"].(string)
 	form, _ := resultFields(t, call(t, h, authorCtx(), webhookSet("form-daily")))["handler"].(string)
 
-	res := call(t, h, authorCtx(), byID(cmdHandlerDisable, shop))
+	res := call(t, h, authorCtx(), byID(handlercmd.Disable, shop))
 	require.False(t, res.IsError, "turning a handler off is anyone's who may act on the script: %s", resultText(res))
 	assert.False(t, w.webhooks.byID[shop].Enabled)
 
-	res = call(t, h, authorCtx(), byID(cmdHandlerEnable, shop))
+	res = call(t, h, authorCtx(), byID(handlercmd.Enable, shop))
 	require.True(t, res.IsError)
 	assert.Contains(t, resultText(res), "only an administrator")
 	assert.False(t, w.webhooks.byID[shop].Enabled)
 
-	require.False(t, call(t, h, authorCtx(), byID(cmdHandlerDisable, form)).IsError)
-	res = call(t, h, authorCtx(), byID(cmdHandlerEnable, form))
+	require.False(t, call(t, h, authorCtx(), byID(handlercmd.Disable, form)).IsError)
+	res = call(t, h, authorCtx(), byID(handlercmd.Enable, form))
 	require.False(t, res.IsError, "the owner turns their own form's source on: %s", resultText(res))
 	assert.True(t, w.webhooks.byID[form].Enabled)
 
-	res = call(t, h, adminCtx(), byID(cmdHandlerEnable, shop))
+	res = call(t, h, adminCtx(), byID(handlercmd.Enable, shop))
 	require.False(t, res.IsError, resultText(res))
 	assert.True(t, w.webhooks.byID[shop].Enabled, "an administrator turns any on")
 }
@@ -166,7 +167,7 @@ func TestRemovedCommands_AreRefusedNamingTheirReplacement(t *testing.T) {
 		"schedule_enable":  "handler_enable with the handler's id",
 		"schedule_disable": "handler_disable with the handler's id",
 	}
-	assert.Equal(t, want, removedCommands)
+	assert.Equal(t, want, handlercmd.Removed)
 	for cmd, replacement := range want {
 		res := call(t, h, authorCtx(), manageScriptInput{Command: cmd, Name: "daily", Cron: "@daily"})
 		require.True(t, res.IsError, cmd)
@@ -184,18 +185,18 @@ func TestHandlerCommandsAreInTheSchema(t *testing.T) {
 	props, _ := schema["properties"].(map[string]any)
 	command, _ := props["command"].(map[string]any)
 	enum, _ := command["enum"].([]string)
-	for _, cmd := range handlerCommands {
+	for _, cmd := range handlercmd.Commands {
 		assert.Contains(t, enum, cmd)
 		_, ok := h.commands()[cmd]
 		assert.True(t, ok, "%s is dispatched", cmd)
 	}
-	for removed := range removedCommands {
+	for removed := range handlercmd.Removed {
 		assert.NotContains(t, enum, removed)
 	}
-	for _, write := range []string{cmdHandlerSet, cmdHandlerEnable, cmdHandlerDisable, cmdHandlerDelete} {
+	for _, write := range []string{handlercmd.Set, handlercmd.Enable, handlercmd.Disable, handlercmd.Delete} {
 		assert.True(t, scriptWritingCommands[write], write)
 	}
-	for _, read := range []string{cmdHandlerList, cmdHandlerGet} {
+	for _, read := range []string{handlercmd.List, handlercmd.Get} {
 		assert.False(t, scriptWritingCommands[read], read)
 	}
 	kind, _ := props["kind"].(map[string]any)

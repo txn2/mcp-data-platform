@@ -17,6 +17,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	trinoclient "github.com/txn2/mcp-trino/pkg/client"
 
+	"github.com/txn2/mcp-data-platform/internal/calltransform"
 	"github.com/txn2/mcp-data-platform/internal/exporttrunc"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/sqltables"
@@ -428,6 +429,17 @@ func (t *Toolkit) executeAndPersist(ctx context.Context, deps *ExportDeps, input
 	})
 	if err != nil {
 		return nil, exportError(fmt.Sprintf("query execution failed: %v", err))
+	}
+	// A transform covering the caller changes the rows before any is written
+	// (#2634): the file holds what the caller may see, as a result does.
+	if calltransform.Covered(ctx) {
+		names := make([]string, 0, len(result.Columns))
+		for _, c := range result.Columns {
+			names = append(names, c.Name)
+		}
+		if result.Rows, err = calltransform.Rows(ctx, names, result.Rows); err != nil {
+			return nil, exportError(err.Error())
+		}
 	}
 
 	rows := queryRows(result)

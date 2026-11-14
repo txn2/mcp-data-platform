@@ -47,6 +47,9 @@ describe("GET /portal/scripts/{id}/handlers", () => {
       ["endpoint", true],
       ["schedule", true],
       ["webhook", true],
+      ["policy", true],
+      ["transform", true],
+      ["watch", true],
     ]);
     for (const o of out.add) expect(o.contract).not.toBe("");
     const sched = out.handlers.find((h) => h.kind === "schedule")!;
@@ -235,7 +238,7 @@ describe("what the script routes read from the handlers", () => {
     const { json } = await call("GET", "/api/v1/portal/scripts?type=webhook");
     const rows = (json as { data: { script: { id: string }; handler_types: string[] }[] }).data;
     expect(rows.map((r) => r.script.id)).toEqual(["script-001"]);
-    expect(rows[0]!.handler_types).toEqual(["schedule", "webhook"]);
+    expect(rows[0]!.handler_types).toEqual(["schedule", "transform", "webhook"]);
     const none = (await call("GET", "/api/v1/portal/scripts?type=none")).json as {
       data: { handler_types: string[] }[];
     };

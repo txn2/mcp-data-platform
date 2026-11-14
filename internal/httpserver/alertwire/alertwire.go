@@ -10,10 +10,12 @@
 package alertwire
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/approval"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/connalert"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
@@ -80,6 +82,42 @@ func BuildReviewAlert(p *platform.Platform, notify *notifydelivery.Handle) *revi
 	})
 	if checker != nil {
 		slog.Info("Knowledge review-queue staleness alert enabled")
+	}
+	return checker
+}
+
+// StartReviewAlerts starts the review-queue staleness checks, knowledge
+// (#803) and approvals (#2437), and returns what stops them.
+func StartReviewAlerts(ctx context.Context, p *platform.Platform, notify *notifydelivery.Handle) func() {
+	review, approvals := BuildReviewAlert(p, notify), BuildApprovalAlert(p, notify)
+	review.Start(ctx)
+	approvals.Start(ctx)
+	return func() {
+		review.Stop()
+		approvals.Stop()
+	}
+}
+
+// BuildApprovalAlert assembles the scheduled approvals queue staleness check
+// (#2437), or nil when anything it needs is absent.
+func BuildApprovalAlert(p *platform.Platform, notify *notifydelivery.Handle) *reviewalert.Checker {
+	target := reviewalert.ApprovalsTarget()
+	store := reviewAlertStore(p, target)
+	if store == nil {
+		return nil
+	}
+	checker := reviewalert.New(reviewalert.Config{
+		Target:   target,
+		Settings: store,
+		State:    store,
+		Source:   reviewalert.ApprovalSource{Approvals: approval.NewPostgresStore(p.DB())},
+		Enqueuer: notify.Enqueuer(),
+		Channels: notify.AlertChannels(),
+		BaseURL:  p.Config().Portal.PublicBaseURL,
+		Interval: envInterval(EnvReviewAlertInterval),
+	})
+	if checker != nil {
+		slog.Info("Approvals queue staleness alert enabled")
 	}
 	return checker
 }
@@ -170,6 +208,7 @@ func AdminDeps(deps *admin.Deps, p *platform.Platform, notify *notifydelivery.Ha
 	deps.NotificationHistory = notify.History()
 	deps.NotificationRetention = notifydelivery.HistoryRetention
 	deps.ReviewQueueAlert = ReviewAlertSettings(p, reviewalert.KnowledgeTarget())
+	deps.ApprovalQueueAlert = ReviewAlertSettings(p, reviewalert.ApprovalsTarget())
 	deps.ConnectionAlert = ConnAlertSettings(p)
 	deps.ScriptRunAlert = ScriptRunAlertSettings(p)
 	if p.DB() != nil {

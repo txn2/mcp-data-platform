@@ -20,8 +20,10 @@ package scriptsave
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptbehavior"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlint"
@@ -68,6 +70,9 @@ type Gate struct {
 	// source, "" when they could (#2441): an endpoint's needs handle(req), a
 	// form's form_spec(req) and form_submit(req, values). Nil checks nothing.
 	Handlers func(ctx context.Context, sc *script.Script, source string) string
+	// HandlersSaved is told of every landed save, with who saved it: a
+	// tool-call handler's version is approved or waits for approval there.
+	HandlersSaved func(ctx context.Context, sc *script.Script, caller Caller)
 	// Shared reads the sources a save is compared with for functions a
 	// library or another script already defines (#2273); nil compares none.
 	Shared scriptshare.Sources
@@ -395,6 +400,20 @@ func Readable(m scriptrec.Meta, existing *script.Script, caller Caller) bool {
 		return true
 	default:
 		return existing != nil && m.ScriptID != "" && m.ScriptID == existing.ID && existing.OwnedBy(caller.Email)
+	}
+}
+
+// Saved is what a landed save does after the version is written, on every
+// surface that saves: the recordings its tests name are kept, and the
+// version's handlers are told (a tool-call handler's script saved by someone
+// who is not an administrator waits for one's approval, #2436). A failure is
+// logged: the save landed.
+func (g *Gate) Saved(ctx context.Context, sc *script.Script, caller Caller) {
+	if err := g.Keep(ctx, sc, caller.Email); err != nil {
+		slog.WarnContext(ctx, "failed to keep the recordings a script's tests name", "script", sc.Name, "error", logsan.SanitizeForLog(err.Error()))
+	}
+	if g.HandlersSaved != nil && sc != nil {
+		g.HandlersSaved(ctx, sc, caller)
 	}
 }
 

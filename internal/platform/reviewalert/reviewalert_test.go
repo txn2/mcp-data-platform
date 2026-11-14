@@ -1,8 +1,12 @@
 package reviewalert
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/approval"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -109,4 +113,43 @@ func TestSettingsDeliverable(t *testing.T) {
 	noThreshold := full
 	noThreshold.OldestPendingDays = 0
 	assert.False(t, noThreshold.Deliverable(), "with both thresholds cleared nothing can cross")
+}
+
+type pendingApprovals struct {
+	pending, stale int
+	oldest         *time.Time
+	err            error
+	before         time.Time
+}
+
+func (p *pendingApprovals) PendingRollup(_ context.Context, staleBefore time.Time) (approval.QueueRollup, error) {
+	p.before = staleBefore
+	return approval.QueueRollup{Pending: p.pending, Stale: p.stale, Oldest: p.oldest}, p.err
+}
+
+// TestApprovalSource reads the approvals queue into the rollup the alert
+// sends, the stale age being the approvals default.
+func TestApprovalSource(t *testing.T) {
+	now := time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)
+	oldest := now.AddDate(0, 0, -5)
+	src := &pendingApprovals{pending: 4, stale: 2, oldest: &oldest}
+	q, err := ApprovalSource{Approvals: src}.Pending(context.Background(), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q.Pending != 4 || q.StaleCount != 2 || q.OldestAgeDays != 5 || q.StaleAfterDays != DefaultApprovalOldestDays {
+		t.Errorf("rollup = %+v", q)
+	}
+	if !src.before.Equal(now.AddDate(0, 0, -DefaultApprovalOldestDays)) {
+		t.Errorf("stale before = %v", src.before)
+	}
+	if q, _ := (ApprovalSource{Approvals: &pendingApprovals{}}).Pending(context.Background(), now); q.OldestAgeDays != 0 {
+		t.Errorf("an empty queue has no oldest: %+v", q)
+	}
+	if _, err := (ApprovalSource{Approvals: &pendingApprovals{err: errors.New("down")}}).Pending(context.Background(), now); err == nil {
+		t.Error("a failed read must be reported")
+	}
+	if tg := ApprovalsTarget(); tg.Queue != "approvals" || tg.SettingsSection != "approval_queue_alert" || tg.Route != "/approvals" {
+		t.Errorf("target = %+v", tg)
+	}
 }

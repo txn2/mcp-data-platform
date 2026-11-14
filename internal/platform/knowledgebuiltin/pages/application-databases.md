@@ -338,6 +338,21 @@ every script must be kept out of the applications' schemas, map each persona
 to a role of its own. A role logs in itself; it is never switched to with `SET
 ROLE`, so `RESET ROLE` in a statement changes nothing.
 
+## Policies and transforms on the connection
+
+An administrator's tool-call handlers on the connection see a script's
+statements on every path: `platform.query`, `platform.execute`, each statement
+of `platform.batch`, everything inside `platform.transaction`, `query_iter`,
+`copy_in`, `copy_out` and `platform.maintain`, matched as `appdb.query`,
+`appdb.execute`, `appdb.batch`, `appdb.copy_in`, `appdb.copy_out` and
+`appdb.maintain` (a statement in a transaction as the same statement outside
+one). A policy that refuses or holds a statement refuses it, naming the policy:
+nobody can be asked mid-run. A transform covering the run changes the rows of a
+query, a transaction's query, each batch result and every `query_iter` page,
+refuses a protected column used outside a plain selection (followed through
+views), and refuses `copy_out`, whose bytes no transform reads; read those rows
+with `platform.query` or `query_iter` instead.
+
 ## What the run role may do
 
 An application defines what its run role may do in its own migrations, with

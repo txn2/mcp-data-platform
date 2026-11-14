@@ -16,6 +16,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/calltransform"
 	"github.com/txn2/mcp-data-platform/internal/exportasync"
 	"github.com/txn2/mcp-data-platform/internal/exporttrunc"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
@@ -412,7 +413,11 @@ func (t *Toolkit) runExport(ctx context.Context, deps *ExportDeps, uc *ExportUse
 	if cut != nil && cut.Refusal != "" {
 		return nil, errors.New("graphql_export: " + cut.Refusal)
 	}
-	payload, err := json.Marshal(exportPayload{Data: result.Data, Errors: result.Errors, Extensions: result.Extensions})
+	data, err := calltransform.Data(ctx, "graphql_export", result.Data)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // names graphql_export and the transform
+	}
+	payload, err := json.Marshal(exportPayload{Data: data, Errors: result.Errors, Extensions: result.Extensions})
 	if err != nil {
 		return nil, fmt.Errorf("graphql: encoding the result: %w", err)
 	}

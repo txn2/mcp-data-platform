@@ -2814,6 +2814,10 @@ func (p *Platform) Start(ctx context.Context) error {
 	})
 	p.lifecycle.OnComponent(scriptRuns.Start, scriptRuns.Stop)
 	p.lifecycle.OnDrain(scriptRuns.Drain)
+	// Tool-call handlers' index, watch writer and sweep (#2436).
+	if rt := p.scripts.CallHandlers(); rt != nil {
+		p.lifecycle.OnComponent(rt.Start, rt.Stop)
+	}
 	// Endpoint refusal counts are flushed on a loop, and at stop (#2208).
 	if e := p.Endpoints(); e != nil {
 		p.lifecycle.OnComponent(e.Start, e.Stop)

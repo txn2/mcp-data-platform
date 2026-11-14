@@ -121,7 +121,15 @@ describe("endpointOf", () => {
 
 describe("HANDLER_TYPE_LABELS", () => {
   it("names every type a list filters and badges by", () => {
-    expect(HANDLER_TYPE_LABELS).toEqual({ endpoint: "Endpoint", form: "Form", schedule: "Schedule", webhook: "Webhook" });
+    expect(HANDLER_TYPE_LABELS).toEqual({
+      endpoint: "Endpoint",
+      form: "Form",
+      schedule: "Schedule",
+      webhook: "Webhook",
+      policy: "Policy",
+      transform: "Transform",
+      watch: "Watch",
+    });
   });
 });
 

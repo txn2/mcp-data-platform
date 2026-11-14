@@ -36,6 +36,9 @@ type Actor struct {
 	Email   string
 	Persona string
 	Admin   bool
+	// Roles are the actor's roles: what a handler version an administrator
+	// approves runs with.
+	Roles []string
 }
 
 // Service is the queue's operations.
@@ -51,6 +54,8 @@ type Service struct {
 	Notifier Notifier
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
+	// Allowances spends approved call allowances; nil spends none.
+	Allowances AllowanceStore
 }
 
 // Submit is what a requester asks for.
@@ -126,8 +131,8 @@ func checkSubmit(actor Actor, in *Submit) (string, error) {
 	if in.Purpose == "" {
 		in.Purpose = PurposeFormPublic
 	}
-	if in.Purpose != PurposeFormPublic {
-		return "", refused("purpose %q is not one this platform decides; the one purpose is %s", in.Purpose, PurposeFormPublic)
+	if in.Purpose != PurposeFormPublic && in.Purpose != PurposeCallHandler {
+		return "", refused("purpose %q is not one a script version is asked for: %s or %s", in.Purpose, PurposeFormPublic, PurposeCallHandler)
 	}
 	reason, err := limitReason(in.Reason)
 	if err != nil {
@@ -154,7 +159,7 @@ func (s *Service) subject(ctx context.Context, actor Actor, in Submit) (*script.
 	if err != nil || v == nil {
 		return nil, nil, refused("%s has no version %d", sc.Name, version)
 	}
-	if s.IsForm != nil && !s.IsForm(v.Source) {
+	if in.Purpose == PurposeFormPublic && s.IsForm != nil && !s.IsForm(v.Source) {
 		return nil, nil, refused("version %d of %s is not a form: a form defines form_spec(req) and form_submit(req, values)", v.Version, sc.Name)
 	}
 	return sc, v, nil
@@ -202,7 +207,7 @@ func (s *Service) List(ctx context.Context, actor Actor, f Filter) ([]Request, e
 		return nil, refused("sign in with an account that has an email to read requests")
 	}
 	if !actor.Admin {
-		f.Requester = actor.Email
+		f.Requester, f.Approver, f.ApproverPersona = actor.Email, actor.Email, actor.Persona
 	}
 	return s.Store.List(ctx, f) //nolint:wrapcheck // the store's errors are read by identity
 }
@@ -213,7 +218,7 @@ func (s *Service) Get(ctx context.Context, actor Actor, id string) (*Request, er
 	if err != nil {
 		return nil, err //nolint:wrapcheck // read by identity
 	}
-	if !actor.Admin && r.RequesterEmail != actor.Email {
+	if !mayRead(actor, r) {
 		return nil, ErrNotFound
 	}
 	return r, nil
@@ -223,14 +228,19 @@ func (s *Service) Get(ctx context.Context, actor Actor, id string) (*Request, er
 // whatever the request, their own included; an administrator deciding their
 // own request is recorded as self-approved.
 func (s *Service) Decide(ctx context.Context, actor Actor, id, decision, comment string) (*Request, error) {
-	if !actor.Admin {
-		return nil, fmt.Errorf("administrators decide requests, including a request of your own: %w", ErrNotAllowed)
-	}
-	status, err := statusOf(decision)
+	return s.DecideAllowance(ctx, actor, id, Ruling{Decision: decision, Comment: comment})
+}
+
+// DecideAllowance is Decide with what an approval of a call request grants
+// (#2437): a call request is decided by the approvers its policies named or
+// an administrator, never by its requester unless an administrator; every
+// other request by an administrator.
+func (s *Service) DecideAllowance(ctx context.Context, actor Actor, id string, r Ruling) (*Request, error) {
+	status, err := statusOf(r.Decision)
 	if err != nil {
 		return nil, err
 	}
-	comment, err = limitReason(comment)
+	comment, err := limitReason(r.Comment)
 	if err != nil {
 		return nil, refused("comment: at most %d bytes", MaxReason)
 	}
@@ -238,15 +248,35 @@ func (s *Service) Decide(ctx context.Context, actor Actor, id, decision, comment
 	if err != nil {
 		return nil, err //nolint:wrapcheck // read by identity
 	}
+	if cur.SubjectKind == SubjectCall {
+		if !mayRead(actor, cur) {
+			return nil, ErrNotFound
+		}
+		return s.decideCall(ctx, actor, cur, Ruling{Decision: status, Comment: comment, Allowance: r.Allowance})
+	}
+	return s.decideVersion(ctx, actor, cur, status, comment)
+}
+
+// decideVersion records an administrator's decision on a request that is not
+// a call's: a version, a release or an environment. A handler version keeps
+// the deciding administrator's roles, which it runs with.
+func (s *Service) decideVersion(ctx context.Context, actor Actor, cur *Request, status, comment string) (*Request, error) {
+	if !actor.Admin {
+		return nil, fmt.Errorf("administrators decide requests, including a request of your own: %w", ErrNotAllowed)
+	}
 	if status == StatusApproved {
 		if err := s.stillTheSource(ctx, cur); err != nil {
 			return nil, err
 		}
 	}
-	return s.record(ctx, actor, cur, Decision{
+	d := Decision{
 		Status: status, By: actor.Email, Comment: comment,
 		SelfApproved: status == StatusApproved && cur.RequesterEmail == actor.Email, At: s.now(),
-	})
+	}
+	if cur.Purpose == PurposeCallHandler {
+		d.Roles = actor.Roles
+	}
+	return s.record(ctx, actor, cur, d)
 }
 
 // record stores a decision on cur and tells its requester, unless the

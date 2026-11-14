@@ -122,6 +122,25 @@ func HandlerOf(file *syntax.File) *syntax.DefStmt {
 	return handler
 }
 
+// DefOf returns file's last top-level def of name taking exactly params
+// parameters, or nil when it defines none: what a handler kind whose contract
+// is a function of its own (decide, transform) asks of a source.
+func DefOf(file *syntax.File, name string, params int) *syntax.DefStmt {
+	if file == nil {
+		return nil
+	}
+	var def *syntax.DefStmt
+	for _, s := range file.Stmts {
+		if d, ok := s.(*syntax.DefStmt); ok && d.Name.Name == name {
+			def = d
+		}
+	}
+	if def == nil || len(def.Params) != params {
+		return nil
+	}
+	return def
+}
+
 // topLevelCalls reports whether a top-level statement calls the named
 // function. A def's body is not the top level, so a call inside one does not
 // count; a lambda's body runs only when it is called, so neither does a call

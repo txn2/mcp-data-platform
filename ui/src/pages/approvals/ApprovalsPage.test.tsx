@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { screen, fireEvent, waitFor } from "@testing-library/react";
+import { screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { getResponse } from "msw";
 import { approvalHandlers } from "@/mocks/handlers/approvals";
 import { renderWithQuery, signIn, type SentRequest } from "@/test/applicationHarness";
-import { ApprovalsPage } from "./ApprovalsPage";
+import { ApprovalsPage, mayDecide } from "./ApprovalsPage";
 
 // The Approvals queue (#2494): a pending request with what changed since the
 // version approved before, a preview of the version, and an administrator's
@@ -46,8 +46,8 @@ describe("ApprovalsPage", () => {
     await waitFor(() => expect(open).toHaveBeenCalledWith("/forms/_preview/fp0123", "_blank", "noopener,noreferrer"));
     expect(sent.find((r) => r.path === "/api/v1/portal/scripts/script-intake/form-preview")?.body).toEqual({ version: 2 });
 
-    fireEvent.change(screen.getByLabelText("Comment for the requester"), { target: { value: "Ship it" } });
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.change(within(card).getByLabelText("Comment for the requester"), { target: { value: "Ship it" } });
+    fireEvent.click(within(card).getByRole("button", { name: "Approve" }));
     await waitFor(() =>
       expect(sent.find((r) => r.path === "/api/v1/portal/approvals/apr_intake2/decide")?.body).toEqual({
         decision: "approve",
@@ -120,5 +120,69 @@ describe("ApprovalsPage", () => {
     await waitFor(() => expect(card).toHaveTextContent("docs.example.com"));
     expect(card).toHaveTextContent("docs--prod.pages.example.net");
     expect(card).toHaveTextContent("prod serves release 29 today.");
+  });
+
+  // A held call (#2437): the platform's reading of it, what held it, who
+  // decides, the requester's recent calls, and an approval of fewer calls than
+  // asked with a deadline.
+  it("shows a held call with its recent calls and approves an allowance", async () => {
+    const sent = serve();
+    signIn("admin@example.com", true);
+    renderWithQuery(<ApprovalsPage onNavigate={vi.fn()} />);
+    const card = await screen.findByTestId("approval-apr_call_subscribers");
+    expect(card).toHaveTextContent("addSubscribers on billing-api");
+    expect(card).toHaveTextContent("jo@example.com, as marketing");
+    expect(card).toHaveTextContent("subscriber-rate-limit: “5 subscribers in one call; the limit is 3 per hour, 0 used.”");
+    expect(card).toHaveTextContent("ops-leads, or an administrator");
+    expect(card).toHaveTextContent("POST /lists/newsletter-weekly/subscribers");
+    const recent = await within(card).findByTestId("recent-calls");
+    expect(recent).toHaveTextContent("Held");
+    expect(recent).toHaveTextContent("Ran");
+
+    fireEvent.change(within(card).getByLabelText("Approve"), { target: { value: "1" } });
+    fireEvent.change(within(card).getByLabelText("calls until"), { target: { value: "2026-11-13T23:59" } });
+    fireEvent.click(within(card).getByRole("button", { name: "Approve" }));
+    await waitFor(() => {
+      const body = sent.find((r) => r.path === "/api/v1/portal/approvals/apr_call_subscribers/decide")?.body as Record<string, unknown>;
+      expect(body.decision).toBe("approve");
+      expect(body.calls).toBe(1);
+      expect(String(body.until)).toMatch(/^2026-11-1[34]T/);
+    });
+  });
+
+  it("filters by type and shows a handler version for administrators to decide", async () => {
+    const sent = serve();
+    signIn("admin@example.com", true);
+    renderWithQuery(<ApprovalsPage onNavigate={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Type"), { target: { value: "handler_version" } });
+    const card = await screen.findByTestId("approval-apr_handler_paying");
+    expect(card).toHaveTextContent("Handler version");
+    expect(card).toHaveTextContent("paying-customer-check");
+    expect(card).toHaveTextContent("Saved by kim@example.com");
+    expect(screen.queryByTestId("approval-apr_call_subscribers")).toBeNull();
+    expect(sent.some((r) => r.path.includes("kind=handler_version"))).toBe(true);
+  });
+
+  it("shows a requester an approved allowance and how much of it is used", async () => {
+    serve();
+    signIn("sarah.chen@example.com", false);
+    renderWithQuery(<ApprovalsPage onNavigate={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Status"), { target: { value: "approved" } });
+    const card = await screen.findByTestId("approval-apr_call_leads");
+    expect(within(card).getByTestId("allowance")).toHaveTextContent("10 calls until");
+    expect(within(card).getByTestId("allowance")).toHaveTextContent("3 used. Make the call again to use it.");
+    expect(within(card).queryByRole("button", { name: "Approve" })).toBeNull();
+  });
+});
+
+describe("mayDecide", () => {
+  const call = { subject_kind: "call", requester_email: "jo@example.com", approvers: ["ops-leads", "ana@example.com"] } as never;
+  it("follows the server's rule", () => {
+    expect(mayDecide(call, true, "jo@example.com", "")).toBe(true);
+    expect(mayDecide(call, false, "jo@example.com", "ops-leads")).toBe(false);
+    expect(mayDecide(call, false, "Ana@example.com", "")).toBe(true);
+    expect(mayDecide(call, false, "sam@example.com", "ops-leads")).toBe(true);
+    expect(mayDecide(call, false, "sam@example.com", "support")).toBe(false);
+    expect(mayDecide({ subject_kind: "script_version" } as never, false, "sam@example.com", "ops-leads")).toBe(false);
   });
 });

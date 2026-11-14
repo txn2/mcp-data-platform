@@ -1,6 +1,7 @@
 import type { ScriptSchedule } from "@/api/portal/hooks/scripts";
 import type { ScriptEndpoint } from "@/api/portal/hooks/scriptEndpoint";
 import type { HandlerDetail, HandlerRow, HandlerType } from "@/api/portal/hooks/scriptHandlers";
+import type { CallHandlerDetail } from "@/api/portal/hooks/callHandlers";
 import { mockScripts, mockScriptSchedules } from "./scripts";
 
 // The mock session's handlers (#2441, #2434): each script's schedules,
@@ -77,6 +78,138 @@ const webhooks: Record<string, MockWebhook[]> = {
 /** MOCK_SOURCES are the webhook sources the mock caller may name. */
 export const MOCK_SOURCES = ["shop-orders", "form-contact", "github-pushes"];
 
+// calls are the tool-call handlers (#2436, #2634, #2635) by script: a policy
+// whose newer version waits, a transform protecting a column, and a watch.
+const calls: Record<string, CallHandlerDetail[]> = {
+  "script-001": [
+    {
+      handler: "ch-owner",
+      kind: "transform",
+      type: "transform",
+      name: "daily-sales-report",
+      script_id: "script-001",
+      connection: "acme-warehouse",
+      operations: ["trino_query"],
+      personas: ["support"],
+      users: [],
+      conditions: [],
+      args: {},
+      timeout_ms: 2000,
+      on_failure: "original",
+      items_path: "",
+      writes: {},
+      protected: [],
+      order: 2,
+      enabled: true,
+      contract: "transform(call, result) returning the result the caller gets",
+      created_by: "admin@example.com",
+      running_version: 1,
+      approved_by: "admin@example.com",
+      waiting_version: 0,
+      recent_failures: [],
+      stats: { matched: 640, denied: 0, held: 0, errors: 0, queued: 0, p50_ms: 38, p99_ms: 95 },
+    },
+  ],
+  "script-004": [
+    {
+      handler: "ch-ratelimit",
+      kind: "policy",
+      type: "policy",
+      name: "my-margin-check",
+      script_id: "script-004",
+      connection: "crm-api",
+      operations: ["createLead"],
+      personas: ["analyst"],
+      users: [],
+      conditions: [],
+      args: { limit: 3 },
+      timeout_ms: 2000,
+      on_failure: "hold",
+      items_path: "leads",
+      writes: {},
+      protected: [],
+      order: 0,
+      enabled: true,
+      contract: "decide(call) returning platform.allow(), platform.deny(reason) or platform.require_approval(approvers, summary)",
+      created_by: "admin@example.com",
+      running_version: 1,
+      approved_by: "admin@example.com",
+      waiting_version: 2,
+      recent_failures: [
+        {
+          id: "f-1",
+          handler_id: "ch-ratelimit",
+          version: 1,
+          user: "jo@example.com",
+          call: { tool: "api_invoke_endpoint", connection: "crm-api", operation: "createLead", items: 5 },
+          prints: "counted 0 of 3 in the last hour",
+          error: "ran past its 2,000 ms limit; the call was held",
+          outcome: "error",
+          duration_ms: 2001,
+          at: "2026-11-13T15:02:00Z",
+        },
+      ],
+      stats: { matched: 412, denied: 0, held: 9, errors: 1, queued: 0, p50_ms: 3, p99_ms: 11 },
+    },
+  ],
+  "script-003": [
+    {
+      handler: "ch-mask",
+      kind: "transform",
+      type: "transform",
+      name: "warehouse-freshness",
+      script_id: "script-003",
+      connection: "acme-warehouse",
+      operations: [],
+      personas: ["analyst"],
+      users: [],
+      conditions: [],
+      args: {},
+      timeout_ms: 2000,
+      on_failure: "fail",
+      items_path: "",
+      writes: {},
+      protected: ["hive.hr.employees.ssn"],
+      order: 1,
+      enabled: true,
+      contract: "transform(call, result) returning the result the caller gets",
+      created_by: "admin@example.com",
+      running_version: 2,
+      approved_by: "admin@example.com",
+      waiting_version: 0,
+      recent_failures: [],
+      stats: { matched: 3510, denied: 0, held: 0, errors: 0, queued: 0, p50_ms: 2, p99_ms: 6 },
+    },
+    {
+      handler: "ch-watch",
+      kind: "watch",
+      type: "watch",
+      name: "warehouse-freshness",
+      script_id: "script-003",
+      connection: "crm-api",
+      operations: ["updateCustomer"],
+      personas: [],
+      users: [],
+      conditions: [{ in: "path", name: "id", equals: "123" }],
+      args: {},
+      timeout_ms: 2000,
+      on_failure: "",
+      items_path: "",
+      writes: {},
+      protected: [],
+      order: 0,
+      enabled: true,
+      contract: "main(), reading the call it follows as run.call",
+      created_by: "admin@example.com",
+      running_version: 1,
+      approved_by: "admin@example.com",
+      waiting_version: 0,
+      recent_failures: [],
+      stats: { matched: 2, denied: 0, held: 0, errors: 0, queued: 0, p50_ms: 0, p99_ms: 0 },
+    },
+  ],
+};
+
 /** endpointType is an endpoint handler's type: a form's is form. */
 function endpointType(e: ScriptEndpoint): HandlerType {
   return e.is_form ? "form" : "endpoint";
@@ -100,6 +233,7 @@ export const handlerStore = {
     for (const e of handlerStore.endpoints(scriptID)) out.add(endpointType(e));
     if (handlerStore.schedules(scriptID).length > 0) out.add("schedule");
     if (handlerStore.webhooks(scriptID).length > 0) out.add("webhook");
+    for (const c of handlerStore.calls(scriptID)) out.add(c.kind);
     return [...out].sort();
   },
   details(scriptID: string): HandlerDetail[] {
@@ -110,7 +244,17 @@ export const handlerStore = {
       ),
       ...handlerStore.schedules(scriptID).map((s) => scheduleDetail(name, s)),
       ...handlerStore.webhooks(scriptID).map((w) => webhookDetail(name, w)),
+      ...handlerStore.calls(scriptID),
     ];
+  },
+  calls(scriptID: string): CallHandlerDetail[] {
+    return calls[scriptID] ?? [];
+  },
+  allCalls(): CallHandlerDetail[] {
+    return Object.values(calls).flat();
+  },
+  addCall(scriptID: string, c: CallHandlerDetail) {
+    (calls[scriptID] ??= []).push(c);
   },
   detail(id: string): { scriptID: string; detail: HandlerDetail } | undefined {
     for (const sc of mockScripts) {
@@ -157,10 +301,14 @@ export const handlerStore = {
       const w = list.find((x) => x.id === id);
       if (w) return { scriptID, webhook: w };
     }
+    for (const [scriptID, list] of Object.entries(calls)) {
+      const c = list.find((x) => x.handler === id);
+      if (c) return { scriptID, call: c };
+    }
     return undefined;
   },
   remove(id: string): boolean {
-    for (const map of [schedules, endpoints, webhooks] as Record<string, { id?: string; handler?: string }[]>[]) {
+    for (const map of [schedules, endpoints, webhooks, calls] as Record<string, { id?: string; handler?: string }[]>[]) {
       for (const [scriptID, list] of Object.entries(map)) {
         const next = list.filter((x) => (x.handler ?? x.id) !== id);
         if (next.length !== list.length) {
@@ -212,5 +360,7 @@ function rowTarget(d: HandlerDetail): string {
       return `${String(d.cron ?? "")} ${String(d.timezone ?? "")}`;
     case "webhook":
       return String(d.event_source ?? "");
+    default:
+      return `${String(d.connection ?? "")} ${((d.operations as string[] | undefined) ?? []).join(", ")}`.trim();
   }
 }
