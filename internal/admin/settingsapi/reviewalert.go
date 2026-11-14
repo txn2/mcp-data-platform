@@ -97,3 +97,47 @@ func (h *handler) storeReviewAlert(w http.ResponseWriter, r *http.Request, route
 	}
 	writeReviewAlert(w, r, route)
 }
+
+// approvalAlertPath is where the approvals queue alert settings routes live.
+const approvalAlertPath = "/api/v1/admin/settings/approval-queue-alert"
+
+// approvalsRoute is the approvals queue's settings surface (#2437).
+func (h *handler) approvalsRoute() reviewAlertRoute {
+	return reviewAlertRoute{store: h.cfg.ApprovalAlert, target: reviewalert.ApprovalsTarget()}
+}
+
+// registerApprovalAlert mounts the approvals queue alert settings routes.
+func registerApprovalAlert(mux *http.ServeMux, h *handler) {
+	registerAlertSettings(mux, h, approvalAlertPath, h.cfg.ApprovalAlert != nil, alertHandlers{get: h.getApprovalAlert, set: h.setApprovalAlert})
+}
+
+// getApprovalAlert handles GET /api/v1/admin/settings/approval-queue-alert.
+//
+// @Summary      Get approvals queue alert settings
+// @Description  Returns the approvals queue staleness alert configuration (#2437): held calls and handler versions waiting for a decision. Before an operator has written one, the platform defaults are returned with no recipients, and warnings state that nothing will be delivered.
+// @Tags         Settings
+// @Produce      json
+// @Success      200  {object}  reviewalert.SettingsView
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/settings/approval-queue-alert [get]
+func (h *handler) getApprovalAlert(w http.ResponseWriter, r *http.Request) {
+	writeReviewAlert(w, r, h.approvalsRoute())
+}
+
+// setApprovalAlert handles PUT /api/v1/admin/settings/approval-queue-alert.
+//
+// @Summary      Update approvals queue alert settings
+// @Description  Upserts the approvals queue staleness alert configuration: the pending-count and age thresholds, the re-alert cooldown, and the recipients and channels the alert is delivered to.
+// @Tags         Settings
+// @Accept       json
+// @Produce      json
+// @Param        request  body  reviewalert.SettingsInput  true  "Approvals queue alert settings"
+// @Success      200  {object}  reviewalert.SettingsView
+// @Failure      400  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/settings/approval-queue-alert [put]
+func (h *handler) setApprovalAlert(w http.ResponseWriter, r *http.Request) {
+	h.storeReviewAlert(w, r, h.approvalsRoute())
+}

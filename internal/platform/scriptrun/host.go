@@ -7,31 +7,31 @@ import (
 	"maps"
 	"strings"
 
-	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
-	"github.com/txn2/mcp-data-platform/internal/platform/scriptpace"
-	"github.com/txn2/mcp-data-platform/internal/platform/scriptres"
-	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
-	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
-	"github.com/txn2/mcp-data-platform/internal/platform/scripttx"
-	"github.com/txn2/mcp-data-platform/internal/platform/starlarkconv"
-	"github.com/txn2/mcp-data-platform/internal/scriptcallsite"
-	"github.com/txn2/mcp-data-platform/internal/scriptdest"
-	"github.com/txn2/mcp-data-platform/internal/scripttoken"
-
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/exportlibrary"
 	"github.com/txn2/mcp-data-platform/internal/platform/exportrefs"
 	"github.com/txn2/mcp-data-platform/internal/platform/exporttable"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptdecide"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptfail"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptout"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptout/exportmeta"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptout/exportrecord"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptpace"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptres"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
+	"github.com/txn2/mcp-data-platform/internal/platform/scripttx"
+	"github.com/txn2/mcp-data-platform/internal/platform/starlarkconv"
 	"github.com/txn2/mcp-data-platform/internal/portal/contentrefs"
 	"github.com/txn2/mcp-data-platform/internal/runstate"
+	"github.com/txn2/mcp-data-platform/internal/scriptcallsite"
 	"github.com/txn2/mcp-data-platform/internal/scriptdate"
+	"github.com/txn2/mcp-data-platform/internal/scriptdest"
+	"github.com/txn2/mcp-data-platform/internal/scripttoken"
 	"github.com/txn2/mcp-data-platform/internal/toolwrite"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -116,6 +116,7 @@ var Capabilities = []string{
 	CapabilityCheckpoint, CapabilityRemainingMS, scriptpace.SleepCapability, CapabilityNotify, CapabilityPublish, scriptlive.CapabilityProgress, scriptlive.CapabilityResult,
 	scripttoken.CapabilityMint, scripttoken.CapabilityVerify, scripttoken.CapabilityDecrypt, scripttx.CapabilityTransaction, scripttx.CapabilityBatch,
 	scripttx.CapabilityQueryIter, scripttx.CapabilityCopyIn, scripttx.CapabilityCopyOut, scripttx.CapabilityMaintain, scriptres.CapabilityRead,
+	scriptdecide.CapabilityAllow, scriptdecide.CapabilityDeny, scriptdecide.CapabilityRequireApproval, scriptdecide.CapabilityCount,
 }
 
 // The formats platform.export accepts, split by what serializes them. A format
@@ -372,6 +373,12 @@ func (h *hostState) runValue() starlark.Value {
 
 // runRecord is the frozen run record over the given parameters and state.
 func (h *hostState) runRecord(paramValues, stateValues map[string]any) *starlarkstruct.Struct {
+	return h.runRecordWithCall(paramValues, stateValues, h.opts.Call)
+}
+
+// runRecordWithCall is the frozen run record over the given parameters,
+// state and the call a watch's run was handed.
+func (h *hostState) runRecordWithCall(paramValues, stateValues, call map[string]any) *starlarkstruct.Struct {
 	// Params are bound and type-checked by script.BindParams before a run
 	// exists, and state was validated as JSON when it was saved.
 	params, state := starlarkconv.DictOrNone(paramValues), starlarkconv.DictOrNone(stateValues)
@@ -381,6 +388,7 @@ func (h *hostState) runRecord(paramValues, stateValues map[string]any) *starlark
 		"params":    params,
 		"state":     state,
 		"event":     eventValue(h.opts.Event),
+		"call":      eventValue(call),
 	})
 	rec.Freeze()
 	return rec

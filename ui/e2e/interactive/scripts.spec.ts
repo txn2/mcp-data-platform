@@ -100,12 +100,12 @@ test.describe("Portal script pages", () => {
       "Delete",
     ]);
 
-    // What starts it, each handler a row: its schedule and the webhook
-    // source it runs for (#2434).
+    // What starts it: its schedule, webhook source (#2434) and transform (#2634).
     const handlers = page.getByTestId("handler-row");
-    await expect(handlers).toHaveCount(2);
+    await expect(handlers).toHaveCount(3);
     await expect(handlers.nth(0)).toContainText("Every weekday at 7:00 AM, America/Los_Angeles");
     await expect(handlers.nth(1)).toContainText("Each event of shop-orders");
+    await expect(handlers.nth(2)).toContainText("acme-warehouse");
 
     // The bindings every fire passes are inside the schedule's row.
     await openHandler(page, "sched-001");
@@ -327,7 +327,8 @@ test.describe("Portal script pages", () => {
     // do.
     await page.getByRole("row").filter({ hasText: "My Margin Check" }).click();
 
-    await expect(page.getByText(/Nothing starts this script but someone running it/)).toBeVisible();
+    await expect(page.locator('[data-testid="handler-row"][data-handler="ch-ratelimit"]')).toBeVisible();
+    await expect(page.getByTestId("handler-row").filter({ hasText: /Every / })).toHaveCount(0);
     await page.getByRole("button", { name: "Add handler" }).click();
     await page.getByRole("menuitem", { name: /Schedule/ }).click();
 
@@ -337,8 +338,7 @@ test.describe("Portal script pages", () => {
     // case used to fill belongs to Dormant Accounts, which is somebody else's
     // to schedule (#1795).
     await page.getByRole("button", { name: "Add schedule" }).click();
-    await expect(page.getByTestId("handler-row")).toContainText(/Every day at 5:00 AM/);
-    await expect(page.getByText(/Nothing starts this script/)).toHaveCount(0);
+    await expect(page.getByTestId("handler-row").filter({ hasText: /Every day at 5:00 AM/ })).toHaveCount(1);
   });
 
   // The health line replaces three tiles (#1795). Only the failed count is a

@@ -308,6 +308,9 @@ func buildItem(n notification.Notification) emailItem {
 	case notification.KindReviewQueue:
 		item.Body = reviewQueueBody(n.Payload.Review)
 		item.LinkText = reviewQueueLinkText
+	case notification.KindApprovalQueue:
+		item.Body = approvalQueueBody(n.Payload.Review)
+		item.LinkText = approvalQueueLinkText
 	case notification.KindScriptRun:
 		// The failure detail moves from Message to Body: Message renders as a
 		// quotation, and a backtrace is not something a colleague said.
@@ -374,6 +377,8 @@ func subjectFor(n notification.Notification) string {
 		return fmt.Sprintf("%s mentioned you on %q", n.Payload.Actor, n.Payload.ItemTitle)
 	case notification.KindReviewQueue:
 		return reviewQueueSubject(n.Payload.Review)
+	case notification.KindApprovalQueue:
+		return approvalQueueSubject(n.Payload.Review)
 	case notification.KindScriptRun:
 		return scriptRunSubject(n.Payload)
 	case notification.KindConnectionAuth:

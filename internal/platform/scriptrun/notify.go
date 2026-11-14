@@ -5,6 +5,7 @@ import (
 
 	"go.starlark.net/starlark"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptdecide"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptnotify"
 	"github.com/txn2/mcp-data-platform/internal/platform/starlarkconv"
 )
@@ -41,6 +42,9 @@ func (h *hostState) publish(_ *starlark.Thread, b *starlark.Builtin, args starla
 // exactly as it refuses a saved asset: a message posted to a colleague's chat
 // is not something a dry run may do.
 func (h *hostState) issueNotify(b *starlark.Builtin, payload map[string]any) (starlark.Value, error) {
+	if h.opts.Notices != nil {
+		return scriptdecide.Queue(b, h.opts.Notices, payload) //nolint:wrapcheck // the binding names itself
+	}
 	if h.opts.Caller == nil {
 		return nil, fmt.Errorf("host binding %s is not available in this context", b.Name())
 	}
@@ -63,4 +67,9 @@ func (h *hostState) issueNotify(b *starlark.Builtin, payload map[string]any) (st
 // deployment does not know its own public address.
 func (h *hostState) runLink() string {
 	return h.opts.RunURL
+}
+
+// count is platform.count, through the run's counter (scriptdecide.Count).
+func (h *hostState) count(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	return scriptdecide.Count(h.ctx, h.opts.Counter, b, args, kwargs) //nolint:wrapcheck // the binding names itself
 }

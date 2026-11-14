@@ -244,14 +244,15 @@ func (d *declared) hold(tool string, args, out map[string]any) error {
 	return nil
 }
 
-// setRunBuiltin is testing.set_run(params=None, state=None, remaining_ms=None):
-// what run.params and run.state read for the rest of the test, in place of the
-// recording's, and what platform.remaining_ms() returns (#2004).
+// setRunBuiltin is testing.set_run(params=None, state=None, remaining_ms=None,
+// call=None): what run.params, run.state and run.call read for the rest of the
+// test, in place of the recording's, and what platform.remaining_ms() returns
+// (#2004). call is the tool call a watch's run is handed (#2635).
 func setRunBuiltin(in *scriptrun.TestInputs) *starlark.Builtin {
 	return starlark.NewBuiltin("testing.set_run", func(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var params, state *starlark.Dict
+		var params, state, call *starlark.Dict
 		remaining := starlark.Value(starlark.None)
-		if err := starlark.UnpackArgs(b.Name(), args, kwargs, "params?", &params, "state?", &state, "remaining_ms?", &remaining); err != nil {
+		if err := starlark.UnpackArgs(b.Name(), args, kwargs, "params?", &params, "state?", &state, "remaining_ms?", &remaining, "call?", &call); err != nil {
 			return nil, err //nolint:wrapcheck // the interpreter's message names the builtin
 		}
 		if remaining != starlark.None {
@@ -261,7 +262,7 @@ func setRunBuiltin(in *scriptrun.TestInputs) *starlark.Builtin {
 				return nil, fmt.Errorf("in %s: remaining_ms is a whole number of milliseconds, 0 or more", b.Name())
 			}
 			in.RemainingMS = &ms
-			if params == nil && state == nil {
+			if params == nil && state == nil && call == nil {
 				return starlark.None, nil
 			}
 		}
@@ -274,6 +275,11 @@ func setRunBuiltin(in *scriptrun.TestInputs) *starlark.Builtin {
 		if state != nil {
 			if in.State, err = dictArg(state); err != nil {
 				return nil, fmt.Errorf("in %s: state: %w", b.Name(), err)
+			}
+		}
+		if call != nil {
+			if in.Call, err = dictArg(call); err != nil {
+				return nil, fmt.Errorf("in %s: call: %w", b.Name(), err)
 			}
 		}
 		in.Set = true

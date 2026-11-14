@@ -23,11 +23,13 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epwire"
+	"github.com/txn2/mcp-data-platform/internal/platform/callrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifylayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptbgdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scripthandler"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptindex"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer/handlercmd"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptpending"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
@@ -151,6 +153,34 @@ type Handle struct {
 	// handlers carries out the handler commands (#2441); nil with no
 	// database.
 	handlers *scripthandler.Service
+	// callTester answers handler_test (#2436); nil until the tool-call
+	// handlers are wired.
+	callTester handlercmd.Tester
+	// callHandlers is the tool-call handlers' runtime (#2436).
+	callHandlers *callrun.Runtime
+}
+
+// SetCallHandlers keeps the tool-call handlers' runtime, which the platform
+// places in the tools/call chain and starts with its lifecycle (#2436).
+func (h *Handle) SetCallHandlers(rt *callrun.Runtime) {
+	if h != nil {
+		h.callHandlers = rt
+	}
+}
+
+// CallHandlers is the tool-call handlers' runtime, nil with none.
+func (h *Handle) CallHandlers() *callrun.Runtime {
+	if h == nil {
+		return nil
+	}
+	return h.callHandlers
+}
+
+// SetCallTester installs what handler_test asks.
+func (h *Handle) SetCallTester(t handlercmd.Tester) {
+	if h != nil {
+		h.callTester = t
+	}
 }
 
 // New assembles the script layer.
@@ -186,6 +216,11 @@ func New(cfg Config) *Handle {
 	}
 	if h.handlers = scripthandler.New(cfg.DB, commands, h.store); h.handlers != nil {
 		h.gate.Handlers = h.handlers.Check
+		h.gate.HandlersSaved = h.handlers.VersionSaved
+		if h.endpoints != nil && h.endpoints.Approvals != nil {
+			h.handlers.Approvals = h.endpoints.Approvals
+			h.handlers.Versions = scripthandler.ApprovalVersions{Approvals: h.endpoints.Approvals}
+		}
 	}
 	h.gate.Libraries, _ = h.store.(scriptlib.Source)
 	h.gate.Shared, _ = h.store.(scriptshare.Sources)

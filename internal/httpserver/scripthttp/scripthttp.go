@@ -17,14 +17,13 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/connchoicehttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/handlerhttp"
-	"github.com/txn2/mcp-data-platform/internal/platform/scripthandler"
-	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
-
-	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptgrant"
+	"github.com/txn2/mcp-data-platform/internal/platform/scripthandler"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
 	"github.com/txn2/mcp-data-platform/internal/producedview"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -107,6 +106,8 @@ type Deps struct {
 	// schedules and webhook sources. Nil leaves the handler routes
 	// unmounted.
 	Handlers *scripthandler.Service
+	// CallTester answers a connection's test panel (#2436); nil has none.
+	CallTester handlerhttp.Tester
 
 	// Produced lists everything a script has written across every run (#1569).
 	// Nil leaves that route unmounted, which is the shape of a deployment that

@@ -145,6 +145,9 @@ describe("HandlersTab", () => {
       "Form",
       "Schedule",
       "Webhook",
+      "Policy",
+      "Transform",
+      "Watch",
     ]);
     fireEvent.click(screen.getByRole("option", { name: "Form" }));
     await waitFor(() => expect(lastQuery()).toEqual({ type: ["form"], limit: ["50"] }));

@@ -11,15 +11,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/txn2/mcp-data-platform/internal/platform/scriptcontract"
-	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
-
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptcontract"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexamples"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer/handlercmd"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -874,7 +874,7 @@ func TestRead_AnotherPersonsDefinitionIsReadable(t *testing.T) {
 
 	// A run's reads are held the same way, where a deployment keeps runs
 	// (TestRunReads_AreTheOwnersAndTheAdmins).
-	for _, command := range []string{cmdState, cmdUpdate, cmdDelete, cmdHandlerSet, cmdHandlerList} {
+	for _, command := range []string{cmdState, cmdUpdate, cmdDelete, handlercmd.Set, handlercmd.List} {
 		in := named
 		in.Command, in.DisplayName = command, "x"
 		res := call(t, h, authorCtx(), in)

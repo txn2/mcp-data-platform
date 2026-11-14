@@ -52,6 +52,7 @@ import (
 	"go.starlark.net/starlarkstruct"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/exporttable"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptdecide"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdialect"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
@@ -306,6 +307,17 @@ type Options struct {
 	// Tokens answers platform.mint_token, verify_token and decrypt in a run
 	// (#2175, #2179); nil refuses them. A test answers them from its recording.
 	Tokens scripttoken.Caller
+	// Call is the tool call a handler run was given (#2436, #2635), handed
+	// to the script as run.call; nil, run.call is None.
+	Call map[string]any
+	// Counter answers platform.count in a policy's run; nil counts only
+	// the call itself.
+	Counter scriptdecide.Counter
+	// Notices, when not nil, is where platform.notify queues its messages
+	// in a tool-call handler's run (#2436): the run is read-only, so it
+	// sends nothing itself; the platform sends what it queued once the
+	// call it decided or changed has been answered (scriptdecide.MaxNotices).
+	Notices *[]map[string]any
 }
 
 // TestHooks turn an execution into one of the script's tests (#1939, #1940).
@@ -757,29 +769,33 @@ func predeclared(host *hostState) starlark.StringDict {
 		"platform": &starlarkstruct.Module{
 			Name: "platform",
 			Members: starlark.StringDict{
-				"query":         starlark.NewBuiltin(CapabilityQuery, host.guarded(host.query)),
-				"execute":       starlark.NewBuiltin(CapabilityExecute, host.guarded(host.execute)),
-				"export":        starlark.NewBuiltin(CapabilityExport, host.guarded(host.export)),
-				"publish_data":  starlark.NewBuiltin(CapabilityPublishData, host.guarded(host.publishData)),
-				"call":          starlark.NewBuiltin(CapabilityCall, host.guarded(host.call)),
-				"transaction":   starlark.NewBuiltin(scripttx.CapabilityTransaction, host.guarded(host.tx.Transaction)),
-				"batch":         starlark.NewBuiltin(scripttx.CapabilityBatch, host.guarded(host.tx.Batch)),
-				"query_iter":    starlark.NewBuiltin(scripttx.CapabilityQueryIter, host.guarded(host.tx.QueryIter)),
-				"copy_in":       starlark.NewBuiltin(scripttx.CapabilityCopyIn, host.guarded(host.tx.CopyIn)),
-				"copy_out":      starlark.NewBuiltin(scripttx.CapabilityCopyOut, host.guarded(host.tx.CopyOut)),
-				"maintain":      starlark.NewBuiltin(scripttx.CapabilityMaintain, host.guarded(host.tx.Maintain)),
-				"save_state":    starlark.NewBuiltin(CapabilitySaveState, host.guarded(host.saveState)),
-				"checkpoint":    starlark.NewBuiltin(CapabilityCheckpoint, host.guarded(host.checkpoint)),
-				"remaining_ms":  starlark.NewBuiltin(CapabilityRemainingMS, host.guarded(clock.RemainingMS)),
-				"sleep":         starlark.NewBuiltin(scriptpace.SleepCapability, host.guarded(clock.Sleep)),
-				"notify":        starlark.NewBuiltin(CapabilityNotify, host.guarded(host.notify)),
-				"publish":       starlark.NewBuiltin(CapabilityPublish, host.guarded(host.publish)),
-				"mint_token":    starlark.NewBuiltin(scripttoken.CapabilityMint, host.guarded(tokens.Mint)),
-				"verify_token":  starlark.NewBuiltin(scripttoken.CapabilityVerify, host.guarded(tokens.Verify)),
-				"decrypt":       starlark.NewBuiltin(scripttoken.CapabilityDecrypt, host.guarded(tokens.Decrypt)),
-				"read_resource": starlark.NewBuiltin(scriptres.CapabilityRead, host.guarded(scriptres.Read(host.invokeRaw))),
-				"progress":      host.log.Bindings()["progress"],
-				"result":        host.log.Bindings()["result"],
+				"query":            starlark.NewBuiltin(CapabilityQuery, host.guarded(host.query)),
+				"execute":          starlark.NewBuiltin(CapabilityExecute, host.guarded(host.execute)),
+				"export":           starlark.NewBuiltin(CapabilityExport, host.guarded(host.export)),
+				"publish_data":     starlark.NewBuiltin(CapabilityPublishData, host.guarded(host.publishData)),
+				"call":             starlark.NewBuiltin(CapabilityCall, host.guarded(host.call)),
+				"transaction":      starlark.NewBuiltin(scripttx.CapabilityTransaction, host.guarded(host.tx.Transaction)),
+				"batch":            starlark.NewBuiltin(scripttx.CapabilityBatch, host.guarded(host.tx.Batch)),
+				"query_iter":       starlark.NewBuiltin(scripttx.CapabilityQueryIter, host.guarded(host.tx.QueryIter)),
+				"copy_in":          starlark.NewBuiltin(scripttx.CapabilityCopyIn, host.guarded(host.tx.CopyIn)),
+				"copy_out":         starlark.NewBuiltin(scripttx.CapabilityCopyOut, host.guarded(host.tx.CopyOut)),
+				"maintain":         starlark.NewBuiltin(scripttx.CapabilityMaintain, host.guarded(host.tx.Maintain)),
+				"save_state":       starlark.NewBuiltin(CapabilitySaveState, host.guarded(host.saveState)),
+				"checkpoint":       starlark.NewBuiltin(CapabilityCheckpoint, host.guarded(host.checkpoint)),
+				"remaining_ms":     starlark.NewBuiltin(CapabilityRemainingMS, host.guarded(clock.RemainingMS)),
+				"sleep":            starlark.NewBuiltin(scriptpace.SleepCapability, host.guarded(clock.Sleep)),
+				"notify":           starlark.NewBuiltin(CapabilityNotify, host.guarded(host.notify)),
+				"publish":          starlark.NewBuiltin(CapabilityPublish, host.guarded(host.publish)),
+				"mint_token":       starlark.NewBuiltin(scripttoken.CapabilityMint, host.guarded(tokens.Mint)),
+				"verify_token":     starlark.NewBuiltin(scripttoken.CapabilityVerify, host.guarded(tokens.Verify)),
+				"decrypt":          starlark.NewBuiltin(scripttoken.CapabilityDecrypt, host.guarded(tokens.Decrypt)),
+				"read_resource":    starlark.NewBuiltin(scriptres.CapabilityRead, host.guarded(scriptres.Read(host.invokeRaw))),
+				"allow":            starlark.NewBuiltin(scriptdecide.CapabilityAllow, scriptdecide.Allow),
+				"deny":             starlark.NewBuiltin(scriptdecide.CapabilityDeny, scriptdecide.Deny),
+				"require_approval": starlark.NewBuiltin(scriptdecide.CapabilityRequireApproval, scriptdecide.RequireApproval),
+				"count":            starlark.NewBuiltin(scriptdecide.CapabilityCount, host.guarded(host.count)),
+				"progress":         host.log.Bindings()["progress"],
+				"result":           host.log.Bindings()["result"],
 			},
 		},
 		"json":          json.Module,

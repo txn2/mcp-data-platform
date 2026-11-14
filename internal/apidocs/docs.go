@@ -11026,6 +11026,80 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/settings/approval-queue-alert": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the approvals queue staleness alert configuration (#2437): held calls and handler versions waiting for a decision. Before an operator has written one, the platform defaults are returned with no recipients, and warnings state that nothing will be delivered.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Get approvals queue alert settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/reviewalert.SettingsView"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Upserts the approvals queue staleness alert configuration: the pending-count and age thresholds, the re-alert cooldown, and the recipients and channels the alert is delivered to.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Update approvals queue alert settings",
+                "parameters": [
+                    {
+                        "description": "Approvals queue alert settings",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/reviewalert.SettingsInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/reviewalert.SettingsView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/settingsapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/settings/connection-alert": {
             "get": {
                 "security": [
@@ -15450,7 +15524,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "The caller's own requests, or for an administrator every request, newest first. status filters by pending, approved or denied; script_id by script.",
+                "description": "The caller's own requests and the held calls whose policies name them, or for an administrator every request, newest first. status filters by pending, approved or denied; script_id by script; kind by call, handler_version, form or site.",
                 "produces": [
                     "application/json"
                 ],
@@ -15469,6 +15543,12 @@ const docTemplate = `{
                         "type": "string",
                         "description": "One script's requests",
                         "name": "script_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "call, handler_version, form or site",
+                        "name": "kind",
                         "in": "query"
                     }
                 ],
@@ -15595,6 +15675,55 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/approvals/{id}/calls": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The requester's calls of a call request's operation on its connection in the last 24 hours, newest first, from the audit record: when each was made, how many items it carried, and whether it ran, ran on an allowance, failed, was held or was refused. Never a call's arguments. Readable by whoever may read the request: an administrator, its requester, or an approver its policies name. Any other request answers an empty list.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Approvals"
+                ],
+                "summary": "A held call's recent calls",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Request id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/apprhttp.RecentCallList"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/approvals/{id}/decide": {
             "post": {
                 "security": [
@@ -15605,7 +15734,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Approves or denies a pending request. Administrators decide every request, their own included (recorded as self-approved); anyone else is refused.",
+                "description": "Approves or denies a pending request. A call request a policy held is decided by the approvers its policies named or an administrator, never by its requester unless an administrator, and approving it grants calls until a deadline. Administrators decide every other request, their own included (recorded as self-approved); anyone else is refused.",
                 "consumes": [
                     "application/json"
                 ],
@@ -20896,6 +21025,202 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/connections/{connection}/handlers": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Every policy, transform and watch that applies to the connection, as its page lists them: policies, transforms in the order they run, then watches, each with its match (operations, personas, users, conditions), settings, state, the version it runs and who approved it, the version waiting for approval, and stats, its last 24 hours from the audit rows of the calls it matched (matched, denied, held, errors, queued, p50_ms, p99_ms). An administrator's only.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "List a connection's tool-call handlers",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection name",
+                        "name": "connection",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlerhttp.ConnectionHandlerList"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/connections/{connection}/handlers/order": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Sets the order the connection's transforms run in: ids, first to last. Answers the connection's handlers as GET /portal/connections/{connection}/handlers does. An administrator's only.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Order a connection's transforms",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection name",
+                        "name": "connection",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The transforms' ids, first to last",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handlerhttp.OrderRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlerhttp.ConnectionHandlerList"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/connections/{connection}/handlers/test": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "What every handler on the connection would make of a call, without the upstream being called or any count or allowance spent; a handler's own reads run. Answers the outcome (runs, held or denied), each matching handler in order with what it did and how long it took, a refusal's reason, a hold's approvers and message, and, given a result, what the transforms would make of it. An administrator's only.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Test a call against a connection's handlers",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection name",
+                        "name": "connection",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The call",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handlerhttp.TestRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/content/{token}": {
             "get": {
                 "description": "Serves the asset version a signed content URL names, with no session. An expired or altered link answers 403; a version or asset since removed answers 404.",
@@ -21373,6 +21698,61 @@ const docTemplate = `{
                     },
                     "403": {
                         "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/handlers/{id}/failures": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The newest failures of a policy or transform, kept seven days: the call it was given (its arguments as the caller sent them, a stored secret still its placeholder), what its script printed, the error and how the call was then treated. An administrator's only; anyone else, the script's owner included, is answered 404.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "List a tool-call handler's failures",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Handler ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlerhttp.FailureList"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -38176,15 +38556,50 @@ const docTemplate = `{
                 }
             }
         },
+        "apprhttp.RecentCall": {
+            "type": "object",
+            "properties": {
+                "at": {
+                    "type": "string"
+                },
+                "items": {
+                    "type": "integer",
+                    "example": 5
+                },
+                "outcome": {
+                    "type": "string",
+                    "example": "held"
+                }
+            }
+        },
+        "apprhttp.RecentCallList": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/apprhttp.RecentCall"
+                    }
+                }
+            }
+        },
         "apprhttp.decideRequest": {
             "type": "object",
             "properties": {
+                "calls": {
+                    "description": "Calls and Until are what approving a call request grants: that\nmany calls (at most what was asked; 0 is what was asked) until a\ndeadline (24 hours from now when omitted, at most 90 days).",
+                    "type": "integer",
+                    "example": 3
+                },
                 "comment": {
                     "type": "string"
                 },
                 "decision": {
                     "type": "string",
                     "example": "approve"
+                },
+                "until": {
+                    "type": "string"
                 }
             }
         },
@@ -38245,11 +38660,49 @@ const docTemplate = `{
                 }
             }
         },
+        "approval.HandlerAsk": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "script": {
+                    "type": "string"
+                },
+                "summary": {
+                    "type": "string"
+                }
+            }
+        },
         "approval.Request": {
             "type": "object",
             "properties": {
+                "approvers": {
+                    "description": "Approvers are the people or personas the policies named; empty is an\nadministrator.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "arguments": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "calls_approved": {
+                    "type": "integer"
+                },
+                "calls_asked": {
+                    "type": "integer"
+                },
+                "calls_used": {
+                    "type": "integer"
+                },
                 "changes": {
                     "$ref": "#/definitions/approval.Changes"
+                },
+                "connection": {
+                    "type": "string",
+                    "example": "billing-api"
                 },
                 "created_at": {
                     "type": "string"
@@ -38263,15 +38716,34 @@ const docTemplate = `{
                 "decision_comment": {
                     "type": "string"
                 },
+                "handlers": {
+                    "description": "Handlers are the policies that held the call, with what each said.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/approval.HandlerAsk"
+                    }
+                },
                 "id": {
                     "type": "string",
                     "example": "apr_0f3c9d2e"
+                },
+                "kind": {
+                    "description": "Kind is what the request is about: call, handler_version, form or\nsite.",
+                    "type": "string"
+                },
+                "operation": {
+                    "type": "string",
+                    "example": "addSubscribers"
                 },
                 "purpose": {
                     "type": "string",
                     "example": "form_public"
                 },
                 "reason": {
+                    "type": "string"
+                },
+                "rendering": {
+                    "description": "Rendering is the platform's own reading of the call, which the\napprover reads, never only a summary someone wrote.",
                     "type": "string"
                 },
                 "requester_email": {
@@ -38318,6 +38790,13 @@ const docTemplate = `{
                 "target": {
                     "type": "string",
                     "example": "prod"
+                },
+                "tool": {
+                    "type": "string",
+                    "example": "api_invoke_endpoint"
+                },
+                "until": {
+                    "type": "string"
                 },
                 "version": {
                     "type": "integer",
@@ -38961,6 +39440,13 @@ const docTemplate = `{
                     ],
                     "example": "mcp_tool_call"
                 },
+                "handlers": {
+                    "description": "Handlers are the tool-call handlers that matched this call (#2436):\neach one's id, kind, script, what it did and how long it took. Never\nwhat it was given or printed.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/audit.HandlerRun"
+                    }
+                },
                 "id": {
                     "type": "string",
                     "example": "evt_a1b2c3d4e5f6"
@@ -39056,6 +39542,26 @@ const docTemplate = `{
                 "EventTypeEndpointRequest",
                 "EventTypeFormDecrypt"
             ]
+        },
+        "audit.HandlerRun": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "ms": {
+                    "type": "integer"
+                },
+                "outcome": {
+                    "type": "string"
+                },
+                "script": {
+                    "type": "string"
+                }
+            }
         },
         "audit.Overview": {
             "type": "object",
@@ -39446,6 +39952,56 @@ const docTemplate = `{
                 },
                 "prefix": {
                     "type": "string"
+                }
+            }
+        },
+        "callhandler.Condition": {
+            "type": "object",
+            "properties": {
+                "equals": {
+                    "type": "string"
+                },
+                "in": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "callhandler.Failure": {
+            "type": "object",
+            "properties": {
+                "at": {
+                    "type": "string"
+                },
+                "call": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "handler_id": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "outcome": {
+                    "type": "string"
+                },
+                "prints": {
+                    "type": "string"
+                },
+                "user": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "integer"
                 }
             }
         },
@@ -43351,6 +43907,29 @@ const docTemplate = `{
                 }
             }
         },
+        "handlerhttp.ConnectionHandlerList": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            }
+        },
+        "handlerhttp.FailureList": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/callhandler.Failure"
+                    }
+                }
+            }
+        },
         "handlerhttp.HandlerList": {
             "type": "object",
             "properties": {
@@ -43363,6 +43942,17 @@ const docTemplate = `{
                 "total": {
                     "type": "integer",
                     "example": 3
+                }
+            }
+        },
+        "handlerhttp.OrderRequest": {
+            "type": "object",
+            "properties": {
+                "ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -43412,6 +44002,10 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "approve": {
+                    "description": "Approve approves the script's latest version for handlers as the\nadministrator setting the handler.",
+                    "type": "boolean"
+                },
                 "args": {
                     "type": "object",
                     "additionalProperties": {}
@@ -43435,6 +44029,12 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "type": "string"
+                    }
+                },
+                "conditions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/callhandler.Condition"
                     }
                 },
                 "connection": {
@@ -43464,6 +44064,10 @@ const docTemplate = `{
                     "description": "IPRateLimit is one client address's requests a minute (#2556); nil\nkeeps it, 0 removes it.",
                     "type": "integer"
                 },
+                "items_path": {
+                    "type": "string",
+                    "example": "subscribers"
+                },
                 "kind": {
                     "description": "Kind is endpoint, schedule or webhook; a change reads it from the\nhandler and may leave it out.",
                     "type": "string",
@@ -43480,6 +44084,20 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "on_failure": {
+                    "type": "string",
+                    "example": "hold"
+                },
+                "operations": {
+                    "description": "The tool-call kinds' settings (policy, transform, watch; #2436): each\nleft out keeps its value on a change. Connection is the connection\nsetting endpoints share.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "order": {
+                    "type": "integer"
                 },
                 "page_cdns": {
                     "type": "array",
@@ -43509,9 +44127,21 @@ const docTemplate = `{
                 "path": {
                     "type": "string"
                 },
+                "personas": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "preview_version": {
                     "description": "PreviewVersion is the saved version form_preview renders, 0 for the\nlatest (#2494).",
                     "type": "integer"
+                },
+                "protected": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "rate_limit": {
                     "type": "integer"
@@ -43520,6 +44150,10 @@ const docTemplate = `{
                     "description": "ResponseMode and PageCDNs make the endpoint a browser page (#2517).",
                     "type": "string"
                 },
+                "timeout_ms": {
+                    "type": "integer",
+                    "example": 2000
+                },
                 "timeout_seconds": {
                     "description": "TimeoutSeconds is how long one request to an endpoint may run.",
                     "type": "integer"
@@ -43527,6 +44161,44 @@ const docTemplate = `{
                 "timezone": {
                     "type": "string",
                     "example": "America/Los_Angeles"
+                },
+                "users": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "writes": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "boolean"
+                    }
+                }
+            }
+        },
+        "handlerhttp.TestRequest": {
+            "type": "object",
+            "properties": {
+                "arguments": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "as_persona": {
+                    "type": "string",
+                    "example": "marketing"
+                },
+                "as_user": {
+                    "type": "string",
+                    "example": "jo@example.com"
+                },
+                "at": {
+                    "type": "string",
+                    "example": "2026-11-13T15:40:00Z"
+                },
+                "result": {},
+                "tool": {
+                    "type": "string",
+                    "example": "api_invoke_endpoint"
                 }
             }
         },

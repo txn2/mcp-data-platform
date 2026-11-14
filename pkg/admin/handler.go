@@ -284,6 +284,8 @@ type Deps struct {
 	// threshold, cooldown, and recipients (#803). nil disables the
 	// /api/v1/admin/settings/review-queue-alert routes.
 	ReviewQueueAlert reviewalert.SettingsStore
+	// ApprovalQueueAlert persists the approvals queue alert (#2437); nil disables its routes.
+	ApprovalQueueAlert reviewalert.SettingsStore
 	// ConnectionAlert persists the connection-revocation alert's escalation
 	// window and recipients (#1694). nil disables the
 	// /api/v1/admin/settings/connection-alert routes.

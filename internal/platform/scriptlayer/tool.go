@@ -5,15 +5,15 @@ import (
 	"fmt"
 	"maps"
 
-	"github.com/txn2/mcp-data-platform/internal/removedvalue"
-	"github.com/txn2/mcp-data-platform/internal/runstate"
-
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptcontract"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer/handlercmd"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptshare"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptshow"
+	"github.com/txn2/mcp-data-platform/internal/removedvalue"
+	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 	"github.com/txn2/mcp-data-platform/pkg/textpatch"
@@ -167,9 +167,11 @@ type manageScriptInput struct {
 
 	// The handler commands' fields (#2441), an endpoint handler's settings
 	// (#2171), and list's library filter (#2273).
-	HandlerInput
+	handlercmd.Target
 	epcmd.Input
 	scriptshare.ListInput
+	// A tool-call handler's settings and handler_test's call (#2436).
+	handlercmd.CallSettings
 }
 
 // RegisterTool registers manage_script; where the deployment can execute
@@ -182,7 +184,7 @@ func (h *Handle) RegisterTool(server *mcp.Server) {
 		return
 	}
 	h.server = server
-	for command, replacement := range removedCommands {
+	for command, replacement := range handlercmd.Removed {
 		removedvalue.Register(ToolNameManageScript, fieldCommand, command, replacement+" (#2441)")
 	}
 
@@ -231,12 +233,13 @@ func (h *Handle) commands() map[string]commandHandler {
 		cmdTest:       h.handleTest,
 		cmdRecording:  h.handleRecording,
 
-		cmdHandlerSet:        h.handleHandlerSet,
-		cmdHandlerList:       h.handleHandlerList,
-		cmdHandlerGet:        h.handleHandlerGet,
-		cmdHandlerEnable:     h.handleHandlerEnable,
-		cmdHandlerDisable:    h.handleHandlerDisable,
-		cmdHandlerDelete:     h.handleHandlerDelete,
+		handlercmd.Set:       h.handleHandlerSet,
+		handlercmd.List:      h.handleHandlerList,
+		handlercmd.Get:       h.handleHandlerGet,
+		handlercmd.Enable:    h.handleHandlerEnable,
+		handlercmd.Disable:   h.handleHandlerDisable,
+		handlercmd.Delete:    h.handleHandlerDelete,
+		handlercmd.Test:      h.handleHandlerTest,
 		epcmd.CmdFormPreview: h.handleFormPreview,
 	}
 }
@@ -263,13 +266,13 @@ func (h *Handle) commands() map[string]commandHandler {
 //     never held it. Nothing about a run should be able to author authority.
 var scriptWritingCommands = map[string]bool{
 	cmdCreate: true, cmdUpdate: true, cmdPatch: true, cmdDelete: true,
-	cmdHandlerSet: true, cmdHandlerEnable: true, cmdHandlerDisable: true, cmdHandlerDelete: true,
+	handlercmd.Set: true, handlercmd.Enable: true, handlercmd.Disable: true, handlercmd.Delete: true,
 	cmdCancelRun: true,
 }
 
 // handleManageScript dispatches manage_script commands.
 func (h *Handle) handleManageScript(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
-	if replacement, gone := removedCommands[input.Command]; gone {
+	if replacement, gone := handlercmd.Removed[input.Command]; gone {
 		return errorResult(fmt.Sprintf("%s was removed: use %s (#2441)", input.Command, replacement)), nil, nil
 	}
 	handler, ok := h.commands()[input.Command]
@@ -336,7 +339,7 @@ func manageScriptSchema() any {
 				cmdRunDraft, cmdHelp, cmdPatch, cmdLocate, cmdGetContent,
 				cmdOutline, cmdStats, cmdDiff, cmdVersions, cmdRuns, cmdGetRun, cmdCancelRun, cmdState,
 				cmdTest, cmdRecording,
-			}, handlerCommands...),
+			}, handlercmd.Commands...),
 			keyDescription: "The operation to perform. Call 'help' first if you have not written a " +
 				"script for this platform before: it states the dialect and what is available.",
 		},
@@ -473,7 +476,7 @@ func manageScriptSchema() any {
 	maps.Copy(props, textpatch.PropertiesMap())
 	maps.Copy(props, epcmd.Properties())
 	maps.Copy(props, scriptshare.ListProperties())
-	maps.Copy(props, handlerProperties())
+	maps.Copy(props, handlercmd.Properties())
 	props["timeout_seconds"] = map[string]any{keyType: "integer", keyDescription: "For run_draft: how long the draft may run. " +
 		"Up to 60 for anyone; an administrator may ask for up to scripts.draft.max_seconds, and a draft longer " +
 		"than 60 runs in the background: run_draft answers its run_id at once and get_run reads it. " +

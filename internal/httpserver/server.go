@@ -13,15 +13,12 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/txn2/mcp-data-platform/internal/buildinfo"
-	"github.com/txn2/mcp-data-platform/internal/selfcall"
-	"github.com/txn2/mcp-data-platform/internal/shutdown"
-
 	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
 	_ "github.com/txn2/mcp-data-platform/internal/apidocs" // Swagger API docs
+	"github.com/txn2/mcp-data-platform/internal/buildinfo"
 	"github.com/txn2/mcp-data-platform/internal/httpobs"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/adminwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/alertwire"
@@ -41,6 +38,8 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/storagewire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/thumbwire"
 	"github.com/txn2/mcp-data-platform/internal/platform/listenbridge"
+	"github.com/txn2/mcp-data-platform/internal/selfcall"
+	"github.com/txn2/mcp-data-platform/internal/shutdown"
 	"github.com/txn2/mcp-data-platform/internal/ui"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -162,9 +161,8 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 
 	// Scheduled knowledge review-queue staleness check (#803). It enqueues
 	// through the substrate above, so it starts after it and stops before it.
-	reviewAlert := alertwire.BuildReviewAlert(p, notify)
-	reviewAlert.Start(ctx)
-	defer reviewAlert.Stop()
+	stopAlerts := alertwire.StartReviewAlerts(ctx, p, notify)
+	defer stopAlerts()
 
 	// Connection-revocation alerts (#1694). The sink is attached to the
 	// auth-event writer here, once the substrate it enqueues into exists; the

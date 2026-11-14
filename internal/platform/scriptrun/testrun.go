@@ -12,7 +12,10 @@ import (
 type TestInputs struct {
 	Params map[string]any
 	State  map[string]any
-	Set    bool
+	// Call is what run.call reads once a test set it (#2635): the tool call
+	// a watch's run is handed. Nil leaves the run's own.
+	Call map[string]any
+	Set  bool
 	// RemainingMS is what platform.remaining_ms returns for the rest of the
 	// test, nil to read the recording's values (#2004).
 	RemainingMS *int64
@@ -36,6 +39,9 @@ func (r *testRun) record() *starlarkstruct.Struct {
 	in := r.h.opts.Test.Inputs
 	if !in.Set {
 		return r.h.runRecord(r.h.opts.Params, r.h.opts.State)
+	}
+	if in.Call != nil {
+		return r.h.runRecordWithCall(in.Params, in.State, in.Call)
 	}
 	return r.h.runRecord(in.Params, in.State)
 }

@@ -43,6 +43,8 @@ type Config struct {
 	// ReviewAlert persists the knowledge review-queue alert threshold
 	// (#803). nil disables the review-queue-alert routes.
 	ReviewAlert reviewalert.SettingsStore
+	// ApprovalAlert persists the approvals queue alert (#2437).
+	ApprovalAlert reviewalert.SettingsStore
 	// ConnectionAlert persists the connection-revocation alert's escalation
 	// window and recipients (#1694). nil disables the connection-alert
 	// routes.
@@ -93,6 +95,7 @@ type handler struct {
 func Register(mux *http.ServeMux, cfg Config) {
 	h := &handler{cfg: cfg}
 	registerReviewAlert(mux, h)
+	registerApprovalAlert(mux, h)
 	registerConnAlert(mux, h)
 	registerScriptRunAlert(mux, h)
 	registerStorage(mux, h)

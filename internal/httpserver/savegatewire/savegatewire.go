@@ -6,6 +6,7 @@ package savegatewire
 
 import (
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/handlerhttp"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifylayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scripthandler"
@@ -45,10 +46,28 @@ func Handlers(p *platform.Platform) *scripthandler.Service {
 		return nil
 	}
 	var commands *epcmd.Handler
-	if e := p.Endpoints(); e != nil {
+	e := p.Endpoints()
+	if e != nil {
 		commands = e.Commands
 	}
-	return scripthandler.New(p.DB(), commands, scriptstore.New(p.DB()))
+	svc := scripthandler.New(p.DB(), commands, scriptstore.New(p.DB()))
+	if svc != nil && e != nil && e.Approvals != nil {
+		svc.Approvals = e.Approvals
+		svc.Versions = scripthandler.ApprovalVersions{Approvals: e.Approvals}
+	}
+	if svc != nil && e != nil && e.CallHandlers != nil && e.CallHandlers.Evaluator != nil {
+		svc.OnCallChange = e.CallHandlers.Evaluator.Index.Notify
+	}
+	return svc
+}
+
+// CallTester is the test panel's answer for a connection's handlers (#2436),
+// nil when the tool-call handlers are not wired.
+func CallTester(p *platform.Platform) handlerhttp.Tester {
+	if e := p.Endpoints(); e != nil && e.CallHandlers != nil && e.CallHandlers.Evaluator != nil {
+		return e.CallHandlers.Evaluator
+	}
+	return nil
 }
 
 // Drafts is the runner a draft started on the portal executes on: the script

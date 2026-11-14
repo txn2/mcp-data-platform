@@ -8,9 +8,11 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/approval"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/platform/callhandler"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptevents"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptevents/sourcerule"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
@@ -66,15 +68,22 @@ func invalid(err error) error { return &kindError{err: err, kind: ErrInvalid} }
 
 // The keys a handler's id, its kind and its script's name are reported under.
 const (
-	fieldHandler = "handler"
-	fieldKind    = "kind"
-	fieldName    = "name"
+	fieldHandler    = "handler"
+	fieldKind       = "kind"
+	fieldName       = "name"
+	fieldEnabled    = "enabled"
+	fieldConnection = "connection"
+	fieldCreatedBy  = "created_by"
 )
 
 // Caller is who asks.
 type Caller struct {
 	Email string
 	Admin bool
+	// Persona and Roles are the caller's: what a handler version an
+	// administrator approves runs with.
+	Persona string
+	Roles   []string
 }
 
 // Service carries out every handler operation, for every surface.
@@ -92,6 +101,16 @@ type Service struct {
 	SourceList SourceLister
 	// Now is the clock a new schedule's first fire is computed from.
 	Now func() time.Time
+	// Calls keeps the tool-call handlers (policy, transform, watch); nil on
+	// a deployment that cannot keep them. Versions approves their versions.
+	Calls    CallStore
+	Versions VersionApprover
+	// Approvals is the queue a saved handler version is approved or asked
+	// for through; nil approves nothing.
+	Approvals *approval.Service
+	// OnCallChange is told when a tool-call handler changes, so this
+	// replica's index reads it for the next call; nil tells nothing.
+	OnCallChange func()
 }
 
 // New is the service over the platform's database, nil without one: there
@@ -103,6 +122,7 @@ func New(db *sql.DB, endpoints *epcmd.Handler, scripts Scripts) *Service {
 	s := &Service{
 		View: View{DB: db}, Scripts: scripts, Endpoints: endpoints,
 		Schedules: scriptstore.New(db), Webhooks: scriptevents.NewStore(db), Now: time.Now,
+		Calls: callhandler.NewStore(db),
 	}
 	if rule := sourcerule.NewRule(db, scripts.GetByID); rule != nil {
 		s.Sources, s.SourceList = rule, whsource.NewStore(db, nil)
@@ -127,6 +147,11 @@ type SetRequest struct {
 	Args     map[string]any
 	// EventSource is a webhook handler's.
 	EventSource string
+	// Call is a tool-call handler's match and settings (Args are its
+	// script's parameters); Approve approves the script's latest version
+	// for handlers as the administrator setting it.
+	Call    callhandler.Patch
+	Approve bool
 }
 
 // mayAct refuses a caller who is neither the script's owner nor an
@@ -150,6 +175,9 @@ func (s *Service) Set(ctx context.Context, req SetRequest) (map[string]any, erro
 		return s.setEndpoint(ctx, req)
 	case KindSchedule:
 		return s.setSchedule(ctx, req)
+	case KindPolicy, KindTransform, KindWatch:
+		req.Call.Args = req.Args
+		return s.setCall(ctx, req)
 	}
 	return s.setWebhook(ctx, req)
 }
@@ -218,6 +246,9 @@ func (s *Service) Get(ctx context.Context, id string, c Caller) (map[string]any,
 	if err != nil {
 		return nil, err
 	}
+	if callhandler.IsKind(h.Kind) {
+		return s.describeCall(ctx, h, sc, c)
+	}
 	return s.describe(ctx, h, sc)
 }
 
@@ -236,6 +267,11 @@ func (s *Service) Enable(ctx context.Context, id string, enabled bool, c Caller)
 		if err := s.Schedules.EnableSchedule(ctx, h.ID, enabled, c.Email); err != nil {
 			return nil, storeOr(err)
 		}
+	case KindPolicy, KindTransform, KindWatch:
+		if err := s.enableCall(ctx, h, enabled, c); err != nil {
+			return nil, err
+		}
+		return s.describeCall(ctx, h, sc, c)
 	default:
 		if err := s.mayRunFor(ctx, h, enabled, c); err != nil {
 			return nil, err
@@ -278,6 +314,8 @@ func (s *Service) Delete(ctx context.Context, id string, c Caller) (map[string]a
 			return nil, fmt.Errorf("schedule handler %s of %s produced runs, which name it, so it is kept: "+
 				"disable it with handler_disable: %w", h.ID, sc.Name, ErrNotAllowed)
 		}
+	case KindPolicy, KindTransform, KindWatch:
+		err = s.deleteCall(ctx, h, c)
 	default:
 		err = s.Webhooks.DeleteHandler(ctx, h.ID)
 	}
@@ -419,6 +457,10 @@ func (s *Service) offerRefusal(sc *script.Script, c Caller, kind string) string 
 		return "An administrator adds an endpoint to a script that is not a form."
 	case kind == KindWebhook && s.Sources == nil:
 		return "This deployment has no webhook sources."
+	case callhandler.IsKind(kind) && !c.Admin:
+		return "An administrator adds a " + kind + ": it runs with an administrator's authority on other people's calls."
+	case callhandler.IsKind(kind) && s.Calls == nil:
+		return "This deployment cannot keep tool-call handlers."
 	}
 	return ""
 }

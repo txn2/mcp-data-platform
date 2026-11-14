@@ -1,7 +1,11 @@
 # Handlers
 
 A script's handlers are what start it, besides someone running it (#2441,
-#2434, #2435). There are three kinds:
+#2434, #2435). There are three kinds, and three more an administrator binds to
+a connection so the script runs for other people's calls on it: a `policy`
+decides whether a call runs, a `transform` changes what it returns, and a
+`watch` runs the script after it ([Tool-call handlers](call-handlers.md), #2436,
+#2634, #2635):
 
 | Kind | Starts the script | The script defines | Settings | Who adds one |
 |---|---|---|---|---|
@@ -120,9 +124,10 @@ portal's editor alike.
 
 A script's page has a **Handlers** section in place of the separate endpoint,
 schedule and events sections it had before. Each handler is a row with its type
-badge (**Endpoint**, **Form**, **Schedule** or **Webhook**), what it answers to
-(an endpoint's path, a schedule in words, "Each event of" a webhook handler's
-source) and **On** or **Off**. Opening a row shows that kind's controls: an
+badge (**Endpoint**, **Form**, **Schedule**, **Webhook**, **Policy**,
+**Transform** or **Watch**), what it answers to (an endpoint's path, a schedule
+in words, "Each event of" a webhook handler's source, a tool-call handler's
+connection and operations) and **On** or **Off**. Opening a row shows that kind's controls: an
 endpoint's settings, the schedule builder with Pause and Resume, a webhook
 handler's switch with how its event runs stand, and Delete. **Add handler**
 offers each kind, and shows the reason beside a kind the viewer may not add.
@@ -130,8 +135,8 @@ Adding an endpoint to a form offers **Preview form** and **Request public
 access** first.
 
 The Automations list shows each script's type badges beside its name and
-narrows by **Filter by type**: Endpoint, Form, Schedule, Webhook, or None for a
-script with no handler. A script with a form and a schedule shows both badges
+narrows by **Filter by type**: Endpoint, Form, Schedule, Webhook, Policy,
+Transform, Watch, or None for a script with no handler. A script with a form and a schedule shows both badges
 and is listed under both. The schedule and endpoint columns show a script's
 first one and say how many more it has.
 
@@ -154,7 +159,8 @@ a kind's rule answers 403, a handler or script that does not exist 404, and a
 request that names something wrongly 400.
 
 `GET /api/v1/portal/scripts` takes `type`, repeatable: the scripts holding a
-handler of any of the types named (`endpoint`, `form`, `schedule`, `webhook`),
+handler of any of the types named (`endpoint`, `form`, `schedule`, `webhook`,
+`policy`, `transform`, `watch`),
 and `none` for the scripts holding none. Each row carries `handler_types`,
 `schedules` and `endpoints`, each `[]` when empty. `endpoint=` was removed and
 is answered 400. A script's contract (what `fetch` on its reference returns)

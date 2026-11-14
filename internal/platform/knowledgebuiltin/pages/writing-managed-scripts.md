@@ -322,6 +322,30 @@ A script's handlers are what start it besides someone running it, and
   `scripts.events.max_queued` waiting event runs of the handler an event is
   recorded as `skipped_backlog` and not run.
 
+An administrator can also bind a script to a connection so it runs for other
+people's calls on it (`connection`, `operations`, `personas` or `users`,
+`conditions`):
+
+- `policy` runs `decide(call)` before each matched call, read-only and under its
+  `timeout_ms`, and returns `platform.allow()`, `platform.deny(reason)` or
+  `platform.require_approval(approvers, summary)`. `call` holds the tool,
+  connection, operation, method, path, arguments as sent (a stored secret as its
+  `{{secret:<name>}}` placeholder), item count, caller, persona and time.
+  `platform.count(key, window)` counts calls over a window (`"1h"`, `"7d"`, at
+  most 31 days), and `platform.notify` queues a message sent after the call.
+- `transform` runs `transform(call, result)` after each matched call and returns
+  what the caller gets; `protected` columns may be selected as they are and are
+  refused anywhere else.
+- `watch` queues one run of `main()` after each matched call that succeeded,
+  reading the call as `run.call` (None in a draft or a test).
+
+These run the version an administrator approved with that administrator's roles:
+your save of such a script waits for an administrator, and the approved version
+keeps running meanwhile. Their runs are administrators' only. `handler_test`
+shows what each handler on a connection would make of a call without making it.
+The built-in `policy-rate-limit` and `policy-business-hours` examples are worked
+policies.
+
 A script may hold several handlers of each kind, at most 20 of a kind: two
 schedules fire on two cadences, and one script may run for several sources.
 `handler_set` answers the handler with its id (`handler`); `handler_list`

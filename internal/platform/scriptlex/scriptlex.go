@@ -151,3 +151,62 @@ func lineOf(source string, off int) int {
 	}
 	return 1 + strings.Count(source[:off], "\n")
 }
+
+// dialectHints maps a fragment of an interpreter message to the hint that
+// tells an author what to write instead. Keyed on a fragment rather than on
+// the whole message so a wording change upstream degrades to a bare error
+// rather than to a wrong hint, and compiled so a message with a variable
+// middle ("function f called recursively") still matches. An empty hint is
+// the undefined-name hint, composed from the names the run predeclares.
+var dialectHints = []struct {
+	fragment *regexp.Regexp
+	hint     string
+}{
+	{regexp.MustCompile("does not support while loops"), "Unbounded loops are disabled so a script's cost is predictable from its source. Iterate over a list with `for`, or express the repetition in SQL."},
+	{regexp.MustCompile("called recursively"), "Recursion is disabled for the same reason as `while`. Flatten the work into a loop over a list, or do it in SQL."},
+	{regexp.MustCompile("undefined: "), ""},
+	{regexp.MustCompile(`got import\b`), "There is no `import`. Query results come from `platform.query`; JSON is the predeclared `json` module, XML the `xml` module; dates are the predeclared `date` module."},
+	{regexp.MustCompile(`got (?:try|except|finally)\b`), "There is no `try`/`except`. An error fails the run by design, so the failure is visible in the run record instead of being swallowed."},
+	{regexp.MustCompile(`got class\b`), "There are no classes. Use dicts for structured values and functions for behavior."},
+	{regexp.MustCompile(`got with\b`), "There is no `with`. Nothing a script touches needs to be opened or closed."},
+	{regexp.MustCompile(`got raise\b`), "There is no `raise`. `fail(\"message\")` stops the run with a message."},
+	{regexp.MustCompile(`got yield\b`), "There are no generators. Build and return a list."},
+}
+
+// DialectHint is the correction for an interpreter message the dialect's
+// deliberate restrictions produce, an undefined name listing predeclared.
+func DialectHint(msg string, predeclared []string) (string, bool) {
+	for _, d := range dialectHints {
+		if !d.fragment.MatchString(msg) {
+			continue
+		}
+		if hint := d.hint; hint != "" {
+			return hint, true
+		}
+		return "Only " + QuotedList(predeclared) + " are available, plus the Starlark built-ins. There are no imports and no standard library beyond that.", true
+	}
+	return "", false
+}
+
+// HasDialectHint reports whether msg has a dialect correction.
+func HasDialectHint(msg string) bool {
+	_, ok := DialectHint(msg, nil)
+	return ok
+}
+
+// QuotedList renders names as a backticked English list ("`a`, `b`, and `c`").
+func QuotedList(names []string) string {
+	quoted := make([]string, 0, len(names))
+	for _, n := range names {
+		quoted = append(quoted, "`"+n+"`")
+	}
+	switch len(quoted) {
+	case 0:
+		return ""
+	case 1:
+		return quoted[0]
+	case 2:
+		return quoted[0] + " and " + quoted[1]
+	}
+	return strings.Join(quoted[:len(quoted)-1], ", ") + ", and " + quoted[len(quoted)-1]
+}

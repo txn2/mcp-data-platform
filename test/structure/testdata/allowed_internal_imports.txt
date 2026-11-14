@@ -353,6 +353,7 @@ internal/endpoint/epwire -> internal/endpoint/eppreview
 internal/endpoint/epwire -> internal/endpoint/eprefusal
 internal/endpoint/epwire -> internal/endpoint/eprun
 internal/endpoint/epwire -> internal/endpoint/epstore
+internal/endpoint/epwire -> internal/platform/callrun
 internal/endpoint/epwire -> internal/platform/scriptlib
 internal/endpoint/epwire -> internal/platform/scriptres
 internal/endpoint/epwire -> internal/platform/scriptrun
@@ -506,6 +507,7 @@ internal/httpserver/adminwire -> internal/httpserver/personaaccesswire
 internal/httpserver/adminwire -> internal/secretstore
 internal/httpserver/adminwire -> pkg/admin
 internal/httpserver/adminwire -> pkg/platform
+internal/httpserver/alertwire -> internal/approval
 internal/httpserver/alertwire -> internal/logsan
 internal/httpserver/alertwire -> internal/platform/connalert
 internal/httpserver/alertwire -> internal/platform/notifydelivery
@@ -644,6 +646,7 @@ internal/httpserver/formpublishwire -> internal/approval
 internal/httpserver/formpublishwire -> internal/approval/apprhttp
 internal/httpserver/formpublishwire -> internal/endpoint/eppreview
 internal/httpserver/formpublishwire -> internal/logsan
+internal/httpserver/formpublishwire -> internal/platform/callrun
 internal/httpserver/formpublishwire -> internal/platform/notifydelivery
 internal/httpserver/formpublishwire -> internal/platform/scriptstore
 internal/httpserver/formpublishwire -> pkg/middleware
@@ -756,6 +759,7 @@ internal/httpserver/resourcesharewire -> pkg/platform
 internal/httpserver/resourcesharewire -> pkg/portal
 internal/httpserver/resourcesharewire -> pkg/resource
 internal/httpserver/savegatewire -> internal/endpoint/epcmd
+internal/httpserver/savegatewire -> internal/httpserver/scripthttp/handlerhttp
 internal/httpserver/savegatewire -> internal/platform/notifylayer
 internal/httpserver/savegatewire -> internal/platform/scriptdraft
 internal/httpserver/savegatewire -> internal/platform/scripthandler
@@ -830,6 +834,7 @@ internal/httpserver/scripthttp/granthttp -> internal/platform/scriptgrant
 internal/httpserver/scripthttp/handlerhttp -> internal/endpoint/epcmd
 internal/httpserver/scripthttp/handlerhttp -> internal/httpjson
 internal/httpserver/scripthttp/handlerhttp -> internal/logsan
+internal/httpserver/scripthttp/handlerhttp -> internal/platform/callhandler
 internal/httpserver/scripthttp/handlerhttp -> internal/platform/scripthandler
 internal/httpserver/scripthttp/handlerhttp -> pkg/script
 internal/httpserver/scripthttp/outputshttp -> internal/httpjson
@@ -1064,6 +1069,8 @@ internal/platform/callcatchup -> internal/conncatchup
 internal/platform/callcatchup -> pkg/connreconcile
 internal/platform/callcatchup -> pkg/registry
 internal/platform/callcatchup -> pkg/toolkit
+internal/platform/callhandler -> internal/logsan
+internal/platform/callhandler -> internal/platform/scriptdialect
 internal/platform/callindex -> internal/platform/callrecord
 internal/platform/callindex -> pkg/indexjobs
 internal/platform/callrecord -> internal/advisorylock
@@ -1078,6 +1085,28 @@ internal/platform/callrecord -> pkg/audit
 internal/platform/callrecord -> pkg/mcpcontext
 internal/platform/callrecord -> pkg/portal/knowledgepage
 internal/platform/callrecord -> pkg/script
+internal/platform/callrun -> internal/approval
+internal/platform/callrun -> internal/bgloop
+internal/platform/callrun -> internal/calltransform
+internal/platform/callrun -> internal/cfgmap
+internal/platform/callrun -> internal/logsan
+internal/platform/callrun -> internal/pathtemplate
+internal/platform/callrun -> internal/pglisten
+internal/platform/callrun -> internal/platform/callhandler
+internal/platform/callrun -> internal/platform/scriptdecide
+internal/platform/callrun -> internal/platform/scriptdialect
+internal/platform/callrun -> internal/platform/scriptnotify
+internal/platform/callrun -> internal/platform/scriptrun
+internal/platform/callrun -> internal/platform/scriptsession
+internal/platform/callrun -> internal/platform/scriptstore
+internal/platform/callrun -> internal/platform/starlarkconv
+internal/platform/callrun -> internal/producedby
+internal/platform/callrun -> internal/runstate
+internal/platform/callrun -> internal/wirejson
+internal/platform/callrun -> pkg/audit
+internal/platform/callrun -> pkg/middleware
+internal/platform/callrun -> pkg/script
+internal/platform/callrun -> pkg/session
 internal/platform/calltask -> internal/bgloop
 internal/platform/calltask -> internal/exportasync
 internal/platform/calltask -> internal/logsan
@@ -1427,6 +1456,7 @@ internal/platform/retention -> internal/logsan
 internal/platform/retention -> internal/platform/assetbucket
 internal/platform/retention -> internal/portal/portalpurge
 internal/platform/retention -> internal/scripttoken
+internal/platform/reviewalert -> internal/approval
 internal/platform/reviewalert -> internal/bgloop
 internal/platform/reviewalert -> internal/logsan
 internal/platform/reviewalert -> internal/notification/notifyalert
@@ -1482,6 +1512,7 @@ internal/platform/scriptevents -> pkg/script
 internal/platform/scriptevents -> pkg/session
 internal/platform/scriptevents/sourcerule -> internal/webhook/whsource
 internal/platform/scriptevents/sourcerule -> pkg/script
+internal/platform/scriptexamples -> pkg/script
 internal/platform/scriptexec -> internal/bgloop
 internal/platform/scriptexec -> internal/logsan
 internal/platform/scriptexec -> internal/notification/notifyalert
@@ -1534,12 +1565,15 @@ internal/platform/scriptfmt -> internal/platform/scriptdialect
 internal/platform/scriptgrant -> pkg/script
 internal/platform/scriptguard -> internal/runstate
 internal/platform/scriptguard -> internal/upstreamretry
+internal/platform/scripthandler -> internal/approval
 internal/platform/scripthandler -> internal/endpoint/epbinding
 internal/platform/scripthandler -> internal/endpoint/epcmd
 internal/platform/scripthandler -> internal/endpoint/epform
 internal/platform/scripthandler -> internal/logsan
+internal/platform/scripthandler -> internal/platform/callhandler
 internal/platform/scripthandler -> internal/platform/scriptevents
 internal/platform/scripthandler -> internal/platform/scriptevents/sourcerule
+internal/platform/scripthandler -> internal/platform/scriptsave
 internal/platform/scripthandler -> internal/platform/scriptstore
 internal/platform/scripthandler -> internal/webhook/whsource
 internal/platform/scripthandler -> pkg/script
@@ -1556,6 +1590,7 @@ internal/platform/scriptlayer -> internal/libraryuse
 internal/platform/scriptlayer -> internal/logsan
 internal/platform/scriptlayer -> internal/mcptask
 internal/platform/scriptlayer -> internal/openrun
+internal/platform/scriptlayer -> internal/platform/callrun
 internal/platform/scriptlayer -> internal/platform/notifylayer
 internal/platform/scriptlayer -> internal/platform/resourcewrite
 internal/platform/scriptlayer -> internal/platform/runcontrol
@@ -1566,6 +1601,7 @@ internal/platform/scriptlayer -> internal/platform/scriptexamples
 internal/platform/scriptlayer -> internal/platform/scriptgrant
 internal/platform/scriptlayer -> internal/platform/scripthandler
 internal/platform/scriptlayer -> internal/platform/scriptindex
+internal/platform/scriptlayer -> internal/platform/scriptlayer/handlercmd
 internal/platform/scriptlayer -> internal/platform/scriptlib
 internal/platform/scriptlayer -> internal/platform/scriptlint
 internal/platform/scriptlayer -> internal/platform/scriptpace
@@ -1592,6 +1628,9 @@ internal/platform/scriptlayer -> pkg/session
 internal/platform/scriptlayer -> pkg/textpatch
 internal/platform/scriptlayer -> pkg/textpatch/patchmcp
 internal/platform/scriptlayer -> pkg/toolkit
+internal/platform/scriptlayer/handlercmd -> internal/endpoint/epcmd
+internal/platform/scriptlayer/handlercmd -> internal/platform/callhandler
+internal/platform/scriptlayer/handlercmd -> internal/platform/scripthandler
 internal/platform/scriptlib -> internal/platform/scriptdialect
 internal/platform/scriptlint -> internal/platform/scriptdialect
 internal/platform/scriptlint -> internal/platform/scriptfmt
@@ -1632,6 +1671,7 @@ internal/platform/scriptrun -> internal/outbound
 internal/platform/scriptrun -> internal/platform/exportlibrary
 internal/platform/scriptrun -> internal/platform/exportrefs
 internal/platform/scriptrun -> internal/platform/exporttable
+internal/platform/scriptrun -> internal/platform/scriptdecide
 internal/platform/scriptrun -> internal/platform/scriptdialect
 internal/platform/scriptrun -> internal/platform/scriptfail
 internal/platform/scriptrun -> internal/platform/scriptguard
@@ -1681,10 +1721,12 @@ internal/platform/scriptsave -> pkg/registry
 internal/platform/scriptsave -> pkg/resource
 internal/platform/scriptsave -> pkg/script
 internal/platform/scriptsession -> internal/appdbops
+internal/platform/scriptsession -> internal/calltransform
 internal/platform/scriptsession -> internal/inprocess
 internal/platform/scriptsession -> internal/jsonwalk
 internal/platform/scriptsession -> internal/mcpobs
 internal/platform/scriptsession -> internal/pglex
+internal/platform/scriptsession -> internal/platform/callhandler
 internal/platform/scriptsession -> internal/producedby
 internal/platform/scriptsession -> internal/scriptcallsite
 internal/platform/scriptsession -> pkg/middleware
@@ -1729,6 +1771,8 @@ internal/platform/scriptwiring -> internal/approval/apprtool
 internal/platform/scriptwiring -> internal/bucketsource
 internal/platform/scriptwiring -> internal/endpoint/epwire
 internal/platform/scriptwiring -> internal/logsan
+internal/platform/scriptwiring -> internal/platform/callhandler
+internal/platform/scriptwiring -> internal/platform/callrun
 internal/platform/scriptwiring -> internal/platform/catalogstore
 internal/platform/scriptwiring -> internal/platform/resourcewrite
 internal/platform/scriptwiring -> internal/platform/scriptadmit
@@ -1740,8 +1784,10 @@ internal/platform/scriptwiring -> internal/platform/scriptrec
 internal/platform/scriptwiring -> internal/platform/scriptrec/recstore
 internal/platform/scriptwiring -> internal/platform/scriptrun
 internal/platform/scriptwiring -> internal/platform/scriptsave
+internal/platform/scriptwiring -> internal/platform/scriptsession
 internal/platform/scriptwiring -> internal/platform/scriptsrc
 internal/platform/scriptwiring -> internal/platform/scriptstmt
+internal/platform/scriptwiring -> internal/platform/scriptstore
 internal/platform/scriptwiring -> internal/platform/sqllineage
 internal/platform/scriptwiring -> internal/scripttoken
 internal/platform/scriptwiring -> internal/secretstore
@@ -1749,6 +1795,7 @@ internal/platform/scriptwiring -> internal/site/siteconfig
 internal/platform/scriptwiring -> internal/site/sitesvc
 internal/platform/scriptwiring -> internal/site/sitetool
 internal/platform/scriptwiring -> internal/site/sitewire
+internal/platform/scriptwiring -> internal/sqlprotect
 internal/platform/scriptwiring -> pkg/middleware
 internal/platform/scriptwiring -> pkg/observability
 internal/platform/scriptwiring -> pkg/persona
@@ -1756,6 +1803,7 @@ internal/platform/scriptwiring -> pkg/portal
 internal/platform/scriptwiring -> pkg/registry
 internal/platform/scriptwiring -> pkg/script
 internal/platform/scriptwiring -> pkg/toolkits/portal
+internal/platform/scriptwiring -> pkg/toolkits/postgres
 internal/platform/searchfed -> internal/docread
 internal/platform/searchfed -> internal/producedby
 internal/platform/searchfed -> internal/producedview
@@ -2109,6 +2157,7 @@ internal/site/sitewire -> pkg/portal/s3adapter
 internal/site/sitewire -> pkg/resource
 internal/soap -> internal/xmltree
 internal/sourcecheck -> pkg/contenttype
+internal/sqlprotect -> internal/sqltables
 internal/sqlrank -> internal/opranking
 internal/sqlrank -> internal/portal/portaldomain
 internal/tableavail -> pkg/query
@@ -2438,6 +2487,7 @@ pkg/platform -> internal/platform/branding
 pkg/platform -> internal/platform/browserauth
 pkg/platform -> internal/platform/callcatchup
 pkg/platform -> internal/platform/callrecord
+pkg/platform -> internal/platform/callrun
 pkg/platform -> internal/platform/catalogsemantic
 pkg/platform -> internal/platform/catalogstore
 pkg/platform -> internal/platform/completionlayer
@@ -2676,6 +2726,7 @@ pkg/textpatch/patchmcp -> pkg/textpatch
 pkg/toolkit -> internal/wirejson
 pkg/toolkits/apigateway -> internal/apigwmetrics
 pkg/toolkits/apigateway -> internal/apiresponse
+pkg/toolkits/apigateway -> internal/calltransform
 pkg/toolkits/apigateway -> internal/cfgmap
 pkg/toolkits/apigateway -> internal/conncatchup
 pkg/toolkits/apigateway -> internal/connprobe
@@ -2736,6 +2787,7 @@ pkg/toolkits/gateway -> pkg/toolkit
 pkg/toolkits/gateway -> pkg/toolkits/gateway/enrichment
 pkg/toolkits/gateway/enrichment -> internal/logsan
 pkg/toolkits/graphql -> internal/apigwmetrics
+pkg/toolkits/graphql -> internal/calltransform
 pkg/toolkits/graphql -> internal/cfgmap
 pkg/toolkits/graphql -> internal/conncatchup
 pkg/toolkits/graphql -> internal/connprobe
@@ -2850,6 +2902,7 @@ pkg/toolkits/search -> pkg/query
 pkg/toolkits/search -> pkg/semantic
 pkg/toolkits/search -> pkg/toolkit
 pkg/toolkits/tools/toolsindex -> pkg/indexjobs
+pkg/toolkits/trino -> internal/calltransform
 pkg/toolkits/trino -> internal/conncatchup
 pkg/toolkits/trino -> internal/connprobe
 pkg/toolkits/trino -> internal/connstate

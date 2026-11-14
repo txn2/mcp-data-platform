@@ -3,7 +3,6 @@ package scriptrun
 import (
 	"errors"
 	"fmt"
-	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -200,7 +199,7 @@ func sortFindings(findings []Finding) {
 func parseFindings(source string, err error) []Finding {
 	var list syntax.Error
 	if errors.As(err, &list) {
-		if word, ok := scriptreserved.Misused(source, list); ok && !hasDialectCorrection(list.Msg) {
+		if word, ok := scriptreserved.Misused(source, list); ok && !scriptlex.HasDialectHint(list.Msg) {
 			return []Finding{reservedNameFinding(word, int(list.Pos.Line))}
 		}
 		return []Finding{{Severity: SeverityError, Line: int(list.Pos.Line), Message: list.Msg}}
@@ -219,13 +218,6 @@ func reservedNameFinding(word string, line int) Finding {
 	}
 }
 
-// hasDialectCorrection reports whether a message already has a correction of
-// its own: "got class, want primary expression" is a class statement far more
-// often than a variable named class, and its hint says what to write instead.
-func hasDialectCorrection(msg string) bool {
-	return slices.ContainsFunc(dialectPattern, func(re *regexp.Regexp) bool { return re.MatchString(msg) })
-}
-
 // resolveFindings turns a resolver failure into findings. The resolver is where
 // the dialect's deliberate restrictions surface — while, an undefined name —
 // so these are the messages most in need of translation. Recursion is not
@@ -242,72 +234,16 @@ func resolveFindings(err error) []Finding {
 	return []Finding{{Severity: SeverityError, Message: err.Error()}}
 }
 
-// undefinedNameHint lists the environment for an author who reached for a name
-// that is not in it. It is composed from PredeclaredNames rather than written
-// out, so a global the platform adds or drops cannot leave the hint naming a
-// set the resolver disagrees with.
-var undefinedNameHint = fmt.Sprintf(
-	"Only %s are available, plus the Starlark built-ins. There are no imports and no standard library beyond that.",
-	quotedList(PredeclaredNames))
-
-// quotedList renders names as a backticked English list ("`a`, `b`, and `c`").
-func quotedList(names []string) string {
-	quoted := make([]string, 0, len(names))
-	for _, n := range names {
-		quoted = append(quoted, "`"+n+"`")
-	}
-	switch len(quoted) {
-	case 0:
-		return ""
-	case 1:
-		return quoted[0]
-	case 2:
-		return quoted[0] + " and " + quoted[1]
-	}
-	return strings.Join(quoted[:len(quoted)-1], ", ") + ", and " + quoted[len(quoted)-1]
-}
-
-// dialectCorrection maps a fragment of an interpreter message to the hint that
-// tells an author what to write instead. Keyed on a fragment rather than on
-// the whole message so a wording change upstream degrades to a bare error
-// rather than to a wrong hint.
-var dialectCorrections = []struct {
-	fragment string
-	hint     string
-}{
-	{"does not support while loops", "Unbounded loops are disabled so a script's cost is predictable from its source. Iterate over a list with `for`, or express the repetition in SQL."},
-	{"called recursively", "Recursion is disabled for the same reason as `while`. Flatten the work into a loop over a list, or do it in SQL."},
-	{"undefined: ", undefinedNameHint},
-	{`got import\b`, "There is no `import`. Query results come from `platform.query`; JSON is the predeclared `json` module, XML the `xml` module; dates are the predeclared `date` module."},
-	{`got (?:try|except|finally)\b`, "There is no `try`/`except`. An error fails the run by design, so the failure is visible in the run record instead of being swallowed."},
-	{`got class\b`, "There are no classes. Use dicts for structured values and functions for behavior."},
-	{`got with\b`, "There is no `with`. Nothing a script touches needs to be opened or closed."},
-	{`got raise\b`, "There is no `raise`. `fail(\"message\")` stops the run with a message."},
-	{`got yield\b`, "There are no generators. Build and return a list."},
-}
-
-// dialectPattern compiles one correction fragment as a regexp so a message with
-// a variable middle ("function f called recursively") still matches.
-var dialectPattern = func() []*regexp.Regexp {
-	out := make([]*regexp.Regexp, len(dialectCorrections))
-	for i, c := range dialectCorrections {
-		out[i] = regexp.MustCompile(c.fragment)
-	}
-	return out
-}()
-
 // translate attaches a dialect correction to any finding whose message matches
-// one, leaving the interpreter's own text as the message.
+// one (scriptlex.DialectHint), leaving the interpreter's own text as the
+// message.
 func translate(findings []Finding) []Finding {
 	for i := range findings {
 		if findings[i].Hint != "" {
 			continue
 		}
-		for j, re := range dialectPattern {
-			if re.MatchString(findings[i].Message) {
-				findings[i].Hint = dialectCorrections[j].hint
-				break
-			}
+		if hint, ok := scriptlex.DialectHint(findings[i].Message, PredeclaredNames); ok {
+			findings[i].Hint = hint
 		}
 	}
 	return findings

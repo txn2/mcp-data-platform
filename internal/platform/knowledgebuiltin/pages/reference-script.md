@@ -61,7 +61,8 @@ flowchart LR
    take it and write a test for that recording, as `test_an_empty_week_fails`
    does for a week with no orders. A path that depends on saved state takes
    `testing.set_run(state = {...})` before `main()`, with the answers that
-   path's calls get declared.
+   path's calls get declared; a watch reads the call it follows from
+   `testing.set_run(call = {...})`.
 4. Test pure functions directly, with rows written into the test, as
    `test_summarize_keeps_regions_with_orders` does. A script that writes an
    application database takes `testing.database("<connection>")` in its

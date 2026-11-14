@@ -452,3 +452,15 @@ func TestHandleExport_ByOperationID_RejectsBothForms(t *testing.T) {
 		t.Errorf("error message = %q", textContent(res))
 	}
 }
+
+// TestToolkitOperationTemplate names the catalog template a method and path match.
+func TestToolkitOperationTemplate(t *testing.T) {
+	tk := setupOpTargetToolkit(t, "https://api.example.com")
+	ctx := context.Background()
+	if got := tk.OperationTemplate(ctx, "c", "GET", "/things/abc"); got != "/things/{id}" {
+		t.Errorf("template = %q", got)
+	}
+	if got := tk.OperationTemplate(ctx, "nope", "GET", "/things/abc"); got != "" {
+		t.Errorf("an unknown connection names no template: %q", got)
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -46,11 +47,27 @@ type Input struct {
 	Comment  string `json:"comment,omitempty"`
 	Status   string `json:"status,omitempty"`
 	Limit    int    `json:"limit,omitempty"`
+	// Kind is submit's subject (a script version, or a held call) and
+	// list's filter; Tool, Arguments and Calls are a held call's (#2437).
+	Kind      string         `json:"kind,omitempty"`
+	Tool      string         `json:"tool,omitempty"`
+	Arguments map[string]any `json:"arguments,omitempty"`
+	Calls     int            `json:"calls,omitempty"`
+	// Until is decide's deadline for an allowance, in RFC 3339.
+	Until string `json:"until,omitempty"`
+}
+
+// CallHolder asks a held call's policies again for the request submit files
+// (callrun.Evaluator).
+type CallHolder interface {
+	HeldRequest(ctx context.Context, held approval.HeldCall) (approval.CallRequest, error)
 }
 
 // Tool is the registered tool.
 type Tool struct {
 	Service *approval.Service
+	// Calls asks a held call's policies again; nil refuses kind=call.
+	Calls CallHolder
 	// Persona resolves the persona a caller's roles resolve to, recorded on
 	// a request; nil records none.
 	Persona func(roles []string) string
@@ -81,8 +98,13 @@ const description = "Approvals: a request for an administrator's decision. A for
 	"preview_version=<n>, and decides it (decide id, decision approve or deny, comment); the requester is " +
 	"notified. Once approved, the form's owner sets auth_mode public or bot_check on its endpoint handler with manage_script handler_set. " +
 	"A version saved after the approval is served to signed-in people and not publicly until it is approved too. " +
-	"Administrators decide every request, their own included (recorded as self-approved); nobody else decides " +
-	"one. list answers your own requests, or for an administrator every request (status filters it)."
+	"A tool call a policy holds (#2437) is a request too: the client asks the person, or the call answers " +
+	"APPROVAL_REQUIRED and submit with kind call, the tool, its arguments, calls and a reason files it. Approved, it is " +
+	"an allowance: that many more calls of the operation, by the requester, on the connection, until a deadline; the " +
+	"person makes the call again to use it. A call request is decided by the approvers its policies named or an " +
+	"administrator, never by its requester unless an administrator. Every other request is decided by administrators, " +
+	"their own included (recorded as self-approved). list answers your own requests and those naming you, or for an " +
+	"administrator every request (status, kind and purpose filter it)."
 
 // JSON Schema words the input schema is written in.
 const (
@@ -103,8 +125,9 @@ func schema() map[string]any {
 			"script":  str("submit: the script, by id or by the name of one of your scripts."),
 			"version": num("submit: the version to approve; the latest when omitted."),
 			"purpose": map[string]any{
-				keyType: typString, keyEnum: []string{approval.PurposeFormPublic},
-				keyDesc: "submit: what the approval allows; form_public serves the form to callers with no session.",
+				keyType: typString, keyEnum: []string{approval.PurposeFormPublic, approval.PurposeCallHandler},
+				keyDesc: "submit: what the approval allows; form_public serves the form to callers with no session, call_handler runs " +
+					"the version as a policy, transform or watch. list: only requests for this purpose.",
 			},
 			"reason": str("submit: why, for the administrator deciding it."),
 			"id":     str("get, decide: the request's id."),
@@ -119,6 +142,14 @@ func schema() map[string]any {
 				keyDesc: "list: only requests with this status.",
 			},
 			"limit": num("list: how many requests, newest first (default 100)."),
+			"kind": map[string]any{
+				keyType: typString, keyEnum: []string{approval.KindCall, approval.KindHandlerVersion, approval.KindForm, approval.KindSite},
+				keyDesc: "submit: call files a held tool call (tool, arguments, calls, reason); list: only requests of this kind.",
+			},
+			"tool":      str("submit with kind call: the tool the held call was made with."),
+			"arguments": map[string]any{keyType: "object", keyDesc: "submit with kind call: the held call's arguments, as it was made."},
+			"calls":     num("submit with kind call: how many calls of the operation to ask for (default 1); decide: how many to grant, at most what was asked."),
+			"until":     str("decide on a call request: when the allowance ends, in RFC 3339 (default 24 hours from now)."),
 		},
 	}
 }
@@ -129,7 +160,7 @@ func (t *Tool) actorOf(ctx context.Context) approval.Actor {
 	if pc == nil {
 		return approval.Actor{}
 	}
-	a := approval.Actor{Email: pc.UserEmail, Admin: pc.IsAdmin}
+	a := approval.Actor{Email: pc.UserEmail, Admin: pc.IsAdmin, Roles: pc.Roles}
 	if t.Persona != nil {
 		a.Persona = t.Persona(pc.Roles)
 	}
@@ -159,6 +190,9 @@ func (t *Tool) run(ctx context.Context, actor approval.Actor, in Input) (any, er
 	s := t.Service
 	switch in.Command {
 	case CmdSubmit:
+		if in.Kind == approval.KindCall {
+			return t.submitCall(ctx, actor, in)
+		}
 		r, err := s.Submit(ctx, actor, approval.Submit{Script: in.Script, Version: in.Version, Purpose: in.Purpose, Reason: in.Reason})
 		if err != nil {
 			return nil, err //nolint:wrapcheck // the caller's message
@@ -166,7 +200,7 @@ func (t *Tool) run(ctx context.Context, actor approval.Actor, in Input) (any, er
 		return map[string]any{"request": r, "message": fmt.Sprintf(
 			"Requested approval of version %d of %s. An administrator decides it; you are notified then.", r.Version, r.ScriptName)}, nil
 	case CmdList:
-		rs, err := s.List(ctx, actor, approval.Filter{Status: in.Status, Limit: in.Limit})
+		rs, err := s.List(ctx, actor, approval.Filter{Status: in.Status, Limit: in.Limit, Kind: in.Kind, Purpose: in.Purpose})
 		if err != nil {
 			return nil, err //nolint:wrapcheck // the caller's message
 		}
@@ -174,9 +208,48 @@ func (t *Tool) run(ctx context.Context, actor approval.Actor, in Input) (any, er
 	case CmdGet:
 		return s.Get(ctx, actor, in.ID) //nolint:wrapcheck // the caller's message
 	case CmdDecide:
-		return s.Decide(ctx, actor, in.ID, in.Decision, in.Comment) //nolint:wrapcheck // the caller's message
+		a, err := allowanceOf(in)
+		if err != nil {
+			return nil, err
+		}
+		return s.DecideAllowance(ctx, actor, in.ID, approval.Ruling{Decision: in.Decision, Comment: in.Comment, Allowance: a}) //nolint:wrapcheck // the caller's message
 	}
 	return nil, &approval.RefusedError{Msg: fmt.Sprintf("unknown command %q: one of %v", in.Command, Commands)}
+}
+
+// submitCall files a held call: the policies are asked again, so the
+// request is what they hold, frozen as it is filed.
+func (t *Tool) submitCall(ctx context.Context, actor approval.Actor, in Input) (any, error) {
+	if in.ID != "" {
+		return nil, &approval.RefusedError{Msg: "a filed request is never changed: submit files a new one, and names no id"}
+	}
+	if t.Calls == nil {
+		return nil, &approval.RefusedError{Msg: "this deployment holds no calls for approval"}
+	}
+	req, err := t.Calls.HeldRequest(ctx, approval.HeldCall{
+		User: actor.Email, Persona: actor.Persona, Tool: in.Tool, Arguments: in.Arguments, Calls: in.Calls, Reason: in.Reason,
+	})
+	if err != nil {
+		return nil, &approval.RefusedError{Msg: err.Error()}
+	}
+	r, err := t.Service.SubmitCall(ctx, actor, req)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // the caller's message
+	}
+	return r, nil
+}
+
+// allowanceOf is what decide grants an approved call: calls and a deadline.
+func allowanceOf(in Input) (approval.Allowance, error) {
+	a := approval.Allowance{Calls: in.Calls}
+	if in.Until != "" {
+		until, err := time.Parse(time.RFC3339, in.Until)
+		if err != nil {
+			return a, &approval.RefusedError{Msg: fmt.Sprintf("until %q is not an RFC 3339 time", in.Until)}
+		}
+		a.Until = &until
+	}
+	return a, nil
 }
 
 // listed is what list answers.

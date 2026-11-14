@@ -131,7 +131,7 @@ jobs:
         run: |
           mkdir -p build/release
           docker logs acme-dev-postgres > build/release/postgres.log 2>&1 || true
-          sudo dmesg -T > build/release/dmesg.log 2>&1 || true
+          sudo dmesg -T 2>&1 | tee build/release/dmesg.log > /dev/null || true
 
       - name: Upload the stack's logs and the run's evidence
         if: always()

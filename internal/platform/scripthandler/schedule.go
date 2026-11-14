@@ -108,15 +108,15 @@ func sameArgs(a, b map[string]any) bool {
 func scheduleFields(sc *script.Script, sched *script.Schedule) map[string]any {
 	out := map[string]any{
 		fieldHandler: sched.ID, fieldKind: KindSchedule, fieldName: sc.Name,
-		"cron":     sched.CronSpec,
-		"timezone": sched.Timezone,
-		"args":     orEmptyArgs(sched.Params),
-		"enabled":  sched.Enabled,
+		"cron":       sched.CronSpec,
+		"timezone":   sched.Timezone,
+		settingArgs:  orEmptyArgs(sched.Params),
+		fieldEnabled: sched.Enabled,
 		// missed_fires is surfaced because it is the only place a gap shows.
 		// The misfire policy collapses a run of missed fires into one run, so
 		// the count is what tells an owner the automation was not running.
 		"missed_fires": sched.MissedFires,
-		"created_by":   sched.CreatedBy,
+		fieldCreatedBy: sched.CreatedBy,
 	}
 	// DueAt rather than NextRunAt: a paused schedule's stored due time is the
 	// fire it is parked on, and reporting it here would tell an author their

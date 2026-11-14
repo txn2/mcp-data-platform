@@ -16,8 +16,8 @@ import (
 )
 
 func TestKindsAndTypes(t *testing.T) {
-	assert.Equal(t, []string{KindEndpoint, KindSchedule, KindWebhook}, Kinds())
-	assert.Equal(t, []string{KindEndpoint, TypeForm, KindSchedule, KindWebhook, TypeNone}, Types())
+	assert.Equal(t, []string{KindEndpoint, KindSchedule, KindWebhook, KindPolicy, KindTransform, KindWatch}, Kinds())
+	assert.Equal(t, []string{KindEndpoint, TypeForm, KindSchedule, KindWebhook, KindPolicy, KindTransform, KindWatch, TypeNone}, Types())
 
 	for _, name := range Kinds() {
 		k, ok := KindOf(name)
@@ -46,9 +46,9 @@ func TestCheckKind(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalid)
 	assert.Contains(t, err.Error(), "kind is required: one of endpoint, schedule, webhook")
 
-	_, err = checkKind("policy")
+	_, err = checkKind("rule")
 	require.ErrorIs(t, err, ErrUnknownKind)
-	assert.Contains(t, err.Error(), `"policy": one of endpoint, schedule, webhook`)
+	assert.Contains(t, err.Error(), `"rule": one of endpoint, schedule, webhook, policy, transform, watch`)
 }
 
 func TestCheckTypes(t *testing.T) {

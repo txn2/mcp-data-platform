@@ -11,6 +11,7 @@ export const SETTINGS_SECTIONS = [
   { id: "channels", label: "Channels", group: "Delivery" },
   { id: "general-feedback", label: "General feedback", group: "Delivery" },
   { id: "knowledge-review", label: "Knowledge review", group: "Alerts" },
+  { id: "approvals-queue", label: "Approvals", group: "Alerts" },
   { id: "connection-revocations", label: "Connection revocations", group: "Alerts" },
   { id: "run-failures", label: "Run failures", group: "Alerts" },
   { id: "webhooks", label: "Webhooks", group: "Alerts" },

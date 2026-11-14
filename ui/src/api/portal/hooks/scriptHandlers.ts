@@ -4,15 +4,24 @@ import { scriptsKey } from "./scriptKeys";
 import type { ScriptEndpoint } from "./scriptEndpoint";
 import type { ScriptSchedule } from "./scripts";
 
-// A script's handlers (#2441, #2434, #2435): what starts it. A script may hold
-// several of each kind: endpoints (an endpoint on a form script is a form),
-// schedules, and webhook sources whose events each start one run.
+// A script's handlers (#2441, #2434, #2435, #2436): what starts it. A script
+// may hold several of each kind: endpoints (an endpoint on a form script is a
+// form), schedules, webhook sources whose events each start one run, and the
+// tool-call kinds an administrator binds to a connection: a policy decides
+// whether a call runs, a transform changes what it returns, a watch runs the
+// script after it.
+
+/** CallHandlerKind is a tool-call handler's kind (#2436, #2634, #2635). */
+export type CallHandlerKind = "policy" | "transform" | "watch";
+
+/** CALL_HANDLER_KINDS are the tool-call kinds, in the order a connection lists them. */
+export const CALL_HANDLER_KINDS: CallHandlerKind[] = ["policy", "transform", "watch"];
 
 /** HandlerKind is a kind of handler. */
-export type HandlerKind = "endpoint" | "schedule" | "webhook";
+export type HandlerKind = "endpoint" | "schedule" | "webhook" | CallHandlerKind;
 
 /** HandlerType is what a list filters and badges by: a kind, or form. */
-export type HandlerType = "endpoint" | "form" | "schedule" | "webhook";
+export type HandlerType = "endpoint" | "form" | "schedule" | "webhook" | CallHandlerKind;
 
 /** HANDLER_TYPE_LABELS name each type as the portal shows it. */
 export const HANDLER_TYPE_LABELS: Record<HandlerType, string> = {
@@ -20,7 +29,15 @@ export const HANDLER_TYPE_LABELS: Record<HandlerType, string> = {
   form: "Form",
   schedule: "Schedule",
   webhook: "Webhook",
+  policy: "Policy",
+  transform: "Transform",
+  watch: "Watch",
 };
+
+/** isCallHandlerKind reports whether a kind is a tool-call handler's. */
+export function isCallHandlerKind(kind: string): kind is CallHandlerKind {
+  return (CALL_HANDLER_KINDS as string[]).includes(kind);
+}
 
 /** HandlerDetail is one handler as its kind describes it. */
 export interface HandlerDetail extends Record<string, unknown> {

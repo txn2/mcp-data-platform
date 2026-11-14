@@ -127,7 +127,7 @@ func TestAdd_EachKind(t *testing.T) {
 			"an endpoint on a script with no handle(req)", `{"kind":"endpoint","endpoint":"x","auth_mode":"authenticated"}`, admin,
 			http.StatusBadRequest, "defines no handle(req)",
 		},
-		{"an unknown kind", `{"kind":"policy"}`, jane, http.StatusBadRequest, "unknown handler kind"},
+		{"an unknown kind", `{"kind":"rule"}`, jane, http.StatusBadRequest, "unknown handler kind"},
 		{"a cadence that never fires", `{"kind":"schedule","cron":"every tuesday"}`, jane, http.StatusBadRequest, "not a cron expression"},
 		{"a repeated cadence", `{"kind":"schedule","cron":"0 19 * * *"}`, jane, http.StatusBadRequest, "already has schedule handler " + evening},
 		{"a body that is no handler", `nope`, jane, http.StatusBadRequest, "the body must be a handler"},
@@ -330,7 +330,7 @@ func TestAdminList(t *testing.T) {
 
 	code, _ = list("?enabled=maybe")
 	assert.Equal(t, http.StatusBadRequest, code)
-	code, _ = list("?type=policy")
+	code, _ = list("?type=rule")
 	assert.Equal(t, http.StatusBadRequest, code, "a type no list filters on")
 	g.w.viewErr = errors.New("db down")
 	code, _ = list("")

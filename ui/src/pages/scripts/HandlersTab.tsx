@@ -32,6 +32,9 @@ const TYPE_OPTIONS = [
   { value: "form", label: "Form" },
   { value: "schedule", label: "Schedule" },
   { value: "webhook", label: "Webhook" },
+  { value: "policy", label: "Policy" },
+  { value: "transform", label: "Transform" },
+  { value: "watch", label: "Watch" },
 ];
 
 const STATE_OPTIONS = [
@@ -247,5 +250,8 @@ function targetText(r: HandlerRow): string {
     }
     case "webhook":
       return `Each event of ${r.target}`;
+    default:
+      // A policy, transform or watch: its connection and what it matches.
+      return r.target;
   }
 }

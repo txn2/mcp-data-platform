@@ -364,6 +364,7 @@ func scriptDeps(p *platform.Platform) (scripthttp.Deps, bool) {
 	// A script's handlers (#2441): its endpoints, schedules and webhook
 	// sources, carried out as manage_script's handler commands are.
 	deps.Handlers = savegatewire.Handlers(p)
+	deps.CallTester = savegatewire.CallTester(p)
 	return deps, true
 }
 

@@ -7,6 +7,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/mcpobs"
 	"github.com/txn2/mcp-data-platform/internal/platform/callcatchup"
 	"github.com/txn2/mcp-data-platform/internal/platform/callrecord"
+	"github.com/txn2/mcp-data-platform/internal/platform/callrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/mwchain"
 	"github.com/txn2/mcp-data-platform/internal/platform/provenance"
 	"github.com/txn2/mcp-data-platform/internal/platform/resultbudget"
@@ -51,6 +52,7 @@ const (
 	mwResultBudget        mwName = "result_budget"
 	mwResultCapture       mwName = "result_capture"
 	mwUnwrapJSON          mwName = "unwrap_json"
+	mwCallHandlers        mwName = "call_handlers"
 )
 
 // mwSpec declares one receiving middleware's identity, the middlewares that
@@ -208,6 +210,11 @@ func (p *Platform) receivingMiddlewareChain() []mwSpec {
 		// Result capture (#1878): the tool's own result, for the budget.
 		{Name: mwResultCapture, Requires: []mwName{mwResultBudget}, Register: func() {
 			p.mcpServer.AddReceivingMiddleware(resultbudget.Capture())
+		}},
+
+		// Tool-call handlers (#2436): inside authorization, the gates, consent and tasks; inner to the result layers.
+		{Name: mwCallHandlers, Requires: []mwName{mwToolCall, mwWorkflowGate, mwSchemaGate, mwRateLimit, mwErrorContract, mwConsent, mwTasks, mwAudit, mwResultBudget, mwCallReference, mwEnrichment, mwResultCapture}, Register: func() {
+			p.mcpServer.AddReceivingMiddleware(callrun.RuntimeMiddleware(func() *callrun.Runtime { return p.scripts.CallHandlers() })) // read per call: WireRuntime binds p.scripts later
 		}},
 
 		// Unwrap JSON (innermost): rewrites tool arguments before the handler runs.

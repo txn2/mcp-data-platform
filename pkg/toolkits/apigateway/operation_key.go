@@ -20,6 +20,15 @@ func (t *Toolkit) OperationKey(ctx context.Context, connection, method, path, op
 	return c.operationKey(method, path, operationID)
 }
 
+// OperationTemplate is the catalog template a method and path match, or "" (#2436).
+func (t *Toolkit) OperationTemplate(ctx context.Context, connection, method, path string) string {
+	c, ok := t.serving(ctx, connection)
+	if !ok {
+		return ""
+	}
+	return operationTemplate(c, method, path)
+}
+
 // CatalogOf names the API catalog connection reads its specs from, or "".
 func (t *Toolkit) CatalogOf(ctx context.Context, connection string) string {
 	if c, ok := t.serving(ctx, connection); ok {

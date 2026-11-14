@@ -5,21 +5,33 @@
 // format; a test in internal/platform/scriptlayer holds them to it.
 package scriptexamples
 
+import "github.com/txn2/mcp-data-platform/pkg/script"
+
 // Example is one built-in worked script.
 type Example struct {
 	Name        string
 	Description string
 	Source      string
+	// Params are the parameters the script declares, which create takes
+	// with the source; a handler's args bind to them.
+	Params []script.Param
 }
 
 // Fields renders the example as manage_script get answers it. It is marked
 // builtin so nobody mistakes it for a stored script and tries to patch it.
 func (e Example) Fields() map[string]any {
 	return map[string]any{
-		"name": e.Name, "description": e.Description, "source": e.Source,
+		"name": e.Name, "description": e.Description, "source": e.Source, "params": nonNilParams(e.Params),
 		"builtin": true,
 		"message": "This is a built-in worked example, not a stored script. Copy it into create and edit from there.",
 	}
+}
+
+func nonNilParams(p []script.Param) []script.Param {
+	if p == nil {
+		return []script.Param{}
+	}
+	return p
 }
 
 // ReferenceName is the complete reference script: every idiom a saved
@@ -454,6 +466,97 @@ def test_an_empty_week_fails():
     testing.replay("dpx_recording_of_an_empty_week")
     assert.contains(assert.fails(main), "no orders between")
     assert.eq(testing.outputs().state, None)
+`,
+	},
+	{
+		Name: "policy-rate-limit",
+		Description: "A policy (#2436): hold a call once its caller has made more than limit calls of one operation on one " +
+			"connection in a rolling window; bind it with handler_set kind=policy.",
+		Params: []script.Param{
+			{Name: "limit", Type: script.ParamTypeInt, Description: "Calls allowed in the window", Required: true},
+			{Name: "window", Type: script.ParamTypeString, Description: "How far back calls count, as 1h or 7d", Default: "1h"},
+			{Name: "approvers", Type: script.ParamTypeList, Items: script.ParamTypeString, Description: "Who may approve a held call: addresses or personas", Default: []any{"administrators"}},
+		},
+		Source: `# A rate limit: a policy that holds a call once its caller has made more
+# than limit calls of one operation on one connection in a rolling window.
+# Bind it to the connection and operations it limits with manage_script
+# handler_set kind=policy; limit, window and approvers are its args. Counts
+# are this handler's own, kept by the platform for every replica, and a call
+# that does not run counts against nobody.
+
+def decide(call):
+    """Allows the call while its caller's count in the window stays within the limit."""
+    key = call["user"] + " " + call["connection"] + " " + call["operation"]
+    used = platform.count(key, run.params["window"])
+    limit = run.params["limit"]
+    if used > limit:
+        summary = "%d calls in %s; the limit is %d." % (used, run.params["window"], limit)
+        return platform.require_approval(run.params["approvers"], summary)
+    return platform.allow()
+
+SAMPLE = {"user": "jo@example.com", "connection": "billing-api", "operation": "addSubscribers"}
+
+def main():
+    """Decides a sample call, so the script can be drafted."""
+    print(decide(SAMPLE)["decision"])
+
+def test_allows_within_the_limit():
+    """A call within the limit runs."""
+    testing.set_run(params = {"limit": 3, "window": "1h", "approvers": ["administrators"]})
+    main()
+    assert.eq(decide(SAMPLE)["decision"], "allow")
+
+def test_holds_past_the_limit():
+    """A call past the limit waits for the approvers the policy names."""
+    testing.set_run(params = {"limit": 0, "window": "1h", "approvers": ["ops-leads"]})
+    got = decide(SAMPLE)
+    assert.eq(got["decision"], "require_approval")
+    assert.eq(got["approvers"], ["ops-leads"])
+    assert.eq(got["summary"], "1 calls in 1h; the limit is 0.")
+`,
+	},
+	{
+		Name: "policy-business-hours",
+		Description: "A policy (#2436): hold a write outside business hours on a weekday, in UTC; reads always run. " +
+			"Bind it with handler_set kind=policy.",
+		Params: []script.Param{
+			{Name: "start", Type: script.ParamTypeInt, Description: "The first hour writes run, 0-23 UTC", Default: 9},
+			{Name: "end", Type: script.ParamTypeInt, Description: "The hour writes stop, 0-23 UTC", Default: 17},
+		},
+		Source: `# Business hours: a policy that lets a write run inside business hours on
+# a weekday and holds it for an administrator outside them. A read always
+# runs. Which calls count as writes is the handler's: POST, PUT, PATCH and
+# DELETE unless its writes setting says otherwise. Hours are UTC.
+
+WEEKEND = ["saturday", "sunday"]
+
+def decide(call):
+    """Allows a read, and a write inside business hours on a weekday."""
+    if not call["write"]:
+        return platform.allow()
+    day = date.weekday(date.of(call["time"]))
+    hour = int(call["time"][11:13])
+    if day in WEEKEND or hour < run.params["start"] or hour >= run.params["end"]:
+        summary = "a write on %s at %02d:00 UTC, outside %02d:00 to %02d:00 on a weekday." % (day, hour, run.params["start"], run.params["end"])
+        return platform.require_approval([], summary)
+    return platform.allow()
+
+def main():
+    """Decides a sample write, so the script can be drafted."""
+    print(decide({"write": True, "time": "2026-11-13T15:00:00Z"})["decision"])
+
+def test_a_write_inside_business_hours_runs():
+    """A write on a Friday afternoon runs."""
+    testing.set_run(params = {"start": 9, "end": 17})
+    main()
+    assert.eq(decide({"write": True, "time": "2026-11-13T15:00:00Z"})["decision"], "allow")
+
+def test_a_write_outside_them_waits():
+    """A write on a Saturday, or late on a weekday, waits; a read never does."""
+    testing.set_run(params = {"start": 9, "end": 17})
+    assert.eq(decide({"write": True, "time": "2026-11-14T10:00:00Z"})["decision"], "require_approval")
+    assert.eq(decide({"write": True, "time": "2026-11-13T18:00:00Z"})["decision"], "require_approval")
+    assert.eq(decide({"write": False, "time": "2026-11-14T10:00:00Z"})["decision"], "allow")
 `,
 	},
 }

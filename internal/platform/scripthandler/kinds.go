@@ -19,6 +19,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
+	"github.com/txn2/mcp-data-platform/internal/platform/callhandler"
 )
 
 // The kinds of handler.
@@ -26,7 +27,24 @@ const (
 	KindEndpoint = "endpoint"
 	KindSchedule = "schedule"
 	KindWebhook  = "webhook"
+	// The tool-call kinds (#2436, #2634, #2635): bound by an administrator
+	// to a connection's calls, kept in call_handlers.
+	KindPolicy    = callhandler.KindPolicy
+	KindTransform = callhandler.KindTransform
+	KindWatch     = callhandler.KindWatch
 )
+
+// settingArgs is the setting a schedule's and a tool-call handler's
+// arguments to its script are named by.
+const settingArgs = "args"
+
+// callSettings are the manage_script arguments every tool-call kind reads.
+var callSettings = []string{
+	fieldConnection, "operations", "personas", "users", "conditions", settingArgs, "timeout_ms", "on_failure", "order", "approve",
+}
+
+// callCreator is who may create a tool-call handler.
+const callCreator = "an administrator"
 
 // The types a handler list filters on: every kind, form (an endpoint on a
 // form script), and none (a script with no handler).
@@ -67,14 +85,14 @@ var kinds = []Kind{
 			"endpoint", "methods", "path", "auth_mode", "callers", "bot_check", "checked_methods",
 			"timeout_seconds", "max_memory_bytes", "max_body_bytes", "allowed_origins", "rate_limit",
 			"caller_rate_limit", "ip_rate_limit", "response_mode", "page_cdns", "page_frame_origins",
-			"page_connect_origins", "page_form_origins", "connection", "decrypt_personas",
+			"page_connect_origins", "page_form_origins", fieldConnection, "decrypt_personas",
 		},
 		Creator: "an administrator; a form's owner on their own form",
 	},
 	{
 		Name:     KindSchedule,
 		Contract: "main()",
-		Settings: []string{"cron", "timezone", "args"},
+		Settings: []string{"cron", "timezone", settingArgs},
 		Creator:  "the script's owner or an administrator",
 	},
 	{
@@ -82,6 +100,27 @@ var kinds = []Kind{
 		Contract: "main()",
 		Settings: []string{"event_source"},
 		Creator:  "the script's owner or an administrator; anyone but an administrator only for the source of a form they own",
+	},
+	{
+		Name:     KindPolicy,
+		Contract: callhandler.Contract(callhandler.KindPolicy),
+		Check:    callhandler.CheckPolicy,
+		Settings: append(append([]string{}, callSettings...), "items_path", "writes"),
+		Creator:  callCreator,
+	},
+	{
+		Name:     KindTransform,
+		Contract: callhandler.Contract(callhandler.KindTransform),
+		Check:    callhandler.CheckTransform,
+		Settings: append(append([]string{}, callSettings...), "protected"),
+		Creator:  callCreator,
+	},
+	{
+		Name:     KindWatch,
+		Contract: callhandler.Contract(callhandler.KindWatch),
+		Check:    callhandler.CheckWatch,
+		Settings: callSettings,
+		Creator:  callCreator,
 	},
 }
 
@@ -96,7 +135,7 @@ func Kinds() []string {
 
 // Types is every type a handler list filters on, in list order.
 func Types() []string {
-	return []string{KindEndpoint, TypeForm, KindSchedule, KindWebhook, TypeNone}
+	return []string{KindEndpoint, TypeForm, KindSchedule, KindWebhook, KindPolicy, KindTransform, KindWatch, TypeNone}
 }
 
 // KindOf is the registered kind with the name.

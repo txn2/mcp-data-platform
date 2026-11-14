@@ -181,8 +181,10 @@ func TestIssue1938_TheBuiltInExamplesPassEveryRule(t *testing.T) {
 		// their tests passing on a connection it builds. Every other example's
 		// test names the recording an author's own draft would return, a
 		// placeholder no deployment holds, so a save of it as sent is refused
-		// for that alone (#1939).
-		if src, _ := source.(string); !strings.Contains(src, "testing.database(") &&
+		// for that alone (#1939). An example that calls no tool (a policy's
+		// decide reads only the call, #2436) replays no recording and is
+		// refused for nothing.
+		if src, _ := source.(string); refusal != "" && !strings.Contains(src, "testing.database(") &&
 			!strings.Contains(refusal, "reading recording dpx_recording_of_a_draft") {
 			t.Errorf("%s: refused for something other than its placeholder recording: %s", name, refusal)
 		}

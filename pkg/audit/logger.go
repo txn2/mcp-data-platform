@@ -82,6 +82,10 @@ type Event struct {
 	// source position of every call on the script's stack, outermost first,
 	// as "line:col". Set only on a script's calls.
 	CallSite []string `json:"call_site,omitempty"`
+	// Handlers are the tool-call handlers that matched this call (#2436):
+	// each one's id, kind, script, what it did and how long it took. Never
+	// what it was given or printed.
+	Handlers []HandlerRun `json:"handlers,omitempty"`
 }
 
 // Error categories of calls that ran nothing because a person was asked
@@ -153,4 +157,13 @@ type Config struct {
 	Enabled       bool
 	LogToolCalls  bool
 	RetentionDays int
+}
+
+// HandlerRun is what one tool-call handler did with a call (#2436).
+type HandlerRun struct {
+	ID      string `json:"id"`
+	Kind    string `json:"kind"`
+	Script  string `json:"script"`
+	Outcome string `json:"outcome"`
+	MS      int64  `json:"ms"`
 }

@@ -125,6 +125,9 @@ const (
 	// KindReviewQueue marks a knowledge review-queue staleness alert (#803).
 	// Its payload carries a Review rollup instead of an item reference.
 	KindReviewQueue = "review_queue"
+	// KindApprovalQueue marks an approvals queue staleness alert (#2437):
+	// requests waiting for a decision, in a Review rollup.
+	KindApprovalQueue = "approval_queue"
 	// KindScriptRun marks a failed scheduled script run (#1286). Its payload
 	// names the script in ItemTitle, the run in ItemID, and carries the failure
 	// and the tail of what the script printed in Message.

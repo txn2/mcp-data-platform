@@ -103,9 +103,7 @@ func (h *Handle) saveCaller(ctx context.Context) scriptsave.Caller {
 // keepRecordings keeps the recordings the saved source's tests name past the
 // retention sweep. A failure is logged: the save landed.
 func (h *Handle) keepRecordings(ctx context.Context, sc *script.Script) {
-	if err := h.gate.Keep(ctx, sc, resolveEmail(ctx)); err != nil {
-		slog.WarnContext(ctx, "failed to keep the recordings a script's tests name", fieldName, sc.Name, logKeyError, err)
-	}
+	h.gate.Saved(ctx, sc, h.saveCaller(ctx))
 }
 
 // addDescriptionNotice attaches the non-blocking signal that a description has

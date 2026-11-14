@@ -126,3 +126,14 @@ func TestValidateCallerPath(t *testing.T) {
 		}
 	}
 }
+
+// TestParams reads a concrete path's values at its template's placeholders.
+func TestParams(t *testing.T) {
+	got := Params("/orgs/{org}/users/{id}", "/orgs/acme/users/7")
+	if got["org"] != "acme" || got["id"] != "7" || len(got) != 2 {
+		t.Errorf("Params = %v", got)
+	}
+	if got := Params("/orgs/{org}", "/orgs/acme/users"); len(got) != 0 {
+		t.Errorf("a path of another length holds none: %v", got)
+	}
+}

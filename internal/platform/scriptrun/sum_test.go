@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlex"
 )
 
 // sumRun executes source with no warehouse behind it, which is all a test of
@@ -66,8 +67,8 @@ func TestUndefinedNameHintListsTheEnvironment(t *testing.T) {
 // TestQuotedList covers the shapes the environment list can take as names are
 // added or removed, since the hint is composed from it rather than written out.
 func TestQuotedList(t *testing.T) {
-	assert.Empty(t, quotedList(nil))
-	assert.Equal(t, "`platform`", quotedList([]string{"platform"}))
-	assert.Equal(t, "`platform` and `run`", quotedList([]string{"platform", "run"}))
-	assert.Equal(t, "`a`, `b`, and `c`", quotedList([]string{"a", "b", "c"}))
+	assert.Empty(t, scriptlex.QuotedList(nil))
+	assert.Equal(t, "`platform`", scriptlex.QuotedList([]string{"platform"}))
+	assert.Equal(t, "`platform` and `run`", scriptlex.QuotedList([]string{"platform", "run"}))
+	assert.Equal(t, "`a`, `b`, and `c`", scriptlex.QuotedList([]string{"a", "b", "c"}))
 }

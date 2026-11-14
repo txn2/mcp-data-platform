@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -53,6 +54,7 @@ func (s *store) Decide(_ context.Context, id string, d approval.Decision) (*appr
 	}
 	at := d.At
 	r.Status, r.DecidedBy, r.SelfApproved, r.DecidedAt = d.Status, d.By, d.SelfApproved, &at
+	r.CallsApproved, r.Until, r.DecidedRoles = d.CallsApproved, d.Until, d.Roles
 	c := *r
 	return &c, nil
 }
@@ -161,4 +163,65 @@ func between(s, open, closing string) string {
 
 func (*store) EnvironmentApproved(context.Context, string, string, string) (bool, error) {
 	return false, nil
+}
+
+// TestDecideACallRequest: a person a policy named approves a held call from
+// the portal with the calls and deadline the allowance grants.
+func TestDecideACallRequest(t *testing.T) {
+	mux := http.NewServeMux()
+	st := &store{rows: map[string]*approval.Request{}}
+	svc := &approval.Service{Store: st, Scripts: scripts{}}
+	who := &approval.Actor{Email: "jane@example.com"}
+	Register(mux, func(h http.Handler) http.Handler { return h }, Config{
+		Service: svc, Actor: func(*http.Request) *approval.Actor { return who }, Audit: &auditor{},
+	})
+	r, err := svc.SubmitCall(context.Background(), *who, approval.CallRequest{
+		Tool: "api_invoke_endpoint", Connection: "billing-api", Operation: "addSubscribers", Calls: 5, Approvers: []string{"carol@example.com"},
+	})
+	require.NoError(t, err)
+	decide := func(body string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), "POST", Prefix+"/"+r.ID+"/decide", strings.NewReader(body)))
+		return w
+	}
+	assert.Equal(t, http.StatusForbidden, decide(`{"decision":"approve"}`).Code, "the requester never decides their own")
+	who = &approval.Actor{Email: "carol@example.com"}
+	until := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second)
+	assert.Equal(t, http.StatusUnprocessableEntity, decide(`{"decision":"approve","calls":6}`).Code, "more calls than were asked")
+	w := decide(`{"decision":"approve","calls":3,"until":"` + until.Format(time.RFC3339) + `"}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), `"calls_approved":3`)
+	assert.Contains(t, w.Body.String(), `"until":"`+until.Format(time.RFC3339))
+}
+
+// TestRecentCallsRoute answers a call request's recent calls to whoever may
+// read the request, and 404 to anyone else.
+func TestRecentCallsRoute(t *testing.T) {
+	mux := http.NewServeMux()
+	st := &store{rows: map[string]*approval.Request{}}
+	svc := &approval.Service{Store: st, Scripts: scripts{}}
+	who := &approval.Actor{Email: "jane@example.com"}
+	var recent []RecentCall
+	var recentErr error
+	Register(mux, func(h http.Handler) http.Handler { return h }, Config{
+		Service: svc, Actor: func(*http.Request) *approval.Actor { return who }, Audit: &auditor{},
+		Recent: func(context.Context, *approval.Request) ([]RecentCall, error) { return recent, recentErr },
+	})
+	r, err := svc.SubmitCall(context.Background(), *who, approval.CallRequest{Tool: "api_invoke_endpoint", Connection: "billing-api", Operation: "addSubscribers"})
+	require.NoError(t, err)
+	get := func() *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), "GET", Prefix+"/"+r.ID+"/calls", nil))
+		return w
+	}
+	recent = []RecentCall{{At: time.Date(2026, 11, 13, 15, 41, 0, 0, time.UTC), Items: 5, Outcome: "held"}}
+	w := get()
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.JSONEq(t, `{"data":[{"at":"2026-11-13T15:41:00Z","items":5,"outcome":"held"}]}`, w.Body.String())
+	recent = nil
+	assert.JSONEq(t, `{"data":[]}`, get().Body.String(), "none is an empty list")
+	recentErr = errors.New("down")
+	assert.Equal(t, http.StatusInternalServerError, get().Code)
+	who = &approval.Actor{Email: "bob@example.com"}
+	assert.Equal(t, http.StatusNotFound, get().Code, "someone who may not read the request")
 }

@@ -46,3 +46,19 @@ func TestLineOf_PastTheEndIsTheLastLine(t *testing.T) {
 	assert.Equal(t, 2, lineOf("a\nb", 99))
 	assert.Equal(t, 1, lineOf("a\nb", 0))
 }
+
+// TestDialectHint corrects the messages the dialect's restrictions produce,
+// an undefined name listing what is predeclared.
+func TestDialectHint(t *testing.T) {
+	hint, ok := DialectHint("syntax error: got import, want primary expression", nil)
+	require.True(t, ok)
+	require.Contains(t, hint, "There is no `import`")
+	hint, ok = DialectHint("undefined: foo", []string{"platform", "run"})
+	require.True(t, ok)
+	require.Contains(t, hint, "Only `platform` and `run` are available")
+	_, ok = DialectHint("something else", nil)
+	require.False(t, ok)
+	require.True(t, HasDialectHint("function f called recursively"))
+	require.Equal(t, "`a`, `b`, and `c`", QuotedList([]string{"a", "b", "c"}))
+	require.Empty(t, QuotedList(nil))
+}

@@ -152,6 +152,10 @@ type PlatformContext struct {
 	// inside it (a managed script's host calls run inside manage_script,
 	// #1892) gets a value of its own rather than overwriting its parent's.
 	claimedFor mcp.Request
+
+	// Handlers are the tool-call handlers that matched the call (#2436),
+	// which the call-handler layer records and the audit row carries.
+	Handlers []audit.HandlerRun
 }
 
 // NewPlatformContext creates a new platform context.

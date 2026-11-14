@@ -1016,32 +1016,57 @@ function smtpWarnings(): string[] {
   ];
 }
 
-// reviewQueueAlert is the knowledge review-queue staleness alert settings
-// (#803). The fixture is a configured alert so the settings screenshot shows
-// the section doing its job rather than an empty form.
-const reviewQueueAlert = {
-  enabled: true,
-  pending_threshold: 25,
-  oldest_pending_days: 30,
-  cooldown_hours: 24,
-  recipients: ["sarah.chen@example.com"],
-  channels: [] as string[],
-  updated_by: "sarah.chen@example.com",
-  updated_at: "2026-07-28T09:15:00Z",
-  warnings: [] as string[],
+// reviewQueueAlerts are the review-queue staleness alerts' settings, by the
+// settings path segment of each queue: knowledge insights (#803) and approvals
+// (#2437). The fixtures are configured alerts so the settings screenshots show
+// each section doing its job rather than an empty form.
+type ReviewQueueAlertState = {
+  enabled: boolean;
+  pending_threshold: number;
+  oldest_pending_days: number;
+  cooldown_hours: number;
+  recipients: string[];
+  channels: string[];
+  updated_by: string;
+  updated_at: string;
+  warnings: string[];
+};
+const reviewQueueAlerts: Record<string, ReviewQueueAlertState> = {
+  "review-queue-alert": {
+    enabled: true,
+    pending_threshold: 25,
+    oldest_pending_days: 30,
+    cooldown_hours: 24,
+    recipients: ["sarah.chen@example.com"],
+    channels: [],
+    updated_by: "sarah.chen@example.com",
+    updated_at: "2026-07-28T09:15:00Z",
+    warnings: [],
+  },
+  "approval-queue-alert": {
+    enabled: true,
+    pending_threshold: 5,
+    oldest_pending_days: 2,
+    cooldown_hours: 12,
+    recipients: ["sarah.chen@example.com"],
+    channels: [],
+    updated_by: "sarah.chen@example.com",
+    updated_at: "2026-11-13T09:15:00Z",
+    warnings: [],
+  },
 };
 
 // reviewQueueAlertWarnings mirrors the server's check for a configuration that
 // saves cleanly and delivers nothing.
-function reviewQueueAlertWarnings(): string[] {
-  if (!reviewQueueAlert.enabled) return [];
+function reviewQueueAlertWarnings(alert: ReviewQueueAlertState): string[] {
+  if (!alert.enabled) return [];
   const out: string[] = [];
-  if (reviewQueueAlert.recipients.length === 0 && reviewQueueAlert.channels.length === 0) {
+  if (alert.recipients.length === 0 && alert.channels.length === 0) {
     out.push(
       "no recipients or channels are configured, so no alert will be delivered; add an address or a channel",
     );
   }
-  if (reviewQueueAlert.pending_threshold <= 0 && reviewQueueAlert.oldest_pending_days <= 0) {
+  if (alert.pending_threshold <= 0 && alert.oldest_pending_days <= 0) {
     out.push(
       "both thresholds are 0, so nothing can cross; set a pending count, an age in days, or both",
     );
@@ -4493,32 +4518,33 @@ export const handlers = [
   }),
 
   // =========================================================================
-  // Admin: Settings (knowledge review-queue alert, #803)
+  // Admin: Settings (review-queue alerts: knowledge #803, approvals #2437)
   // =========================================================================
 
-  http.get(`${ADMIN_BASE}/settings/review-queue-alert`, () => {
-    reviewQueueAlert.warnings = reviewQueueAlertWarnings();
-    return HttpResponse.json(reviewQueueAlert);
-  }),
-
-  http.put(`${ADMIN_BASE}/settings/review-queue-alert`, async ({ request }) => {
-    const body = (await request.json()) as Record<string, unknown>;
-    reviewQueueAlert.enabled = Boolean(body.enabled);
-    reviewQueueAlert.pending_threshold = Number(body.pending_threshold ?? 0);
-    reviewQueueAlert.oldest_pending_days = Number(body.oldest_pending_days ?? 0);
-    reviewQueueAlert.cooldown_hours = Number(body.cooldown_hours ?? 24);
-    // The server normalizes recipients to the bare, lowercased address.
-    reviewQueueAlert.recipients = (Array.isArray(body.recipients) ? body.recipients : [])
-      .map((r) => String(r).trim().toLowerCase());
-    // An absent channels field keeps the stored list, as the server does.
-    if (Array.isArray(body.channels)) {
-      reviewQueueAlert.channels = body.channels.map((c) => String(c).trim()).filter(Boolean);
-    }
-    reviewQueueAlert.updated_by = "sarah.chen@example.com";
-    reviewQueueAlert.updated_at = new Date().toISOString();
-    reviewQueueAlert.warnings = reviewQueueAlertWarnings();
-    return HttpResponse.json(reviewQueueAlert);
-  }),
+  ...Object.entries(reviewQueueAlerts).flatMap(([queue, alert]) => [
+    http.get(`${ADMIN_BASE}/settings/${queue}`, () => {
+      alert.warnings = reviewQueueAlertWarnings(alert);
+      return HttpResponse.json(alert);
+    }),
+    http.put(`${ADMIN_BASE}/settings/${queue}`, async ({ request }) => {
+      const body = (await request.json()) as Record<string, unknown>;
+      alert.enabled = Boolean(body.enabled);
+      alert.pending_threshold = Number(body.pending_threshold ?? 0);
+      alert.oldest_pending_days = Number(body.oldest_pending_days ?? 0);
+      alert.cooldown_hours = Number(body.cooldown_hours ?? 24);
+      // The server normalizes recipients to the bare, lowercased address.
+      alert.recipients = (Array.isArray(body.recipients) ? body.recipients : [])
+        .map((r) => String(r).trim().toLowerCase());
+      // An absent channels field keeps the stored list, as the server does.
+      if (Array.isArray(body.channels)) {
+        alert.channels = body.channels.map((c) => String(c).trim()).filter(Boolean);
+      }
+      alert.updated_by = "sarah.chen@example.com";
+      alert.updated_at = new Date().toISOString();
+      alert.warnings = reviewQueueAlertWarnings(alert);
+      return HttpResponse.json(alert);
+    }),
+  ]),
 
   // =========================================================================
   // Admin — Keys

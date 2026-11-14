@@ -25,6 +25,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/endpoint/eprefusal"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/eprun"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epstore"
+	"github.com/txn2/mcp-data-platform/internal/platform/callrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptres"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
@@ -65,6 +66,9 @@ type Endpoints struct {
 	Handler *ephttp.Handler
 	// PortalCaller is who a portal request is signed in as, set with Handler.
 	PortalCaller func(r *http.Request) (*eprun.Caller, error)
+	// CallHandlers is the tool-call handlers' runtime (#2436), set once
+	// they are wired; the portal's test panel asks it.
+	CallHandlers *callrun.Runtime
 }
 
 // Deps is what the script wiring hands over.
@@ -116,7 +120,8 @@ func Build(deps Deps) *Endpoints {
 		Subjects: deps.Subjects, Limits: deps.Limits, Destinations: deps.Destinations,
 		Libraries: libraries(scripts, deps.Sources), Tokens: tokens, FormKey: epform.Key(deps.Key),
 	}
-	approvals := &approval.Service{Store: approval.NewPostgresStore(deps.DB), Scripts: scripts, IsForm: epform.DefinesSource}
+	approvalStore := approval.NewPostgresStore(deps.DB)
+	approvals := &approval.Service{Store: approvalStore, Scripts: scripts, IsForm: epform.DefinesSource, Allowances: approvalStore}
 	previews := &eppreview.Previews{Store: eppreview.NewStore(deps.DB), Versions: scripts, BaseURL: deps.BaseURL}
 	commands := &epcmd.Handler{
 		Store: bindings, CheckUsable: checker.Usable, BaseURL: deps.BaseURL, Approvals: approvals, Previews: previews,

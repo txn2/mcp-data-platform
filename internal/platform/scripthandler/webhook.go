@@ -89,7 +89,7 @@ func webhookOut(sc *script.Script, w scriptevents.Handler, message string) map[s
 func webhookFields(sc *script.Script, w scriptevents.Handler) map[string]any {
 	return map[string]any{
 		fieldHandler: w.ID, fieldKind: KindWebhook, fieldName: sc.Name, "event_source": w.Source,
-		"enabled": w.Enabled, "created_by": w.CreatedBy, "created_at": w.CreatedAt,
+		fieldEnabled: w.Enabled, fieldCreatedBy: w.CreatedBy, "created_at": w.CreatedAt,
 		"updated_by": w.UpdatedBy, "updated_at": w.UpdatedAt,
 	}
 }

@@ -33,7 +33,38 @@ const (
 	// PurposeSitePublic makes a site environment that requires approval
 	// public; SourceSHA256 is the access it was asked against.
 	PurposeSitePublic = "site_public"
+	// SubjectCall is a held tool call (#2437): approved, it is an allowance
+	// of calls of one operation, for one person, on one connection, until a
+	// deadline.
+	SubjectCall = "call"
+	// PurposeCallAllowance is a call request's purpose.
+	PurposeCallAllowance = "call_allowance"
+	// PurposeCallHandler approves a script version to run as a tool-call
+	// handler (#2436): a policy, transform or watch runs the highest version
+	// approved for it, with the roles of the administrator who approved it.
+	PurposeCallHandler = "call_handler"
 )
+
+// The kinds a list filters requests by.
+const (
+	KindCall           = "call"
+	KindHandlerVersion = "handler_version"
+	KindForm           = "form"
+	KindSite           = "site"
+)
+
+// kindOf is the kind a request is listed under.
+func kindOf(subject, purpose string) string {
+	switch {
+	case subject == SubjectCall:
+		return KindCall
+	case purpose == PurposeCallHandler:
+		return KindHandlerVersion
+	case purpose == PurposeFormPublic:
+		return KindForm
+	}
+	return KindSite
+}
 
 // The statuses a request moves through. A request is decided once.
 const (
@@ -115,6 +146,42 @@ type Request struct {
 	DecisionComment string     `json:"decision_comment,omitempty"`
 	SelfApproved    bool       `json:"self_approved"`
 	CreatedAt       time.Time  `json:"created_at"`
+	// Kind is what the request is about: call, handler_version, form or
+	// site.
+	Kind string `json:"kind"`
+	// DecidedRoles are the roles of the administrator who approved a
+	// handler version, which the handler runs with. They are never shown.
+	DecidedRoles []string `json:"-"`
+	CallSubject
+}
+
+// CallSubject is a call request's subject (#2437): the call as the caller
+// sent it, frozen when filed, what the platform made of it, the handlers
+// that held it, who may decide it, and the allowance.
+type CallSubject struct {
+	CallTool       string         `json:"tool,omitempty" example:"api_invoke_endpoint"`
+	CallConnection string         `json:"connection,omitempty" example:"billing-api"`
+	CallOperation  string         `json:"operation,omitempty" example:"addSubscribers"`
+	CallArguments  map[string]any `json:"arguments,omitempty"`
+	// Rendering is the platform's own reading of the call, which the
+	// approver reads, never only a summary someone wrote.
+	Rendering string `json:"rendering,omitempty"`
+	// Handlers are the policies that held the call, with what each said.
+	Handlers []HandlerAsk `json:"handlers,omitempty"`
+	// Approvers are the people or personas the policies named; empty is an
+	// administrator.
+	Approvers     []string   `json:"approvers,omitempty"`
+	CallsAsked    int        `json:"calls_asked,omitempty"`
+	CallsApproved int        `json:"calls_approved,omitempty"`
+	CallsUsed     int        `json:"calls_used,omitempty"`
+	Until         *time.Time `json:"until,omitempty"`
+}
+
+// HandlerAsk is one policy that held a call, and what it said.
+type HandlerAsk struct {
+	ID      string `json:"id"`
+	Script  string `json:"script"`
+	Summary string `json:"summary,omitempty"`
 }
 
 // Store keeps requests.

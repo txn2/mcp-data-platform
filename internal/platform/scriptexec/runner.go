@@ -23,6 +23,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
 	"github.com/txn2/mcp-data-platform/internal/platform/sqllineage"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
+	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/internal/scripttoken"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -138,6 +139,8 @@ func (r *runner) execute(ctx context.Context, run *script.Run, sc *script.Script
 	opts.State = run.StateRead
 	// The event an event run was enqueued for (#2332), from its own row.
 	opts.Event = run.Event
+	// The call a watch run was queued for (#2635).
+	opts.Call = run.Call
 	opts.Caller = caller
 	opts.Tokens = r.tokens.Bind(scripttoken.Binding{ScriptID: sc.ID}, v.AuthorRoles)
 	opts.Destinations = r.destinations
@@ -160,11 +163,16 @@ func (r *runner) execute(ctx context.Context, run *script.Run, sc *script.Script
 	result, runErr := scriptrun.Run(runCtx, opts)
 	rep.finish()
 
-	rec.SaveTo(ctx, r.recordings, scriptrec.Meta{
-		RunID: run.ID, ScriptID: sc.ID, ScriptName: sc.Name, Kind: scriptrec.KindRun,
-		RecordedBy: sc.OwnerEmail, Version: v.Version, SourceSHA256: scriptrec.SourceHash(v.Source),
-		Succeeded: runErr == nil,
-	})
+	// A watch's run is not recorded (#2635): it holds another person's call,
+	// which its owner never reads, and a save's comparison of recent runs
+	// never replays it.
+	if !runstate.AdminsOnly(run.Trigger) {
+		rec.SaveTo(ctx, r.recordings, scriptrec.Meta{
+			RunID: run.ID, ScriptID: sc.ID, ScriptName: sc.Name, Kind: scriptrec.KindRun,
+			RecordedBy: sc.OwnerEmail, Version: v.Version, SourceSHA256: scriptrec.SourceHash(v.Source),
+			Succeeded: runErr == nil,
+		})
+	}
 	if runErr == nil && result != nil {
 		reads.Record(ctx, sc.ID, sc.OwnerEmail, result.Exports)
 	}
@@ -337,10 +345,16 @@ func (r *runner) connect(
 	serverCtx = producedby.With(serverCtx, producedby.Producer{
 		Kind: producedby.KindScript, ID: sc.ID, Label: sc.Name,
 	})
+	roles, author := v.AuthorRoles, v.Author
+	if run.RunAs != nil {
+		// A watch run acts as the administrator who approved the version
+		// for handlers, with the roles they held then (#2635).
+		roles, author = run.RunAs.Roles, run.RunAs.Email
+	}
 	serverCtx = middleware.WithPreAuthenticatedUser(serverCtx, &middleware.UserInfo{
 		UserID:   sc.Principal(),
 		Email:    sc.OwnerEmail,
-		Roles:    v.AuthorRoles,
+		Roles:    roles,
 		AuthType: middleware.AuthTypeScript,
 		// The AUTHOR, not the owner: the run presents the author's roles, so
 		// ownership must follow the same person or a run would combine one
@@ -354,7 +368,7 @@ func (r *runner) connect(
 		// who may trigger it. That is the save's widening, recorded in the
 		// version history, not this binding's: roles resolving to the admin
 		// persona already reach every asset through each check's admin arm.
-		OnBehalfOf: v.Author,
+		OnBehalfOf: author,
 		// The subject the author's own session authenticates as, so the run's
 		// managed resources land in the library that session files in
 		// (#1677). Empty until the platform has seen the author authenticate.

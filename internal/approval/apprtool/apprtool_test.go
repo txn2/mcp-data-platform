@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
@@ -52,6 +53,7 @@ func (s *store) Decide(_ context.Context, id string, d approval.Decision) (*appr
 	}
 	at := d.At
 	r.Status, r.DecidedBy, r.SelfApproved, r.DecidedAt = d.Status, d.By, d.SelfApproved, &at
+	r.CallsApproved, r.Until, r.DecidedRoles = d.CallsApproved, d.Until, d.Roles
 	c := *r
 	return &c, nil
 }
@@ -164,4 +166,76 @@ func TestRegister(t *testing.T) {
 
 func (*store) EnvironmentApproved(context.Context, string, string, string) (bool, error) {
 	return false, nil
+}
+
+type holder struct {
+	got []any
+	err error
+}
+
+func (h *holder) HeldRequest(_ context.Context, held approval.HeldCall) (approval.CallRequest, error) {
+	user, persona, tool, args, calls, reason := held.User, held.Persona, held.Tool, held.Arguments, held.Calls, held.Reason
+	h.got = []any{user, persona, tool, args, calls, reason}
+	if h.err != nil {
+		return approval.CallRequest{}, h.err
+	}
+	return approval.CallRequest{Tool: tool, Connection: "billing-api", Operation: "addSubscribers", Arguments: args, Calls: calls, Reason: reason, Approvers: []string{"carol@example.com"}}, nil
+}
+
+// TestCallRequests is #2437 through manage_approval: submit with kind call
+// asks the policies again and files what they hold; a named approver grants
+// an allowance with calls and a deadline; a filed request is never changed.
+func TestCallRequests(t *testing.T) {
+	h := &holder{}
+	tool := &Tool{
+		Service: &approval.Service{Store: &store{rows: map[string]*approval.Request{}}, Scripts: scripts{}},
+		Persona: func([]string) string { return "analyst" }, Calls: h,
+	}
+	handle := func(ctx context.Context, in Input) (*mcp.CallToolResult, string) {
+		t.Helper()
+		res, _, err := tool.Handle(ctx, in)
+		require.NoError(t, err)
+		return res, text(t, res)
+	}
+	args := map[string]any{"connection": "billing-api", "method": "PUT"}
+	res, out := handle(as("jane@example.com", false, ""), Input{Command: CmdSubmit, Kind: approval.KindCall, Tool: "api_invoke_endpoint", Arguments: args, Calls: 2, Reason: "import"})
+	require.False(t, res.IsError, out)
+	assert.Equal(t, []any{"jane@example.com", "analyst", "api_invoke_endpoint", args, 2, "import"}, h.got)
+	var filed approval.Request
+	require.NoError(t, json.Unmarshal([]byte(out), &filed))
+	assert.Equal(t, approval.SubjectCall, filed.SubjectKind)
+
+	res, out = handle(as("jane@example.com", false, ""), Input{Command: CmdSubmit, Kind: approval.KindCall, ID: filed.ID, Tool: "api_invoke_endpoint"})
+	assert.True(t, res.IsError)
+	assert.Contains(t, out, "never changed")
+
+	res, out = handle(as("carol@example.com", false, ""), Input{Command: CmdDecide, ID: filed.ID, Decision: approval.DecisionApprove, Until: "tomorrow"})
+	assert.True(t, res.IsError)
+	assert.Contains(t, out, "RFC 3339")
+	until := time.Now().Add(3 * time.Hour).UTC().Truncate(time.Second)
+	res, out = handle(as("carol@example.com", false, ""), Input{Command: CmdDecide, ID: filed.ID, Decision: approval.DecisionApprove, Calls: 1, Until: until.Format(time.RFC3339)})
+	require.False(t, res.IsError, out)
+	assert.Contains(t, out, `"calls_approved":1`)
+
+	h.err = errors.New("no policy holds this call")
+	res, out = handle(as("jane@example.com", false, ""), Input{Command: CmdSubmit, Kind: approval.KindCall, Tool: "api_invoke_endpoint"})
+	assert.True(t, res.IsError)
+	assert.Contains(t, out, "no policy holds this call")
+
+	tool.Calls = nil
+	res, out = handle(as("jane@example.com", false, ""), Input{Command: CmdSubmit, Kind: approval.KindCall, Tool: "api_invoke_endpoint"})
+	assert.True(t, res.IsError)
+	assert.Contains(t, out, "holds no calls")
+
+	tool.Calls = h
+	h.err = nil
+	res, out = handle(as("", false, ""), Input{Command: CmdSubmit, Kind: approval.KindCall, Tool: "api_invoke_endpoint"})
+	assert.True(t, res.IsError, "a request belongs to a person: %s", out)
+}
+
+// TestActorCarriesRoles: an administrator deciding a handler version through
+// the tool records their roles, which the version then runs with.
+func TestActorCarriesRoles(t *testing.T) {
+	a := (&Tool{}).actorOf(as("admin@example.com", true, ""))
+	assert.Equal(t, []string{"r"}, a.Roles)
 }

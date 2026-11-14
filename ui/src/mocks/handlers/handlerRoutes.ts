@@ -17,13 +17,55 @@ const MAX_PER_KIND = 20;
 const MAX_LIST_LIMIT = 500;
 
 // LIST_TYPES are the types a handler list filters on; none matches no handler.
-const LIST_TYPES = ["endpoint", "form", "schedule", "webhook", "none"];
+const LIST_TYPES = ["endpoint", "form", "schedule", "webhook", "policy", "transform", "watch", "none"];
 
 const OFFERS: HandlerOffer[] = [
   { kind: "endpoint", allowed: true, contract: "handle(req), or form_spec(req) and form_submit(req, values) on a form" },
   { kind: "schedule", allowed: true, contract: "main()" },
   { kind: "webhook", allowed: true, contract: "main()" },
+  { kind: "policy", allowed: true, contract: "decide(call)" },
+  { kind: "transform", allowed: true, contract: "transform(call, result)" },
+  { kind: "watch", allowed: true, contract: "main(), reading run.call" },
 ];
+
+const CALL_KINDS = ["policy", "transform", "watch"];
+
+// addCall adds a policy, transform or watch, as an administrator does.
+function addCall(scriptID: string, body: Body & Record<string, unknown>) {
+  const connection = String(body.connection ?? "").trim();
+  if (!connection) {
+    return HttpResponse.json({ detail: "a tool-call handler names its connection" }, { status: 400 });
+  }
+  const id = newID("ch");
+  const kind = body.kind as "policy" | "transform" | "watch";
+  handlerStore.addCall(scriptID, {
+    handler: id,
+    kind,
+    type: kind,
+    name: scriptOf(scriptID)?.name ?? scriptID,
+    script_id: scriptID,
+    connection,
+    operations: (body.operations as string[] | undefined) ?? [],
+    personas: (body.personas as string[] | undefined) ?? [],
+    users: (body.users as string[] | undefined) ?? [],
+    conditions: (body.conditions as never[] | undefined) ?? [],
+    args: body.args ?? {},
+    timeout_ms: Number(body.timeout_ms ?? 2000),
+    on_failure: String(body.on_failure ?? (kind === "transform" ? "fail" : kind === "policy" ? "hold" : "")),
+    items_path: String(body.items_path ?? ""),
+    writes: {},
+    protected: (body.protected as string[] | undefined) ?? [],
+    order: 0,
+    enabled: true,
+    contract: OFFERS.find((o) => o.kind === kind)?.contract ?? "",
+    created_by: "admin@example.com",
+    running_version: body.approve ? 1 : 0,
+    approved_by: body.approve ? "admin@example.com" : "",
+    waiting_version: 0,
+    recent_failures: [],
+  });
+  return HttpResponse.json(handlerStore.detail(id)?.detail, { status: 201 });
+}
 
 let nextID = 1;
 const newID = (prefix: string) => `${prefix}-${nextID++}`;
@@ -167,6 +209,15 @@ function change(id: string, body: Body) {
       { status: 400 },
     );
   }
+  if (found.call) {
+    const { kind: _kind, approve, ...rest } = body as Body & Record<string, unknown>;
+    Object.assign(found.call, rest);
+    if (approve) {
+      found.call.running_version = Math.max(found.call.running_version ?? 0, found.call.waiting_version ?? 0, 1);
+      found.call.waiting_version = 0;
+      found.call.approved_by = "admin@example.com";
+    }
+  }
   if (found.endpoint) {
     const { kind: _kind, cron: _c, timezone: _t, args: _a, event_source: _e, ...rest } = body;
     Object.assign(found.endpoint, rest, { updated_at: new Date().toISOString() });
@@ -180,7 +231,7 @@ function change(id: string, body: Body) {
 function setEnabled(id: string, enabled: boolean) {
   const found = handlerStore.find(id);
   if (!found) return notFound();
-  const target = found.schedule ?? found.endpoint ?? found.webhook;
+  const target = found.schedule ?? found.endpoint ?? found.webhook ?? found.call;
   if (target) target.enabled = enabled;
   return HttpResponse.json(handlerStore.detail(id)?.detail);
 }
@@ -213,6 +264,7 @@ export const handlerRouteMocks = [
       case "webhook":
         return addWebhook(id, body);
     }
+    if (body.kind && CALL_KINDS.includes(body.kind)) return addCall(id, body as Body & Record<string, unknown>);
     return HttpResponse.json(
       {
         detail: body.kind
@@ -244,6 +296,51 @@ export const handlerRouteMocks = [
     }
     handlerStore.remove(id);
     return HttpResponse.json({ handler: id, kind: found.detail.kind, name: found.detail.name, deleted: true });
+  }),
+
+  // A connection's tool-call handlers (#2436): policies, transforms in
+  // order, watches; the test panel; the transform order; a handler's failures.
+  http.get(`${PORTAL_BASE}/connections/:connection/handlers`, ({ params }) => {
+    const conn = String(params.connection);
+    const rank: Record<string, number> = { policy: 0, transform: 1, watch: 2 };
+    const data = handlerStore
+      .allCalls()
+      .filter((c) => c.connection === conn)
+      .sort((a, b) => (rank[a.kind] ?? 3) - (rank[b.kind] ?? 3) || a.order - b.order);
+    return HttpResponse.json({ data });
+  }),
+
+  http.post(`${PORTAL_BASE}/connections/:connection/handlers/test`, async ({ params, request }) => {
+    const conn = String(params.connection);
+    const body = (await request.json()) as { tool?: string; arguments?: Record<string, unknown> };
+    if (!body.tool) return HttpResponse.json({ detail: "name the tool the call would be made with" }, { status: 400 });
+    const on = handlerStore.allCalls().filter((c) => c.connection === conn && c.enabled);
+    const policies = on.filter((c) => c.kind === "policy");
+    if (policies.length === 0) {
+      return HttpResponse.json({ outcome: "runs", handlers: [], not_applying: [], transforms: on.filter((c) => c.kind === "transform").length || undefined });
+    }
+    return HttpResponse.json({
+      outcome: "held",
+      handlers: policies.map((p) => ({ id: p.handler, kind: "policy", script: p.name, outcome: "require_approval", ms: 4, says: "5 items in one call; the limit is 3." })),
+      not_applying: [],
+      approvers: ["administrators"],
+      message: "The call would not be sent: it waits for an administrator.",
+    });
+  }),
+
+  http.put(`${PORTAL_BASE}/connections/:connection/handlers/order`, async ({ params, request }) => {
+    const body = (await request.json()) as { ids?: string[] };
+    (body.ids ?? []).forEach((id, i) => {
+      const found = handlerStore.find(id);
+      if (found?.call) found.call.order = i + 1;
+    });
+    const conn = String(params.connection);
+    return HttpResponse.json({ data: handlerStore.allCalls().filter((c) => c.connection === conn) });
+  }),
+
+  http.get(`${PORTAL_BASE}/handlers/:id/failures`, ({ params }) => {
+    const found = handlerStore.find(String(params.id));
+    return found?.call ? HttpResponse.json({ data: found.call.recent_failures ?? [] }) : notFound();
   }),
 
   http.post(`${PORTAL_BASE}/handlers/:id/enable`, ({ params }) => setEnabled(String(params.id), true)),

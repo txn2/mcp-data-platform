@@ -46,7 +46,7 @@ func ParseKind(v string) (library, named bool, err error) {
 
 // handlerTypes are the values type= narrows to (#2435): the scripts holding a
 // handler of the type, and none, the scripts holding no handler.
-var handlerTypes = []string{"endpoint", "form", "schedule", "webhook", "none"}
+var handlerTypes = []string{"endpoint", "form", "schedule", "webhook", "policy", "transform", "watch", "none"}
 
 // ParseTypes reads type=, repeatable, or an error for a value that names no
 // handler type. endpoint= was removed: it is answered by a refusal naming
