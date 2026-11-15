@@ -27,12 +27,14 @@ import { count, ms } from "./SiteTraffic";
 export const SITE_LAYOUT_WIDTHS: LayoutWidths = { wide: 1000, medium: 680, narrow: 480 };
 
 const COLUMN_WIDTHS: Record<Exclude<ListingLayout, "list">, { owner: string; address: string; envs: string; traffic: string }> = {
-  wide: { owner: "w-[17%]", address: "w-[22%]", envs: "w-[22%]", traffic: "w-[11%]" },
-  medium: { owner: "w-[64px]", address: "w-[26%]", envs: "w-[26%]", traffic: "w-[12%]" },
+  wide: { owner: "w-[17%]", address: "w-[21%]", envs: "w-[24%]", traffic: "w-[9%]" },
+  medium: { owner: "w-[64px]", address: "w-[25%]", envs: "w-[28%]", traffic: "w-[10%]" },
   narrow: { owner: "", address: "w-[28%]", envs: "w-[40%]", traffic: "" },
 };
 
-/** How many environment badges a row shows before the rest fold into "+N", keeping a row at two lines. */
+/** How many environment badges a row shows before the rest fold into "+N", keeping a row at two lines.
+ * Four take two lines of the Environments column at the widths above; a
+ * narrower column wraps them to a third on Linux fonts (#2647). */
 const BADGES: Record<Exclude<ListingLayout, "list">, number> = { wide: 4, medium: 4, narrow: 2 };
 
 export function SiteTable({ list, onOpen }: { list: SiteListing; onOpen: (site: string) => void }) {
