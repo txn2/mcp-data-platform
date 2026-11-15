@@ -167,7 +167,7 @@ func (s *Service) jobTarget(ctx context.Context, actor Actor, ref, environment s
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := s.mayEdit(ctx, actor, st); err != nil {
+	if err := s.MayEdit(ctx, actor, st); err != nil {
 		return nil, nil, err
 	}
 	env, err := s.publishTarget(st, PublishRequest{Environment: environment})
@@ -276,7 +276,7 @@ func (s *Service) StopJob(ctx context.Context, actor Actor, ref, id string) erro
 	if err != nil {
 		return err
 	}
-	if err := s.mayEdit(ctx, actor, st); err != nil {
+	if err := s.MayEdit(ctx, actor, st); err != nil {
 		return err
 	}
 	job, err := s.Store.Job(ctx, id)

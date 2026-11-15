@@ -21,6 +21,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/site"
 	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
 	"github.com/txn2/mcp-data-platform/internal/site/sitecrawl"
+	"github.com/txn2/mcp-data-platform/internal/site/siteenv"
 	"github.com/txn2/mcp-data-platform/internal/site/sitestore"
 	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
 	"github.com/txn2/mcp-data-platform/internal/site/sitewire"
@@ -339,7 +340,7 @@ func TestPortal_WritesRefused(t *testing.T) {
 		{"copy, stranger", http.MethodPost, siteBase + "/copy", userStranger, map[string]any{"url": "https://a.example/"}, 403, "permission"},
 		{"copy, bad JSON", http.MethodPost, siteBase + "/copy", userOwner, "{", 400, "not valid JSON"},
 		{"copy, any environment but dev", http.MethodPost, siteBase + "/copy", userOwner, map[string]any{"url": "https://a.example/", "environment": "qa"}, 422, "is read-only"},
-		{"create, bad name", http.MethodPost, base, userOwner, map[string]any{"name": "Bad Name"}, 422, "site name"},
+		{"create, bad name", http.MethodPost, base, userOwner, map[string]any{"name": "9 lives"}, 422, "site name"},
 		{"create, bad JSON", http.MethodPost, base, userOwner, "{", 400, "not valid JSON"},
 		{"create, taken", http.MethodPost, base, userOwner, map[string]any{"name": siteName}, 409, "a site with that name"},
 		{"create, an application's name", http.MethodPost, base, userOwner, map[string]any{"name": "shop"}, 422, "name of an application"},
@@ -352,6 +353,49 @@ func TestPortal_WritesRefused(t *testing.T) {
 			rec := f.do(t, tc.method, tc.target, tc.user, tc.body)
 			assert.Equal(t, tc.status, rec.Code, rec.Body.String())
 			assert.Contains(t, rec.Body.String(), tc.want)
+		})
+	}
+}
+
+// TestPortal_CheckName pins #2636's route: what a typed name becomes, its two
+// addresses, the room it leaves for an environment name, and the reason it is
+// refused, with nothing created.
+func TestPortal_CheckName(t *testing.T) {
+	cases := []struct {
+		name, typed, want, refusal string
+		user                       *portal.User
+		status                     int
+	}{
+		{"a typed name", "My Website", "my-website", "", userOwner, 200},
+		{"nothing to make a name of", "!!!", "", "at least one letter", userOwner, 200},
+		{"a name in use", siteName, siteName, "exists", userOwner, 200},
+		{"an application's name", "Shop", "shop", "name of an application", userOwner, 200},
+		{"too long", strings.Repeat("a", 58), strings.Repeat("a", 58), "at most 57", userOwner, 200},
+		{"two characters", "ab", "ab", "cannot be two characters", userOwner, 200},
+		{"a persona without manage_site", "blog", "", "", userViewer, 403},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			before := len(f.store.sites)
+			rec := f.do(t, http.MethodPost, base+"/check-name", tc.user, map[string]any{"name": tc.typed})
+			require.Equal(t, tc.status, rec.Code, rec.Body.String())
+			assert.Len(t, f.store.sites, before, "a check creates nothing")
+			if tc.status != http.StatusOK {
+				return
+			}
+			var got siteenv.NameCheck
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+			assert.Equal(t, tc.typed, got.Input)
+			assert.Equal(t, tc.want, got.Name)
+			if tc.refusal == "" {
+				assert.Empty(t, got.Refusal)
+				assert.Equal(t, "https://my-website--dev.pages.example.net", got.Addresses["dev"])
+				assert.Equal(t, "https://my-website.pages.example.net", got.Addresses["prod"])
+				assert.Equal(t, 32, got.EnvironmentNameRoom)
+				return
+			}
+			assert.Contains(t, got.Refusal, tc.refusal)
 		})
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/site"
 	"github.com/txn2/mcp-data-platform/internal/site/sitecrawl"
+	"github.com/txn2/mcp-data-platform/internal/site/siteenv"
 	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
 	"github.com/txn2/mcp-data-platform/internal/site/sitetool"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
@@ -334,7 +335,7 @@ func (a *portalAPI) promote(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	out, err := a.svc().Promote(r.Context(), c.actor, sitesvc.PromoteRequest{
+	out, err := a.ops().Promote(r.Context(), c.actor, sitesvc.PromoteRequest{
 		Site: r.PathValue(paramSite), From: in.From, To: in.To, Release: in.Release, Reason: in.Reason,
 	})
 	a.record(r.Context(), c, sitetool.CmdPromote, map[string]any{paramSite: r.PathValue(paramSite), "to": in.To}, err)
@@ -371,7 +372,7 @@ func (a *portalAPI) rollback(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	out, err := a.svc().Rollback(r.Context(), c.actor, r.PathValue(paramSite), in.Environment, in.Release)
+	out, err := a.ops().Rollback(r.Context(), c.actor, r.PathValue(paramSite), in.Environment, in.Release)
 	a.record(r.Context(), c, sitetool.CmdRollback, map[string]any{paramSite: r.PathValue(paramSite), paramEnv: in.Environment}, err)
 	if err != nil {
 		fail(w, r, err)
@@ -383,7 +384,7 @@ func (a *portalAPI) rollback(w http.ResponseWriter, r *http.Request) {
 // setEnvironment handles PUT /api/v1/portal/sites/{site}/environments/{name}.
 //
 // @Summary      Create or change an environment
-// @Description  Creates the environment (private unless public is true), or changes whether it is public, whether everyone internal may open it, whether promoting to it needs approval, and how many releases it keeps (keep_releases: a whole number, 0 for every release, or "default"; the owner and administrators only, since a lower limit removes rollback history at the next sweep). Only the owner or an administrator makes an environment public, and where it requires approval a non-administrator's request waits in Approvals (status awaiting_approval) until approved, after which the same request succeeds. dev is always private. Only an administrator takes the approval rule off.
+// @Description  Creates the environment, or changes whether everyone internal may open it, whether promoting to it needs approval, how many releases it keeps (keep_releases: a whole number, 0 for every release, or "default"; the owner and administrators only, since a lower limit removes rollback history at the next sweep), and whether agents may promote into it (agents_may_promote, administrators only). status takes it offline (message, back_at: every address answers 503), redirects it (redirect_to, keep_path: every address answers 302) or brings it online; never dev, and the release pointer is untouched. A redirect on an environment that requires approval, by someone who is not an administrator, waits in Approvals (status awaiting_approval) until approved, after which the same request succeeds. rename_to renames an environment between dev and prod, alone, moving every reference to its name. Only an administrator takes the approval rule off.
 // @Tags         Sites
 // @Accept       json
 // @Produce      json
@@ -411,11 +412,14 @@ func (a *portalAPI) setEnvironment(w http.ResponseWriter, r *http.Request) {
 		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	out, err := a.svc().SetEnvironment(r.Context(), c.actor, r.PathValue(paramSite), r.PathValue("name"), sitesvc.EnvironmentChange{
-		RequiresApproval: in.RequiresApproval, Public: in.Public, InternalView: in.InternalView,
-		Keep: keep.Keep, KeepDefault: keep.Default, Place: placeOf(in.After),
-	})
-	a.record(r.Context(), c, sitetool.CmdEnvironment, map[string]any{paramSite: r.PathValue(paramSite), paramEnv: r.PathValue("name")}, err)
+	out, err := a.changeEnvironment(r, c, in, keep)
+	args := map[string]any{paramSite: r.PathValue(paramSite), paramEnv: r.PathValue("name")}
+	for k, v := range map[string]string{"status": in.Status, "rename_to": in.RenameTo, "redirect_to": in.RedirectTo} {
+		if v != "" {
+			args[k] = v
+		}
+	}
+	a.record(r.Context(), c, sitetool.CmdEnvironment, args, err)
 	if err != nil {
 		fail(w, r, err)
 		return
@@ -425,7 +429,91 @@ func (a *portalAPI) setEnvironment(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, EnvironmentResponse{Site: view, Status: out.Status, Note: out.Note})
+	writeJSON(w, http.StatusOK, out.response(view))
+}
+
+// environmentOutcome is what a change to an environment did.
+type environmentOutcome struct {
+	Site     *site.Site
+	Status   string
+	Note     string
+	Approval *sitesvc.ApprovalRequest
+}
+
+func (o *environmentOutcome) response(view SiteView) EnvironmentResponse {
+	return EnvironmentResponse{Site: view, Status: o.Status, Note: o.Note, Approval: o.Approval}
+}
+
+// changeEnvironment carries out a PUT: a rename alone, or the settings and
+// then the status.
+func (a *portalAPI) changeEnvironment(r *http.Request, c *caller, in EnvironmentBody, keep site.KeepSetting) (*environmentOutcome, error) {
+	ctx, ref, name := r.Context(), r.PathValue(paramSite), r.PathValue("name")
+	if in.RenameTo != "" {
+		if in.settings() || in.Status != "" {
+			return nil, &sitesvc.RefusedError{Msg: "rename_to renames the environment and nothing else: change its settings or status in another request"}
+		}
+		st, err := a.ops().RenameEnvironment(ctx, c.actor, ref, name, in.RenameTo)
+		if err != nil {
+			return nil, err //nolint:wrapcheck // the service's error, answered by fail
+		}
+		return &environmentOutcome{Site: st, Status: sitesvc.StatusDone}, nil
+	}
+	out := &environmentOutcome{Status: sitesvc.StatusDone}
+	if in.settings() || in.Status == "" {
+		res, err := a.ops().SetEnvironment(ctx, c.actor, ref, name, sitesvc.EnvironmentChange{
+			RequiresApproval: in.RequiresApproval, Public: in.Public, InternalView: in.InternalView, AgentsMayPromote: in.AgentsMayPromote,
+			Keep: keep.Keep, KeepDefault: keep.Default, Place: placeOf(in.After),
+		})
+		if err != nil {
+			return nil, err //nolint:wrapcheck // the service's error, answered by fail
+		}
+		out.Site, out.Status, out.Note = res.Site, res.Status, res.Note
+	}
+	if in.Status == "" {
+		return out, nil
+	}
+	res, err := a.ops().SetStatus(ctx, c.actor, ref, name, siteenv.StatusChange{
+		Status: in.Status, Message: in.Message, BackAt: in.BackAt, RedirectTo: in.RedirectTo, KeepPath: in.KeepPath, Reason: in.Reason,
+	})
+	if err != nil {
+		return nil, err //nolint:wrapcheck // the service's error, answered by fail
+	}
+	out.Site, out.Status, out.Approval = res.Site, res.Status, res.Approval
+	return out, nil
+}
+
+// removeEnvironment handles DELETE /api/v1/portal/sites/{site}/environments/{name}.
+//
+// @Summary      Remove an environment
+// @Description  Removes an environment between dev and prod (#2630). Refused while it has a domain, holds the main address, is a part of an application or has a job running, each naming what to do first; an environment that requires approval is removed only by an administrator. Pending approvals that target it are withdrawn, it is dropped from every share, a share that named only it is deleted, its history is kept marked removed and stops counting toward its release limit, and its address stops answering.
+// @Tags         Sites
+// @Produce      json
+// @Param        site  path      string  true  "Site name or id"
+// @Param        name  path      string  true  "Environment"
+// @Success      200   {object}  SiteView
+// @Failure      403   {object}  httpjson.ProblemDetail
+// @Failure      404   {object}  httpjson.ProblemDetail
+// @Failure      422   {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/sites/{site}/environments/{name} [delete]
+func (a *portalAPI) removeEnvironment(w http.ResponseWriter, r *http.Request) {
+	c, r, ok := a.who(w, r)
+	if !ok {
+		return
+	}
+	st, err := a.ops().RemoveEnvironment(r.Context(), c.actor, r.PathValue(paramSite), r.PathValue("name"))
+	a.record(r.Context(), c, sitetool.CmdRemoveEnvironment, map[string]any{paramSite: r.PathValue(paramSite), paramEnv: r.PathValue("name")}, err)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	view, err := a.fullView(r.Context(), c, st)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, view)
 }
 
 // setMainEnvironment handles PUT /api/v1/portal/sites/{site}/main-environment.
@@ -484,7 +572,7 @@ func (a *portalAPI) fullView(ctx context.Context, c *caller, st *site.Site) (Sit
 // @Produce      json
 // @Param        site  path      string      true  "Site name or id"
 // @Param        body  body      DomainBody  true  "The domain"
-// @Success      201   {object}  sitesvc.DomainResult
+// @Success      201   {object}  siteenv.DomainResult
 // @Failure      403   {object}  httpjson.ProblemDetail
 // @Failure      404   {object}  httpjson.ProblemDetail
 // @Failure      409   {object}  httpjson.ProblemDetail
@@ -501,7 +589,7 @@ func (a *portalAPI) addDomain(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	d, err := a.svc().AddDomain(r.Context(), c.actor, sitesvc.DomainRequest{
+	d, err := a.ops().AddDomain(r.Context(), c.actor, sitesvc.DomainRequest{
 		Hostname: in.Hostname, Site: r.PathValue(paramSite), Environment: in.Environment, RequiresApproval: in.RequiresApproval,
 		Public: in.Public, Reason: in.Reason, Place: placeOf(in.After),
 	})
@@ -523,7 +611,7 @@ func (a *portalAPI) addDomain(w http.ResponseWriter, r *http.Request) {
 // @Param        site      path      string            true  "Site name or id"
 // @Param        hostname  path      string            true  "Hostname"
 // @Param        body      body      DomainAccessBody  true  "The access"
-// @Success      200       {object}  sitesvc.DomainResult
+// @Success      200       {object}  siteenv.DomainResult
 // @Failure      403       {object}  httpjson.ProblemDetail
 // @Failure      404       {object}  httpjson.ProblemDetail
 // @Failure      422       {object}  httpjson.ProblemDetail
@@ -541,9 +629,9 @@ func (a *portalAPI) setDomainAccess(w http.ResponseWriter, r *http.Request) {
 	}
 	host := r.PathValue("hostname")
 	err := a.belongs(r.Context(), r.PathValue(paramSite), host)
-	var out *sitesvc.DomainResult
+	var out *siteenv.DomainResult
 	if err == nil {
-		out, err = a.svc().SetDomainAccess(r.Context(), c.actor, host, in.Public, in.Reason)
+		out, err = a.ops().SetDomainAccess(r.Context(), c.actor, host, in.Public, in.Reason)
 	}
 	a.record(r.Context(), c, sitetool.CmdSetDomain, map[string]any{paramSite: r.PathValue(paramSite), "hostname": host, "public": in.Public}, err)
 	if err != nil {

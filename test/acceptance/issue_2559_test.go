@@ -410,7 +410,7 @@ func TestIssue2559_ANonAdministratorsPromoteWaitsInApprovalsAndFinishes(t *testi
 	if r := onHost(t, host, http.MethodGet, "/", nil, ""); strings.Contains(r.body, "<h1>reviewed</h1>") {
 		t.Error("the release served before it was approved")
 	}
-	connectAs(t, keyAdmin2559).call("manage_approval", map[string]any{"command": "decide", "id": id, "decision": "approve"})
+	decideInPortal2643(t, id) // a site request is decided in the portal (#2643)
 	status, got = rest2559(t, keyEngineer2559, http.MethodPost, s.path("/promote"), body)
 	want2559(t, "finishing", status, http.StatusOK, got)
 	if got["status"] != "promoted" {

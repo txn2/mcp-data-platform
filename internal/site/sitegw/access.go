@@ -480,6 +480,8 @@ func pageTemplate(view any) *template.Template {
 		return signedOutPage
 	case notFoundView:
 		return notFoundPage
+	case offlineView:
+		return offlinePage
 	default:
 		return signInPage
 	}

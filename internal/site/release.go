@@ -95,12 +95,30 @@ type Release struct {
 
 // Deployment is one recorded move of an environment's pointer.
 type Deployment struct {
-	Environment string    `json:"environment"`
-	Action      string    `json:"action" example:"promote"`
-	From        int       `json:"from_release"`
-	To          int       `json:"to_release"`
-	Actor       string    `json:"actor"`
-	CreatedAt   time.Time `json:"created_at"`
+	Environment string `json:"environment"`
+	Action      string `json:"action" example:"promote"`
+	From        int    `json:"from_release"`
+	To          int    `json:"to_release"`
+	Actor       string `json:"actor"`
+	// Detail is what a status change said: the offline message or the
+	// redirect target (#2631, #2632); a rename's old name (#2630).
+	Detail string `json:"detail,omitempty"`
+	// DecidedBy is whose decision carried out a move an agent asked for
+	// (#2643), absent for a move a person made.
+	DecidedBy string `json:"decided_by,omitempty"`
+	// Removed is a move of an environment that was removed (#2630).
+	Removed   bool      `json:"removed,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// MovesRelease reports whether the deployment moved the environment's
+// pointer, rather than recording a status change or a rename.
+func (d Deployment) MovesRelease() bool {
+	switch d.Action {
+	case ActionOffline, ActionOnline, ActionRedirect, ActionRename:
+		return false
+	}
+	return true
 }
 
 // ParseRedirects reads a release's _redirects file: one rule per line, "from
@@ -210,7 +228,7 @@ func hasControl(s string) bool {
 func RollbackTarget(env *Environment, history []Deployment, to int, gone map[int]bool) (int, error) {
 	served := make([]int, 0, len(history))
 	for _, d := range history {
-		if d.To != env.Release {
+		if d.MovesRelease() && !d.Removed && d.To != env.Release {
 			served = append(served, d.To)
 		}
 	}

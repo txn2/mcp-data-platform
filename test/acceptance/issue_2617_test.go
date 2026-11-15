@@ -182,6 +182,7 @@ func TestIssue2617_EnvironmentsArePlacedAndMoved(t *testing.T) {
 func TestIssue2617_PromotionGoesOneStep(t *testing.T) {
 	s := newSite2604(t, keyAdmin2604, "acc2617-promote-")
 	s.setEnv(t, s.key, "stage", map[string]any{})
+	agentsMayPromote2643(t, s.name, "stage") // about the one-step rule, not who decides (#2643)
 	s.publish(t, s.key, "one")
 	s.promote(t, "dev", "stage")
 	s.publish(t, s.key, "two")

@@ -93,5 +93,7 @@ at dev's address, the one `manage_site get` answers in `addresses` (the main add
 while dev holds it, else `<site>--dev.<pages domain>`), signed in since `dev` is
 private, and confirm each
 answers 200 or redirects to the page that replaces it. Fix what does not, publish
-again with `base`, and repeat until none is left. Then promote the release to the
-environment people use and move the domain.
+again with `base`, and repeat until none is left. Then give the person dev's
+address and stop: promoting the release to the environment people use, and moving
+the domain, is their decision. An agent's `promote` there asks them, or files a
+request they decide in the portal (`APPROVAL_REQUIRED`).

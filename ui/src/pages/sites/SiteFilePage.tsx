@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { ArrowLeft, ExternalLink, FileImage } from "lucide-react";
+import { ArrowLeft, ExternalLink } from "lucide-react";
 import { DEV_ENVIRONMENT, useSite, useSiteReleases, useSites, type Site, type SiteRelease } from "@/api/portal/hooks/sites";
 import { useSaveSiteFile, useSiteFileText } from "@/api/portal/hooks/siteFiles";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useUnsavedChangesGuard } from "@/lib/navigationGuard";
 import { DeleteFileDialog, UploadDialog } from "./SiteFileDialogs";
+import { DrawnView, SiteFileViewer, ViewSourceTabs, drawable, typeInRefusal } from "./SiteFileView";
 import { CompareDialog, NoticeBanner, SaveDialog, noticeOf, type Loaded, type Notice } from "./SiteFileSave";
 import { Failure } from "./SiteParts";
 import { isTemplate } from "./siteFileFormat";
@@ -40,7 +41,7 @@ export function SiteFilePage({ site: name, path, fresh, onNavigate }: { site: st
     return (
       <div className="space-y-4">
         <Header site={site} path={path} dirty={false} meta="" onBack={back} />
-        {binary ? <NotText site={site} path={path} onBack={back} /> : <Failure text={text.error.message} />}
+        {binary ? <NotText site={site} path={path} contentType={typeInRefusal(text.error.message)} onBack={back} /> : <Failure text={text.error.message} />}
       </div>
     );
   }
@@ -128,7 +129,24 @@ function Editor({ site, path, start, fresh = false, onBack, onNavigate }: { site
 }
 
 function EditorBody({ manage, path, ed }: { manage: boolean; path: string; ed: ReturnType<typeof useEditor> }) {
+  // A text kind the viewer draws (#2629) opens on View for someone who can
+  // only read it, and on Source for someone who manages the site, whose View
+  // draws the draft, unsaved edits included.
+  const drawn = drawable(ed.loaded.contentType, path);
+  const [view, setView] = useState<"view" | "source">(manage ? "source" : "view");
+  if (drawn) {
+    return (
+      <div className="space-y-2">
+        <ViewSourceTabs view={view} onChange={setView} />
+        {view === "view" ? <DrawnView body={ed.draft} contentType={ed.loaded.contentType} path={path} /> : manage ? <SourceBody path={path} ed={ed} /> : <ReadOnly body={ed.draft} />}
+      </div>
+    );
+  }
   if (!manage) return <ReadOnly body={ed.draft} />;
+  return <SourceBody path={path} ed={ed} />;
+}
+
+function SourceBody({ path, ed }: { path: string; ed: ReturnType<typeof useEditor> }) {
   return (
     <>
       {isTemplate(path) && (
@@ -253,31 +271,28 @@ function ReadOnly({ body }: { body: string }) {
   );
 }
 
-function NotText({ site, path, onBack }: { site: Site; path: string; onBack: () => void }) {
+// NotText is a file that is not text, drawn by the portal's viewer (#2629):
+// people who manage the site can replace it; everyone who can read it can
+// download it.
+function NotText({ site, path, contentType, onBack }: { site: Site; path: string; contentType: string; onBack: () => void }) {
   const [replacing, setReplacing] = useState(false);
   const maxFileBytes = useSites().data?.limits.max_file_bytes ?? 64 << 20;
   const base = site.environments.find((e) => e.name === DEV_ENVIRONMENT)?.release ?? 0;
-  const at = pageUrl(site, path);
   const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/") + 1) : "";
   return (
-    <div className="flex flex-col items-center gap-3 rounded border p-8 text-center" data-testid="file-binary">
-      <FileImage className="h-7 w-7 text-muted-foreground" aria-hidden />
-      <p className="font-medium">This file isn’t text, so it doesn’t open in the editor</p>
-      <p className="text-sm text-muted-foreground">Replace it with another file, or open it on the site to see it.</p>
-      <div className="flex gap-2">
-        {site.permissions.manage && (
-          <Button size="sm" variant="outline" onClick={() => setReplacing(true)}>
-            Replace
-          </Button>
-        )}
-        {at && (
-          <Button size="sm" variant="outline" asChild>
-            <a href={at} target="_blank" rel="noreferrer">
-              Open on the site
-            </a>
-          </Button>
-        )}
-      </div>
+    <div className="space-y-2" data-testid="file-binary">
+      <SiteFileViewer
+        site={site.name}
+        path={path}
+        contentType={contentType}
+        actions={
+          site.permissions.manage && (
+            <Button size="sm" variant="outline" onClick={() => setReplacing(true)}>
+              Replace
+            </Button>
+          )
+        }
+      />
       {replacing && <UploadDialog site={site} folder={folder} base={base} taken={(p) => p === path} maxFileBytes={maxFileBytes} onClose={() => setReplacing(false)} onDone={onBack} />}
     </div>
   );

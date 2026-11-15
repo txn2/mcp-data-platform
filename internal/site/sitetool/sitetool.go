@@ -10,15 +10,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strconv"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/bucketsource"
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/site"
 	"github.com/txn2/mcp-data-platform/internal/site/sitecrawl"
+	"github.com/txn2/mcp-data-platform/internal/site/siteenv"
 	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
+	"github.com/txn2/mcp-data-platform/internal/site/sitetraffic"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -48,12 +53,16 @@ const (
 	CmdGrant        = "grant"
 	CmdRevoke       = "revoke"
 	CmdSetDomain    = "set_domain"
+	// CmdRemoveEnvironment removes an environment between dev and prod
+	// (#2630).
+	CmdRemoveEnvironment = "remove_environment"
 )
 
 // Commands is every command, in the order the schema lists them.
 var Commands = []string{
 	CmdCreate, CmdGet, CmdList, CmdUpdate, CmdDelete, CmdEnvironment, CmdPublish, CmdPromote, CmdRollback,
 	CmdReleases, CmdDeployments, CmdAddDomain, CmdSetDomain, CmdRemoveDomain, CmdDomains, CmdCrawl, CmdGrant, CmdRevoke,
+	CmdRemoveEnvironment,
 }
 
 // Reads is the commands that change nothing.
@@ -127,6 +136,18 @@ type Input struct {
 	Application string            `json:"application,omitempty"`
 	URL         string            `json:"url,omitempty"`
 	FormMap     map[string]string `json:"form_map,omitempty"`
+	// Status, Message, BackAt, RedirectTo and KeepPath change what an
+	// environment answers (#2631, #2632); BackAt is RFC 3339.
+	Status     string `json:"status,omitempty"`
+	Message    string `json:"message,omitempty"`
+	BackAt     string `json:"back_at,omitempty"`
+	RedirectTo string `json:"redirect_to,omitempty"`
+	KeepPath   *bool  `json:"keep_path,omitempty"`
+	// RenameTo renames the environment (#2630).
+	RenameTo string `json:"rename_to,omitempty"`
+	// AgentsMayPromote is read only to refuse it: an administrator sets it in
+	// the portal (#2643).
+	AgentsMayPromote *bool `json:"agents_may_promote,omitempty"`
 }
 
 // Sources reads the files a publish names by reference.
@@ -147,12 +168,19 @@ type Crawler interface {
 	Crawl(ctx context.Context, req sitecrawl.Request) (*sitecrawl.Result, error)
 }
 
+// TrafficReader reads the traffic a site's environments answered (#2647).
+type TrafficReader interface {
+	ByEnvironment(ctx context.Context, kind, subject, grain string, since time.Time) (map[string]sitetraffic.Counts, []string, error)
+}
+
 // Tool is the registered tool.
 type Tool struct {
 	Service   *sitesvc.Service
 	Sources   Sources
 	Crawler   Crawler
 	PortalURL string
+	// Traffic reads each site's traffic for get; nil reports none.
+	Traffic TrafficReader
 }
 
 const description = "Static sites served by the platform. AGENTS WORK IN dev, PEOPLE USE WHAT WAS PROMOTED: every publish, " +
@@ -176,6 +204,13 @@ const description = "Static sites served by the platform. AGENTS WORK IN dev, PE
 	"site-wide) publishes, promotes, rolls back, adds domains and shares. Inside a private environment the site reads " +
 	"/_viewer for who signed in, and when the environment is a part of an application (add_part kind site, part_id " +
 	"\"<site>/<environment>\") its /endpoints/<name> run as that person, so the site decides its own finer rules. " +
+	"OPERATIONS: set_environment with status offline (message, back_at) answers 503 on every address of the environment, with " +
+	"status redirect (redirect_to, keep_path) answers 302, and status online serves its release again; rename_to renames an " +
+	"environment between dev and prod; remove_environment removes one with no domain, no main address, no application part and " +
+	"no job running. AN AGENT STOPS AT dev: promote, rollback, and add_domain or set_domain with public true on any other " +
+	"environment ask the person (their client shows the question) or file a request a person decides in the portal, and answer " +
+	"APPROVAL_REQUIRED; give the person the dev address and stop. An environment an administrator marked agents_may_promote is " +
+	"the exception. " +
 	"COMMANDS: publish writes a new release into dev (from files, an archive managed resource, a resource folder, or from_bucket, a prefix of a bucket on an S3 connection; a " +
 	"_redirects file becomes its redirect map, a _headers file the policies each path is served with (Content-Security-Policy, " +
 	"Content-Security-Policy-Report-Only, Permissions-Policy, Cross-Origin-Opener/Embedder/Resource-Policy, X-Frame-Options; a release " +
@@ -285,6 +320,18 @@ func schema() map[string]any {
 			"hostname":    str("add_domain, set_domain, remove_domain: the hostname."),
 			"application": str("add_domain: the application whose endpoints and pages the hostname serves, in place of site and environment."),
 			"url":         str("crawl: the site to copy."),
+			"status": map[string]any{
+				keyType: typString, keyEnum: []string{site.StatusOnline, site.StatusOffline, site.StatusRedirect},
+				keyDesc: "set_environment: what every address of the environment answers. offline answers 503 with message (and back_at, " +
+					"what visitors are told), redirect answers 302 to redirect_to, online serves its release again. Never dev. The " +
+					"release pointer is untouched, so promote and rollback keep working meanwhile. Anyone who manages the site sets it at " +
+					"once; a redirect on an environment that requires approval, set by someone who is not an administrator, waits in Approvals.",
+			},
+			"message":     str("set_environment with status offline: what the offline page says, plain text, at most 1,000 characters."),
+			"back_at":     str("set_environment with status offline: when visitors are told to expect it back, RFC 3339 (2026-11-14T14:00:00Z). Only what they are told: it stays offline until set online."),
+			"redirect_to": str("set_environment with status redirect: an https:// address on another site; never this platform's own hosts."),
+			"keep_path":   map[string]any{keyType: typBool, keyDesc: "set_environment with status redirect: append the request's path and query to redirect_to."},
+			"rename_to":   str("set_environment: rename an environment between dev and prod, alone. Every reference moves; its old <site>--<env> address stops answering and mcp:site:<site>/<old> references stop resolving."),
 			"form_map": map[string]any{
 				keyType: typObject, "additionalProperties": map[string]any{keyType: typString},
 				keyDesc: "crawl: for a page path, the platform form endpoint that replaces its forms.",
@@ -292,6 +339,9 @@ func schema() map[string]any {
 		},
 	}
 }
+
+// ops is the environment operations over the tool's service.
+func (t *Tool) ops() siteenv.Ops { return siteenv.New(t.Service) }
 
 // Register adds manage_site to the server.
 func (t *Tool) Register(server *mcp.Server) {
@@ -301,8 +351,8 @@ func (t *Tool) Register(server *mcp.Server) {
 	toolkit.AddTool(server, &mcp.Tool{
 		Name: ToolName, Title: "Manage Sites", Description: description, InputSchema: schema(),
 		Annotations: toolkit.WriteAnnotations(true),
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in Input) (*mcp.CallToolResult, any, error) {
-		return t.Handle(ctx, in)
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in Input) (*mcp.CallToolResult, any, error) {
+		return t.HandleRequest(ctx, req, in)
 	})
 }
 
@@ -312,7 +362,8 @@ func actorOf(ctx context.Context) sitesvc.Actor {
 		return sitesvc.Actor{}
 	}
 	verified, stated := pc.UserClaims[browsersession.ClaimEmailVerified].(bool)
-	return sitesvc.Actor{Email: pc.UserEmail, Admin: pc.IsAdmin, Persona: pc.PersonaName, EmailUnverified: stated && !verified}
+	// Every manage_site call is an agent acting for the person (#2643).
+	return sitesvc.Actor{Email: pc.UserEmail, Admin: pc.IsAdmin, Persona: pc.PersonaName, EmailUnverified: stated && !verified, Agent: true}
 }
 
 func insideRun(ctx context.Context) bool {
@@ -320,8 +371,15 @@ func insideRun(ctx context.Context) bool {
 	return pc != nil && pc.Source == middleware.SourceScript
 }
 
-// Handle runs one command.
+// Handle runs one command with no request to ask the person through: a move
+// that waits on them is filed in Approvals.
 func (t *Tool) Handle(ctx context.Context, in Input) (*mcp.CallToolResult, any, error) {
+	return t.HandleRequest(ctx, nil, in)
+}
+
+// HandleRequest runs one command. A move of an environment people use waits
+// on the person (#2643): their client asks them, or the request is filed.
+func (t *Tool) HandleRequest(ctx context.Context, req *mcp.CallToolRequest, in Input) (*mcp.CallToolResult, any, error) {
 	if !t.Service.Config.IsEnabled() {
 		return errorResult("sites are turned off on this deployment (sites.enabled is false)")
 	}
@@ -333,7 +391,15 @@ func (t *Tool) Handle(ctx context.Context, in Input) (*mcp.CallToolResult, any, 
 		return errorResult(fmt.Sprintf("unknown command %q", in.Command))
 	}
 	aliased := canonicalize(&in)
-	v, err := h(ctx, actorOf(ctx), in)
+	actor := actorOf(ctx)
+	run := func(a sitesvc.Actor) (any, error) { return h(ctx, a, in) }
+	if key, answer := answerOf(req); answer != nil {
+		return answered(actor, key, answer, run), nil, nil
+	}
+	v, err := run(actor)
+	if wait, ok := errors.AsType[*siteenv.PersonDecisionError](err); ok {
+		return t.personDecides(ctx, req, actor, wait, run), nil, nil
+	}
 	if err != nil {
 		return errorResult(message(err))
 	}
@@ -418,10 +484,10 @@ func (t *Tool) handlers() map[string]handler {
 		CmdEnvironment: t.setEnvironment,
 		CmdPublish:     t.publish,
 		CmdPromote: func(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
-			return s.Promote(ctx, a, sitesvc.PromoteRequest{Site: in.Site, From: in.From, To: in.To, Release: in.Release, Reason: in.Reason})
+			return t.ops().Promote(ctx, a, sitesvc.PromoteRequest{Site: in.Site, From: in.From, To: in.To, Release: in.Release, Reason: in.Reason})
 		},
 		CmdRollback: func(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
-			return s.Rollback(ctx, a, in.Site, in.Environment, in.Release)
+			return t.ops().Rollback(ctx, a, in.Site, in.Environment, in.Release)
 		},
 		CmdReleases:    t.releases,
 		CmdDeployments: t.deployments,
@@ -430,7 +496,7 @@ func (t *Tool) handlers() map[string]handler {
 			if err != nil {
 				return nil, &sitesvc.RefusedError{Msg: err.Error()}
 			}
-			return s.AddDomain(ctx, a, sitesvc.DomainRequest{
+			return t.ops().AddDomain(ctx, a, sitesvc.DomainRequest{
 				Hostname: in.Hostname, Site: in.Site, Environment: in.Environment, Application: in.Application, Reason: in.Reason,
 				RequiresApproval: in.RequiresApproval, Public: in.Public != nil && *in.Public, Keep: keep.Keep,
 				Place: placeOf(in),
@@ -440,7 +506,7 @@ func (t *Tool) handlers() map[string]handler {
 			if in.Public == nil {
 				return nil, &sitesvc.RefusedError{Msg: "set_domain: say public true or false"}
 			}
-			return s.SetDomainAccess(ctx, a, in.Hostname, *in.Public, in.Reason)
+			return t.ops().SetDomainAccess(ctx, a, in.Hostname, *in.Public, in.Reason)
 		},
 		CmdRemoveDomain: func(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
 			return map[string]any{"removed": in.Hostname}, s.RemoveDomain(ctx, a, in.Hostname)
@@ -456,20 +522,44 @@ func (t *Tool) handlers() map[string]handler {
 		CmdRevoke: func(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
 			return map[string]any{"revoked": cmp.Or(in.Email, in.Persona)}, s.Revoke(ctx, a, in.Site, in.Email, in.Persona)
 		},
+		CmdRemoveEnvironment: func(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
+			st, err := t.ops().RemoveEnvironment(ctx, a, in.Site, in.Environment)
+			if err != nil {
+				return nil, err //nolint:wrapcheck // the caller's message
+			}
+			return map[string]any{"removed": in.Environment, keySite: st}, nil
+		},
 	}
 }
 
 // setEnvironment creates or changes an environment and, with main true, gives
-// it the main address.
+// it the main address. rename_to renames it (#2630), alone; status changes
+// what it answers (#2631, #2632), after any setting given with it.
 func (t *Tool) setEnvironment(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
+	if in.RenameTo != "" {
+		if settingsGiven(in) || in.Status != "" {
+			return nil, &sitesvc.RefusedError{Msg: "rename_to renames the environment and nothing else: change its settings or status in another call"}
+		}
+		st, err := t.ops().RenameEnvironment(ctx, a, in.Site, in.Environment, in.RenameTo)
+		if err != nil {
+			return nil, err //nolint:wrapcheck // the caller's message
+		}
+		return &sitesvc.EnvironmentResult{Site: st, Status: sitesvc.StatusDone}, nil
+	}
+	if in.Status != "" && !settingsGiven(in) {
+		return t.setStatus(ctx, a, in)
+	}
 	keep, err := site.ParseKeep(in.KeepReleases)
 	if err != nil {
 		return nil, &sitesvc.RefusedError{Msg: err.Error()}
 	}
-	res, err := t.Service.SetEnvironment(ctx, a, in.Site, in.Environment, sitesvc.EnvironmentChange{
+	res, err := t.ops().SetEnvironment(ctx, a, in.Site, in.Environment, sitesvc.EnvironmentChange{
 		RequiresApproval: in.RequiresApproval, Public: in.Public, InternalView: in.InternalView,
-		Keep: keep.Keep, KeepDefault: keep.Default, Place: placeOf(in),
+		AgentsMayPromote: in.AgentsMayPromote, Keep: keep.Keep, KeepDefault: keep.Default, Place: placeOf(in),
 	})
+	if err == nil && in.Status != "" {
+		return t.setStatus(ctx, a, in)
+	}
 	if err != nil || in.Main == nil || !*in.Main {
 		return res, err //nolint:wrapcheck // the caller's message
 	}
@@ -477,6 +567,26 @@ func (t *Tool) setEnvironment(ctx context.Context, a sitesvc.Actor, in Input) (a
 		return nil, err //nolint:wrapcheck // the caller's message
 	}
 	return res, nil
+}
+
+// settingsGiven reports whether a set_environment call changes a setting, not
+// only the status.
+func settingsGiven(in Input) bool {
+	return in.RequiresApproval != nil || in.Public != nil || in.InternalView != nil || in.AgentsMayPromote != nil ||
+		len(in.KeepReleases) > 0 || in.After != "" || in.Main != nil
+}
+
+// setStatus takes the environment offline, redirects it, or brings it online.
+func (t *Tool) setStatus(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
+	c := siteenv.StatusChange{Status: in.Status, Message: in.Message, RedirectTo: in.RedirectTo, KeepPath: in.KeepPath != nil && *in.KeepPath, Reason: in.Reason}
+	if in.BackAt != "" {
+		at, err := time.Parse(time.RFC3339, in.BackAt)
+		if err != nil {
+			return nil, &sitesvc.RefusedError{Msg: "back_at: a time in RFC 3339 form, as 2026-11-14T14:00:00Z"}
+		}
+		c.BackAt = &at
+	}
+	return t.ops().SetStatus(ctx, a, in.Site, in.Environment, c) //nolint:wrapcheck // the caller's message
 }
 
 // placeOf is the place a call names, nil for none.
@@ -503,6 +613,9 @@ func (t *Tool) get(ctx context.Context, actor sitesvc.Actor, in Input) (any, err
 	if note := at.AddressNote(st); note != "" {
 		out["address_note"] = note
 	}
+	if traffic := t.traffic(ctx, st); traffic != nil {
+		out["traffic"] = traffic
+	}
 	perms, err := t.Service.PermissionsOf(ctx, actor, st)
 	if err != nil {
 		return nil, err //nolint:wrapcheck // the caller's message
@@ -513,6 +626,41 @@ func (t *Tool) get(ctx context.Context, actor sitesvc.Actor, in Input) (any, err
 		}
 	}
 	return out, nil
+}
+
+// TrafficSummary is what get reports of a site's last 24 hours (#2647):
+// requests and latency for the whole site and for each environment, so an
+// agent asked whether the site is slow answers from it.
+type TrafficSummary struct {
+	Range        string                        `json:"range"`
+	Recording    bool                          `json:"recording"`
+	Total        sitetraffic.Totals            `json:"total"`
+	Environments map[string]sitetraffic.Totals `json:"environments"`
+}
+
+// traffic is the site's summary, nil where there is no reader; a failed read
+// is logged and left out rather than failing the read of the site.
+func (t *Tool) traffic(ctx context.Context, st *site.Site) *TrafficSummary {
+	if t.Traffic == nil {
+		return nil
+	}
+	day, _ := sitetraffic.RangeOf("24h")
+	by, _, err := t.Traffic.ByEnvironment(ctx, sitetraffic.KindSite, st.ID, day.Grain, day.Since(time.Now()))
+	if err != nil {
+		slog.WarnContext(ctx, "sites: reading a site's traffic failed", "error", logsan.SanitizeForLog(err.Error()))
+		return nil
+	}
+	out := &TrafficSummary{Range: day.Name, Recording: t.Service.Config.Traffic.IsEnabled(), Environments: map[string]sitetraffic.Totals{}}
+	if t.Service.Live != nil {
+		out.Recording = t.Service.Live.Get().Traffic.IsEnabled()
+	}
+	var all sitetraffic.Counts
+	for env, c := range by {
+		out.Environments[env] = sitetraffic.TotalsOf(c)
+		all.Add(c)
+	}
+	out.Total = sitetraffic.TotalsOf(all)
+	return out
 }
 
 func (t *Tool) releases(ctx context.Context, _ sitesvc.Actor, in Input) (any, error) {

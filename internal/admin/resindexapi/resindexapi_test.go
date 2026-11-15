@@ -178,10 +178,43 @@ func TestMountServesTheCountsFromTheDatabase(t *testing.T) {
 		[]string{"started_at", "finished_at", "examined", "changed", "cleared", "error"}))
 
 	mux := http.NewServeMux()
-	Mount(mux, passthrough, db, indexpolicy.Default())
+	Mount(mux, passthrough, db, indexpolicy.Default(), true)
 	state := readState(t, mux)
 	assert.Equal(t, 2, state.Counts.None)
 	assert.Equal(t, 5, state.Counts.Folders)
+	assert.Empty(t, state.NoIndexReason, "a deployment with an embedder owes its index work")
+}
+
+// TestNoEmbedderSaysNoIndexWorkIsOwed pins #2638: mounted with no embedder,
+// the counts, the last run and a new reclassification's answer each say why
+// no index work is owed.
+func TestNoEmbedderSaysNoIndexWorkIsOwed(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	mock.ExpectQuery("FROM resources").WillReturnRows(sqlmock.NewRows(
+		[]string{"full", "metadata", "none", "explicit", "content_bytes", "folders"}).AddRow(4, 3, 2, 1, 900, 5))
+	mock.ExpectQuery("FROM resource_reclassify_runs").WillReturnRows(sqlmock.NewRows(
+		[]string{"started_at", "finished_at", "examined", "changed", "cleared", "error"}))
+	mux := http.NewServeMux()
+	Mount(mux, passthrough, db, indexpolicy.Default(), false)
+	assert.Equal(t, NoEmbedderReason, readState(t, mux).NoIndexReason)
+
+	rc := &blockingReclassifier{release: make(chan struct{})}
+	close(rc.release)
+	runs := &memRuns{}
+	reg := http.NewServeMux()
+	Register(reg, passthrough, Config{Store: fakeStore{}, Reclassifier: rc, Runs: runs, NoIndexReason: NoEmbedderReason})
+	rec := serve(reg, http.MethodPost, indexPath+"/reclassify")
+	require.Equal(t, http.StatusAccepted, rec.Code)
+	var posted Run
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &posted))
+	assert.Equal(t, NoEmbedderReason, posted.NoIndexReason)
+	require.Eventually(t, func() bool {
+		s := readState(t, reg)
+		return s.LastRun != nil && s.LastRun.FinishedAt != nil
+	}, 5*time.Second, 5*time.Millisecond)
+	assert.Equal(t, NoEmbedderReason, readState(t, reg).LastRun.NoIndexReason)
 }
 
 func TestPostgresRuns(t *testing.T) {

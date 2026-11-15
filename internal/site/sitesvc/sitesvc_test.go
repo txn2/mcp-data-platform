@@ -88,8 +88,15 @@ func TestCreate(t *testing.T) {
 	var r *RefusedError
 	_, err = svc.Create(ctx, Actor{}, "other", "")
 	require.ErrorAs(t, err, &r, "a site needs an owner")
-	_, err = svc.Create(ctx, owner, "Not A Name", "")
+	// #2636: typed text becomes the name; what cannot become one is refused.
+	typed, err := svc.Create(ctx, owner, "Not A Name", "")
+	require.NoError(t, err)
+	assert.Equal(t, "not-a-name", typed.Name)
+	_, err = svc.Create(ctx, owner, "!!!", "")
 	require.ErrorAs(t, err, &r)
+	_, err = svc.Create(ctx, owner, "a"+strings.Repeat("b", 57), "")
+	require.ErrorAs(t, err, &r)
+	assert.Contains(t, r.Msg, "at most 57")
 	_, err = svc.Create(ctx, owner, "blog", "")
 	require.ErrorIs(t, err, site.ErrNameTaken)
 }

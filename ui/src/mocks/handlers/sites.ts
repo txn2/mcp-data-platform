@@ -1,6 +1,7 @@
 import { http, HttpResponse } from "msw";
 import type { Site, SiteEnvironment, SiteGrant, SiteJob, SiteRelease } from "@/api/portal/hooks/sites";
 import { siteFileHandlers, resetSiteFiles } from "./siteFiles";
+import { siteOpsHandlers } from "./siteOps";
 
 // Sites (#2559, #2604): the routes the portal's Sites section reads and writes,
 // over module state so a write in one mock session is what the page reads back.
@@ -279,13 +280,13 @@ export const siteHandlers = [
   }),
   http.get(`${base}/:site/deployments`, ({ request }) => {
     const all = [
-      { environment: "dev", action: "publish", from: 11, to: 12, actor: "jane.doe@example.com", created_at: at },
-      { environment: "dev", action: "publish", from: 10, to: 11, actor: "jane.doe@example.com", created_at: at },
-      { environment: "dev", action: "publish", from: 8, to: 10, actor: "jane.doe@example.com", created_at: at },
-      { environment: "dev", action: "publish", from: 7, to: 8, actor: "jane.doe@example.com", created_at: at },
-      { environment: "stage", action: "promote", from: 0, to: 11, actor: "jane.doe@example.com", created_at: at },
-      { environment: "prod", action: "promote", from: 5, to: 9, actor: "sarah.chen@example.com", created_at: at },
-      { environment: "prod", action: "promote", from: 0, to: 5, actor: "sarah.chen@example.com", created_at: at },
+      { environment: "dev", action: "publish", from_release: 11, to_release: 12, actor: "jane.doe@example.com", created_at: at },
+      { environment: "dev", action: "publish", from_release: 10, to_release: 11, actor: "jane.doe@example.com", created_at: at },
+      { environment: "dev", action: "publish", from_release: 8, to_release: 10, actor: "jane.doe@example.com", created_at: at },
+      { environment: "dev", action: "publish", from_release: 7, to_release: 8, actor: "jane.doe@example.com", created_at: at },
+      { environment: "stage", action: "promote", from_release: 0, to_release: 11, actor: "jane.doe@example.com", created_at: at },
+      { environment: "prod", action: "promote", from_release: 5, to_release: 9, actor: "sarah.chen@example.com", created_at: at },
+      { environment: "prod", action: "promote", from_release: 0, to_release: 5, actor: "sarah.chen@example.com", created_at: at },
     ];
     const environment = new URL(request.url).searchParams.get("environment");
     return HttpResponse.json({ deployments: environment ? all.filter((d) => d.environment === environment) : all });
@@ -373,8 +374,21 @@ export const siteHandlers = [
   http.put(`${base}/:site/environments/:name`, async ({ params, request }) => {
     const s = find(params.site as string);
     if (!s) return missing();
-    const b = (await request.json()) as { requires_approval?: boolean; public?: boolean; internal_view?: boolean; keep_releases?: number | "default"; after?: string };
+    const b = (await request.json()) as {
+      requires_approval?: boolean; public?: boolean; internal_view?: boolean; keep_releases?: number | "default"; after?: string;
+      status?: "online" | "offline" | "redirect"; message?: string; back_at?: string; redirect_to?: string; keep_path?: boolean; rename_to?: string; agents_may_promote?: boolean;
+    };
     const name = params.name as string;
+    const named = s.environments.find((x) => x.name === name);
+    if (b.rename_to && named) {
+      named.name = b.rename_to;
+      Object.assign(s, withAddresses(s));
+      return HttpResponse.json({ site: s, status: "done" });
+    }
+    if (b.status && named) {
+      Object.assign(named, { status: b.status, message: b.message, back_at: b.back_at, redirect_to: b.redirect_to, keep_path: b.keep_path, status_changed_by: "admin@example.com", status_changed_at: new Date().toISOString() });
+      return HttpResponse.json({ site: s, status: "done" });
+    }
     if (b.public !== undefined) {
       return HttpResponse.json(
         {
@@ -396,6 +410,7 @@ export const siteHandlers = [
     Object.assign(e, {
       ...(b.requires_approval !== undefined ? { requires_approval: b.requires_approval } : {}),
       ...(b.internal_view !== undefined ? { internal_view: b.internal_view } : {}),
+      ...(b.agents_may_promote !== undefined ? { agents_may_promote: b.agents_may_promote } : {}),
     });
     if (b.keep_releases !== undefined) {
       const keep = b.keep_releases === "default" ? DEFAULT_KEEP : b.keep_releases;
@@ -443,6 +458,7 @@ export const siteHandlers = [
     return HttpResponse.json({ keep_default: retention.keep_default, mode: retention.mode, orphan_grace: "24h0m0s", every: "24h0m0s", sweeps: page() === "no-cleanup" ? [] : [sweep] });
   }),
   ...siteFileHandlers,
+  ...siteOpsHandlers(find, () => sites.map((s) => s.name)),
   // A file a site serves from a mounted media folder goes only with force (#2591).
   http.delete("/api/v1/resources/:id", ({ params, request }) => {
     const served = String(params.id).startsWith("res-media-");

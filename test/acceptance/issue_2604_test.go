@@ -118,7 +118,8 @@ func approve2604(t *testing.T, got map[string]any) {
 	if id == "" {
 		t.Fatalf("no approval request: %v", got["_raw"])
 	}
-	connectAs(t, keyAdmin2604).call("manage_approval", map[string]any{"command": "decide", "id": id, "decision": "approve"})
+	// A site request is decided by a person in the portal (#2643).
+	decideInPortal2643(t, id)
 }
 
 // signIn2604 signs a person in through Keycloak and walks the handoff to host,

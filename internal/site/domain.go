@@ -51,6 +51,9 @@ type Route struct {
 	// PartOf is the application this environment is a part of, "" for none;
 	// its endpoints answer on the environment's own hosts.
 	PartOf string
+	// Status is what the environment answers in place of its release, after
+	// the access check (#2631, #2632); its zero value is online.
+	Status EnvironmentStatus
 }
 
 // ClaimRules are what a hostname a domain maps must stay clear of: the pages
@@ -89,4 +92,37 @@ func (d *Domain) Claimable(r ClaimRules) error {
 		return fmt.Errorf("hostname %s is under the session cookie's domain %s, so its pages would receive the portal's session", host, r.CookieDomain)
 	}
 	return nil
+}
+
+// An environment's status (#2631, #2632): what every one of its addresses
+// answers. Online serves the release; offline answers 503 with a message;
+// redirect answers 302 to another https site. Exactly one applies at a time,
+// the release pointer is never touched by any, and dev is always online. The
+// rules a status is checked and answered by are internal/site/sitestatus.
+const (
+	StatusOnline   = "online"
+	StatusOffline  = "offline"
+	StatusRedirect = "redirect"
+)
+
+// The actions History records for a status change.
+const (
+	ActionOffline  = "offline"
+	ActionOnline   = "online"
+	ActionRedirect = "redirect"
+)
+
+// EnvironmentStatus is what an environment answers in place of its release.
+type EnvironmentStatus struct {
+	Status string
+	// Message is what an offline environment's page says, cleaned.
+	Message string
+	// BackAt is when visitors are told an offline environment is expected
+	// back; it is only what they are told (#2631 rule 7).
+	BackAt *time.Time
+	// RedirectTo is a redirecting environment's target, as checked and
+	// written back when it was set.
+	RedirectTo string
+	// KeepPath appends the request's cleaned path and query to RedirectTo.
+	KeepPath bool
 }

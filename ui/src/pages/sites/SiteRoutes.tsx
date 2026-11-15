@@ -1,6 +1,7 @@
 import { SITE_ROUTES, SITE_TABS } from "@/lib/portalRoutes";
 import { SiteDetailPage } from "./SiteDetailPage";
 import { SiteFilePage } from "./SiteFilePage";
+import { SiteReleaseFilePage } from "./SiteFileView";
 import { SiteReleasePage } from "./SiteReleasePage";
 import { SitesPage } from "./SitesPage";
 
@@ -11,6 +12,10 @@ import { SitesPage } from "./SitesPage";
 // renders nothing under that page.
 export function SiteRoutes({ route, onNavigate }: { route: string; onNavigate: (path: string) => void }) {
   if (route === "/sites") return <SitesPage onNavigate={onNavigate} />;
+  const releaseFile = route.match(SITE_ROUTES.releaseFile);
+  if (releaseFile) {
+    return <SiteReleaseFilePage site={decodeURIComponent(releaseFile[1]!)} number={Number(releaseFile[2])} path={decodeURIComponent(releaseFile[3]!)} onNavigate={onNavigate} />;
+  }
   const release = route.match(SITE_ROUTES.release);
   if (release) {
     return <SiteReleasePage site={decodeURIComponent(release[1]!)} number={Number(release[2])} onNavigate={onNavigate} />;

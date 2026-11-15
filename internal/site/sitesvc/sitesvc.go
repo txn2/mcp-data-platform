@@ -94,6 +94,10 @@ type Actor struct {
 	// EmailUnverified is true when the identity provider said in so many words
 	// that it has not verified Email, which then matches no owner or grant.
 	EmailUnverified bool
+	// Agent, Decided and DecidedBy: an agent's moves wait on a person (#2643, siteenv).
+	Agent     bool
+	Decided   string
+	DecidedBy string
 }
 
 // RefusedError is a command refused for a reason the caller can act on. Err,
@@ -143,6 +147,7 @@ func (s *Service) Create(ctx context.Context, actor Actor, name, description str
 	if actor.Email == "" {
 		return nil, refused("a site needs an owner with an email")
 	}
+	name = site.NameFrom(name) // what a person typed becomes the name its addresses use (#2636)
 	st := &site.Site{
 		ID: sitestore.NewSiteID(), Name: name, Description: description, OwnerEmail: actor.Email, CreatedBy: actor.Email,
 		Environments: []site.Environment{{Name: site.EnvDev}, {Name: site.EnvProd}}, MainEnvironment: site.EnvProd,
@@ -304,6 +309,8 @@ type EnvironmentChange struct {
 	// only so the refusal can say so.
 	Public       *bool
 	InternalView *bool
+	// AgentsMayPromote is #2643's setting, checked by siteenv.
+	AgentsMayPromote *bool
 	// Keep sets how many releases the environment keeps (0 keeps every one),
 	// and KeepDefault returns it to the deployment's default (#2602).
 	Keep        *int
@@ -339,7 +346,7 @@ func (s *Service) SetEnvironment(ctx context.Context, actor Actor, ref, name str
 	if err != nil {
 		return nil, err
 	}
-	if err := s.mayEdit(ctx, actor, st); err != nil {
+	if err := s.MayEdit(ctx, actor, st); err != nil {
 		return nil, err
 	}
 	name, aliased := site.CanonicalEnvironment(name)
@@ -351,7 +358,7 @@ func (s *Service) SetEnvironment(ctx context.Context, actor Actor, ref, name str
 	if err != nil {
 		return nil, err
 	}
-	set := site.EnvironmentSettings{RequiresApproval: c.RequiresApproval, InternalView: c.InternalView, Keep: c.Keep, KeepDefault: c.KeepDefault, Place: place}
+	set := site.EnvironmentSettings{RequiresApproval: c.RequiresApproval, InternalView: c.InternalView, AgentsMayPromote: c.AgentsMayPromote, Keep: c.Keep, KeepDefault: c.KeepDefault, Place: place}
 	if err := s.Store.SetEnvironment(ctx, st.ID, name, set, actor.Email); err != nil {
 		return nil, err //nolint:wrapcheck // read by identity
 	}
@@ -379,7 +386,7 @@ func (s *Service) checkEnvironmentChange(ctx context.Context, actor Actor, t env
 		return publicOnEnvironment(t.name)
 	}
 	if t.env == nil {
-		if err := s.checkNewEnvironment(ctx, t.st, t.name); err != nil {
+		if err := s.CheckNewEnvironment(ctx, t.st, t.name); err != nil {
 			return err
 		}
 	}
@@ -427,9 +434,9 @@ func placeFor(actor Actor, t envTarget, p *site.Place) (*site.Place, error) {
 	return p, nil
 }
 
-// checkNewEnvironment refuses a name that is not one, whose address could not
+// CheckNewEnvironment refuses a name that is not one, whose address could not
 // be one DNS label, or whose address an application holds.
-func (s *Service) checkNewEnvironment(ctx context.Context, st *site.Site, name string) error {
+func (s *Service) CheckNewEnvironment(ctx context.Context, st *site.Site, name string) error {
 	if err := site.ValidateEnvironment(name); err != nil {
 		return refusedBy(err)
 	}
@@ -486,7 +493,7 @@ type repoint struct {
 
 func (s *Service) move(ctx context.Context, actor Actor, m repoint) error {
 	err := s.Store.Point(ctx, site.Pointer{
-		SiteID: m.st.ID, Environment: m.env.Name, After: m.env.Release, To: m.to, Action: m.action, Actor: actor.Email,
+		SiteID: m.st.ID, Environment: m.env.Name, After: m.env.Release, To: m.to, Action: m.action, Actor: actor.Email, DecidedBy: actor.DecidedBy,
 	})
 	if errors.Is(err, site.ErrPruned) {
 		// A sweep pruned the release after it was checked (#2602).
@@ -602,7 +609,7 @@ func (s *Service) setMedia(ctx context.Context, actor Actor, st *site.Site, moun
 	if s.MediaFolders == nil || s.MediaStore == nil {
 		return refused("this deployment cannot mount media: it has no managed-resource library")
 	}
-	if err := s.mayEdit(ctx, actor, st); err != nil {
+	if err := s.MayEdit(ctx, actor, st); err != nil {
 		return err
 	}
 	clean, err := site.ValidateMounts(mounts)

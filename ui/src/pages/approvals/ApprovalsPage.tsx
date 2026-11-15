@@ -142,18 +142,66 @@ function ScriptRequest({ request: r, onNavigate }: { request: ApprovalRequest; o
 /** SiteRequest is what a site release's approval shows. */
 function SiteRequest({ request: r }: { request: ApprovalRequest }) {
   if (r.purpose === "site_public") return <SitePublicRequest request={r} />;
+  if (r.purpose === "site_redirect") return <SiteRedirectRequest request={r} />;
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{r.site_name}</span>
         <span className="text-sm text-muted-foreground">release {r.version}</span>
+        <FromAgent request={r} />
         <StatusBadges request={r} />
       </div>
+      <AgentNote request={r} />
       <p className="text-sm">
         Serve this release in {r.target}. Asked by {r.requester_email} {formatWhen(r.created_at)}.
       </p>
       {r.reason && <p className="text-sm text-muted-foreground">“{r.reason}”</p>}
       {r.site_name && <SiteRequestChanges site={r.site_name} target={r.target ?? ""} release={r.version} />}
+    </>
+  );
+}
+
+/** Whether an agent filed the request (#2643): its reason starts so. */
+function fromAgent(r: ApprovalRequest): boolean {
+  return (r.reason ?? "").startsWith("From an agent.");
+}
+
+function FromAgent({ request: r }: { request: ApprovalRequest }) {
+  return fromAgent(r) ? <Badge variant="info">From an agent</Badge> : null;
+}
+
+function AgentNote({ request: r }: { request: ApprovalRequest }) {
+  if (!fromAgent(r) || r.status !== "pending") return null;
+  return <p className="text-xs text-muted-foreground">The agent's session can't decide this; a person decides here. Look at the release on the site first.</p>;
+}
+
+/** The target and path rule a redirect request was asked for, from its stamp. */
+function redirectAsked(stamp: string): { target: string; keepPath: boolean } {
+  const m = /^redirect:(true|false):(.*)$/.exec(stamp);
+  return m ? { target: m[2] ?? "", keepPath: m[1] === "true" } : { target: "", keepPath: false };
+}
+
+// SiteRedirectRequest is a request to send every visitor of an environment that
+// requires approval to another website (#2632), naming the target.
+function SiteRedirectRequest({ request: r }: { request: ApprovalRequest }) {
+  const asked = redirectAsked(r.source_sha256 ?? "");
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-medium">{r.site_name}</span>
+        <span className="text-sm text-muted-foreground">{r.target}</span>
+        <Badge variant="warning">Redirect</Badge>
+        <StatusBadges request={r} />
+      </div>
+      <p className="text-sm">
+        Send every visitor of {r.target} to another website. Asked by {r.requester_email} {formatWhen(r.created_at)}.
+      </p>
+      {r.reason && <p className="text-sm text-muted-foreground">“{r.reason}”</p>}
+      <div className="space-y-0.5">
+        <p className="text-xs font-medium text-muted-foreground">Target</p>
+        <p className="break-all font-mono text-sm">{asked.target}</p>
+        <p className="text-xs text-muted-foreground">{asked.keepPath ? "The path and query are kept." : "Every path goes to this address as written."}</p>
+      </div>
     </>
   );
 }
@@ -171,6 +219,7 @@ function SitePublicRequest({ request: r }: { request: ApprovalRequest }) {
         <span className="font-medium">{r.site_name}</span>
         <span className="text-sm text-muted-foreground">{target}</span>
         <Badge variant="info">Make public</Badge>
+        <FromAgent request={r} />
         <StatusBadges request={r} />
       </div>
       <p className="text-sm">

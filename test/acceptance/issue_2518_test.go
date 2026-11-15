@@ -96,6 +96,12 @@ func newSite2518(t *testing.T, c *client) *siteClient {
 	// adding a domain to it. An administrator adds each domain public, so it
 	// answers there to anyone (#2619). dev cannot have a domain.
 	admin := connect(t)
+	// These criteria are about how a release moves, not who decides it, so
+	// the environments take an agent's moves (#2643).
+	admin.call("manage_site", map[string]any{"command": "set_environment", "site": name, "environment": "stage"})
+	for _, env := range []string{"stage", "prod"} {
+		agentsMayPromote2643(t, name, env)
+	}
 	for _, env := range []string{"stage", "prod"} {
 		admin.call("manage_site", map[string]any{
 			"command": "add_domain", "hostname": s.preview(env), "site": name, "environment": env, "requires_approval": env == "prod", "public": true,
@@ -213,7 +219,6 @@ func TestIssue2518_APublishPromotesAndRollsBackOnThreeHostnamesAudited(t *testin
 
 func TestIssue2518_APromotionToProdByTheOwnerWaitsForApproval(t *testing.T) {
 	owner := connectAs(t, "acme-owner-key")
-	admin := connect(t)
 	s := newSite2518(t, owner)
 	s.publish(t, "dev", "one")
 	if got := owner.call("manage_site", map[string]any{"command": "promote", "site": s.name, "from": "dev", "to": "stage"}); got["status"] != "promoted" {
@@ -233,7 +238,7 @@ func TestIssue2518_APromotionToProdByTheOwnerWaitsForApproval(t *testing.T) {
 	}
 	request, _ := waiting["approval"].(map[string]any)
 	id, _ := request["id"].(string)
-	admin.call("manage_approval", map[string]any{"command": "decide", "id": id, "decision": "approve"})
+	decideInPortal2643(t, id)
 	done := owner.call("manage_site", map[string]any{"command": "promote", "site": s.name, "from": "stage", "to": "prod"})
 	if done["status"] != "promoted" {
 		t.Fatalf("after the approval: %v", done)

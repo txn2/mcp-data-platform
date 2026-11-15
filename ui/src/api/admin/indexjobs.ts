@@ -265,11 +265,15 @@ export interface ReclassifyRun {
   finished_at?: string;
   result?: { examined: number; changed: number; cleared: number };
   error?: string;
+  /** Why the reclassification queues no index work (#2638), absent when it queues what it owes. */
+  no_index_reason?: string;
 }
 
 export interface ResourceIndexState {
   counts: ResourceIndexCounts;
   last_run?: ReclassifyRun;
+  /** Why a reclassification queues no index work on this deployment: it has no embedder (#2638). */
+  no_index_reason?: string;
 }
 
 // useResourceIndex reads the counts; it polls while a reclassification runs.

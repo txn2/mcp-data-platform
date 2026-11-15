@@ -18,6 +18,10 @@ interface Draft {
   /** How many releases an environment keeps by default (#2602); 0 keeps every release. */
   keep: string;
   mode: "delete" | "report";
+  /** Whether traffic is recorded (#2647), and how long its rows are kept. */
+  traffic: boolean;
+  minuteHours: string;
+  hourDays: string;
 }
 
 function draftOf(s: SiteSettings): Draft {
@@ -29,6 +33,9 @@ function draftOf(s: SiteSettings): Draft {
     pages: String(s.crawl_max_pages),
     keep: String(s.releases_keep ?? 50),
     mode: s.releases_mode ?? "delete",
+    traffic: s.traffic_enabled ?? true,
+    minuteHours: String(s.traffic_minute_hours ?? 24),
+    hourDays: String(s.traffic_hour_days ?? 90),
   };
 }
 
@@ -87,6 +94,9 @@ function toSettings(d: Draft, data: SiteSettings): SiteSettings {
     crawl_max_pages: Number(d.pages),
     releases_keep: Number(d.keep.trim()),
     releases_mode: d.mode,
+    traffic_enabled: d.traffic,
+    traffic_minute_hours: Number(d.minuteHours),
+    traffic_hour_days: Number(d.hourDays),
   };
 }
 
@@ -108,6 +118,19 @@ function Fields({ draft, set }: { draft: Draft; set: <K extends keyof Draft>(k: 
         <ConfigField label="Most pages when copying a site" type="number" value={draft.pages} onChange={set("pages")} />
       </div>
       <ReleasesFields keep={draft.keep} mode={draft.mode} onKeep={set("keep")} onMode={set("mode")} />
+      <div className="space-y-2 border-t pt-4" data-testid="traffic-settings">
+        <label className="flex items-start gap-2">
+          <input type="checkbox" className="mt-1" checked={draft.traffic} onChange={(e) => set("traffic")(e.target.checked)} />
+          <span>
+            <span className="block text-sm font-medium">Record traffic</span>
+            <span className="block text-xs text-muted-foreground">Each site's requests and latency, by environment and replica, shown on its Traffic tab and the Sites list. Nothing a visitor sends is kept.</span>
+          </span>
+        </label>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <ConfigField label="Keep minute figures (hours)" type="number" value={draft.minuteHours} onChange={set("minuteHours")} help="They draw the last hour and 24 hours." />
+          <ConfigField label="Keep hourly figures (days)" type="number" value={draft.hourDays} onChange={set("hourDays")} help="They draw the last 7 and 30 days." />
+        </div>
+      </div>
     </div>
   );
 }

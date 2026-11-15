@@ -67,6 +67,11 @@ export function ResourceSearchPanel({
           {note ?? "Applies resources.index again to every file no writer chose for, in batches."}
         </span>
       </div>
+      {data.no_index_reason && (
+        <p className="text-xs text-muted-foreground" data-testid="no-index-reason">
+          {data.no_index_reason}
+        </p>
+      )}
     </div>
   );
 }

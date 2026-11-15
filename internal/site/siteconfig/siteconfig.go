@@ -66,6 +66,44 @@ type Config struct {
 	ReservedHostnames []string `yaml:"reserved_hostnames"`
 	// TLS is how a site's https answers keep a browser on https (#2557).
 	TLS TLSConfig `yaml:"tls"`
+	// Traffic is the platform's own record of each site's traffic and
+	// latency (#2647).
+	Traffic TrafficConfig `yaml:"traffic"`
+}
+
+// Traffic retention's defaults (#2647).
+const (
+	DefaultTrafficMinuteRetention = 24 * time.Hour
+	DefaultTrafficHourRetention   = 90 * 24 * time.Hour
+)
+
+// TrafficConfig is the sites.traffic section.
+type TrafficConfig struct {
+	// Enabled records traffic; unset is on.
+	Enabled *bool `yaml:"enabled"`
+	// MinuteRetention is how long minute rows are kept; unset is 24 hours.
+	MinuteRetention time.Duration `yaml:"minute_retention"`
+	// HourRetention is how long hour rows are kept; unset is 90 days.
+	HourRetention time.Duration `yaml:"hour_retention"`
+}
+
+// IsEnabled reports whether traffic is recorded.
+func (t TrafficConfig) IsEnabled() bool { return t.Enabled == nil || *t.Enabled }
+
+// Minutes is how long minute rows are kept.
+func (t TrafficConfig) Minutes() time.Duration {
+	if t.MinuteRetention <= 0 {
+		return DefaultTrafficMinuteRetention
+	}
+	return t.MinuteRetention
+}
+
+// Hours is how long hour rows are kept.
+func (t TrafficConfig) Hours() time.Duration {
+	if t.HourRetention <= 0 {
+		return DefaultTrafficHourRetention
+	}
+	return t.HourRetention
 }
 
 // TLSConfig is the sites.tls section.

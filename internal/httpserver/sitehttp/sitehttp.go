@@ -16,6 +16,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/site/sitegw"
+	"github.com/txn2/mcp-data-platform/internal/site/sitetraffic"
 	"github.com/txn2/mcp-data-platform/internal/site/sitewire"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -31,8 +32,11 @@ const (
 type Layer struct {
 	gateway *sitegw.Gateway
 	runtime *sitewire.Runtime
-	stop    chan struct{}
-	done    chan struct{}
+	// instance is this process's X-Platform-Instance, the name its traffic
+	// is recorded under (#2647).
+	instance string
+	stop     chan struct{}
+	done     chan struct{}
 }
 
 // Build assembles the layer, nil where the deployment has no sites.
@@ -81,6 +85,7 @@ func gatewayDeps(p *platform.Platform, rt *sitewire.Runtime) (sitegw.Deps, error
 	deps := sitegw.Deps{
 		Store: rt.Store, Objects: objects, Bucket: p.Config().Portal.S3Bucket, Config: rt.Config, Live: rt.Live, PortalHost: rt.Service.PortalHost,
 		Access: accessOver(p, rt, portal), Metrics: p.Metrics(), Media: rt.Media, Secure: portal.Scheme == schemeHTTPS,
+		Traffic: rt.Traffic,
 	}
 	if p.Endpoints().Handler != nil {
 		deps.Pages = pagesOver(p, rt, portal)
@@ -148,12 +153,15 @@ func (l *Layer) Wrap(next http.Handler) http.Handler {
 	return l.gateway.Wrap(next)
 }
 
-// Start begins the handoff sweep, the reading of saved settings and the
-// release sweep's schedule, and returns what stops them.
-func (l *Layer) Start(ctx context.Context) (stop func()) {
+// Start begins the handoff sweep, the reading of saved settings, the release
+// sweep's schedule and the traffic flush, and returns what stops them.
+// instance is this process's X-Platform-Instance, the name its traffic is
+// recorded under.
+func (l *Layer) Start(ctx context.Context, instance string) (stop func()) {
 	if l == nil {
 		return func() {}
 	}
+	l.instance = instance
 	l.stop, l.done = make(chan struct{}), make(chan struct{})
 	var loops sync.WaitGroup
 	loops.Go(func() {
@@ -167,11 +175,46 @@ func (l *Layer) Start(ctx context.Context) (stop func()) {
 	if l.runtime.Prune != nil {
 		loops.Go(func() { l.runtime.Prune.Loop(ctx, l.stop) })
 	}
+	if f := l.trafficFlusher(); f != nil {
+		loops.Go(func() {
+			bgloop.Run(ctx, bgloop.Loop{
+				Name: bgloop.NameSiteTrafficFlush, Every: sitetraffic.FlushEvery, Stop: l.stop, Body: f.Flush,
+				// What a replica holds when it stops is written once more.
+				Final: func(ctx context.Context) { _ = f.Flush(ctx) },
+			})
+		})
+		loops.Go(func() {
+			bgloop.Run(ctx, bgloop.Loop{Name: bgloop.NameSiteTrafficSweep, Every: sweepEvery, Stop: l.stop, Body: l.sweepTraffic})
+		})
+	}
 	go func() {
 		loops.Wait()
 		close(l.done)
 	}()
 	return l.shutdown
+}
+
+// trafficFlusher is the loop body that adds this replica's traffic into the
+// shared rows (#2647), named by the X-Platform-Instance it answers as; nil
+// where the deployment records none.
+func (l *Layer) trafficFlusher() *sitetraffic.Flusher {
+	rt := l.runtime
+	if rt.Traffic == nil || rt.TrafficStore == nil {
+		return nil
+	}
+	return &sitetraffic.Flusher{
+		Tally: rt.Traffic, Store: rt.TrafficStore, Instance: l.instance,
+		Enabled: func() bool { return rt.Live.Get().Traffic.IsEnabled() },
+	}
+}
+
+// sweepTraffic removes traffic rows past their retention.
+func (l *Layer) sweepTraffic(ctx context.Context) error {
+	cfg := l.runtime.Live.Get().Traffic
+	now := time.Now()
+	n, err := l.runtime.TrafficStore.Sweep(ctx, now.Add(-cfg.Minutes()), now.Add(-cfg.Hours()))
+	bgloop.Purged(ctx, bgloop.NameSiteTrafficSweep, n)
+	return err //nolint:wrapcheck // the loop records it
 }
 
 func (l *Layer) shutdown() {

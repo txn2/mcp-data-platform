@@ -33,7 +33,19 @@ const issue1896Literal = "acc-1896-card-4111"
 // returns every span of the trace read at that moment.
 func spansInTrace(t *testing.T, traceID string, want func(exportedSpan) bool) []exportedSpan {
 	t.Helper()
-	deadline := time.Now().Add(spanWait)
+	in, found := spansWithin(t, traceID, spanWait, want)
+	if !found {
+		t.Fatalf("trace %s held no span the criterion looks for within %s (%d spans)", traceID, spanWait, len(in))
+	}
+	return in
+}
+
+// spansWithin reads the trace until it holds a span the predicate accepts or
+// wait passes, and returns the spans of the trace last read and whether one
+// was accepted.
+func spansWithin(t *testing.T, traceID string, wait time.Duration, want func(exportedSpan) bool) ([]exportedSpan, bool) {
+	t.Helper()
+	deadline := time.Now().Add(wait)
 	for {
 		var in []exportedSpan
 		found := false
@@ -46,11 +58,8 @@ func spansInTrace(t *testing.T, traceID string, want func(exportedSpan) bool) []
 				found = true
 			}
 		}
-		if found {
-			return in
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("trace %s held no span the criterion looks for within %s (%d spans)", traceID, spanWait, len(in))
+		if found || time.Now().After(deadline) {
+			return in, found
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
@@ -129,21 +138,43 @@ func TestIssue1896_APortalAssetSaveIsCountedAsAPut(t *testing.T) {
 	}
 }
 
+// issue1896EmbedWait bounds how long the vector search criterion searches
+// again while the query embedding times out (#2645).
+const issue1896EmbedWait = 4 * time.Minute
+
 // TestIssue1896_ASearchRanksUnderAVectorSearchSpan: a search call produces a
 // postgres.vector_search span in the trace of its tools/call span, and the
 // statement histogram counts it under operation="vector_search".
+//
+// A search whose query embedding times out ranks lexically and writes no
+// vector span, and the embedder can still be draining what an earlier
+// criterion queued (#2645, nightly 43628944779: eight timeouts while #1837's
+// backlog drained). So the criterion searches again, each time in a new
+// session, until a search ranks by vector, to issue1896EmbedWait.
 func TestIssue1896_ASearchRanksUnderAVectorSearchSpan(t *testing.T) {
-	c := connect(t)
 	labels := map[string]string{"operation": "vector_search"}
 	before := metricSeries(scrapeRaw(t), "db_client_operation_duration_seconds_count", labels)
-	c.call("search", map[string]any{
-		"intent":  "customer orders by region for the quarterly review",
-		"purpose": issue1896Purpose,
-	})
-	tool := awaitSpan(t, c.sessionID, "search")
-	spans := spansInTrace(t, tool.TraceID, func(sp exportedSpan) bool { return sp.Name == "postgres.vector_search" })
+	isVector := func(sp exportedSpan) bool { return sp.Name == "postgres.vector_search" }
+	deadline := time.Now().Add(issue1896EmbedWait)
+	var spans []exportedSpan
+	for attempt := 1; ; attempt++ {
+		c := connect(t)
+		c.call("search", map[string]any{
+			"intent":  "customer orders by region for the quarterly review",
+			"purpose": issue1896Purpose,
+		})
+		tool := awaitSpan(t, c.sessionID, "search")
+		var found bool
+		if spans, found = spansWithin(t, tool.TraceID, spanWait, isVector); found {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no search ranked under a postgres.vector_search span in %d attempts over %s; the last trace %s held %d spans", attempt, issue1896EmbedWait, tool.TraceID, len(spans))
+		}
+		t.Logf("attempt %d: trace %s held no vector search span (the query embedding fell back to lexical); searching again", attempt, tool.TraceID)
+	}
 	for _, sp := range spans {
-		if sp.Name == "postgres.vector_search" {
+		if isVector(sp) {
 			if _, ok := sp.Attrs["db.query.text"]; ok {
 				t.Error("the vector search span carries the SQL text without the opt-in")
 			}

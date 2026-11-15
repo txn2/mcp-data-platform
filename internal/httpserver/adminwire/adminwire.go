@@ -18,6 +18,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/personaaccesswire"
 	"github.com/txn2/mcp-data-platform/internal/secretstore"
 	"github.com/txn2/mcp-data-platform/pkg/admin"
+	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
 
@@ -59,6 +60,6 @@ func MountDatabaseAPIs(mux *http.ServeMux, p *platform.Platform,
 	secretapi.Register(mux, auth(p), secretapi.Config{Store: secretstore.NewStore(p.DB(), p.RestEncryptor()), Author: author})
 	slog.Info("Stored secret admin API enabled on /api/v1/admin/secrets")
 	if p.ResourceStore() != nil {
-		resindexapi.Mount(mux, auth(p), p.DB(), p.Config().Resources.Index.Resolver())
+		resindexapi.Mount(mux, auth(p), p.DB(), p.Config().Resources.Index.Resolver(), embedding.IsConfigured(p.EmbeddingProvider()))
 	}
 }

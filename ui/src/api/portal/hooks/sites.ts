@@ -1,7 +1,8 @@
 import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiFetchRaw, ApiError } from "../client";
-import { useApprovals, type ApprovalRequest } from "./approvals";
+import type { ApprovalRequest } from "./approvals";
+import type { EnvironmentStatus } from "./siteOps";
 
 // Sites (#2559, #2604, #2617, #2619): agents and the people who manage a site
 // work in dev; people use the environments a release was promoted to, one step
@@ -12,22 +13,6 @@ import { useApprovals, type ApprovalRequest } from "./approvals";
 // decides who may do what; each site reports the caller's permissions so the
 // page hides what they would be refused.
 
-/**
- * A site's name: one DNS label short enough that <site>--prod still fits in 63
- * characters, with no doubled or trailing hyphen. A name this admits may still
- * be two characters, which siteNameRefusal refuses.
- */
-export const SITE_NAME_RE = /^(?!.*--)(?!.*-$)[a-z][a-z0-9-]{0,56}$/;
-
-/**
- * Why the server refuses a name the pattern admits, "" for none (#2611): a
- * two-character name puts "--" at the 3rd and 4th characters of every
- * <site>--<env> address, the form DNS reserves.
- */
-export function siteNameRefusal(name: string): string {
-  if (name.length !== 2) return "";
-  return `A two-character name gets addresses like ${name}--prod, which certificate authorities refuse. Choose a name of one letter, or three or more characters.`;
-}
 /** The working copy: every publish, copy and edit lands here. */
 export const DEV_ENVIRONMENT = "dev";
 
@@ -45,6 +30,18 @@ export interface SiteEnvironment {
   keep_releases_default: boolean;
   /** How many releases the limit keeps for it now. */
   releases_kept: number;
+  /** What every address answers (#2631, #2632): online serves the release. dev is always online. */
+  status?: EnvironmentStatus;
+  /** An offline environment's message, and when its visitors are told it is back. */
+  message?: string;
+  back_at?: string;
+  /** A redirecting environment's target; keep_path keeps the request's path. */
+  redirect_to?: string;
+  keep_path?: boolean;
+  status_changed_by?: string;
+  status_changed_at?: string;
+  /** An agent's moves into it go ahead without a person's decision (#2643); an administrator's setting. */
+  agents_may_promote?: boolean;
   updated_by?: string;
   updated_at: string;
 }
@@ -127,6 +124,10 @@ export interface Site {
   permissions: SitePermissions;
   /** The media folders it serves, outside its releases (#2591); never null. */
   media?: SiteMedia[];
+  /** The longest environment name it can add (#2636). */
+  environment_name_room?: number;
+  /** Its last 24 hours over the environments the caller sees (#2647), on the Sites list. */
+  traffic?: { requests_24h: number; p95_ms: number };
 }
 
 export interface SiteLimits {
@@ -200,9 +201,13 @@ export interface SiteComparison {
 export interface SiteDeployment {
   environment: string;
   action: string;
-  from: number;
-  to: number;
+  from_release: number;
+  to_release: number;
   actor: string;
+  /** What a status change said, or a rename's old name; whose decision moved it (#2643); a removed environment's (#2630). */
+  detail?: string;
+  decided_by?: "elicitation" | "approval" | "environment_setting";
+  removed?: boolean;
   created_at: string;
 }
 
@@ -535,6 +540,17 @@ export function useRevokeSite(site: string) {
 export interface EnvironmentBody {
   requires_approval?: boolean;
   internal_view?: boolean;
+  /** Administrators only (#2643). */
+  agents_may_promote?: boolean;
+  /** Takes it offline, redirects it or brings it online (#2631, #2632). */
+  status?: EnvironmentStatus;
+  message?: string;
+  back_at?: string;
+  redirect_to?: string;
+  keep_path?: boolean;
+  reason?: string;
+  /** Renames an environment between dev and prod, alone (#2630). */
+  rename_to?: string;
   /** Places a new environment, or moves one, immediately after this one (#2617). */
   after?: string;
   /** How many releases it keeps: a number (0 for every release) or "default". The owner and administrators only. */
@@ -543,7 +559,8 @@ export interface EnvironmentBody {
 
 export interface EnvironmentChanged {
   site: Site;
-  status: "done";
+  status: "done" | "awaiting_approval";
+  approval?: ApprovalRequest;
 }
 
 /** Creates an environment, moves it, or changes its settings. */
@@ -569,25 +586,6 @@ export function useSetMainEnvironment(site: string) {
   });
 }
 
-/** The newest approval per target and purpose (a promote names an environment, making public a domain), until carried out. */
-export function useApprovalForSite(site: Site): (ApprovalRequest & { target: string })[] {
-  const { data } = useApprovals();
-  const newest = new Map<string, ApprovalRequest & { target: string }>();
-  for (const r of data ?? []) {
-    if ((r.subject_kind !== "site_release" && r.subject_kind !== "site_environment") || r.site_name !== site.name || !r.target) continue;
-    const key = `${r.purpose}:${r.target}`;
-    const held = newest.get(key);
-    if (!held || r.created_at > held.created_at) newest.set(key, r as ApprovalRequest & { target: string });
-  }
-  return [...newest.values()].filter((r) => {
-    const env = site.environments.find((e) => e.name === r.target);
-    if (r.status === "pending" || r.status === "denied") return true;
-    if (r.status !== "approved") return false;
-    if (r.purpose === "site_public") return site.domains.some((d) => d.hostname === r.target && !d.public);
-    return env?.release !== r.version;
-  });
-}
-
 /** Where an application answers: its page origin and the domains mapped to it. */
 export function useApplicationAddresses(application: string) {
   return useQuery({
@@ -596,3 +594,5 @@ export function useApplicationAddresses(application: string) {
     retry: false,
   });
 }
+
+export * from "./siteOps";

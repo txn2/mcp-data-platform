@@ -16,6 +16,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/site/sitegw"
 	"github.com/txn2/mcp-data-platform/internal/site/sitestore"
 	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
+	"github.com/txn2/mcp-data-platform/internal/site/sitetraffic"
 	"github.com/txn2/mcp-data-platform/internal/site/sitewire"
 )
 
@@ -27,7 +28,7 @@ func TestLayer_ANilOnePassesEverythingThrough(t *testing.T) {
 	layer.Wrap(next).ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "http://any.example/", nil))
 	assert.Equal(t, http.StatusTeapot, rec.Code)
 
-	stop := layer.Start(context.Background())
+	stop := layer.Start(context.Background(), "test-host:8080")
 	require.NotNil(t, stop)
 	assert.NotPanics(t, stop)
 }
@@ -82,7 +83,7 @@ func TestLayer_StartReturnsWhatStopsTheLoops(t *testing.T) {
 		Service:  &sitesvc.Service{},
 		Live:     siteconfig.NewLive(siteconfig.Config{}),
 	}}
-	stop := layer.Start(context.Background())
+	stop := layer.Start(context.Background(), "test-host:8080")
 	require.NotNil(t, stop)
 
 	stop()
@@ -95,4 +96,42 @@ func TestLayer_StartReturnsWhatStopsTheLoops(t *testing.T) {
 
 func (gatewayStore) RouteEnv(context.Context, string, string) (*site.Route, error) {
 	return nil, site.ErrNoDomain
+}
+
+// With traffic recorded (#2647) the layer starts a flush and a sweep under
+// its instance name, and stopping it stops them; the sweep removes the rows
+// past each grain's retention.
+func TestLayer_TrafficLoops(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	mock.MatchExpectationsInOrder(false)
+
+	layer := &Layer{runtime: &sitewire.Runtime{
+		Store:        sitestore.New(db),
+		Settings:     settingsjson.New[siteconfig.Settings](db, siteconfig.SettingsSection),
+		Service:      &sitesvc.Service{},
+		Live:         siteconfig.NewLive(siteconfig.Config{}),
+		Traffic:      sitetraffic.NewTally(),
+		TrafficStore: &sitetraffic.Store{DB: db},
+	}, instance: "test-host:8080"}
+	f := layer.trafficFlusher()
+	require.NotNil(t, f)
+	assert.Equal(t, "test-host:8080", f.Instance)
+	assert.True(t, f.Enabled(), "recording is on by default")
+
+	mock.ExpectExec("DELETE FROM site_traffic").WillReturnResult(sqlmock.NewResult(0, 3))
+	mock.ExpectExec("DELETE FROM site_traffic_replicas").WillReturnResult(sqlmock.NewResult(0, 1))
+	require.NoError(t, layer.sweepTraffic(context.Background()))
+
+	stop := layer.Start(context.Background(), "test-host:8080")
+	stop()
+	select {
+	case <-layer.done:
+	default:
+		assert.Fail(t, "the traffic loops were still running after stop returned")
+	}
+
+	none := &Layer{runtime: &sitewire.Runtime{Live: siteconfig.NewLive(siteconfig.Config{})}}
+	assert.Nil(t, none.trafficFlusher(), "no store, no flush")
 }

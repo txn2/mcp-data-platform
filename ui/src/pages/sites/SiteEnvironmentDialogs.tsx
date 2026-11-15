@@ -13,7 +13,10 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useAuthStore } from "@/stores/auth";
 import { AddDomainDialog } from "./SiteDomains";
+import { RemoveDialog, RenameDialog } from "./SiteEnvironmentMenu";
+import { RedirectDialog, TakeOfflineDialog } from "./SiteStatus";
 import { envNameProblem } from "./envName";
 import { Failure } from "./SiteParts";
 import { PromoteDialog, RollbackDialog } from "./SitePromote";
@@ -23,8 +26,10 @@ import { JobDialog } from "./SitePublishJob";
 import { ShareDialog } from "./SiteShare";
 import { bareAddress, errorText, orderedEnvironments } from "./siteFormat";
 
+type EnvKind = "promote" | "rollback" | "share" | "settings" | "move" | "offline" | "redirect" | "rename" | "remove";
+
 export type EnvDialog =
-  | { kind: "promote" | "rollback" | "share" | "settings" | "move"; env: SiteEnvironment }
+  | { kind: EnvKind; env: SiteEnvironment }
   | { kind: "publish" | "domain" | "new" | "main" }
   | { kind: "job"; id: string }
   | null;
@@ -48,8 +53,16 @@ export function EnvironmentDialogs({ site, dialog, onClose, onNavigate }: { site
 }
 
 // EnvironmentDialog is a dialog about one environment.
-function EnvironmentDialog({ site, dialog, onClose }: { site: Site; dialog: { kind: "promote" | "rollback" | "share" | "settings" | "move"; env: SiteEnvironment }; onClose: () => void }) {
+function EnvironmentDialog({ site, dialog, onClose }: { site: Site; dialog: { kind: EnvKind; env: SiteEnvironment }; onClose: () => void }) {
   switch (dialog.kind) {
+    case "offline":
+      return <TakeOfflineDialog site={site} env={dialog.env} onClose={onClose} />;
+    case "redirect":
+      return <RedirectDialog site={site} env={dialog.env} onClose={onClose} />;
+    case "rename":
+      return <RenameDialog site={site} env={dialog.env} onClose={onClose} />;
+    case "remove":
+      return <RemoveDialog site={site} env={dialog.env} onClose={onClose} />;
     case "move":
       return <MoveDialog site={site} env={dialog.env} onClose={onClose} />;
     case "share":
@@ -263,7 +276,9 @@ export function EnvironmentSettingsDialog({ site, env, onClose }: { site: Site; 
   const [internal, setInternal] = useState(env.internal_view);
   const [approval, setApproval] = useState(env.requires_approval);
   const [keep, setKeep] = useState<KeepChoice>(() => keepChoiceOf(env));
+  const [agents, setAgents] = useState(env.agents_may_promote ?? false);
   const [failure, setFailure] = useState<string | null>(null);
+  const admin = useAuthStore((st) => st.user?.is_admin === true);
   const working = env.name === DEV_ENVIRONMENT;
   const keepReleases = site.permissions.own ? keepBody(env, keep) : undefined;
   const submit = () => {
@@ -273,6 +288,7 @@ export function EnvironmentSettingsDialog({ site, env, onClose }: { site: Site; 
       internal_view: internal,
       ...(working ? {} : { requires_approval: approval }),
       ...(keepReleases !== undefined ? { keep_releases: keepReleases } : {}),
+      ...(admin && !working && agents !== (env.agents_may_promote ?? false) ? { agents_may_promote: agents } : {}),
     };
     set.mutate(body, { onSuccess: onClose, onError: (e) => setFailure(errorText(e, "The settings could not be saved")) });
   };
@@ -311,6 +327,7 @@ export function EnvironmentSettingsDialog({ site, env, onClose }: { site: Site; 
             <SettingNote title="Main address" text={`${env.name} serves the main address, ${bareAddress(site.address)}. Change that with Main address on the Environments tab.`} />
           )}
           <ReleasesKeptSection site={site} env={env} choice={keep} onChange={setKeep} />
+          {!working && <AgentsSetting env={env} checked={agents} onChange={setAgents} editable={admin} />}
           <Failure text={failure} />
         </div>
         <DialogFooter>
@@ -323,6 +340,25 @@ export function EnvironmentSettingsDialog({ site, env, onClose }: { site: Site; 
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// AgentsSetting is #2643's setting: whether an agent's promote, rollback or
+// public domain here goes ahead without a person's decision. Off by default,
+// an administrator's alone, for an environment where unreviewed publishing is
+// safe.
+function AgentsSetting({ env, checked, onChange, editable }: { env: SiteEnvironment; checked: boolean; onChange: (v: boolean) => void; editable: boolean }) {
+  return (
+    <label className="flex items-start gap-2" data-testid="agents-setting">
+      <input type="checkbox" className="mt-1" checked={checked} disabled={!editable} onChange={(e) => onChange(e.target.checked)} />
+      <span>
+        <span className="block font-medium">Agents may promote here</span>
+        <span className="block text-xs text-muted-foreground">
+          An agent's promote, rollback or public domain on {env.name} goes ahead without asking a person. Leave it off for an environment people use; turn it on only for a scratch or preview
+          environment. {editable ? "" : "Only an administrator can change it."}
+        </span>
+      </span>
+    </label>
   );
 }
 

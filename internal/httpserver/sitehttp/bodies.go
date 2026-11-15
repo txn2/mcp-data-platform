@@ -2,6 +2,7 @@ package sitehttp
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/bucketsource"
 )
@@ -65,4 +66,25 @@ type EnvironmentBody struct {
 	// (0 keeps every release), or "default" for the deployment's default
 	// (#2602). The owner and administrators only.
 	KeepReleases json.RawMessage `json:"keep_releases,omitempty" swaggertype:"string" example:"50"`
+	// Status is what every address of the environment answers (#2631,
+	// #2632): online, offline (with message and back_at) or redirect (with
+	// redirect_to and keep_path).
+	Status     string     `json:"status,omitempty" enums:"online,offline,redirect"`
+	Message    string     `json:"message,omitempty"`
+	BackAt     *time.Time `json:"back_at,omitempty"`
+	RedirectTo string     `json:"redirect_to,omitempty" example:"https://status.example.com"`
+	KeepPath   bool       `json:"keep_path,omitempty"`
+	// Reason goes with a redirect that waits on Approvals.
+	Reason string `json:"reason,omitempty"`
+	// RenameTo renames an environment between dev and prod, alone (#2630).
+	RenameTo string `json:"rename_to,omitempty" example:"qa"`
+	// AgentsMayPromote lets an agent's promote, rollback or public domain here
+	// go ahead without a person's decision (#2643). Administrators only.
+	AgentsMayPromote *bool `json:"agents_may_promote,omitempty"`
+}
+
+// settings reports whether the body changes a setting, beyond status.
+func (b EnvironmentBody) settings() bool {
+	return b.RequiresApproval != nil || b.Public != nil || b.InternalView != nil || b.AgentsMayPromote != nil ||
+		b.After != "" || len(b.KeepReleases) > 0
 }

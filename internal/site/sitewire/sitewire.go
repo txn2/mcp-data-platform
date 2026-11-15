@@ -31,6 +31,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/site/sitestore"
 	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
 	"github.com/txn2/mcp-data-platform/internal/site/sitetool"
+	"github.com/txn2/mcp-data-platform/internal/site/sitetraffic"
 	"github.com/txn2/mcp-data-platform/internal/unarchive"
 	"github.com/txn2/mcp-data-platform/pkg/blobserve"
 	"github.com/txn2/mcp-data-platform/pkg/portal/s3adapter"
@@ -82,6 +83,10 @@ type Runtime struct {
 	// PortalURL and CookieDomain are what a saved pages domain is checked against.
 	PortalURL    string
 	CookieDomain string
+	// Traffic is this replica's tally of each site's requests, and
+	// TrafficStore the shared rows it is flushed into and read from (#2647).
+	Traffic      *sitetraffic.Tally
+	TrafficStore *sitetraffic.Store
 }
 
 // Refresh reads the saved settings into the configuration in force. A
@@ -164,8 +169,10 @@ func Register(server *mcp.Server, d Deps) (*Runtime, error) {
 		Service: svc, Store: store, Config: d.Config, Apps: apps, Live: live,
 		Settings: settingsjson.New[siteconfig.Settings](d.DB, siteconfig.SettingsSection),
 		Sources:  tool.Sources, Crawler: crawler, PortalURL: d.PortalURL, CookieDomain: d.CookieDomain,
-		Prune: pruner(d, store, svc, live),
+		Prune:   pruner(d, store, svc, live),
+		Traffic: sitetraffic.NewTally(), TrafficStore: &sitetraffic.Store{DB: d.DB},
 	}
+	tool.Traffic = rt.TrafficStore
 	if d.Sources != nil {
 		rt.Media = mediaSource{store: store, reader: d.Sources}
 	}

@@ -188,20 +188,45 @@ describe("the New site dialog", () => {
     return input;
   }
 
-  it("refuses a two-character name and says why", async () => {
+  // #2636: the person types a name; the server makes the address of it and
+  // says why it refuses one. The portal keeps no copy of the rule.
+  it("shows the address the server makes of a typed name", async () => {
+    await typeName("My Website");
+    expect(await screen.findByTestId("site-name-address")).toHaveTextContent("Address: my-website");
+    const addresses = await screen.findByTestId("new-site-addresses");
+    expect(addresses).toHaveTextContent("my-website--dev.pages.example.net");
+    expect(addresses).toHaveTextContent("my-website.pages.example.net");
+    expect(screen.getByRole("button", { name: "Create site" })).toBeEnabled();
+  });
+
+  it("refuses with the server's reason, invalid and with Create site off", async () => {
     const input = await typeName("ab");
-    const why = screen.getByText(/A two-character name gets addresses like ab--prod, which certificate authorities refuse/);
+    const why = await screen.findByText(/a site name cannot be two characters/);
     expect(input).toHaveAttribute("aria-invalid", "true");
     expect(input).toHaveAttribute("aria-describedby", why.id);
     expect(screen.getByRole("button", { name: "Create site" })).toBeDisabled();
   });
 
-  it("takes a one-letter name and one of three or more characters", async () => {
-    const input = await typeName("a");
+  it("keeps Create site off until the answer for the text typed arrives", async () => {
+    const input = await typeName("abc");
+    expect(screen.getByRole("button", { name: "Create site" })).toBeDisabled();
+    await screen.findByTestId("site-name-address");
     expect(screen.getByRole("button", { name: "Create site" })).toBeEnabled();
-    fireEvent.change(input, { target: { value: "abc" } });
-    expect(screen.queryByText(/two-character name/)).toBeNull();
-    expect(input).not.toHaveAttribute("aria-invalid");
-    expect(screen.getByRole("button", { name: "Create site" })).toBeEnabled();
+    fireEvent.change(input, { target: { value: "abcd" } });
+    expect(screen.getByRole("button", { name: "Create site" })).toBeDisabled();
+  });
+});
+
+// #2636: the rule for a site's name lives on the server alone. No portal
+// source holds the old pattern, its length or the two-character case.
+describe("the portal holds no copy of the site-name rule", () => {
+  it("has no site-name pattern, length or two-character check", async () => {
+    const files = import.meta.glob("/src/**/*.{ts,tsx}", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
+    expect(Object.keys(files).length).toBeGreaterThan(100);
+    expect(Object.keys(files)).toContain("/src/pages/sites/SitesPage.tsx");
+    for (const [path, text] of Object.entries(files)) {
+      if (path.includes(".test.") || path.includes("/mocks/") || path.includes("/generated/")) continue;
+      expect(text, path).not.toMatch(/SITE_NAME_RE|siteNameRefusal|\{0,56\}|up to 57/);
+    }
   });
 });

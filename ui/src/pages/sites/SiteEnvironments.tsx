@@ -20,6 +20,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/stores/auth";
 import { EnvironmentDialogs, type EnvDialog } from "./SiteEnvironmentDialogs";
+import { EnvironmentMenu } from "./SiteEnvironmentMenu";
+import { StatusBadge, StatusBlock } from "./SiteStatus";
 import { AccessBadge, AddressAccess, AddressLink, EVERYONE_INTERNAL, Failure, ShareChip, grantName, grantOpens } from "./SiteParts";
 import { PublishBanner } from "./SitePublishJob";
 import { KeptLine } from "./SiteRetention";
@@ -229,10 +231,13 @@ function EnvironmentCard({
           <p className="text-xs text-muted-foreground">{working ? "Working copy" : "Changes by Promote and Roll back"}</p>
         </div>
         <div className="flex flex-wrap justify-end gap-2">
+          <StatusBadge env={env} />
           <AccessBadge env={env} />
           {env.requires_approval && <Badge variant="warning">Requires approval</Badge>}
+          {env.agents_may_promote && <Badge variant="info">Agents may promote</Badge>}
         </div>
       </div>
+      <StatusBlock site={site} env={env} canEdit={canEdit} />
       <Release env={env} />
       <Addresses site={site} env={env} />
       <WhoCanOpen site={site} env={env} access={access} />
@@ -369,6 +374,7 @@ function CardActions({ env, movable, onAct }: { env: SiteEnvironment; movable: b
       <Button size="sm" variant="outline" onClick={() => onAct({ kind: "settings", env })}>
         Settings
       </Button>
+      <EnvironmentMenu env={env} onAct={(kind) => onAct({ kind, env })} />
     </div>
   );
 }
@@ -394,6 +400,7 @@ function ApprovalBanner({ site, request: r, onNavigate, onFail }: { site: Site; 
   const email = useAuthStore((s) => s.user?.email ?? "");
   const mine = r.requester_email === email || site.permissions.manage;
   const publicReq = r.purpose === "site_public";
+  if (r.purpose === "site_redirect") return <RedirectRequest site={site} request={r} mine={mine} onNavigate={onNavigate} />;
   if (r.status === "pending") return <Waiting request={r} publicReq={publicReq} onNavigate={onNavigate} />;
   if (r.status === "approved" && mine) {
     return publicReq ? <PublicApproved site={site} request={r} onFail={onFail} /> : <PromoteApproved site={site} request={r} onFail={onFail} />;
@@ -464,6 +471,49 @@ function PublicApproved({ site, request: r, onFail }: { site: Site; request: Sit
         <Button size="sm" onClick={finish} disabled={set.isPending}>
           Make {r.target} public
         </Button>
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+// RedirectRequest is where a redirect of an environment that requires approval
+// stands (#2632): waiting, approved (redirect it again to apply it), or
+// rejected. The target is the request's own, so approving one target never
+// approves another.
+function RedirectRequest({ site, request: r, mine, onNavigate }: { site: Site; request: SiteApproval; mine: boolean; onNavigate: (path: string) => void }) {
+  const env = site.environments.find((e) => e.name === r.target);
+  if (r.status === "pending") {
+    return (
+      <Alert data-testid="redirect-waiting">
+        <AlertTitle>Redirecting {r.target} is waiting for approval</AlertTitle>
+        <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
+          <span>
+            Asked by {r.requester_email} on {when(r.created_at)}. {r.target} keeps answering as it does until this is approved and you redirect it again.
+          </span>
+          <Button size="sm" variant="outline" onClick={() => onNavigate("/approvals")}>
+            Open in Approvals
+          </Button>
+        </AlertDescription>
+      </Alert>
+    );
+  }
+  if (r.status === "approved" && mine && env) {
+    return (
+      <Alert data-testid="redirect-approved">
+        <AlertTitle>Redirecting {r.target} is approved</AlertTitle>
+        <AlertDescription>
+          Approved by {r.decided_by} on {when(r.decided_at ?? "")}. Nothing changes on {r.target} until you redirect it again with the same target from its More menu.
+        </AlertDescription>
+      </Alert>
+    );
+  }
+  if (r.status !== "denied") return null;
+  return (
+    <Alert variant="destructive" data-testid="redirect-rejected">
+      <AlertTitle>Redirecting {r.target} was rejected</AlertTitle>
+      <AlertDescription>
+        Rejected by {r.decided_by} on {when(r.decided_at ?? "")}
+        {r.decision_comment ? `: "${r.decision_comment}"` : "."}
       </AlertDescription>
     </Alert>
   );

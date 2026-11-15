@@ -43,7 +43,7 @@ func (s *Service) PatchFile(ctx context.Context, actor Actor, req PatchRequest) 
 	if err != nil {
 		return nil, err
 	}
-	if err := s.mayEdit(ctx, actor, st); err != nil {
+	if err := s.MayEdit(ctx, actor, st); err != nil {
 		return nil, err
 	}
 	name, err := filePath(req.Ref)
@@ -106,7 +106,7 @@ func (s *Service) Diff(ctx context.Context, actor Actor, ref site.Ref, from, to 
 	if err != nil {
 		return nil, err
 	}
-	if err := s.mayEdit(ctx, actor, st); err != nil {
+	if err := s.MayEdit(ctx, actor, st); err != nil {
 		return nil, err
 	}
 	target, err := s.diffTarget(ctx, st, ref.Environment, to)

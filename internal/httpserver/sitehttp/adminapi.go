@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
@@ -17,6 +18,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/site/siteprune"
 	"github.com/txn2/mcp-data-platform/internal/site/sitestore"
 	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
+	"github.com/txn2/mcp-data-platform/internal/site/sitetraffic"
 	"github.com/txn2/mcp-data-platform/internal/site/sitewire"
 )
 
@@ -41,6 +43,7 @@ func (a *adminAPI) mount(mux *http.ServeMux, wrap func(http.Handler) http.Handle
 	mux.Handle("PUT "+adminSettings, wrap(http.HandlerFunc(a.saveSettings)))
 	mux.Handle("GET "+adminRetention, wrap(http.HandlerFunc(a.retention)))
 	mux.Handle("POST "+adminRetention+"/run", wrap(http.HandlerFunc(a.runSweep)))
+	mux.Handle("GET /api/v1/admin/sites/traffic/replicas", wrap(http.HandlerFunc(a.replicas)))
 }
 
 func (a *adminAPI) actor(r *http.Request) sitesvc.Actor {
@@ -356,4 +359,49 @@ func (a *adminAPI) runSweep(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, http.StatusOK, rep)
 	}
+}
+
+// ReplicaTraffic is one replica's figures across every site.
+type ReplicaTraffic struct {
+	Instance string `json:"instance" example:"platform-7d9f-abc:8080"`
+	sitetraffic.Totals
+}
+
+// ReplicasView is each replica's traffic over a range.
+type ReplicasView struct {
+	Range     string           `json:"range" example:"24h"`
+	Recording bool             `json:"recording"`
+	Replicas  []ReplicaTraffic `json:"replicas"`
+}
+
+// replicas handles GET /api/v1/admin/sites/traffic/replicas.
+//
+// @Summary      Read each replica's site traffic
+// @Description  Each replica's requests and latency across every site over a range, named by the X-Platform-Instance it answers as, so a slow replica stands out beside the others (#2647). Administrators only.
+// @Tags         Sites
+// @Produce      json
+// @Param        range  query  string  false  "1h, 24h (default), 7d or 30d"
+// @Success      200  {object}  ReplicasView
+// @Failure      400  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/sites/traffic/replicas [get]
+func (a *adminAPI) replicas(w http.ResponseWriter, r *http.Request) {
+	rg, err := sitetraffic.RangeOf(r.URL.Query().Get("range"))
+	if err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	out := ReplicasView{Range: rg.Name, Recording: a.rt.Live.Get().Traffic.IsEnabled(), Replicas: []ReplicaTraffic{}}
+	if a.rt.TrafficStore != nil {
+		by, order, err := a.rt.TrafficStore.Replicas(r.Context(), rg.Grain, rg.Since(time.Now()))
+		if err != nil {
+			fail(w, r, err)
+			return
+		}
+		for _, name := range order {
+			out.Replicas = append(out.Replicas, ReplicaTraffic{Instance: name, Totals: sitetraffic.TotalsOf(by[name])})
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }

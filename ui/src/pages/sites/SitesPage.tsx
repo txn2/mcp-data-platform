@@ -1,6 +1,6 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Globe } from "lucide-react";
-import { SITE_NAME_RE, siteNameRefusal, useCreateSite, useSites, type SiteList } from "@/api/portal/hooks/sites";
+import { useCreateSite, useSiteNameCheck, useSites, type SiteList, type SiteNameCheck } from "@/api/portal/hooks/sites";
 import { EmptyState } from "@/components/patterns/EmptyState";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -11,7 +11,8 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { SiteTable } from "./SiteList";
-import { errorText } from "./siteFormat";
+import { ReplicasSection } from "./SiteTraffic";
+import { bareAddress, errorText } from "./siteFormat";
 
 // SitesPage lists every site (#2559, #2604, #2612): who owns it, its main
 // address and the environment that serves it, and each environment with the
@@ -33,9 +34,9 @@ export function SitesPage({ onNavigate }: { onNavigate: (path: string) => void }
       <SectionCard title="Sites" action={newSite}>
         <SitesBody list={data} loading={isLoading} error={error} newSite={newSite} onOpen={open} />
       </SectionCard>
+      {data?.admin && <ReplicasSection />}
       {creating && data && (
         <NewSiteDialog
-          pagesDomain={data.pages_domain}
           onClose={() => setCreating(false)}
           onCreated={(name) => {
             setCreating(false);
@@ -122,18 +123,31 @@ function PreviewsOff({ admin, onNavigate }: { admin: boolean; onNavigate: (path:
   );
 }
 
-function NewSiteDialog({ pagesDomain, onClose, onCreated }: { pagesDomain: string; onClose: () => void; onCreated: (name: string) => void }) {
+/** value after it has stopped changing for ms. */
+function useSettled(value: string, ms: number): string {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const t = window.setTimeout(() => setSettled(value), ms);
+    return () => window.clearTimeout(t);
+  }, [value, ms]);
+  return settled;
+}
+
+// NewSiteDialog takes the name a person types and shows the address the server
+// makes of it (#2636): the rule for a site's name lives on the server alone,
+// which answers with the name, both addresses and why it is refused.
+function NewSiteDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (name: string) => void }) {
   const create = useCreateSite();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [failure, setFailure] = useState<string | null>(null);
-  const trimmed = name.trim();
-  const refusal = SITE_NAME_RE.test(trimmed) ? siteNameRefusal(trimmed) : "";
-  const valid = SITE_NAME_RE.test(trimmed) && !refusal;
+  const typed = name.trim();
+  const answer = useTypedNameCheck(typed);
+  const refusal = answer?.refusal ?? "";
   const submit = () => {
     setFailure(null);
     create.mutate(
-      { name: trimmed, description: description.trim() },
+      { name: typed, description: description.trim() },
       { onSuccess: (s) => onCreated(s.name), onError: (e) => setFailure(errorText(e, "The site could not be created")) },
     );
   };
@@ -144,28 +158,12 @@ function NewSiteDialog({ pagesDomain, onClose, onCreated }: { pagesDomain: strin
           <DialogTitle>New site</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
-          <div className="space-y-1">
-            <Label htmlFor="site-name">Name</Label>
-            <Input
-              id="site-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              autoFocus
-              aria-invalid={refusal ? true : undefined}
-              aria-describedby={refusal ? "site-name-error" : undefined}
-            />
-            {refusal && (
-              <p id="site-name-error" className="text-xs text-destructive">
-                {refusal}
-              </p>
-            )}
-            <p className="text-xs text-muted-foreground">Lowercase letters, digits and single hyphens, up to 57. It is part of every address the site has and does not change.</p>
-          </div>
+          <NameField name={name} onChange={setName} typed={typed} answer={answer} />
           <div className="space-y-1">
             <Label htmlFor="site-description">Description</Label>
             <Textarea id="site-description" value={description} onChange={(e) => setDescription(e.target.value)} />
           </div>
-          <NewSiteAddresses name={trimmed} pagesDomain={pagesDomain} />
+          {answer && !refusal && <NewSiteAddresses answer={answer} />}
           {failure && (
             <Alert variant="destructive">
               <AlertDescription>{failure}</AlertDescription>
@@ -176,7 +174,7 @@ function NewSiteDialog({ pagesDomain, onClose, onCreated }: { pagesDomain: strin
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={!valid || create.isPending}>
+          <Button onClick={submit} disabled={!answer || refusal !== "" || create.isPending}>
             Create site
           </Button>
         </DialogFooter>
@@ -185,19 +183,64 @@ function NewSiteDialog({ pagesDomain, onClose, onCreated }: { pagesDomain: strin
   );
 }
 
+/** The server's answer for the text typed, once it has settled; none while it is checked. */
+function useTypedNameCheck(typed: string): SiteNameCheck | undefined {
+  const settled = useSettled(typed, 250);
+  const check = useSiteNameCheck(settled);
+  return typed !== "" && settled === typed ? check.data : undefined;
+}
+
+function NameField({ name, onChange, typed, answer }: { name: string; onChange: (v: string) => void; typed: string; answer?: SiteNameCheck }) {
+  const refusal = answer?.refusal ?? "";
+  return (
+    <div className="space-y-1">
+      <Label htmlFor="site-name">Name</Label>
+      <Input
+        id="site-name"
+        value={name}
+        onChange={(e) => onChange(e.target.value)}
+        autoFocus
+        placeholder="My Website"
+        aria-invalid={refusal ? true : undefined}
+        aria-describedby={refusal ? "site-name-error" : "site-name-address"}
+      />
+      {refusal ? (
+        <p id="site-name-error" className="text-xs text-destructive">
+          {refusal}
+        </p>
+      ) : (
+        <NameAddress typed={typed} answer={answer} />
+      )}
+    </div>
+  );
+}
+
+// NameAddress is the address a typed name becomes, said in words: the part of
+// every address that cannot change later.
+function NameAddress({ typed, answer }: { typed: string; answer?: SiteNameCheck }) {
+  if (!typed) return <p id="site-name-address" className="text-xs text-muted-foreground">Name it as you like; the address is made from it.</p>;
+  if (!answer) return <p id="site-name-address" className="text-xs text-muted-foreground">Checking…</p>;
+  return (
+    <p id="site-name-address" className="text-xs text-muted-foreground" data-testid="site-name-address">
+      Address: <span className="font-mono text-foreground">{answer.name}</span>. It is part of every address the site has and can't be changed later.
+    </p>
+  );
+}
+
 // NewSiteAddresses is where a new site's two environments answer (#2617): dev
-// at its own address and prod at the main address.
-function NewSiteAddresses({ name, pagesDomain }: { name: string; pagesDomain: string }) {
-  if (!pagesDomain) return null;
+// at its own address and prod at the main address, as the server makes them.
+function NewSiteAddresses({ answer }: { answer: SiteNameCheck }) {
+  const dev = bareAddress(answer.addresses.dev ?? "");
+  const prod = bareAddress(answer.addresses.prod ?? "");
+  if (!dev && !prod) return null;
   return (
     <div className="space-y-1" data-testid="new-site-addresses">
       <Label>Environments</Label>
       <p className="text-sm">
-        <span className="font-medium">dev</span> <span className="break-all font-mono text-muted-foreground">{name || "name"}--dev.{pagesDomain}</span>
+        <span className="font-medium">dev</span> <span className="break-all font-mono text-muted-foreground">{dev}</span>
       </p>
       <p className="text-sm">
-        <span className="font-medium">prod</span> <span className="break-all font-mono text-muted-foreground">{name || "name"}.{pagesDomain}</span>{" "}
-        <span className="text-xs text-muted-foreground">(main address)</span>
+        <span className="font-medium">prod</span> <span className="break-all font-mono text-muted-foreground">{prod}</span> <span className="text-xs text-muted-foreground">(main address)</span>
       </p>
       <p className="text-xs text-muted-foreground">
         Every publish lands in dev; promote dev's release to prod when people should use it. Both addresses ask for a sign-in. To open the site to anyone, add a domain and make it public.

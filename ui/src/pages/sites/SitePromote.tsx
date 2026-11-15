@@ -194,7 +194,7 @@ export function RollbackDialog({ site, env, onClose }: { site: Site; env: SiteEn
   const releases = useSiteReleases(site.name);
   // Only a kept release can be chosen (#2602): one the cleanup removed is gone.
   const options = useMemo(
-    () => rollbackChoices(env, (deployments.data?.deployments ?? []).map((d) => d.to), releases.data?.releases),
+    () => rollbackChoices(env, (deployments.data?.deployments ?? []).map((d) => d.to_release), releases.data?.releases),
     [deployments.data, releases.data, env],
   );
   const [picked, setPicked] = useState<number | null>(null);

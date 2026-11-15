@@ -133,6 +133,7 @@ func TestIssue2619_ADomainIsPrivateUntilSetPublic(t *testing.T) {
 	settled2619(t, private, nil, asksSignIn)
 	signInPage2619(t, private)
 
+	agentsMayPromote2643(t, s.name, "prod") // about the domain setting, not who decides (#2643)
 	opened := connectAs(t, s.key).call("manage_site", map[string]any{"command": "set_domain", "hostname": private, "public": true})
 	if opened["public"] != true {
 		t.Fatalf("set_domain public true: %v", opened)

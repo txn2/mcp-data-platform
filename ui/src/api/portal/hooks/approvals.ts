@@ -32,7 +32,7 @@ export interface HandlerAsk {
 export interface ApprovalRequest {
   id: string;
   subject_kind: "script_version" | "site_release" | "site_environment" | "call";
-  purpose: "form_public" | "site_promote" | "site_public" | "call_allowance" | "call_handler";
+  purpose: "form_public" | "site_promote" | "site_public" | "site_redirect" | "call_allowance" | "call_handler";
   kind?: ApprovalKind;
   script_id: string;
   script_name?: string;

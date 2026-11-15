@@ -206,6 +206,7 @@ func (s *store2558) storefront(t *testing.T) {
 	if got := s.admin.call("manage_site", map[string]any{"command": "publish", "site": s.web, "files": s.siteFiles(t), "note": "storefront"}); got["release"] == nil {
 		t.Fatalf("publishing the storefront: %v", got)
 	}
+	agentsMayPromote2643(t, s.web, "prod") // about serving, not who decides (#2643)
 	s.admin.call("manage_site", map[string]any{"command": "add_domain", "hostname": s.webHost, "site": s.web, "environment": "prod", "public": true})
 	s.admin.call("manage_application", map[string]any{"command": "add_part", "application": s.app, "kind": "site", "part_id": s.web + "/prod"})
 }
@@ -498,6 +499,7 @@ func TestIssue2558_TheApexRedirectsToTheStorefrontKeepingThePath(t *testing.T) {
 	if got := admin.call("manage_site", map[string]any{"command": "publish", "site": apex, "files": files}); got["release"] == nil {
 		t.Fatalf("publishing the apex: %v", got)
 	}
+	agentsMayPromote2643(t, apex, "prod") // about serving, not who decides (#2643)
 	admin.call("manage_site", map[string]any{"command": "add_domain", "hostname": apexHost, "site": apex, "environment": "prod", "public": true})
 	admin.call("manage_site", map[string]any{"command": "promote", "site": apex, "from": "dev", "to": "prod"})
 	got := pollUntil2518(t, func() (pageResponse, bool) {

@@ -21,6 +21,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // EnvDev is the working copy (#2604): every publish, patch and in-place edit
@@ -54,6 +56,8 @@ const (
 	ActionPromote     = "promote"
 	ActionRollback    = "rollback"
 	ActionApplication = "application"
+	// ActionRename records an environment renamed (#2630).
+	ActionRename = "rename"
 )
 
 // reservedHyphens is refused in a name: a DNS label with hyphens there is read
@@ -84,7 +88,20 @@ var (
 	ErrDomainTaken = errors.New("that hostname is already mapped")
 	ErrNoGrant     = errors.New("that person has no access to this site")
 	ErrNoJob       = errors.New("no such job")
+	// ErrEnvironmentInUse is an environment that cannot be renamed to a name
+	// in use, or removed while something is attached to it (#2630); every
+	// InUseError is one, saying what.
+	ErrEnvironmentInUse = errors.New("environment in use")
 )
+
+// InUseError is ErrEnvironmentInUse in the words a person reads: what is in
+// the way, and what to do first.
+type InUseError struct{ Msg string }
+
+func (e *InUseError) Error() string { return e.Msg }
+
+// Is makes every InUseError an ErrEnvironmentInUse.
+func (*InUseError) Is(target error) bool { return target == ErrEnvironmentInUse }
 
 // Site is the record.
 type Site struct {
@@ -130,10 +147,31 @@ type Environment struct {
 	PublicDomains []string `json:"public_domains"`
 	// InternalView opens the environment's private addresses to everyone
 	// signed in whose persona is not external: a company intranet.
-	InternalView bool      `json:"internal_view"`
-	UpdatedBy    string    `json:"updated_by,omitempty"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	InternalView bool `json:"internal_view"`
+	// Status is what every address of the environment answers (#2631,
+	// #2632): online, offline or redirect.
+	Status string `json:"status" example:"online"`
+	// StatusMessage is an offline environment's message.
+	StatusMessage string `json:"message,omitempty"`
+	// BackAt is when an offline environment's visitors are told it is
+	// expected back.
+	BackAt *time.Time `json:"back_at,omitempty"`
+	// RedirectTo and RedirectKeepPath are a redirecting environment's
+	// target, and whether the request's path and query are kept.
+	RedirectTo       string     `json:"redirect_to,omitempty"`
+	RedirectKeepPath bool       `json:"keep_path"`
+	StatusChangedBy  string     `json:"status_changed_by,omitempty"`
+	StatusChangedAt  *time.Time `json:"status_changed_at,omitempty"`
+	// AgentsMayPromote lets an agent's promote, rollback or public domain
+	// here go ahead without a person's decision (#2643). Off by default;
+	// only an administrator turns it on.
+	AgentsMayPromote bool      `json:"agents_may_promote"`
+	UpdatedBy        string    `json:"updated_by,omitempty"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
+
+// Online reports whether the environment serves its release.
+func (e *Environment) Online() bool { return e.Status == "" || e.Status == StatusOnline }
 
 // TakesApprovalOff reports whether setting requiresApproval removes the
 // environment's approval rule.
@@ -150,6 +188,8 @@ func (e *Environment) AnswersAnyone() bool { return len(e.PublicDomains) > 0 }
 type EnvironmentSettings struct {
 	RequiresApproval *bool
 	InternalView     *bool
+	// AgentsMayPromote sets #2643's setting; an administrator's alone.
+	AgentsMayPromote *bool
 	// Place is where the environment goes in the site's order (#2617): a new
 	// one there, an existing one moved there. Nil leaves an existing one
 	// where it is, and puts a new one last before prod.
@@ -179,7 +219,18 @@ type Pointer struct {
 	To     int
 	Action string
 	Actor  string
+	// DecidedBy is whose decision carried out a move an agent asked for
+	// (#2643): DecidedByElicitation, DecidedByApproval or
+	// DecidedByEnvironment; "" for a move a person made.
+	DecidedBy string
 }
+
+// Whose decision carried out a move an agent asked for (#2643).
+const (
+	DecidedByElicitation = "elicitation"
+	DecidedByApproval    = "approval"
+	DecidedByEnvironment = "environment_setting"
+)
 
 // Store keeps sites, releases and domains.
 type Store interface {
@@ -191,6 +242,13 @@ type Store interface {
 	Delete(ctx context.Context, id string) error
 	// SetEnvironment creates an environment, or changes its settings.
 	SetEnvironment(ctx context.Context, siteID, name string, set EnvironmentSettings, actor string) error
+	// SetStatus changes what an environment answers and records it (#2631,
+	// #2632).
+	SetStatus(ctx context.Context, siteID, env string, st EnvironmentStatus, actor string) error
+	// RenameEnvironment moves every reference to an environment's name, and
+	// RemoveEnvironment removes one with nothing attached (#2630).
+	RenameEnvironment(ctx context.Context, siteID, from, to, actor string) error
+	RemoveEnvironment(ctx context.Context, siteID, name string) error
 	// SetMainEnvironment gives the main address to an environment, "" to none.
 	SetMainEnvironment(ctx context.Context, siteID, env string) error
 	// SetDomainPublic makes a site's domain answer anyone, or only those who
@@ -250,13 +308,61 @@ var (
 	hostRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$`)
 )
 
-// ValidateName checks a site's name.
+// ValidateName checks a site's name: its form, and that both environments a
+// new site starts with have an address that is one DNS label (ValidateLabel),
+// which is where its length limit comes from (#2636). A name no environment
+// could be added to is refused here, not when the environment is added.
 func ValidateName(name string) error {
 	if !nameRE.MatchString(name) || strings.Contains(name, reservedHyphens) || strings.HasSuffix(name, "-") {
-		return fmt.Errorf("site name %q: a lowercase letter, then lowercase letters, digits and single hyphens, at most 63", name)
+		return fmt.Errorf("site name %q: start with a letter, then use letters, digits and single hyphens", name)
+	}
+	if longest := maxLabel - len(reservedHyphens) - len(EnvProd); ValidateLabel(name, EnvProd) != nil && len(name) > longest {
+		return fmt.Errorf("site name %q is %d characters: every address of a site adds \"--\" and an environment name to it, "+
+			"and one part of an address can be at most %d characters, so a site name can be at most %d", name, len(name), maxLabel, longest)
+	}
+	for _, env := range []string{EnvDev, EnvProd} {
+		if err := ValidateLabel(name, env); err != nil {
+			return fmt.Errorf("site name %q: %w", name, err)
+		}
 	}
 	return nil
 }
+
+// NameFrom is the site name the text a person typed becomes (#2636):
+// lowercased, every space, underscore and other separator a hyphen, any other
+// character outside a-z and 0-9 dropped, repeated hyphens collapsed, and
+// hyphens at either end removed. "My Website" becomes "my-website". The
+// result is checked with ValidateName like any other name.
+func NameFrom(input string) string {
+	out := make([]byte, 0, len(input))
+	hyphen := false
+	for _, r := range strings.ToLower(input) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			out = utf8.AppendRune(out, r)
+			hyphen = false
+		case isSeparator(r) && !hyphen:
+			out = append(out, '-')
+			hyphen = true
+		}
+	}
+	return strings.Trim(string(out), "-")
+}
+
+// isSeparator reports whether a typed character stands between words.
+func isSeparator(r rune) bool {
+	return unicode.IsSpace(r) || r == '-' || r == '_' || r == '.' || r == '/' || r == ':' || r == '+' || unicode.Is(unicode.Pd, r)
+}
+
+// EnvironmentNameRoom is how long an environment name a site of this name
+// leaves room for: the longest ValidateEnvironment admits, or less when the
+// site name and "--" leave fewer characters of a label (#2636).
+func EnvironmentNameRoom(siteName string) int {
+	return max(0, min(maxEnvName, maxLabel-len(siteName)-len(reservedHyphens)))
+}
+
+// maxEnvName is the longest name ValidateEnvironment admits.
+const maxEnvName = 32
 
 // ValidateEnvironment checks an environment's name.
 func ValidateEnvironment(name string) error {

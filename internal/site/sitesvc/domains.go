@@ -131,7 +131,7 @@ func (s *Service) domainTarget(ctx context.Context, actor Actor, d *site.Domain,
 	if err != nil {
 		return nil, err
 	}
-	if err := s.mayEdit(ctx, actor, st); err != nil {
+	if err := s.MayEdit(ctx, actor, st); err != nil {
 		return nil, err
 	}
 	req.Environment, _ = site.CanonicalEnvironment(req.Environment)
@@ -242,7 +242,7 @@ func (s *Service) domainSite(ctx context.Context, actor Actor, hostname string) 
 	if err != nil {
 		return nil, nil, err //nolint:wrapcheck // read by identity
 	}
-	if err := s.mayEdit(ctx, actor, st); err != nil {
+	if err := s.MayEdit(ctx, actor, st); err != nil {
 		return nil, nil, err
 	}
 	return d, st, nil
@@ -321,7 +321,7 @@ func (s *Service) mayRemoveDomain(ctx context.Context, actor Actor, d *site.Doma
 	if err != nil {
 		return err //nolint:wrapcheck // read by identity
 	}
-	if err := s.mayEdit(ctx, actor, st); err != nil {
+	if err := s.MayEdit(ctx, actor, st); err != nil {
 		return err
 	}
 	// Moving the name off an environment that requires approval and onto one
