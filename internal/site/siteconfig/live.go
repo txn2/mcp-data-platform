@@ -1,6 +1,9 @@
 package siteconfig
 
-import "sync/atomic"
+import (
+	"sync/atomic"
+	"time"
+)
 
 // SettingsSection is the platform_settings section the portal saves.
 const SettingsSection = "sites"
@@ -21,6 +24,13 @@ type Settings struct {
 	ReleasesKeep *int `json:"releases_keep,omitempty" example:"50"`
 	// ReleasesMode is "delete" or "report"; empty keeps the file's value.
 	ReleasesMode string `json:"releases_mode,omitempty" example:"delete"`
+	// TrafficEnabled records each site's traffic (#2647); nil keeps the
+	// file's value.
+	TrafficEnabled *bool `json:"traffic_enabled,omitempty" example:"true"`
+	// TrafficMinuteHours and TrafficHourDays are how long minute rows (in
+	// hours) and hour rows (in days) are kept; nil keeps the file's value.
+	TrafficMinuteHours *int `json:"traffic_minute_hours,omitempty" example:"24"`
+	TrafficHourDays    *int `json:"traffic_hour_days,omitempty" example:"90"`
 }
 
 // Settings is the config's run-time values, every bound at its default when
@@ -28,12 +38,18 @@ type Settings struct {
 func (c Config) Settings() Settings {
 	l := c.Limits()
 	keep := l.Releases.Keep()
+	traffic := l.Traffic.IsEnabled()
+	minuteHours, hourDays := int(l.Traffic.Minutes()/time.Hour), int(l.Traffic.Hours()/day)
 	return Settings{
 		PagesDomain: l.PagesDomain, MaxFiles: l.MaxFiles, MaxFileBytes: l.MaxFileBytes,
 		MaxReleaseBytes: l.MaxReleaseBytes, CrawlMaxPages: l.Crawl.MaxPages, CrawlMaxBytes: l.Crawl.MaxBytes,
 		ReleasesKeep: &keep, ReleasesMode: l.Releases.SweepMode(),
+		TrafficEnabled: &traffic, TrafficMinuteHours: &minuteHours, TrafficHourDays: &hourDays,
 	}
 }
+
+// day is how long hour rows' retention is counted in.
+const day = 24 * time.Hour
 
 // With is the config with saved settings over it.
 func (c Config) With(s Settings) Config {
@@ -46,6 +62,16 @@ func (c Config) With(s Settings) Config {
 	}
 	if s.ReleasesMode != "" {
 		c.Releases.Mode = s.ReleasesMode
+	}
+	if s.TrafficEnabled != nil {
+		on := *s.TrafficEnabled
+		c.Traffic.Enabled = &on
+	}
+	if s.TrafficMinuteHours != nil && *s.TrafficMinuteHours > 0 {
+		c.Traffic.MinuteRetention = time.Duration(*s.TrafficMinuteHours) * time.Hour
+	}
+	if s.TrafficHourDays != nil && *s.TrafficHourDays > 0 {
+		c.Traffic.HourRetention = time.Duration(*s.TrafficHourDays) * day
 	}
 	return c
 }

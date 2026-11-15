@@ -345,6 +345,7 @@ func TestIssue2602_ASweepKeepsEveryRetainedReleaseIntact(t *testing.T) {
 	// stage serves 10 and prod 20, each reached one step at a time (#2617): 20
 	// goes through stage to prod, and stage is rolled back to 10.
 	s.setEnv(t, keyOwner2604, "stage", map[string]any{})
+	agentsMayPromote2643(t, s.name, "stage") // the rollback below is about retention (#2643)
 	publishChainFrom2602(t, s, 1, 10)
 	promote2602(t, s, "stage", 10)
 	publishChainFrom2602(t, s, 11, 20)
@@ -526,6 +527,7 @@ func TestIssue2602_PinnedAndPendingReleasesAreKept(t *testing.T) {
 	admin := connectAs(t, keyAdmin2604)
 	s.setEnv(t, keyAdmin2604, "prod", map[string]any{"requires_approval": true})
 	s.setEnv(t, keyOwner2604, "stage", map[string]any{})
+	agentsMayPromote2643(t, s.name, "stage") // the rollback below is about retention (#2643)
 
 	// An application release pins a site part at what the environment before
 	// it serves (#2617) and points the environment at it: stage serves 3,

@@ -47,8 +47,8 @@ func (s *Service) PermissionsOf(ctx context.Context, actor Actor, st *site.Site)
 	return Permissions{Manage: manage}, nil
 }
 
-// mayEdit refuses anyone who does not manage the site.
-func (s *Service) mayEdit(ctx context.Context, actor Actor, st *site.Site) error {
+// MayEdit refuses anyone who does not manage the site.
+func (s *Service) MayEdit(ctx context.Context, actor Actor, st *site.Site) error {
 	p, err := s.PermissionsOf(ctx, actor, st)
 	if err != nil {
 		return err
@@ -77,7 +77,7 @@ func (s *Service) Grants(ctx context.Context, actor Actor, ref string) ([]site.G
 	if err != nil {
 		return nil, err
 	}
-	if err := s.mayEdit(ctx, actor, st); err != nil {
+	if err := s.MayEdit(ctx, actor, st); err != nil {
 		return nil, err
 	}
 	return s.Store.Grants(ctx, st.ID) //nolint:wrapcheck // read by identity
@@ -185,7 +185,7 @@ func (s *Service) mayChange(ctx context.Context, actor Actor, st *site.Site, ema
 	if level == site.LevelManage || current == site.LevelManage {
 		return s.mayOwn(ctx, actor, st)
 	}
-	return s.mayEdit(ctx, actor, st)
+	return s.MayEdit(ctx, actor, st)
 }
 
 // Revoke takes access away from a person by email or, with email "", from a

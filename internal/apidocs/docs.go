@@ -10157,7 +10157,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Starts a walk over every managed resource that applies the resources.index rules again to each one no writer chose a policy for, in batches of 500 with a pause between them. A resource whose policy changes drops its vector and its kept text, and is re-indexed for what its new policy reads; a resource under a policy that reads no content keeps no extracted text. A policy a writer chose is never changed. Answers 202 at once; GET reports the result when the walk ends. Answers 409 while one is running.",
+                "description": "Starts a walk over every managed resource that applies the resources.index rules again to each one no writer chose a policy for, in batches of 500 with a pause between them. A resource whose policy changes drops its vector and its kept text, and is re-indexed for what its new policy reads; a resource under a policy that reads no content keeps no extracted text. A policy a writer chose is never changed. On a deployment with no embedding provider no index job is queued, and no_index_reason says so. Answers 202 at once; GET reports the result when the walk ends. Answers 409 while one is running.",
                 "produces": [
                     "application/json"
                 ],
@@ -12423,6 +12423,48 @@ const docTemplate = `{
                     },
                     "409": {
                         "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/sites/traffic/replicas": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Each replica's requests and latency across every site over a range, named by the X-Platform-Instance it answers as, so a slow replica stands out beside the others (#2647). Administrators only.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Read each replica's site traffic",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "1h, 24h (default), 7d or 30d",
+                        "name": "range",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.ReplicasView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -28278,7 +28320,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creates a site with its default environment. The caller, whose persona must hold manage_site, is its owner.",
+                "description": "Creates a site with dev and prod. The name given is what a person typed: it becomes the name every address of the site uses (lowercase, separators as hyphens, other characters dropped), the same rule POST /portal/sites/check-name answers. The caller, whose persona must hold manage_site, is its owner.",
                 "consumes": [
                     "application/json"
                 ],
@@ -28321,6 +28363,54 @@ const docTemplate = `{
                     },
                     "422": {
                         "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/sites/check-name": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "What the name a person typed becomes, the addresses dev and prod would answer at, how long an environment name it leaves room for, and why it would be refused, if it would. Creates nothing. The one copy of the site-name rule: the New site dialog asks it as the person types (#2636).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Check a new site's name",
+                "parameters": [
+                    {
+                        "description": "The typed name; description is ignored",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.SiteRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/siteenv.NameCheck"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -28871,7 +28961,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/sitesvc.DomainResult"
+                            "$ref": "#/definitions/siteenv.DomainResult"
                         }
                     },
                     "403": {
@@ -28951,7 +29041,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/sitesvc.DomainResult"
+                            "$ref": "#/definitions/siteenv.DomainResult"
                         }
                     },
                     "403": {
@@ -29033,7 +29123,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creates the environment (private unless public is true), or changes whether it is public, whether everyone internal may open it, whether promoting to it needs approval, and how many releases it keeps (keep_releases: a whole number, 0 for every release, or \"default\"; the owner and administrators only, since a lower limit removes rollback history at the next sweep). Only the owner or an administrator makes an environment public, and where it requires approval a non-administrator's request waits in Approvals (status awaiting_approval) until approved, after which the same request succeeds. dev is always private. Only an administrator takes the approval rule off.",
+                "description": "Creates the environment, or changes whether everyone internal may open it, whether promoting to it needs approval, how many releases it keeps (keep_releases: a whole number, 0 for every release, or \"default\"; the owner and administrators only, since a lower limit removes rollback history at the next sweep), and whether agents may promote into it (agents_may_promote, administrators only). status takes it offline (message, back_at: every address answers 503), redirects it (redirect_to, keep_path: every address answers 302) or brings it online; never dev, and the release pointer is untouched. A redirect on an environment that requires approval, by someone who is not an administrator, waits in Approvals (status awaiting_approval) until approved, after which the same request succeeds. rename_to renames an environment between dev and prod, alone, moving every reference to its name. Only an administrator takes the approval rule off.",
                 "consumes": [
                     "application/json"
                 ],
@@ -29074,6 +29164,66 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/sitehttp.EnvironmentResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Removes an environment between dev and prod (#2630). Refused while it has a domain, holds the main address, is a part of an application or has a job running, each naming what to do first; an environment that requires approval is removed only by an administrator. Pending approvals that target it are withdrawn, it is dropped from every share, a share that named only it is deleted, its history is kept marked removed and stops counting toward its release limit, and its address stops answering.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Remove an environment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Environment",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.SiteView"
                         }
                     },
                     "403": {
@@ -29296,6 +29446,74 @@ const docTemplate = `{
                     },
                     "409": {
                         "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/sites/{site}/file/content": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The bytes of one file of dev, or of a release with release, for the portal's viewer (#2629). Read as /file is: the people who manage the site read dev's source, someone dev is shared with what dev serves; a release's file is read by the people who manage the site, and by anyone else only while an environment they can open serves it. Served with a sandbox Content-Security-Policy, nosniff, a parameter-free Content-Type, private caching, and as an attachment for HTML, SVG, JavaScript and XML; byte ranges are answered, so a video seeks. _redirects and _headers answer their rendered text. A path outside the tree is refused.",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Read one site file's bytes",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "The file's path",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "A release number; absent for dev's file",
+                        "name": "release",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "206": {
+                        "description": "Partial Content"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -30096,6 +30314,73 @@ const docTemplate = `{
                     },
                     "422": {
                         "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/sites/{site}/traffic": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Requests by status class and p50, p95 and p99 latency over the last hour, 24 hours, 7 days or 30 days, the range's totals, and the same by environment (#2647). Recorded by the platform in its own database, so it needs no Prometheus backend and no grant beyond seeing the site; someone who does not manage the site sees the environments they can open. No figure holds anything a visitor's request carried.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Read a site's traffic",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "1h, 24h (default), 7d or 30d",
+                        "name": "range",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "One environment; absent for every one the caller sees",
+                        "name": "environment",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sitehttp.TrafficView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -49098,6 +49383,10 @@ const docTemplate = `{
                 },
                 "last_run": {
                     "$ref": "#/definitions/resindexapi.Run"
+                },
+                "no_index_reason": {
+                    "description": "NoIndexReason is why a reclassification queues no index work on this\ndeployment, absent when it queues what it owes.",
+                    "type": "string"
                 }
             }
         },
@@ -49108,6 +49397,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "finished_at": {
+                    "type": "string"
+                },
+                "no_index_reason": {
+                    "description": "NoIndexReason is why the reclassification queues no index work, absent\nwhen it queues what it owes.",
                     "type": "string"
                 },
                 "result": {
@@ -53254,11 +53547,23 @@ const docTemplate = `{
                 "created_at": {
                     "type": "string"
                 },
+                "decided_by": {
+                    "description": "DecidedBy is whose decision carried out a move an agent asked for\n(#2643), absent for a move a person made.",
+                    "type": "string"
+                },
+                "detail": {
+                    "description": "Detail is what a status change said: the offline message or the\nredirect target (#2631, #2632); a rename's old name (#2630).",
+                    "type": "string"
+                },
                 "environment": {
                     "type": "string"
                 },
                 "from_release": {
                     "type": "integer"
+                },
+                "removed": {
+                    "description": "Removed is a move of an environment that was removed (#2630).",
+                    "type": "boolean"
                 },
                 "to_release": {
                     "type": "integer"
@@ -53306,8 +53611,19 @@ const docTemplate = `{
         "site.Environment": {
             "type": "object",
             "properties": {
+                "agents_may_promote": {
+                    "description": "AgentsMayPromote lets an agent's promote, rollback or public domain\nhere go ahead without a person's decision (#2643). Off by default;\nonly an administrator turns it on.",
+                    "type": "boolean"
+                },
+                "back_at": {
+                    "description": "BackAt is when an offline environment's visitors are told it is\nexpected back.",
+                    "type": "string"
+                },
                 "internal_view": {
                     "description": "InternalView opens the environment's private addresses to everyone\nsigned in whose persona is not external: a company intranet.",
+                    "type": "boolean"
+                },
+                "keep_path": {
                     "type": "boolean"
                 },
                 "keep_releases": {
@@ -53319,6 +53635,10 @@ const docTemplate = `{
                     "description": "KeepDefault is true when Keep is the deployment's default.",
                     "type": "boolean"
                 },
+                "message": {
+                    "description": "StatusMessage is an offline environment's message.",
+                    "type": "string"
+                },
                 "name": {
                     "type": "string",
                     "example": "prod"
@@ -53329,6 +53649,10 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "redirect_to": {
+                    "description": "RedirectTo and RedirectKeepPath are a redirecting environment's\ntarget, and whether the request's path and query are kept.",
+                    "type": "string"
                 },
                 "release": {
                     "description": "Release is the number of the release served, 0 before the first.",
@@ -53343,6 +53667,17 @@ const docTemplate = `{
                 "requires_approval": {
                     "description": "RequiresApproval makes a promotion here, and making one of its domains\npublic, a request in the Approvals queue.",
                     "type": "boolean"
+                },
+                "status": {
+                    "description": "Status is what every address of the environment answers (#2631,\n#2632): online, offline or redirect.",
+                    "type": "string",
+                    "example": "online"
+                },
+                "status_changed_at": {
+                    "type": "string"
+                },
+                "status_changed_by": {
+                    "type": "string"
                 },
                 "updated_at": {
                     "type": "string"
@@ -53724,6 +54059,97 @@ const docTemplate = `{
                     "description": "ReleasesMode is \"delete\" or \"report\"; empty keeps the file's value.",
                     "type": "string",
                     "example": "delete"
+                },
+                "traffic_enabled": {
+                    "description": "TrafficEnabled records each site's traffic (#2647); nil keeps the\nfile's value.",
+                    "type": "boolean",
+                    "example": true
+                },
+                "traffic_hour_days": {
+                    "type": "integer",
+                    "example": 90
+                },
+                "traffic_minute_hours": {
+                    "description": "TrafficMinuteHours and TrafficHourDays are how long minute rows (in\nhours) and hour rows (in days) are kept; nil keeps the file's value.",
+                    "type": "integer",
+                    "example": 24
+                }
+            }
+        },
+        "siteenv.DomainResult": {
+            "type": "object",
+            "properties": {
+                "application": {
+                    "type": "string",
+                    "example": "shop"
+                },
+                "application_id": {
+                    "description": "ApplicationID and Application name the application whose endpoints the\nhostname serves.",
+                    "type": "string"
+                },
+                "approval": {
+                    "$ref": "#/definitions/approval.Request"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "decided_by": {
+                    "type": "string"
+                },
+                "environment": {
+                    "type": "string",
+                    "example": "prod"
+                },
+                "hostname": {
+                    "type": "string",
+                    "example": "www.example.com"
+                },
+                "public": {
+                    "description": "Public answers anyone at this hostname (#2619): the one way a site\nenvironment opens to someone who has not signed in. A domain is added\nprivate unless public is asked for.",
+                    "type": "boolean"
+                },
+                "site": {
+                    "type": "string",
+                    "example": "marketing"
+                },
+                "site_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "Status is StatusDone, or StatusAwaitingApproval when making the domain\npublic waits on Approvals; the domain is private meanwhile.",
+                    "type": "string"
+                }
+            }
+        },
+        "siteenv.NameCheck": {
+            "type": "object",
+            "properties": {
+                "addresses": {
+                    "description": "Addresses is where dev and prod would answer on the pages domain, \"\"\nwith no pages domain.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "environment_name_room": {
+                    "description": "EnvironmentNameRoom is the longest environment name the site can add.",
+                    "type": "integer",
+                    "example": 32
+                },
+                "input": {
+                    "type": "string",
+                    "example": "My Website"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "my-website"
+                },
+                "refusal": {
+                    "description": "Refusal is why the name cannot be created, absent when it can.",
+                    "type": "string"
                 }
             }
         },
@@ -53914,7 +54340,17 @@ const docTemplate = `{
                     "description": "After places a new environment, or moves one, immediately after the\nenvironment it names: dev or one between dev and prod (#2617).",
                     "type": "string"
                 },
+                "agents_may_promote": {
+                    "description": "AgentsMayPromote lets an agent's promote, rollback or public domain here\ngo ahead without a person's decision (#2643). Administrators only.",
+                    "type": "boolean"
+                },
+                "back_at": {
+                    "type": "string"
+                },
                 "internal_view": {
+                    "type": "boolean"
+                },
+                "keep_path": {
                     "type": "boolean"
                 },
                 "keep_releases": {
@@ -53922,18 +54358,51 @@ const docTemplate = `{
                     "type": "string",
                     "example": "50"
                 },
+                "message": {
+                    "type": "string"
+                },
                 "public": {
                     "description": "Public is refused (#2619): public is a setting of a domain.",
                     "type": "boolean"
                 },
+                "reason": {
+                    "description": "Reason goes with a redirect that waits on Approvals.",
+                    "type": "string"
+                },
+                "redirect_to": {
+                    "type": "string",
+                    "example": "https://status.example.com"
+                },
+                "rename_to": {
+                    "description": "RenameTo renames an environment between dev and prod, alone (#2630).",
+                    "type": "string",
+                    "example": "qa"
+                },
                 "requires_approval": {
                     "type": "boolean"
+                },
+                "status": {
+                    "description": "Status is what every address of the environment answers (#2631,\n#2632): online, offline (with message and back_at) or redirect (with\nredirect_to and keep_path).",
+                    "type": "string",
+                    "enum": [
+                        "online",
+                        "offline",
+                        "redirect"
+                    ]
                 }
             }
         },
         "sitehttp.EnvironmentResponse": {
             "type": "object",
             "properties": {
+                "approval": {
+                    "description": "Approval is the request a redirect waits on (status awaiting_approval).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/sitesvc.ApprovalRequest"
+                        }
+                    ]
+                },
                 "note": {
                     "type": "string"
                 },
@@ -54316,6 +54785,56 @@ const docTemplate = `{
                 }
             }
         },
+        "sitehttp.ReplicaTraffic": {
+            "type": "object",
+            "properties": {
+                "classes": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                },
+                "instance": {
+                    "type": "string",
+                    "example": "platform-7d9f-abc:8080"
+                },
+                "p50_ms": {
+                    "type": "number",
+                    "example": 12.5
+                },
+                "p95_ms": {
+                    "type": "number",
+                    "example": 48
+                },
+                "p99_ms": {
+                    "type": "number",
+                    "example": 120
+                },
+                "requests": {
+                    "type": "integer",
+                    "example": 1200
+                }
+            }
+        },
+        "sitehttp.ReplicasView": {
+            "type": "object",
+            "properties": {
+                "range": {
+                    "type": "string",
+                    "example": "24h"
+                },
+                "recording": {
+                    "type": "boolean"
+                },
+                "replicas": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sitehttp.ReplicaTraffic"
+                    }
+                }
+            }
+        },
         "sitehttp.RetentionView": {
             "type": "object",
             "properties": {
@@ -54461,11 +54980,38 @@ const docTemplate = `{
                     "type": "string",
                     "example": "delete"
                 },
+                "traffic_enabled": {
+                    "description": "TrafficEnabled records each site's traffic (#2647); nil keeps the\nfile's value.",
+                    "type": "boolean",
+                    "example": true
+                },
+                "traffic_hour_days": {
+                    "type": "integer",
+                    "example": 90
+                },
+                "traffic_minute_hours": {
+                    "description": "TrafficMinuteHours and TrafficHourDays are how long minute rows (in\nhours) and hour rows (in days) are kept; nil keeps the file's value.",
+                    "type": "integer",
+                    "example": 24
+                },
                 "updated_at": {
                     "type": "string"
                 },
                 "updated_by": {
                     "type": "string"
+                }
+            }
+        },
+        "sitehttp.SiteTraffic": {
+            "type": "object",
+            "properties": {
+                "p95_ms": {
+                    "type": "number",
+                    "example": 48
+                },
+                "requests_24h": {
+                    "type": "integer",
+                    "example": 1200
                 }
             }
         },
@@ -54520,6 +55066,11 @@ const docTemplate = `{
                         "$ref": "#/definitions/site.Domain"
                     }
                 },
+                "environment_name_room": {
+                    "description": "EnvironmentNameRoom is the longest environment name the site can add:\nits name and \"--\" leave the rest of one DNS label (#2636).",
+                    "type": "integer",
+                    "example": 32
+                },
                 "environments": {
                     "type": "array",
                     "items": {
@@ -54565,6 +55116,14 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "traffic": {
+                    "description": "Traffic is the site's last 24 hours over the environments the caller\nsees (#2647), on the Sites list; absent elsewhere.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/sitehttp.SiteTraffic"
+                        }
+                    ]
+                },
                 "updated_at": {
                     "type": "string"
                 }
@@ -54581,6 +55140,73 @@ const docTemplate = `{
                 "site": {
                     "description": "Site, when set, sweeps that site alone, by name.",
                     "type": "string"
+                }
+            }
+        },
+        "sitehttp.TrafficPoint": {
+            "type": "object",
+            "properties": {
+                "at": {
+                    "type": "string"
+                },
+                "classes": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                },
+                "p50_ms": {
+                    "type": "number",
+                    "example": 12.5
+                },
+                "p95_ms": {
+                    "type": "number",
+                    "example": 48
+                },
+                "p99_ms": {
+                    "type": "number",
+                    "example": 120
+                },
+                "requests": {
+                    "type": "integer",
+                    "example": 1200
+                }
+            }
+        },
+        "sitehttp.TrafficView": {
+            "type": "object",
+            "properties": {
+                "environment": {
+                    "type": "string"
+                },
+                "environments": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/sitetraffic.Totals"
+                    }
+                },
+                "range": {
+                    "type": "string",
+                    "example": "24h"
+                },
+                "recording": {
+                    "description": "Recording is false where sites.traffic.enabled is off; nothing is\nrecorded then.",
+                    "type": "boolean"
+                },
+                "series": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sitehttp.TrafficPoint"
+                    }
+                },
+                "step_seconds": {
+                    "description": "StepSeconds is the width of each point of Series.",
+                    "type": "integer",
+                    "example": 900
+                },
+                "total": {
+                    "$ref": "#/definitions/sitetraffic.Totals"
                 }
             }
         },
@@ -54733,6 +55359,136 @@ const docTemplate = `{
                 }
             }
         },
+        "sitesvc.ApprovalRequest": {
+            "type": "object",
+            "properties": {
+                "approvers": {
+                    "description": "Approvers are the people or personas the policies named; empty is an\nadministrator.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "arguments": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "calls_approved": {
+                    "type": "integer"
+                },
+                "calls_asked": {
+                    "type": "integer"
+                },
+                "calls_used": {
+                    "type": "integer"
+                },
+                "changes": {
+                    "$ref": "#/definitions/approval.Changes"
+                },
+                "connection": {
+                    "type": "string",
+                    "example": "billing-api"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "decided_at": {
+                    "type": "string"
+                },
+                "decided_by": {
+                    "type": "string"
+                },
+                "decision_comment": {
+                    "type": "string"
+                },
+                "handlers": {
+                    "description": "Handlers are the policies that held the call, with what each said.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/approval.HandlerAsk"
+                    }
+                },
+                "id": {
+                    "type": "string",
+                    "example": "apr_0f3c9d2e"
+                },
+                "kind": {
+                    "description": "Kind is what the request is about: call, handler_version, form or\nsite.",
+                    "type": "string"
+                },
+                "operation": {
+                    "type": "string",
+                    "example": "addSubscribers"
+                },
+                "purpose": {
+                    "type": "string",
+                    "example": "form_public"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "rendering": {
+                    "description": "Rendering is the platform's own reading of the call, which the\napprover reads, never only a summary someone wrote.",
+                    "type": "string"
+                },
+                "requester_email": {
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "requester_persona": {
+                    "type": "string"
+                },
+                "script_id": {
+                    "type": "string"
+                },
+                "script_name": {
+                    "type": "string",
+                    "example": "order-intake"
+                },
+                "self_approved": {
+                    "type": "boolean"
+                },
+                "site_id": {
+                    "description": "SiteID is the site an environment request is about (#2604).",
+                    "type": "string"
+                },
+                "site_name": {
+                    "description": "SiteName is the site the release or environment belongs to.",
+                    "type": "string",
+                    "example": "marketing"
+                },
+                "site_release_id": {
+                    "description": "SiteReleaseID and Target name a site release a promotion waits on and\nthe environment it would serve (#2518); SourceSHA256 is then the\nrelease's manifest digest and Version its number.",
+                    "type": "string"
+                },
+                "source_sha256": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "pending"
+                },
+                "subject_kind": {
+                    "type": "string",
+                    "example": "script_version"
+                },
+                "target": {
+                    "type": "string",
+                    "example": "prod"
+                },
+                "tool": {
+                    "type": "string",
+                    "example": "api_invoke_endpoint"
+                },
+                "until": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "integer",
+                    "example": 2
+                }
+            }
+        },
         "sitesvc.Comparison": {
             "type": "object",
             "properties": {
@@ -54847,6 +55603,10 @@ const docTemplate = `{
                 "approval": {
                     "$ref": "#/definitions/approval.Request"
                 },
+                "decided_by": {
+                    "description": "DecidedBy is whose decision carried an agent's move out (#2643).",
+                    "type": "string"
+                },
                 "environment": {
                     "type": "string"
                 },
@@ -54902,6 +55662,34 @@ const docTemplate = `{
                 },
                 "version": {
                     "type": "integer"
+                }
+            }
+        },
+        "sitetraffic.Totals": {
+            "type": "object",
+            "properties": {
+                "classes": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                },
+                "p50_ms": {
+                    "type": "number",
+                    "example": 12.5
+                },
+                "p95_ms": {
+                    "type": "number",
+                    "example": 48
+                },
+                "p99_ms": {
+                    "type": "number",
+                    "example": 120
+                },
+                "requests": {
+                    "type": "integer",
+                    "example": 1200
                 }
             }
         },

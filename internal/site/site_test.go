@@ -3,8 +3,11 @@ package site
 import (
 	"encoding/json"
 	"fmt"
+	"math/rand"
+	"reflect"
 	"strings"
 	"testing"
+	"testing/quick"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,9 +21,14 @@ func TestValidateName(t *testing.T) {
 		{"marketing", true},
 		{"a", true},
 		{"a-b-c", true},
-		{"a1", true},
-		{"a" + strings.Repeat("b", 62), true},
-		{"a" + strings.Repeat("b", 63), false},
+		// #2636: the length limit is the label's, with the longest environment
+		// a new site starts with, and a two-character name makes a reserved
+		// label.
+		{"a1", false},
+		{"abc", true},
+		{"a" + strings.Repeat("b", 56), true},
+		{"a" + strings.Repeat("b", 57), false},
+		{"a" + strings.Repeat("b", 62), false},
 		{"", false},
 		{"Marketing", false},
 		{"1site", false},
@@ -42,6 +50,63 @@ func TestValidateName(t *testing.T) {
 			assert.Contains(t, err.Error(), "site name")
 		})
 	}
+}
+
+// TestNameFrom pins what a typed name becomes (#2636).
+func TestNameFrom(t *testing.T) {
+	for in, want := range map[string]string{
+		"My Website":        "my-website",
+		"This is a Test":    "this-is-a-test",
+		"  Acme_Corp.  ":    "acme-corp",
+		"Q3 -- Launch!!":    "q3-launch",
+		"Café Été":          "caf-t",
+		"---":               "",
+		"already-a-name":    "already-a-name",
+		"tab\tand\nnewline": "tab-and-newline",
+	} {
+		assert.Equal(t, want, NameFrom(in), "NameFrom(%q)", in)
+	}
+}
+
+// TestNameFromIsAcceptedOrRefusedNeverBoth is #2636's property: for any
+// input, the name it becomes is either refused with a reason, or passes
+// ValidateName and gives every address the dialog shows a valid label, and
+// leaves room for an environment name or says how much.
+func TestNameFromIsAcceptedOrRefusedNeverBoth(t *testing.T) {
+	f := func(input string) bool {
+		name := NameFrom(input)
+		if err := ValidateName(name); err != nil {
+			return err.Error() != ""
+		}
+		for _, env := range []string{EnvDev, EnvProd} {
+			if ValidateLabel(name, env) != nil {
+				return false
+			}
+		}
+		room := EnvironmentNameRoom(name)
+		if room < len(EnvProd) {
+			return false
+		}
+		env := "a" + strings.Repeat("b", room-1)
+		return ValidateEnvironment(env) == nil && ValidateLabel(name, env) == nil
+	}
+	cfg := &quick.Config{MaxCount: 5000, Values: func(v []reflect.Value, r *rand.Rand) {
+		v[0] = reflect.ValueOf(randomInput(r))
+	}}
+	require.NoError(t, quick.Check(f, cfg))
+}
+
+// randomInput is text a person might type, and text they would not: letters,
+// digits, Unicode, whitespace and punctuation, of any length to 120.
+func randomInput(r *rand.Rand) string {
+	alphabets := []string{"abcdefghijklmnopqrstuvwxyz", "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "0123456789", " \t\n_-.:/+", "!@#$%^&*()[]{}<>?,;'\"", "éßøñ漢字😀‐–—"}
+	n := r.Intn(121)
+	var b strings.Builder
+	for range n {
+		a := []rune(alphabets[r.Intn(len(alphabets))])
+		_, _ = b.WriteRune(a[r.Intn(len(a))])
+	}
+	return b.String()
 }
 
 func TestValidateEnvironment(t *testing.T) {
@@ -400,4 +465,18 @@ func TestParseKeep_EveryFormACallerSends(t *testing.T) {
 		_, err := ParseKeep(json.RawMessage(raw))
 		require.ErrorContains(t, err, "keep_releases", raw)
 	}
+}
+
+func TestDeploymentMovesRelease(t *testing.T) {
+	for _, a := range []string{ActionOffline, ActionOnline, ActionRedirect, ActionRename} {
+		assert.False(t, Deployment{Action: a}.MovesRelease(), a)
+	}
+	assert.True(t, Deployment{Action: ActionPromote}.MovesRelease())
+	env := &Environment{Name: "prod", Release: 3}
+	history := []Deployment{{Action: ActionOffline, To: 3}, {Action: ActionPromote, To: 2}, {Action: ActionPromote, To: 1, Removed: true}}
+	got, err := RollbackTarget(env, history, 0, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 2, got, "a status change and a removed environment's moves are not releases it served")
+	_, err = RollbackTarget(env, history, 1, nil)
+	require.Error(t, err)
 }

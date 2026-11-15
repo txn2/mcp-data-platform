@@ -20,6 +20,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/site"
 	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
 	"github.com/txn2/mcp-data-platform/internal/site/sitecrawl"
+	"github.com/txn2/mcp-data-platform/internal/site/siteenv"
 	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -284,7 +285,7 @@ func (m *memStore) pointLocked(p site.Pointer) error {
 		return site.ErrStale
 	}
 	m.deployments[p.SiteID] = slices.Insert(m.deployments[p.SiteID], 0, site.Deployment{
-		Environment: p.Environment, Action: p.Action, From: env.Release, To: p.To, Actor: p.Actor,
+		Environment: p.Environment, Action: p.Action, From: env.Release, To: p.To, Actor: p.Actor, DecidedBy: p.DecidedBy,
 	})
 	env.Release = p.To
 	return nil
@@ -583,6 +584,48 @@ func publishTo(t *testing.T, f *fixture, env string) {
 	call(t, f, admin(), Input{Command: CmdPublish, Site: siteName, Environment: env, Files: files(indexName)})
 }
 
+// letAgentsMove turns agents_may_promote on for env (#2643), as an
+// administrator does in the portal.
+func letAgentsMove(f *fixture, env string) {
+	f.store.mu.Lock()
+	defer f.store.mu.Unlock()
+	for _, s := range f.store.sites {
+		if e := s.Environment(env); e != nil {
+			e.AgentsMayPromote = true
+		}
+	}
+}
+
+func (m *memStore) SetStatus(_ context.Context, siteID, env string, st site.EnvironmentStatus, actor string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e := m.sites[siteID].Environment(env)
+	if e == nil {
+		return site.ErrNoEnvironment
+	}
+	e.Status, e.StatusMessage, e.BackAt, e.RedirectTo, e.RedirectKeepPath, e.StatusChangedBy = st.Status, st.Message, st.BackAt, st.RedirectTo, st.KeepPath, actor
+	return nil
+}
+
+func (m *memStore) RenameEnvironment(_ context.Context, siteID, from, to, _ string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e := m.sites[siteID].Environment(from)
+	if e == nil {
+		return site.ErrNoEnvironment
+	}
+	e.Name = to
+	return nil
+}
+
+func (m *memStore) RemoveEnvironment(_ context.Context, siteID, name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	st := m.sites[siteID]
+	st.Environments = slices.DeleteFunc(st.Environments, func(e site.Environment) bool { return e.Name == name })
+	return nil
+}
+
 func stored(f *fixture) *site.Site {
 	for _, s := range f.store.sites {
 		return s
@@ -639,6 +682,7 @@ func TestHandle_EveryCommandDispatches(t *testing.T) {
 	require.True(t, ok)
 	assert.Len(t, deployments, 1)
 
+	letAgentsMove(f, "stage")
 	promoted := do(Input{Command: CmdPromote, Site: siteName, From: site.EnvDev, To: "stage"})
 	assert.Equal(t, sitesvc.StatusPromoted, promoted["status"])
 	assert.Equal(t, 1, stored(f).Environment("stage").Release)
@@ -655,6 +699,7 @@ func TestHandle_EveryCommandDispatches(t *testing.T) {
 	assert.True(t, stored(f).Environment("uat").RequiresApproval)
 	assert.Contains(t, do(Input{Command: CmdGet, Site: siteName})["addresses"], "uat")
 	public := true
+	letAgentsMove(f, "uat")
 	assert.Equal(t, true, do(Input{Command: CmdSetDomain, Hostname: testHost, Public: &public})["public"])
 
 	domains, ok := do(Input{Command: CmdDomains})["domains"].([]any)
@@ -663,6 +708,19 @@ func TestHandle_EveryCommandDispatches(t *testing.T) {
 
 	assert.Equal(t, testHost, do(Input{Command: CmdRemoveDomain, Hostname: testHost})["removed"])
 	assert.Empty(t, f.store.domains)
+
+	do(Input{Command: CmdEnvironment, Site: siteName, Environment: "uat", Status: site.StatusOffline, Message: "Back at 2pm", BackAt: "2030-01-02T14:00:00Z"})
+	assert.Equal(t, site.StatusOffline, stored(f).Environment("uat").Status)
+	assert.Equal(t, "Back at 2pm", stored(f).Environment("uat").StatusMessage)
+	keep := true
+	do(Input{Command: CmdEnvironment, Site: siteName, Environment: "stage", Status: site.StatusRedirect, RedirectTo: "https://status.example.com", KeepPath: &keep})
+	assert.Equal(t, "https://status.example.com", stored(f).Environment("stage").RedirectTo)
+	do(Input{Command: CmdEnvironment, Site: siteName, Environment: "uat", Status: site.StatusOnline})
+	assert.Equal(t, site.StatusOnline, stored(f).Environment("uat").Status)
+	do(Input{Command: CmdEnvironment, Site: siteName, Environment: "qa", RenameTo: "review"})
+	require.NotNil(t, stored(f).Environment("review"))
+	assert.Equal(t, "review", do(Input{Command: CmdRemoveEnvironment, Site: siteName, Environment: "review"})["removed"])
+	assert.Nil(t, stored(f).Environment("review"))
 
 	f.crawler.result = &sitecrawl.Result{Files: []sitesvc.InputFile{{Path: indexName, Body: []byte("copied")}}, Pages: 1, Redirects: 2}
 	crawled := do(Input{Command: CmdCrawl, Site: siteName, URL: "https://old.example/", FormMap: map[string]string{"/contact": "form"}})
@@ -848,15 +906,26 @@ func TestPublish_ADotfileIsRefused(t *testing.T) {
 	assert.Contains(t, refusal(t, f, admin(), Input{Command: CmdPublish, Site: siteName, Files: files(".env")}), "dotted segment")
 }
 
-func TestPromote_ToAnEnvironmentThatRequiresApproval(t *testing.T) {
+// An administrator's agent promoting to an environment people use never moves
+// it on its own (#2643): the request is filed for a person, and the agent's
+// call goes through once a person approved it.
+func TestPromote_AnAgentsPromotionWaitsOnThePerson(t *testing.T) {
 	f := newFixture()
 	createSite(t, f)
 	requireApproval(t, f, admin())
 	publishTo(t, f, site.EnvDev)
 
+	msg := refusal(t, f, admin(), Input{Command: CmdPromote, Site: siteName, From: site.EnvDev, To: "prod"})
+	assert.Contains(t, msg, "approval_filed")
+	assert.Contains(t, msg, "https://marketing--dev.pages.example.com", "the person is given the address to look at")
+	assert.Equal(t, 1, f.approvals.submitted)
+	assert.Zero(t, f.approvals.selfApproved, "an agent never records its own approval")
+	assert.Zero(t, stored(f).Environment("prod").Release, "nothing moves until a person decides")
+
+	f.approvals.approved = true
 	promoted := call(t, f, admin(), Input{Command: CmdPromote, Site: siteName, From: site.EnvDev, To: "prod"})
 	assert.Equal(t, sitesvc.StatusPromoted, promoted["status"])
-	assert.Equal(t, 1, f.approvals.selfApproved)
+	assert.Equal(t, site.DecidedByApproval, promoted["decided_by"])
 	assert.Equal(t, 1, stored(f).Environment("prod").Release)
 }
 
@@ -867,10 +936,53 @@ func TestPromote_AnOwnersPromotionToProdWaits(t *testing.T) {
 	requireApproval(t, f, owner)
 	call(t, f, owner, Input{Command: CmdPublish, Site: siteName, Files: files(indexName)})
 
-	promoted := call(t, f, owner, Input{Command: CmdPromote, Site: siteName, From: site.EnvDev, To: "prod", Reason: "ship"})
-	assert.Equal(t, sitesvc.StatusAwaitingApproval, promoted["status"])
+	msg := refusal(t, f, owner, Input{Command: CmdPromote, Site: siteName, From: site.EnvDev, To: "prod", Reason: "ship"})
+	assert.Contains(t, msg, "approval_filed")
 	assert.Equal(t, 1, f.approvals.submitted)
 	assert.Zero(t, stored(f).Environment("prod").Release, "nothing moves until it is approved")
+}
+
+// The person's answer to their client's question decides the move (#2643):
+// accepting carries out exactly the move they were asked about, declining or
+// not answering changes nothing, and an answer for a move the site no longer
+// matches is not taken.
+func TestPromote_ThePersonsAnswerDecides(t *testing.T) {
+	f := newFixture()
+	createSite(t, f)
+	publishTo(t, f, site.EnvDev)
+	agent := sitesvc.Actor{Email: adminEmail, Admin: true, Agent: true}
+	_, err := siteenv.New(f.tool.Service).Promote(context.Background(), agent, sitesvc.PromoteRequest{Site: siteName, To: "prod"})
+	wait, ok := errors.AsType[*siteenv.PersonDecisionError](err)
+	require.True(t, ok, "an agent's promote waits on the person: %v", err)
+	key := wait.Move.Key()
+	answer := func(action string) *mcp.CallToolResult {
+		req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{
+			Name:           ToolName,
+			InputResponses: mcp.InputResponseMap{key: &mcp.ElicitResult{Action: action}},
+		}}
+		res, _, err := f.tool.HandleRequest(admin(), req, Input{Command: CmdPromote, Site: siteName, To: "prod"})
+		require.NoError(t, err)
+		return res
+	}
+
+	for _, action := range []string{"decline", "cancel"} {
+		res := answer(action)
+		assert.True(t, res.IsError, action)
+		assert.Contains(t, text(t, res), "Nothing changed", action)
+		assert.Zero(t, stored(f).Environment("prod").Release, action)
+	}
+
+	res := answer("accept")
+	require.False(t, res.IsError, text(t, res))
+	assert.Contains(t, text(t, res), `"decided_by":"elicitation"`)
+	assert.Equal(t, 1, stored(f).Environment("prod").Release)
+	assert.Equal(t, site.DecidedByElicitation, f.store.deployments[stored(f).ID][0].DecidedBy, "the history says whose decision it was")
+
+	publishTo(t, f, site.EnvDev)
+	res = answer("accept")
+	assert.True(t, res.IsError, "an answer about release 1 never promotes release 2")
+	assert.Contains(t, text(t, res), "the site changed after the person was asked")
+	assert.Equal(t, 1, stored(f).Environment("prod").Release)
 }
 
 func TestHandle_AdministratorCommandsAreRefusedToAnOwner(t *testing.T) {
@@ -991,7 +1103,7 @@ func TestMessage(t *testing.T) {
 func TestActorOf(t *testing.T) {
 	assert.Equal(t, sitesvc.Actor{}, actorOf(context.Background()))
 	assert.Equal(t,
-		sitesvc.Actor{Email: "a@example.com", Admin: true, Persona: "analyst"},
+		sitesvc.Actor{Email: "a@example.com", Admin: true, Persona: "analyst", Agent: true},
 		actorOf(ctxAs("a@example.com", true, "")))
 
 	cases := []struct {
@@ -1107,6 +1219,7 @@ func TestSetEnvironment_PlaceAndMain(t *testing.T) {
 func TestDomainAccess(t *testing.T) {
 	f := newFixture()
 	createSite(t, f)
+	letAgentsMove(f, "prod")
 	yes, no := true, false
 	call(t, f, admin(), Input{Command: CmdAddDomain, Site: siteName, Environment: "prod", Hostname: "beta.example.org"})
 	added := call(t, f, admin(), Input{Command: CmdAddDomain, Site: siteName, Environment: "prod", Hostname: "www.example.org", Public: &yes})
@@ -1135,6 +1248,8 @@ func TestPromote_OneStep(t *testing.T) {
 	f := newFixture()
 	createSite(t, f)
 	call(t, f, admin(), Input{Command: CmdEnvironment, Site: siteName, Environment: "stage"})
+	letAgentsMove(f, "stage")
+	letAgentsMove(f, "prod")
 	publishTo(t, f, site.EnvDev)
 	assert.Equal(t, "prod takes releases only from stage, the environment before it: promote it from stage",
 		refusal(t, f, admin(), Input{Command: CmdPromote, Site: siteName, From: site.EnvDev, To: "prod"}))
@@ -1256,8 +1371,8 @@ func (*memApprovals) SubmitEnvironment(_ context.Context, _ approval.Actor, in a
 	return &approval.Request{ID: "apr_env", Status: approval.StatusPending, Purpose: approval.PurposeSitePublic, Target: in.Target}, nil
 }
 
-func (*memApprovals) EnvironmentApproved(context.Context, string, string, string) bool {
-	return false
+func (a *memApprovals) EnvironmentApproved(context.Context, string, string, string) bool {
+	return a.approved
 }
 
 // SiteAccess reads the grants map the way the store's statement reads

@@ -33,6 +33,10 @@ const (
 	// PurposeSitePublic makes a site environment that requires approval
 	// public; SourceSHA256 is the access it was asked against.
 	PurposeSitePublic = "site_public"
+	// PurposeSiteRedirect redirects a site environment that requires
+	// approval to another website (#2632); Target is the environment and
+	// SourceSHA256 the redirect asked for (its target and path rule).
+	PurposeSiteRedirect = "site_redirect"
 	// SubjectCall is a held tool call (#2437): approved, it is an allowance
 	// of calls of one operation, for one person, on one connection, until a
 	// deadline.

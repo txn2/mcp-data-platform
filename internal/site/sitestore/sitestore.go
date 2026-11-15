@@ -137,14 +137,16 @@ func (s *Store) one(ctx context.Context, query, arg string) (*site.Site, error) 
 // is the deployment's default.
 const windowOf = `
 	SELECT d.to_release FROM site_deployments d
-	 WHERE d.site_id = e.site_id AND d.environment = e.name
+	 WHERE d.site_id = e.site_id AND d.environment = e.name AND d.removed_at IS NULL
+	   AND d.action NOT IN ('offline', 'online', 'redirect', 'rename')
 	 GROUP BY d.to_release ORDER BY MAX(d.id) DESC
 	 LIMIT NULLIF(COALESCE(e.keep_releases, $2), 0)`
 
 func (s *Store) environments(ctx context.Context, siteID string) ([]site.Environment, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT e.name, COALESCE(e.release_number, 0), e.requires_approval, e.internal_view, e.updated_by, e.updated_at,
-		       e.keep_releases,
+		       e.keep_releases, e.status, e.status_message, e.back_at, e.redirect_to, e.redirect_keep_path,
+		       e.status_changed_by, e.status_changed_at, e.agents_may_promote,
 		       (SELECT COUNT(*) FROM (`+windowOf+`) w
 		          JOIN site_releases r ON r.site_id = e.site_id AND r.number = w.to_release AND r.pruned_at IS NULL),
 		       COALESCE((SELECT array_agg(d.hostname ORDER BY d.hostname) FROM site_domains d
@@ -159,10 +161,13 @@ func (s *Store) environments(ctx context.Context, siteID string) ([]site.Environ
 		var e site.Environment
 		var keep sql.NullInt64
 		e.PublicDomains = []string{}
+		var backAt, changedAt sql.NullTime
 		if err := rows.Scan(&e.Name, &e.Release, &e.RequiresApproval, &e.InternalView, &e.UpdatedBy, &e.UpdatedAt,
-			&keep, &e.Kept, pq.Array(&e.PublicDomains)); err != nil {
+			&keep, &e.Status, &e.StatusMessage, &backAt, &e.RedirectTo, &e.RedirectKeepPath,
+			&e.StatusChangedBy, &changedAt, &e.AgentsMayPromote, &e.Kept, pq.Array(&e.PublicDomains)); err != nil {
 			return nil, fmt.Errorf("read environment: %w", err)
 		}
+		e.BackAt, e.StatusChangedAt = timePtr(backAt), timePtr(changedAt)
 		e.Keep, e.KeepDefault = s.keepDefault(), !keep.Valid
 		if keep.Valid {
 			n := int(keep.Int64)
@@ -250,15 +255,16 @@ func (s *Store) SetEnvironment(ctx context.Context, siteID, name string, set sit
 		}
 		var created bool
 		err := tx.QueryRowContext(ctx, `
-			INSERT INTO site_environments (site_id, name, requires_approval, internal_view, updated_by, keep_releases)
-			VALUES ($1, $2, COALESCE($3, FALSE), COALESCE($4, FALSE), $5, $6::int)
+			INSERT INTO site_environments (site_id, name, requires_approval, internal_view, updated_by, keep_releases, agents_may_promote)
+			VALUES ($1, $2, COALESCE($3, FALSE), COALESCE($4, FALSE), $5, $6::int, COALESCE($8, FALSE))
 			ON CONFLICT (site_id, name) DO UPDATE
 			   SET requires_approval = COALESCE($3, site_environments.requires_approval),
 			       internal_view = COALESCE($4, site_environments.internal_view),
+			       agents_may_promote = COALESCE($8, site_environments.agents_may_promote),
 			       keep_releases = CASE WHEN $7 THEN NULL ELSE COALESCE($6::int, site_environments.keep_releases) END,
 			       updated_by = EXCLUDED.updated_by, updated_at = NOW()
 			RETURNING xmax = 0`,
-			siteID, name, set.RequiresApproval, set.InternalView, actor, keep, set.KeepDefault).Scan(&created)
+			siteID, name, set.RequiresApproval, set.InternalView, actor, keep, set.KeepDefault, set.AgentsMayPromote).Scan(&created)
 		if err != nil {
 			return fmt.Errorf("set environment: %w", err)
 		}
@@ -612,11 +618,52 @@ func point(ctx context.Context, tx *sql.Tx, p site.Pointer) error {
 		return fmt.Errorf("move environment: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO site_deployments (site_id, environment, action, from_release, to_release, actor)
-		VALUES ($1, $2, $3, $4, $5, $6)`, p.SiteID, p.Environment, p.Action, p.After, p.To, p.Actor); err != nil {
+		INSERT INTO site_deployments (site_id, environment, action, from_release, to_release, actor, decided_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`, p.SiteID, p.Environment, p.Action, p.After, p.To, p.Actor, p.DecidedBy); err != nil {
 		return fmt.Errorf("record deployment: %w", err)
 	}
 	return nil
+}
+
+// SetStatus changes what an environment answers (#2631, #2632) and records
+// the change in its history, in one transaction. The release pointer is not
+// touched.
+func (s *Store) SetStatus(ctx context.Context, siteID, env string, st site.EnvironmentStatus, actor string) error {
+	return s.withTx(ctx, func(tx *sql.Tx) error {
+		var release int
+		err := tx.QueryRowContext(ctx, `
+			UPDATE site_environments
+			   SET status = $3, status_message = $4, back_at = $5, redirect_to = $6, redirect_keep_path = $7,
+			       status_changed_by = $8, status_changed_at = NOW()
+			 WHERE site_id = $1 AND name = $2
+			RETURNING COALESCE(release_number, 0)`,
+			siteID, env, st.Status, st.Message, st.BackAt, st.RedirectTo, st.KeepPath, actor).Scan(&release)
+		if errors.Is(err, sql.ErrNoRows) {
+			return site.ErrNoEnvironment
+		}
+		if err != nil {
+			return fmt.Errorf("set status: %w", err)
+		}
+		detail := st.Message
+		if st.Status == site.StatusRedirect {
+			detail = st.RedirectTo
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO site_deployments (site_id, environment, action, from_release, to_release, actor, detail)
+			VALUES ($1, $2, $3, $4, $4, $5, $6)`, siteID, env, st.Status, release, actor, detail); err != nil {
+			return fmt.Errorf("record status change: %w", err)
+		}
+		return nil
+	})
+}
+
+// timePtr is a nullable time as a pointer.
+func timePtr(t sql.NullTime) *time.Time {
+	if !t.Valid {
+		return nil
+	}
+	v := t.Time
+	return &v
 }
 
 // Deployments lists an environment's moves, newest first; limit 0 is the
@@ -626,8 +673,9 @@ func (s *Store) Deployments(ctx context.Context, siteID, environment string, lim
 		limit = defaultListing
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT environment, action, from_release, to_release, actor, created_at FROM site_deployments
-		 WHERE site_id = $1 AND ($2 = '' OR environment = $2) ORDER BY id DESC LIMIT $3`, siteID, environment, limit)
+		SELECT environment, action, from_release, to_release, actor, detail, decided_by, removed_at IS NOT NULL, created_at
+		  FROM site_deployments
+		 WHERE site_id = $1 AND ($2 = '' OR (environment = $2 AND removed_at IS NULL)) ORDER BY id DESC LIMIT $3`, siteID, environment, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list deployments: %w", err)
 	}
@@ -635,7 +683,7 @@ func (s *Store) Deployments(ctx context.Context, siteID, environment string, lim
 	out := []site.Deployment{}
 	for rows.Next() {
 		var d site.Deployment
-		if err := rows.Scan(&d.Environment, &d.Action, &d.From, &d.To, &d.Actor, &d.CreatedAt); err != nil {
+		if err := rows.Scan(&d.Environment, &d.Action, &d.From, &d.To, &d.Actor, &d.Detail, &d.DecidedBy, &d.Removed, &d.CreatedAt); err != nil {
 			return nil, fmt.Errorf("read deployment: %w", err)
 		}
 		out = append(out, d)
@@ -741,7 +789,8 @@ func (s *Store) RemoveDomain(ctx context.Context, hostname string) error {
 // routeSelect reads an environment, the release it serves, whether the host
 // is private ($1, decided by the caller), and the application it is a part of.
 const routeSelect = `
-	SELECT s.id, s.name, e.name, COALESCE(e.release_number, 0), $1::boolean, COALESCE(a.name, '')
+	SELECT s.id, s.name, e.name, COALESCE(e.release_number, 0), $1::boolean, COALESCE(a.name, ''),
+	       e.status, e.status_message, e.back_at, e.redirect_to, e.redirect_keep_path
 	  FROM site_environments e JOIN sites s ON s.id = e.site_id
 	  LEFT JOIN application_parts p ON p.kind = 'site' AND p.part_id = s.name || '/' || e.name
 	  LEFT JOIN applications a ON a.id = p.application_id`
@@ -778,7 +827,10 @@ func (s *Store) RouteEnv(ctx context.Context, siteName, env string) (*site.Route
 func (s *Store) routeOf(ctx context.Context, query string, args ...any) (*site.Route, error) {
 	r := &site.Route{}
 	var number int
-	err := s.db.QueryRowContext(ctx, query, args...).Scan(&r.SiteID, &r.Site, &r.Environment, &number, &r.Private, &r.PartOf)
+	var backAt sql.NullTime
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(&r.SiteID, &r.Site, &r.Environment, &number, &r.Private, &r.PartOf,
+		&r.Status.Status, &r.Status.Message, &backAt, &r.Status.RedirectTo, &r.Status.KeepPath)
+	r.Status.BackAt = timePtr(backAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, site.ErrNoDomain
 	}

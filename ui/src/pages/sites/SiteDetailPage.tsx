@@ -19,6 +19,7 @@ import { SiteMediaTab } from "./SiteMedia";
 import { SiteHistoryTab } from "./SiteHistory";
 import { CopySiteDialog } from "./SiteCopy";
 import { SiteReleasesTab } from "./SiteReleases";
+import { SiteTrafficTab } from "./SiteTraffic";
 import { bareAddress, day, errorText } from "./siteFormat";
 
 export type SiteTab = (typeof SITE_TABS)[number];
@@ -28,6 +29,7 @@ const TAB_LABELS: Record<SiteTab, string> = {
   files: "Files",
   media: "Media",
   releases: "Releases",
+  traffic: "Traffic",
   access: "Access",
   domains: "Domains",
   history: "History",
@@ -118,6 +120,8 @@ function TabBody({ site, tab, onNavigate }: { site: Site; tab: SiteTab; onNaviga
       return <SiteDomainsTab site={site} />;
     case "history":
       return <SiteHistoryTab site={site} />;
+    case "traffic":
+      return <SiteTrafficTab site={site} />;
   }
 }
 

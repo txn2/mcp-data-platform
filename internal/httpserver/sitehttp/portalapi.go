@@ -12,7 +12,9 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/application"
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/selfcall"
 	"github.com/txn2/mcp-data-platform/internal/site"
+	"github.com/txn2/mcp-data-platform/internal/site/siteenv"
 	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
 	"github.com/txn2/mcp-data-platform/internal/site/sitetool"
 	"github.com/txn2/mcp-data-platform/internal/site/sitewire"
@@ -70,6 +72,7 @@ func (a *portalAPI) register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/portal/application-addresses/{name}", a.applicationAddresses)
 	mux.HandleFunc("GET "+portalSites, a.list)
 	mux.HandleFunc("POST "+portalSites, a.create)
+	mux.HandleFunc("POST "+portalSites+"/check-name", a.checkName)
 	mux.HandleFunc("GET "+pathSite, a.get)
 	mux.HandleFunc("PATCH "+pathSite, a.update)
 	mux.HandleFunc("DELETE "+pathSite, a.remove)
@@ -77,6 +80,7 @@ func (a *portalAPI) register(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+pathSite+"/releases/{number}", a.release)
 	mux.HandleFunc("GET "+pathSite+"/compare", a.compare)
 	mux.HandleFunc("GET "+pathSite+"/deployments", a.deployments)
+	mux.HandleFunc("GET "+pathSite+"/traffic", a.traffic)
 	mux.HandleFunc("POST "+pathSite+"/publish", a.publish)
 	mux.HandleFunc("POST "+pathSite+"/copy", a.copySite)
 	mux.HandleFunc("GET "+pathSite+"/forms", a.forms)
@@ -86,6 +90,7 @@ func (a *portalAPI) register(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+pathSite+"/promote", a.promote)
 	mux.HandleFunc("POST "+pathSite+"/rollback", a.rollback)
 	mux.HandleFunc("PUT "+pathSite+"/environments/{name}", a.setEnvironment)
+	mux.HandleFunc("DELETE "+pathSite+"/environments/{name}", a.removeEnvironment)
 	mux.HandleFunc("PUT "+pathSite+"/main-environment", a.setMainEnvironment)
 	mux.HandleFunc("POST "+pathSite+"/domains", a.addDomain)
 	mux.HandleFunc("PUT "+pathSite+"/domains/{hostname}", a.setDomainAccess)
@@ -118,6 +123,9 @@ func (a *portalAPI) who(w http.ResponseWriter, r *http.Request) (*caller, *http.
 	admin := a.d.IsAdmin != nil && a.d.IsAdmin(user.Roles)
 	verified, stated := user.Claims[claimUnverif].(bool)
 	c.actor = sitesvc.Actor{Email: user.Email, Persona: c.personaName(), Admin: admin, EmailUnverified: stated && !verified}
+	// A request an agent's tool call made to the platform's own API is the
+	// agent's, not the person's (#2643): its moves wait on the person too.
+	_, c.actor.Agent = selfcall.From(r.Context())
 	pc := middleware.NewPlatformContext("")
 	pc.UserID, pc.UserEmail, pc.PersonaName, pc.Roles, pc.IsAdmin = user.UserID, user.Email, c.personaName(), user.Roles, admin
 	return c, r.WithContext(middleware.WithPlatformContext(r.Context(), pc)), true
@@ -132,9 +140,18 @@ func (c *caller) personaName() string {
 
 func (a *portalAPI) svc() *sitesvc.Service { return a.d.Runtime.Service }
 
+// ops is the environment operations over the service (#2648).
+func (a *portalAPI) ops() siteenv.Ops { return siteenv.New(a.d.Runtime.Service) }
+
 // fail answers an error from the service: what the caller can act on in its
 // own words, and anything else in general terms.
 func fail(w http.ResponseWriter, r *http.Request, err error) {
+	if wait, ok := siteenv.IsPersonDecision(err); ok {
+		// An agent reached the portal's API through the platform-admin
+		// connection (#2643): its move waits on a person, decided in Approvals.
+		httpjson.WriteError(w, http.StatusConflict, wait.Error()+" Only a person carries this out, in the portal: give them the address to look at.")
+		return
+	}
 	if refused, ok := errors.AsType[*sitesvc.RefusedError](err); ok {
 		httpjson.WriteError(w, http.StatusUnprocessableEntity, refused.Msg)
 		return
@@ -230,7 +247,8 @@ func (a *portalAPI) view(ctx context.Context, c *caller, st *site.Site, domains 
 	at := a.svc().Addressing()
 	return SiteView{
 		Site: *st, Address: at.OwnAddress(st), Addresses: at.Addresses(st, domains), PagesAddresses: at.PagesAddresses(st),
-		AddressNote: at.AddressNote(st), Domains: domains, Permissions: perms,
+		EnvironmentNameRoom: site.EnvironmentNameRoom(st.Name),
+		AddressNote:         at.AddressNote(st), Domains: domains, Permissions: perms,
 	}, nil
 }
 
@@ -357,11 +375,15 @@ func (a *portalAPI) list(w http.ResponseWriter, r *http.Request) {
 		Sites: make([]SiteView, 0, len(sites)), Total: len(sites), PagesDomain: a.d.Runtime.Live.Get().PagesDomain,
 		Limits: a.limits(), CanCreate: c.canCreate(), Admin: c.actor.Admin,
 	}
+	traffic := a.listTraffic(r.Context())
 	for i := range sites {
 		v, err := a.view(r.Context(), c, &sites[i], nonNil(bySite[sites[i].ID]))
 		if err != nil {
 			fail(w, r, err)
 			return
+		}
+		if traffic != nil {
+			v.Traffic = siteTraffic(traffic[sites[i].ID], &v.Site)
 		}
 		out.Sites = append(out.Sites, v)
 	}
@@ -378,7 +400,7 @@ func nonNil(in []site.Domain) []site.Domain {
 // create handles POST /api/v1/portal/sites.
 //
 // @Summary      Create a site
-// @Description  Creates a site with its default environment. The caller, whose persona must hold manage_site, is its owner.
+// @Description  Creates a site with dev and prod. The name given is what a person typed: it becomes the name every address of the site uses (lowercase, separators as hyphens, other characters dropped), the same rule POST /portal/sites/check-name answers. The caller, whose persona must hold manage_site, is its owner.
 // @Tags         Sites
 // @Accept       json
 // @Produce      json
@@ -415,6 +437,40 @@ func (a *portalAPI) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, v)
+}
+
+// checkName handles POST /api/v1/portal/sites/check-name.
+//
+// @Summary      Check a new site's name
+// @Description  What the name a person typed becomes, the addresses dev and prod would answer at, how long an environment name it leaves room for, and why it would be refused, if it would. Creates nothing. The one copy of the site-name rule: the New site dialog asks it as the person types (#2636).
+// @Tags         Sites
+// @Accept       json
+// @Produce      json
+// @Param        body  body      SiteRequest  true  "The typed name; description is ignored"
+// @Success      200   {object}  siteenv.NameCheck
+// @Failure      403   {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/sites/check-name [post]
+func (a *portalAPI) checkName(w http.ResponseWriter, r *http.Request) {
+	c, r, ok := a.who(w, r)
+	if !ok {
+		return
+	}
+	if !c.canCreate() {
+		httpjson.WriteError(w, http.StatusForbidden, "your persona does not include creating sites")
+		return
+	}
+	var in SiteRequest
+	if !decode(w, r, &in) {
+		return
+	}
+	out, err := a.ops().CheckName(r.Context(), in.Name)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // get handles GET /api/v1/portal/sites/{site}.

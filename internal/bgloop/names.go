@@ -90,6 +90,11 @@ const (
 	NameReloadBus          = "reload_bus"
 	// NameSiteHandoffSweep removes used page sign-in codes past their expiry.
 	NameSiteHandoffSweep = "site_handoff_sweep"
+	// NameSiteTrafficFlush adds a replica's site traffic into the shared
+	// rows, and NameSiteTrafficSweep removes rows past their retention
+	// (#2647, internal/site/sitetraffic).
+	NameSiteTrafficFlush = "site_traffic_flush"
+	NameSiteTrafficSweep = "site_traffic_sweep"
 	// NameSiteSettingsRefresh reads the sites settings another replica saved.
 	NameSiteSettingsRefresh = "site_settings_refresh"
 	// NameSiteReleaseSweep prunes releases past each environment's limit and

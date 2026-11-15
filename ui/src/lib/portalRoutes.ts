@@ -19,7 +19,7 @@ import { SETTINGS_SECTIONS } from "@/pages/settings/settingsSections";
 const ADMIN_PREFIX = "/admin";
 
 /** SITE_TABS are a site's tabs (#2559, #2590), in the order its page shows them. */
-export const SITE_TABS = ["environments", "files", "media", "releases", "access", "domains", "history"] as const;
+export const SITE_TABS = ["environments", "files", "media", "releases", "traffic", "access", "domains", "history"] as const;
 
 /**
  * SITE_ROUTES are the Sites section's detail addresses: a site with one of its
@@ -31,6 +31,8 @@ export const SITE_TABS = ["environments", "files", "media", "releases", "access"
 export const SITE_ROUTES = {
   site: new RegExp(`^/sites/([^/]+)(?:/(${SITE_TABS.join("|")}))?$`),
   release: /^\/sites\/([^/]+)\/releases\/(\d+)$/,
+  /** One file of a release, read-only in the viewer (#2629). */
+  releaseFile: /^\/sites\/([^/]+)\/releases\/(\d+)\/file\/(.+)$/,
   file: /^\/sites\/([^/]+)\/(file|newfile)\/(.+)$/,
 } as const;
 

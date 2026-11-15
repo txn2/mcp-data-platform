@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useSiteDeployments, type Site } from "@/api/portal/hooks/sites";
+import { useSiteDeployments, type Site, type SiteDeployment } from "@/api/portal/hooks/sites";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -8,12 +8,33 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { orderedEnvironments, when } from "./siteFormat";
 
 const ALL = "_:all";
-const LABELS: Record<string, { label: string; variant: "info" | "success" | "warning" | "muted" }> = {
+const LABELS: Record<string, { label: string; variant: "info" | "success" | "warning" | "danger" | "muted" }> = {
   publish: { label: "Publish", variant: "info" },
   promote: { label: "Promote", variant: "success" },
   rollback: { label: "Roll back", variant: "warning" },
   application: { label: "Application release", variant: "muted" },
+  offline: { label: "Taken offline", variant: "danger" },
+  online: { label: "Back online", variant: "success" },
+  redirect: { label: "Redirect", variant: "warning" },
+  rename: { label: "Rename", variant: "muted" },
 };
+
+/** Whose decision moved an environment an agent asked to move (#2643). */
+const DECIDED: Record<string, string> = {
+  elicitation: "Accepted by the person when their agent asked",
+  approval: "Approved by a person in Approvals",
+  environment_setting: "Through Agents may promote here",
+};
+
+/** What a move said beside its release: a message, a target, an old name, whose decision. */
+function details(d: SiteDeployment): string {
+  const parts: string[] = [];
+  if (d.action === "rename" && d.detail) parts.push(`Was ${d.detail}`);
+  else if (d.action === "redirect" && d.detail) parts.push(`To ${d.detail}`);
+  else if (d.action === "offline") parts.push(d.detail ? `"${d.detail}"` : "Default message");
+  if (d.decided_by) parts.push(DECIDED[d.decided_by] ?? d.decided_by);
+  return parts.join(". ");
+}
 
 // SiteHistoryTab is every move of the site's environments (#2559).
 export function SiteHistoryTab({ site }: { site: Site }) {
@@ -56,6 +77,7 @@ export function SiteHistoryTab({ site }: { site: Site }) {
                 <TableHead>Action</TableHead>
                 <TableHead>Release</TableHead>
                 <TableHead>By</TableHead>
+                <TableHead>Details</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -64,12 +86,20 @@ export function SiteHistoryTab({ site }: { site: Site }) {
                 return (
                   <TableRow key={`${d.created_at}-${i}`}>
                     <TableCell>{when(d.created_at)}</TableCell>
-                    <TableCell className="font-medium">{d.environment}</TableCell>
+                    <TableCell className="font-medium">
+                      {d.environment}
+                      {d.removed && (
+                        <Badge variant="muted" className="ml-1">
+                          Removed
+                        </Badge>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <Badge variant={l.variant}>{l.label}</Badge>
                     </TableCell>
-                    <TableCell>{d.from > 0 ? `${d.from} to ${d.to}` : d.to}</TableCell>
+                    <TableCell>{d.from_release > 0 && d.from_release !== d.to_release ? `${d.from_release} to ${d.to_release}` : d.to_release}</TableCell>
                     <TableCell>{d.actor}</TableCell>
+                    <TableCell className="max-w-72 text-xs text-muted-foreground">{details(d)}</TableCell>
                   </TableRow>
                 );
               })}

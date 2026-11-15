@@ -6373,6 +6373,25 @@ Access is decided per **address** (#2619):
   for anyone at that one hostname. The platform asks no one to sign in there; a
   site that wants a sign-in builds its own.
 
+**An agent stops at dev** (#2643). `promote`, `rollback`, and `add_domain` or
+`set_domain` with `public: true`, on any environment other than `dev`, never
+carry out on an agent's word alone, whatever the role of the person it works
+for. Over MCP the platform asks the person through their client (elicitation),
+naming the site, the release, the environment, the address to look at and the
+files the move changes; accepting carries out exactly that move, and a site that
+changed in the meantime is asked about again. A client that cannot ask files a
+request in **Approvals** and answers `APPROVAL_REQUIRED`: a person decides it in
+the portal, and the agent's session can never decide it (`manage_approval decide`
+refuses a site request, and so does the portal's own API reached through the
+`platform-admin` connection). The portal's buttons are the person and are
+unchanged. An administrator can mark an environment **Agents may promote here**
+(`agents_may_promote`, off by default, set in the portal only) for a scratch or
+preview environment where unreviewed publishing is safe. History and the audit
+record name whose decision moved an environment an agent asked to move:
+`elicitation`, `approval` or `environment_setting`. The elicitation trusts the
+MCP client application to show the question to the person, which is what
+elicitation is.
+
 No domain is needed: an environment works at its pages addresses for people who
 sign in. Making an environment answer anyone takes two deliberate steps, adding a
 domain and setting that domain public, and only the owner or an administrator
@@ -6457,6 +6476,10 @@ sites:
       enabled: false             # send Strict-Transport-Security on https answers (#2557)
       max_age: 31536000          # seconds a browser keeps the rule; 0 is a year
       include_subdomains: false  # apply it to every name under each address too
+  traffic:                       # each site's traffic and latency (#2647)
+    enabled: true                # default on
+    minute_retention: 24h        # minute rows: the last-hour and 24-hour views
+    hour_retention: 2160h        # hour rows (90 days): the 7-day and 30-day views
 ```
 
 The file's values are the seed. Once an administrator saves **Admin > Settings >
@@ -6613,6 +6636,123 @@ the environment before it serves, and `dev`, which has nothing before it, at the
 site's newest release. Pins are read before any environment moves, so an
 application holding both `stage` and `prod` moves each one step in one release, as
 promoting each would. Application rollback is unchanged.
+
+## Offline and redirecting
+
+Every environment other than `dev` has a status (#2631, #2632): **Online**, the
+default, serves its release; **Offline** answers every address and every path,
+`/endpoints/` included, with `503 Service Unavailable`, the platform's page
+showing the site's name and a message (plain text, at most 1,000 characters,
+with the runes that hide or reorder text removed), `Retry-After` while an
+expected-back time is set and ahead, `Cache-Control: no-store` and
+`X-Robots-Tag: noindex`; **Redirecting** answers every address with `302 Found`
+and `no-store` to an `https://` address, with the request's path and query
+appended when **Keep the path** is set. The request can only add path below the
+target: `//evil.example/x` lands at the target's `/evil.example/x`. One status
+applies at a time, and an environment moves between any two directly.
+
+- The access check runs first: on a private address someone not signed in is
+  asked to sign in, and learns neither the message nor where the environment
+  points.
+- The release pointer is untouched: promote, roll back and publish keep working,
+  and Online serves exactly what the environment then points at.
+- Anyone who manages the site sets it, at once, even on an environment that
+  requires approval: an outage cannot wait in a queue. The exception is a
+  redirect on an environment that requires approval, set by someone who is not an
+  administrator: it waits in Approvals (purpose `site_redirect`, naming the
+  target), the environment keeps answering as it does, and the same request goes
+  through once it is approved. Lifting a redirect is always immediate.
+- A redirect target must be an absolute `https://` URL with a host, no user
+  name or password, no control character, at most 2,048 characters, and none of
+  the environment's own domains, the pages domain or the platform's own
+  hostnames, which would loop.
+- The expected-back time is only what visitors are told: the environment stays
+  offline until someone brings it online.
+- History records `offline` with its message, `redirect` with its target, and
+  `online`.
+
+## Renaming and removing an environment
+
+The environments between `dev` and `prod` can be renamed and removed (#2630);
+`dev` and `prod` cannot.
+
+**Rename** (`set_environment` with `rename_to`, alone, or the PUT route with
+`rename_to`) takes a name that passes the environment-name and address rules and
+is not `dev`, `prod`, `default` or one the site uses. One transaction moves every
+reference: the environment, its domains, its history, its jobs, the main
+address, each share's environments, the application parts and pins written
+`<site>/<env>`, and pending approvals that target it. It answers at
+`<site>--<new>` at once; the old `<site>--<old>` answers "Nothing is published
+here", its domains keep answering, and `mcp:site:<site>/<old>` references written
+elsewhere stop resolving.
+
+**Remove** (`remove_environment`, or `DELETE .../environments/{name}`) is
+refused while the environment has a domain, holds the main address, is a part of
+an application or has a job running, each naming what to do first, and only an
+administrator removes one that requires approval. One transaction removes it,
+withdraws pending approvals that target it, drops it from every share, and
+**deletes a share that named only it**: an empty list means every private
+environment, so emptying one would widen it. Its history stays, marked removed,
+and stops counting toward its release limit, so releases only it kept go at the
+next sweep; an environment created later with the same name starts with no
+history.
+
+## Traffic
+
+The platform records each site's traffic and latency itself (#2647), so a
+site's people see it with no Prometheus backend and no grant beyond seeing the
+site. Each replica tallies every request the gateway answers in memory (one
+status-class count and one latency bucket, for the site and environment and for
+the replica: no allocation, no shared lock, no database call on the request path)
+and once a minute adds its counts into rows its replicas share, one per site and
+environment that had traffic, at the minute and the hour grain, and into its own
+row across all sites: a fixed two statements per replica per minute, however many
+sites or requests. A minute is never counted twice: a flush that fails before it
+commits is held and tried with the next minute (up to an hour of them), and one
+whose commit outcome is unknown is dropped. Minute rows are kept 24 hours and hour
+rows 90 days by default (`sites.traffic`, and Admin > Settings > Sites); the rows
+past their period are swept hourly. A row's key is the resolved route and the
+replica's `X-Platform-Instance` only: the request's path, query, host, client
+address, cookies and user agent never reach a row, a response or the portal. The
+Prometheus series `site_requests_total` and `site_request_duration_seconds` are
+unchanged.
+
+- `GET /api/v1/portal/sites/{site}/traffic?range=1h|24h|7d|30d&environment=`
+  answers requests by status class and p50, p95 and p99 over time, the range's
+  totals and the same by environment; someone who does not manage the site sees
+  the environments they can open.
+- The Sites list carries each site's `traffic.requests_24h` and `traffic.p95_ms`.
+- `manage_site get` answers `traffic`: the last 24 hours, for the site and per
+  environment.
+- `GET /api/v1/admin/sites/traffic/replicas?range=` answers each replica's
+  figures across all sites, for administrators.
+
+## Reading a site file
+
+`GET /api/v1/portal/sites/{site}/file/content?path=<path>[&release=<n>]`
+answers one file's bytes for the portal's viewer (#2629): dev's file without
+`release`, that release's with it. It reads as `/file` does: the people who
+manage the site read dev's source, someone dev is shared with what dev serves; a
+release's file is read by the people who manage the site, and by anyone else only
+while an environment they can open serves it. The bytes go out through the same
+writer every asset and resource uses: a sandbox `Content-Security-Policy`,
+`nosniff`, a parameter-free content type, private caching, HTML, SVG, JavaScript
+and XML as attachments, and byte ranges, so a video seeks without the file being
+read whole. `_redirects` and `_headers` answer their rendered text, and a path
+outside the tree is refused.
+
+## Naming a new site
+
+What a person types in **New site** is input, not the name (#2636). The server
+turns it into the name every address uses (lowercase; spaces, underscores and
+other separators become `-`; any other character outside `a-z` and `0-9` is
+dropped; repeated hyphens collapse; hyphens at the ends go) and checks it:
+`My Website` becomes `my-website`. `POST /api/v1/portal/sites/check-name` with
+`{name}` answers the name, the dev and prod addresses, the longest environment
+name it leaves room for, and the reason it would be refused, creating nothing;
+`create` applies the same rule. A site name is at most 57 characters, since every
+address adds `--` and an environment name to it and one part of an address holds
+63, and a two-character name makes a form DNS reserves.
 
 ## Response headers
 
@@ -6918,7 +7058,8 @@ is left out.
 | Command | What it does |
 |---|---|
 | `create` | A site with `dev` and `prod`, `prod` holding the main address |
-| `set_environment` | Creates, places or changes an environment: `after` (the environment it goes after, or moves after), `internal_view`, `requires_approval`, `keep_releases` (owner and administrators), and `main: true` to give it the main address. `public` is refused: it is a setting of a domain |
+| `set_environment` | Creates, places or changes an environment: `after` (the environment it goes after, or moves after), `internal_view`, `requires_approval`, `keep_releases` (owner and administrators), and `main: true` to give it the main address. `public` is refused: it is a setting of a domain. `status` (`online`, `offline` with `message` and `back_at`, `redirect` with `redirect_to` and `keep_path`) changes what it answers; `rename_to`, alone, renames it; `agents_may_promote` is refused, an administrator's in the portal |
+| `remove_environment` | Removes an environment between dev and prod with no domain, main address, application part or running job |
 | `update` | `description`, `owner_email`, `main_environment` to move the main address (`""` gives it to none), and `media`, every mounted resource folder |
 | `publish` | A new release into `dev` (files, an archive or a folder; `base` overlays dev's release) |
 | `promote`, `rollback` | Move an environment's pointer; `promote` takes the release of the environment before `to` |
@@ -6926,7 +7067,7 @@ is left out.
 | `revoke` | `email` or `persona` |
 | `add_domain`, `set_domain`, `remove_domain`, `domains` | Domains. `add_domain` with `public` opens the domain to anyone; `set_domain` with `hostname` and `public` changes it later. `after` places an environment `add_domain` creates, and `requires_approval` applies to the environment whether it creates it or it exists |
 | `crawl` | Copies an existing site into `dev` |
-| `get`, `list`, `releases`, `deployments` | Read; `get` answers the environments in their order, each environment's `addresses` and `pages_addresses`, and the site's `domains` with each one's `public` |
+| `get`, `list`, `releases`, `deployments` | Read; `get` answers the environments in their order, each environment's `addresses` and `pages_addresses`, the site's `domains` with each one's `public`, and `traffic`, the last 24 hours for the site and per environment |
 
 `default`, the old name of `dev`, is read as `dev` wherever an environment is named
 for one minor release, and the answer carries a `note` saying so. A reference
@@ -6937,7 +7078,11 @@ part `<site>/default` is added as `<site>/dev`.
 
 | Route | What it does |
 |---|---|
-| `PUT /api/v1/portal/sites/{site}/environments/{name}` | Creates, places or changes an environment. Body `{requires_approval?, internal_view?, keep_releases?, before?, after?}`, a field left out left alone; `keep_releases` is a number or `"default"`, and `public` is refused. Answers `{site, status, note?}` |
+| `PUT /api/v1/portal/sites/{site}/environments/{name}` | Creates, places or changes an environment. Body `{requires_approval?, internal_view?, keep_releases?, after?, agents_may_promote?, status?, message?, back_at?, redirect_to?, keep_path?, reason?, rename_to?}`, a field left out left alone; `keep_releases` is a number or `"default"`, `agents_may_promote` is an administrator's, and `public` is refused. Answers `{site, status, note?, approval?}` |
+| `DELETE /api/v1/portal/sites/{site}/environments/{name}` | Removes an environment between dev and prod |
+| `POST /api/v1/portal/sites/check-name` | `{name}`: what the typed name becomes, its addresses, `environment_name_room` and `refusal?` |
+| `GET /api/v1/portal/sites/{site}/file/content?path=&release=` | One file's bytes for the viewer |
+| `GET /api/v1/portal/sites/{site}/traffic?range=&environment=` | The site's traffic |
 | `POST /api/v1/portal/sites/{site}/domains` | `{hostname, environment, public?, reason?, requires_approval?, before?, after?}`. Answers the domain with `status` (`done` or `awaiting_approval`) and `approval?` |
 | `PUT /api/v1/portal/sites/{site}/domains/{hostname}` | `{public, reason?}`: makes one domain public or private. Answers as above |
 | `PUT /api/v1/portal/sites/{site}/main-environment` | `{environment}`; `""` gives the main address to none. Owner and administrators |
@@ -7024,6 +7169,19 @@ manage_site command=promote site=cool-site to=prod                             #
 
 `cool-site.<pages_domain>` and `cool-site--prod.<pages_domain>` still ask for a
 sign-in; only `cool-site.example.com` answers anyone.
+
+## Upgrading to v1.162.0 (migrations 000249 and 000250)
+
+Migration 000249 gives every environment a status, Online for every existing
+one, and `agents_may_promote`, off; adds `detail`, `decided_by` and `removed_at`
+to the history and the `offline`, `online`, `redirect` and `rename` actions; and
+the Approvals purpose `site_redirect`. Migration 000250 adds the traffic rows.
+After the upgrade an agent's promote, rollback or public domain on an environment
+other than dev waits on a person (#2643): an administrator who wants a preview
+environment to keep taking agents' promotions marks it **Agents may promote
+here**. `create` now turns a typed name into an address (`My Site` becomes
+`my-site`) rather than refusing it, and a site name longer than 57 characters is
+refused at create time.
 
 ## Upgrading to v1.159.0 (migrations 000244 and 000245)
 

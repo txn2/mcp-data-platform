@@ -26,6 +26,11 @@ export interface SiteSettings {
   releases_keep?: number;
   /** What the daily cleanup does: "delete", or "report", which deletes nothing. */
   releases_mode?: "delete" | "report";
+  /** Whether the platform records each site's traffic (#2647). */
+  traffic_enabled?: boolean;
+  /** How long minute rows are kept, in hours, and hour rows, in days. */
+  traffic_minute_hours?: number;
+  traffic_hour_days?: number;
   updated_by?: string;
   updated_at?: string;
 }

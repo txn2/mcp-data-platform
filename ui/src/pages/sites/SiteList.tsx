@@ -1,5 +1,5 @@
 import { ChevronRight, ExternalLink, Globe, Lock } from "lucide-react";
-import { answersAnyone, type Site, type SiteEnvironment, type SiteList as SiteListing } from "@/api/portal/hooks/sites";
+import { answersAnyone, statusOf, type Site, type SiteEnvironment, type SiteList as SiteListing } from "@/api/portal/hooks/sites";
 import { OpenRowChevron, OpenRowHead } from "@/components/patterns/OpenRowChevron";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -7,6 +7,7 @@ import { openRowProps } from "@/lib/openRow";
 import { cn } from "@/lib/utils";
 import { useListingLayout, type LayoutWidths, type ListingLayout } from "@/pages/scripts/useListingLayout";
 import { bareAddress, envBadgeText, envTip, initials, orderedEnvironments } from "./siteFormat";
+import { count, ms } from "./SiteTraffic";
 
 // The Sites list (#2559, #2612) at the layout the width it HAS fits, the way
 // the Automations listing does (#2601): every row two lines, nothing cut at the
@@ -25,13 +26,15 @@ import { bareAddress, envBadgeText, envTip, initials, orderedEnvironments } from
 /** The least width each table layout of the Sites list fits in. */
 export const SITE_LAYOUT_WIDTHS: LayoutWidths = { wide: 1000, medium: 680, narrow: 480 };
 
-const COLUMN_WIDTHS: Record<Exclude<ListingLayout, "list">, { owner: string; address: string; envs: string }> = {
-  wide: { owner: "w-[19%]", address: "w-[24%]", envs: "w-[24%]" },
-  medium: { owner: "w-[64px]", address: "w-[30%]", envs: "w-[28%]" },
-  narrow: { owner: "", address: "w-[28%]", envs: "w-[40%]" },
+const COLUMN_WIDTHS: Record<Exclude<ListingLayout, "list">, { owner: string; address: string; envs: string; traffic: string }> = {
+  wide: { owner: "w-[17%]", address: "w-[21%]", envs: "w-[24%]", traffic: "w-[9%]" },
+  medium: { owner: "w-[64px]", address: "w-[25%]", envs: "w-[28%]", traffic: "w-[10%]" },
+  narrow: { owner: "", address: "w-[28%]", envs: "w-[40%]", traffic: "" },
 };
 
-/** How many environment badges a row shows before the rest fold into "+N", keeping a row at two lines. */
+/** How many environment badges a row shows before the rest fold into "+N", keeping a row at two lines.
+ * Four take two lines of the Environments column at the widths above; a
+ * narrower column wraps them to a third on Linux fonts (#2647). */
 const BADGES: Record<Exclude<ListingLayout, "list">, number> = { wide: 4, medium: 4, narrow: 2 };
 
 export function SiteTable({ list, onOpen }: { list: SiteListing; onOpen: (site: string) => void }) {
@@ -45,6 +48,7 @@ export function SiteTable({ list, onOpen }: { list: SiteListing; onOpen: (site: 
   }
   const widths = COLUMN_WIDTHS[layout];
   const owner = layout !== "narrow";
+  const traffic = layout !== "narrow";
   return (
     <div ref={ref} data-testid="site-table" data-layout={layout}>
       <Table className="table-fixed">
@@ -53,6 +57,7 @@ export function SiteTable({ list, onOpen }: { list: SiteListing; onOpen: (site: 
             <TableHead>Name</TableHead>
             {owner && <TableHead className={widths.owner}>Owner</TableHead>}
             <TableHead className={widths.address}>Main address</TableHead>
+            {traffic && <TableHead className={widths.traffic}>Requests (24h)</TableHead>}
             <TableHead className={widths.envs}>Environments</TableHead>
             <OpenRowHead />
           </TableRow>
@@ -71,6 +76,11 @@ export function SiteTable({ list, onOpen }: { list: SiteListing; onOpen: (site: 
               <TableCell>
                 <MainAddress site={s} />
               </TableCell>
+              {traffic && (
+                <TableCell>
+                  <TrafficCell site={s} p95={layout === "wide"} />
+                </TableCell>
+              )}
               <TableCell className="whitespace-normal">
                 <EnvironmentBadges site={s} max={BADGES[layout]} />
               </TableCell>
@@ -183,6 +193,18 @@ export function EnvironmentBadges({ site, max }: { site: Pick<Site, "environment
 }
 
 function EnvironmentBadge({ env }: { env: SiteEnvironment }) {
+  const status = statusOf(env);
+  if (status !== "online") {
+    // Offline and Redirecting (#2631, #2632) say so in place of the release.
+    const off = status === "offline";
+    return (
+      <Badge variant={off ? "danger" : "warning"} className="max-w-full" title={off ? `${env.name} is offline` : `${env.name} redirects to ${env.redirect_to ?? ""}`} data-testid={`env-badge-${env.name}`}>
+        <span className="min-w-0 truncate">
+          {env.name} {off ? "Offline" : "Redirecting"}
+        </span>
+      </Badge>
+    );
+  }
   return (
     <Badge
       variant={answersAnyone(env) ? "info" : "muted"}
@@ -193,5 +215,17 @@ function EnvironmentBadge({ env }: { env: SiteEnvironment }) {
       {answersAnyone(env) ? <Globe aria-hidden /> : <Lock aria-hidden />}
       <span className="min-w-0 truncate">{envBadgeText(env)}</span>
     </Badge>
+  );
+}
+
+/** A site's last 24 hours as the list shows them (#2647): requests, and p95 where there is room. */
+function TrafficCell({ site, p95 }: { site: Site; p95: boolean }) {
+  const t = site.traffic;
+  if (!t || t.requests_24h === 0) return <span className="text-muted-foreground">–</span>;
+  return (
+    <span className="block tabular-nums" data-testid="site-traffic">
+      {count(t.requests_24h)}
+      {p95 && <span className="block text-xs text-muted-foreground">p95 {ms(t.p95_ms)}</span>}
+    </span>
   );
 }

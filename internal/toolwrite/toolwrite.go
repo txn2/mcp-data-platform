@@ -322,7 +322,7 @@ var actionTools = map[string]actionRule{
 	"manage_site": {arg: "command", reads: set(
 		"get", "list", "releases", "deployments", "domains",
 	), writes: set("create", "update", "delete", "set_environment", "publish", "promote", "rollback",
-		"add_domain", "set_domain", "remove_domain", "crawl", "grant", "revoke")},
+		"add_domain", "set_domain", "remove_domain", "crawl", "grant", "revoke", "remove_environment")},
 	// manage_approval (#2437, #2494): submit files a request and decide
 	// decides one; list and get read.
 	"manage_approval": {arg: "command", reads: set("list", "get"), writes: set("submit", "decide")},

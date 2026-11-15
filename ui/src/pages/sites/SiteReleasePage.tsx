@@ -89,7 +89,11 @@ export function SiteReleasePage({ site, number, onNavigate }: { site: string; nu
             <TableBody>
               {shown.map((f) => (
                 <TableRow key={f.path}>
-                  <TableCell className="break-all font-mono text-sm">{f.path}</TableCell>
+                  <TableCell className="break-all font-mono text-sm">
+                    <button type="button" className="text-left text-primary hover:underline" onClick={() => onNavigate(`/sites/${encodeURIComponent(site)}/releases/${number}/file/${encodeURIComponent(f.path)}`)}>
+                      {f.path}
+                    </button>
+                  </TableCell>
                   <TableCell>{f.content_type}</TableCell>
                   <TableCell>{formatBytes(f.size)}</TableCell>
                   <TableCell>{compressed(f)}</TableCell>

@@ -16,6 +16,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/approval/apprtool"
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/selfcall"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
@@ -240,7 +241,11 @@ func (h *handler) actor(w http.ResponseWriter, r *http.Request) (approval.Actor,
 		httpjson.WriteError(w, http.StatusUnauthorized, "sign in to use approvals")
 		return approval.Actor{}, false
 	}
-	return *a, true
+	out := *a
+	// A request an agent's tool call made to the platform's own API (the
+	// platform-admin connection) is the agent's, not the person's (#2643).
+	_, out.Agent = selfcall.From(r.Context())
+	return out, true
 }
 
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {

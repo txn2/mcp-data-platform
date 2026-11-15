@@ -175,6 +175,9 @@ func (m *memStore) SetEnvironment(_ context.Context, siteID, name string, set si
 	if set.InternalView != nil {
 		e.InternalView = *set.InternalView
 	}
+	if set.AgentsMayPromote != nil {
+		e.AgentsMayPromote = *set.AgentsMayPromote
+	}
 	switch {
 	case set.KeepDefault:
 		e.KeepReleases, e.KeepDefault = nil, true
@@ -376,8 +379,107 @@ func (m *memStore) pointLocked(p site.Pointer) error {
 	}
 	env.Release, env.UpdatedBy = p.To, p.Actor
 	m.deployments[p.SiteID] = append([]site.Deployment{{
-		Environment: p.Environment, Action: p.Action, From: p.After, To: p.To, Actor: p.Actor,
+		Environment: p.Environment, Action: p.Action, From: p.After, To: p.To, Actor: p.Actor, DecidedBy: p.DecidedBy,
 	}}, m.deployments[p.SiteID]...)
+	return nil
+}
+
+func (m *memStore) SetStatus(_ context.Context, siteID, name string, s site.EnvironmentStatus, actor string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	st, ok := m.sites[siteID]
+	if !ok {
+		return site.ErrNotFound
+	}
+	env := st.Environment(name)
+	if env == nil {
+		return site.ErrNoEnvironment
+	}
+	now := time.Now()
+	env.Status, env.StatusMessage, env.BackAt, env.RedirectTo, env.RedirectKeepPath = s.Status, s.Message, s.BackAt, s.RedirectTo, s.KeepPath
+	env.StatusChangedBy, env.StatusChangedAt = actor, &now
+	detail := s.Message
+	if s.Status == site.StatusRedirect {
+		detail = s.RedirectTo
+	}
+	m.deployments[siteID] = append([]site.Deployment{{
+		Environment: name, Action: s.Status, From: env.Release, To: env.Release, Actor: actor, Detail: detail,
+	}}, m.deployments[siteID]...)
+	return nil
+}
+
+func (m *memStore) RenameEnvironment(_ context.Context, siteID, from, to, actor string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	st, ok := m.sites[siteID]
+	if !ok {
+		return site.ErrNotFound
+	}
+	if st.Environment(to) != nil {
+		return &site.InUseError{Msg: "in use"}
+	}
+	env := st.Environment(from)
+	if env == nil {
+		return site.ErrNoEnvironment
+	}
+	env.Name, env.UpdatedBy = to, actor
+	if st.MainEnvironment == from {
+		st.MainEnvironment = to
+	}
+	for _, d := range m.domains {
+		if d.SiteID == siteID && d.Environment == from {
+			d.Environment = to
+		}
+	}
+	for i, d := range m.deployments[siteID] {
+		if d.Environment == from && !d.Removed {
+			m.deployments[siteID][i].Environment = to
+		}
+	}
+	for k, g := range m.grants[siteID] {
+		for i, e := range g.Environments {
+			if e == from {
+				g.Environments[i] = to
+			}
+		}
+		m.grants[siteID][k] = g
+	}
+	return nil
+}
+
+func (m *memStore) RemoveEnvironment(_ context.Context, siteID, name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	st, ok := m.sites[siteID]
+	if !ok {
+		return site.ErrNotFound
+	}
+	if st.MainEnvironment == name {
+		return &site.InUseError{Msg: "holds the main address"}
+	}
+	for _, d := range m.domains {
+		if d.SiteID == siteID && d.Environment == name {
+			return &site.InUseError{Msg: "has a domain"}
+		}
+	}
+	i := slices.IndexFunc(st.Environments, func(e site.Environment) bool { return e.Name == name })
+	if i < 0 {
+		return site.ErrNoEnvironment
+	}
+	st.Environments = slices.Delete(st.Environments, i, i+1)
+	for k, g := range m.grants[siteID] {
+		if len(g.Environments) == 1 && g.Environments[0] == name {
+			delete(m.grants[siteID], k)
+			continue
+		}
+		g.Environments = slices.DeleteFunc(g.Environments, func(e string) bool { return e == name })
+		m.grants[siteID][k] = g
+	}
+	for j, d := range m.deployments[siteID] {
+		if d.Environment == name {
+			m.deployments[siteID][j].Removed = true
+		}
+	}
 	return nil
 }
 
@@ -389,7 +491,7 @@ func (m *memStore) Deployments(_ context.Context, siteID, environment string, _ 
 	}
 	out := []site.Deployment{}
 	for _, d := range m.deployments[siteID] {
-		if environment == "" || d.Environment == environment {
+		if environment == "" || (d.Environment == environment && !d.Removed) {
 			out = append(out, d)
 		}
 	}

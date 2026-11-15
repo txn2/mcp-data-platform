@@ -160,7 +160,8 @@ func (t *Tool) actorOf(ctx context.Context) approval.Actor {
 	if pc == nil {
 		return approval.Actor{}
 	}
-	a := approval.Actor{Email: pc.UserEmail, Admin: pc.IsAdmin, Roles: pc.Roles}
+	// Every manage_approval call is an agent's (#2643).
+	a := approval.Actor{Email: pc.UserEmail, Admin: pc.IsAdmin, Roles: pc.Roles, Agent: true}
 	if t.Persona != nil {
 		a.Persona = t.Persona(pc.Roles)
 	}

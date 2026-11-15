@@ -40,7 +40,15 @@ type Config struct {
 	// Runs keeps the last reclassification for every replica. Required with
 	// a Reclassifier.
 	Runs Runs
+	// NoIndexReason, when set, is why a reclassification owes no index work
+	// on this deployment (#2638): with no embedder no worker runs the queue,
+	// so the reclassifier is given no producers and the answers say so.
+	NoIndexReason string
 }
+
+// NoEmbedderReason is what the answers say on a deployment with no embedding
+// provider.
+const NoEmbedderReason = "No index work is owed: this deployment has no embedding provider, so search ranks resources by their stored text and no index job is queued."
 
 // Run is a reclassification, as every replica reports it.
 type Run struct {
@@ -48,6 +56,9 @@ type Run struct {
 	FinishedAt *time.Time                        `json:"finished_at,omitempty"`
 	Result     *resourcereclass.ReclassifyResult `json:"result,omitempty"`
 	Error      string                            `json:"error,omitempty"`
+	// NoIndexReason is why the reclassification queues no index work, absent
+	// when it queues what it owes.
+	NoIndexReason string `json:"no_index_reason,omitempty"`
 }
 
 // IndexState is what GET answers: the counts, and the last reclassification
@@ -55,6 +66,9 @@ type Run struct {
 type IndexState struct {
 	Counts  resourceindex.PolicyCounts `json:"counts"`
 	LastRun *Run                       `json:"last_run,omitempty"`
+	// NoIndexReason is why a reclassification queues no index work on this
+	// deployment, absent when it queues what it owes.
+	NoIndexReason string `json:"no_index_reason,omitempty"`
 }
 
 type handler struct {
@@ -67,17 +81,24 @@ type handler struct {
 // Mount registers the routes over the platform's database: the counts read
 // from it, and a reclassification under the resolver whose owed jobs are
 // enqueued on the platform's own queue table, which wakes the workers of
-// whichever replica claims them.
-func Mount(mux *http.ServeMux, wrap func(http.Handler) http.Handler, db *sql.DB, resolver *indexpolicy.Resolver) {
-	queue := indexjobs.NewPostgresStore(db)
-	resources := indexjobs.NewProducer(resourceindex.SourceKind)
-	resources.Bind(queue)
-	folders := indexjobs.NewProducer(resourceindex.FolderKind)
-	folders.Bind(queue)
+// whichever replica claims them. With no embedder (embedder false) no worker
+// exists to run them, so the reclassification enqueues none (#2638).
+func Mount(mux *http.ServeMux, wrap func(http.Handler) http.Handler, db *sql.DB, resolver *indexpolicy.Resolver, embedder bool) {
+	var resources, folders *indexjobs.Producer
+	reason := NoEmbedderReason
+	if embedder {
+		queue := indexjobs.NewPostgresStore(db)
+		resources = indexjobs.NewProducer(resourceindex.SourceKind)
+		resources.Bind(queue)
+		folders = indexjobs.NewProducer(resourceindex.FolderKind)
+		folders.Bind(queue)
+		reason = ""
+	}
 	Register(mux, wrap, Config{
-		Store:        resourceindex.NewStore(db),
-		Reclassifier: resourcereclass.NewReclassifier(db, resolver, resources, folders),
-		Runs:         PostgresRuns{DB: db},
+		Store:         resourceindex.NewStore(db),
+		Reclassifier:  resourcereclass.NewReclassifier(db, resolver, resources, folders),
+		Runs:          PostgresRuns{DB: db},
+		NoIndexReason: reason,
 	})
 	slog.Info("Resource index admin API enabled on " + indexPath)
 }
@@ -112,11 +133,14 @@ func (h *handler) get(w http.ResponseWriter, r *http.Request) {
 		httpjson.WriteError(w, http.StatusInternalServerError, "reading the index counts failed")
 		return
 	}
-	state := IndexState{Counts: counts}
+	state := IndexState{Counts: counts, NoIndexReason: h.cfg.NoIndexReason}
 	if h.cfg.Runs != nil {
 		if state.LastRun, err = h.cfg.Runs.Last(r.Context()); err != nil {
 			httpjson.WriteError(w, http.StatusInternalServerError, "reading the last reclassification failed")
 			return
+		}
+		if state.LastRun != nil {
+			state.LastRun.NoIndexReason = h.cfg.NoIndexReason
 		}
 	}
 	httpjson.WriteJSON(w, http.StatusOK, state)
@@ -125,7 +149,7 @@ func (h *handler) get(w http.ResponseWriter, r *http.Request) {
 // reclassify handles POST /api/v1/admin/resources/index/reclassify.
 //
 // @Summary      Reclassify managed resources by the index rules
-// @Description  Starts a walk over every managed resource that applies the resources.index rules again to each one no writer chose a policy for, in batches of 500 with a pause between them. A resource whose policy changes drops its vector and its kept text, and is re-indexed for what its new policy reads; a resource under a policy that reads no content keeps no extracted text. A policy a writer chose is never changed. Answers 202 at once; GET reports the result when the walk ends. Answers 409 while one is running.
+// @Description  Starts a walk over every managed resource that applies the resources.index rules again to each one no writer chose a policy for, in batches of 500 with a pause between them. A resource whose policy changes drops its vector and its kept text, and is re-indexed for what its new policy reads; a resource under a policy that reads no content keeps no extracted text. A policy a writer chose is never changed. On a deployment with no embedding provider no index job is queued, and no_index_reason says so. Answers 202 at once; GET reports the result when the walk ends. Answers 409 while one is running.
 // @Tags         Resources
 // @Produce      json
 // @Success      202  {object}  Run
@@ -147,7 +171,7 @@ func (h *handler) reclassify(w http.ResponseWriter, r *http.Request) {
 		res, err := h.cfg.Reclassifier.Run(h.run)
 		h.finish(res, err)
 	}()
-	httpjson.WriteJSON(w, http.StatusAccepted, Run{StartedAt: started})
+	httpjson.WriteJSON(w, http.StatusAccepted, Run{StartedAt: started, NoIndexReason: h.cfg.NoIndexReason})
 }
 
 // finish records a reclassification's end.

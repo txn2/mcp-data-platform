@@ -150,10 +150,20 @@ environments are read-only: they move only by `promote` and `rollback`, and a
 publish, overlay or patch aimed at one is refused, naming `dev` and `promote`. Never
 try to change `prod` directly.
 
+**You stop at dev; the person moves what people use.** `promote`, `rollback`, and
+`add_domain` or `set_domain` with `public: true`, on any environment but `dev`,
+wait on the person you work for, whatever their role. Their client asks them,
+naming the release and the address to look at; when it cannot, the call answers
+`APPROVAL_REQUIRED` and files a request a person decides in the portal, which you
+cannot decide (`manage_approval decide` refuses it). So finish your change on
+`dev`, give the person the dev address, and stop. Call again only once they
+accepted or approved. An environment an administrator marked
+`agents_may_promote` is the exception.
+
 ```
 manage_site command=create name=marketing          # dev and prod; prod holds the main address
 manage_site command=publish site=marketing files=[{"path":"index.html","content":"<h1>Hello</h1>"}]
-manage_site command=promote site=marketing to=prod # from dev, the environment before it
+manage_site command=promote site=marketing to=prod # from dev; waits on the person (see below)
 ```
 
 **Environments are in order, and a release moves one step at a time.** `dev` is
@@ -430,6 +440,28 @@ replaced with `manage_resource replace_content` shows at once, and a file moved 
 of the folder stops answering at its old address. HTML, SVG, JavaScript and XML in a
 mount are sent as downloads. A file in a mounted folder cannot be
 deleted unless forced.
+
+### Offline, redirect, rename, remove, traffic
+
+An environment other than `dev` can be taken offline or redirected for a while
+without a release, and brought back; the release it points at is untouched.
+
+```
+manage_site command=set_environment site=marketing environment=prod status=offline
+            message="Back at 2pm" back_at=2026-11-14T14:00:00Z    # every address answers 503
+manage_site command=set_environment site=marketing environment=prod status=redirect
+            redirect_to=https://status.example.com keep_path=true # every address answers 302
+manage_site command=set_environment site=marketing environment=prod status=online
+```
+
+A redirect target is an `https://` address on another site. On an environment that
+requires approval, a redirect by someone who is not an administrator waits in
+Approvals. `rename_to` renames an environment between `dev` and `prod` (every
+reference moves; `mcp:site:<site>/<old>` references stop resolving), and
+`remove_environment` removes one with no domain, no main address, no application
+part and no job running. `get` answers `traffic`: the last 24 hours of requests
+and latency (p50, p95, p99) for the site and per environment, which answers "is
+the site slow" without Prometheus.
 
 ### Domains
 

@@ -54,17 +54,18 @@ test.describe("Environment addresses", () => {
     await expect.poll(overflow, "the page scrolls sideways").toBeLessThanOrEqual(0);
   });
 
+  // #2636: the server's name check says why; the dialog shows its sentence.
   test("the New site dialog refuses a two-character name and says why", async ({ page }) => {
     await page.goto("/portal/sites");
     await page.getByRole("button", { name: "New site" }).first().click();
     const dialog = page.getByRole("dialog", { name: "New site" });
     const name = dialog.getByLabel("Name");
     await name.fill("ab");
-    await expect(dialog.getByText("A two-character name gets addresses like ab--prod, which certificate authorities refuse.", { exact: false })).toBeVisible();
+    await expect(dialog.getByText("a site name cannot be two characters", { exact: false })).toBeVisible();
     await expect(name).toHaveAttribute("aria-invalid", "true");
     await expect(dialog.getByRole("button", { name: "Create site" })).toBeDisabled();
     await name.fill("abc");
-    await expect(dialog.getByText("two-character name", { exact: false })).toHaveCount(0);
+    await expect(dialog.getByText("cannot be two characters", { exact: false })).toHaveCount(0);
     await expect(dialog.getByRole("button", { name: "Create site" })).toBeEnabled();
   });
 });

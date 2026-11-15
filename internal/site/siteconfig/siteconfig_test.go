@@ -118,13 +118,28 @@ func TestSettings_ReadsEachBoundAndFillsItsDefault(t *testing.T) {
 	assert.Equal(t, Settings{
 		PagesDomain: "pages.example.net", MaxFiles: 7, MaxFileBytes: 8, MaxReleaseBytes: 9,
 		CrawlMaxPages: 10, CrawlMaxBytes: 11, ReleasesKeep: intp(0), ReleasesMode: ModeReport,
+		TrafficEnabled: new(true), TrafficMinuteHours: intp(24), TrafficHourDays: intp(90),
 	}, set.Settings(), "0 keeps every release and is read as 0, not as unset")
 
 	assert.Equal(t, Settings{
 		MaxFiles: DefaultMaxFiles, MaxFileBytes: DefaultMaxFileBytes, MaxReleaseBytes: DefaultMaxReleaseBytes,
 		CrawlMaxPages: DefaultCrawlPages, CrawlMaxBytes: DefaultCrawlBytes,
 		ReleasesKeep: intp(DefaultKeepReleases), ReleasesMode: ModeDelete,
+		TrafficEnabled: new(true), TrafficMinuteHours: intp(24), TrafficHourDays: intp(90),
 	}, Config{}.Settings(), "an unset bound reads as its default")
+}
+
+// TestTraffic_DefaultsAndSavedSettings pins #2647's section: on by default,
+// minute rows 24 hours and hour rows 90 days, each replaced by a saved value.
+func TestTraffic_DefaultsAndSavedSettings(t *testing.T) {
+	var tc TrafficConfig
+	assert.True(t, tc.IsEnabled())
+	assert.Equal(t, DefaultTrafficMinuteRetention, tc.Minutes())
+	assert.Equal(t, DefaultTrafficHourRetention, tc.Hours())
+	got := Config{}.With(Settings{TrafficEnabled: new(false), TrafficMinuteHours: intp(6), TrafficHourDays: intp(30)})
+	assert.False(t, got.Traffic.IsEnabled())
+	assert.Equal(t, 6*time.Hour, got.Traffic.Minutes())
+	assert.Equal(t, 30*24*time.Hour, got.Traffic.Hours())
 }
 
 func TestReleases_DefaultsAndChecks(t *testing.T) {
@@ -161,9 +176,11 @@ func TestWith_SavedSettingsReplaceTheFileAndLeaveTheRest(t *testing.T) {
 	got := base.With(saved)
 	want := saved
 	want.ReleasesKeep, want.ReleasesMode = intp(DefaultKeepReleases), ModeDelete
+	want.TrafficEnabled, want.TrafficMinuteHours, want.TrafficHourDays = new(true), intp(24), intp(90)
 	assert.Equal(t, want, got.Settings(), "every saved value is in force, and a section saved before the release limit keeps the file's")
 
 	saved.ReleasesKeep, saved.ReleasesMode = intp(7), ModeReport
+	saved.TrafficEnabled, saved.TrafficMinuteHours, saved.TrafficHourDays = new(true), intp(24), intp(90)
 	assert.Equal(t, saved, base.With(saved).Settings(), "a saved release limit and mode are in force")
 	assert.Equal(t, base.Cache, got.Cache, "the cache is not a saved setting")
 	assert.Equal(t, base.Crawl.AllowPrivateCIDRs, got.Crawl.AllowPrivateCIDRs, "the private ranges are not a saved setting")

@@ -660,3 +660,22 @@ on mcp:knowledge_page:platform-applications. The endpoints, events and
 schedule then run the pinned versions, the release moves `store-web`'s `prod`
 to the release its `dev` serves, and a change is tested and released as a
 whole.
+
+## 13. Running the shop
+
+- **Maintenance**: `manage_site command=set_environment site=store-web
+  environment=prod status=offline message="Back at 2pm while we update prices."
+  back_at=2026-11-14T14:00:00Z` answers every address of `prod`, its public
+  domains included, with 503 and the platform's offline page showing that
+  message as text. The release stays where it is; `status=online` serves it
+  again.
+- **Sending visitors elsewhere for a while**: `status=redirect
+  redirect_to=https://status.store.example keep_path=true` answers every
+  address with a 302 to another https site, keeping the path and query.
+- **Is it slow?**: `manage_site command=get site=store-web` answers `traffic`,
+  the last 24 hours of requests and p50/p95/p99 latency for the site and each
+  environment; the portal's Traffic tab charts the same.
+- **Who moves `prod`**: a `promote`, `rollback`, or a domain made public that an
+  agent asks for on an environment people use waits on a person, as on
+  mcp:knowledge_page:platform-pages-and-sites, unless an administrator marked
+  the environment `agents_may_promote`.

@@ -1,7 +1,9 @@
 package gates
 
 import (
+	"encoding/json"
 	"os/exec"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -161,4 +163,135 @@ func TestCIDeltaCIBaseRunsAFirstRunInFull(t *testing.T) {
 func lastLine(out string) string {
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	return strings.TrimSpace(lines[len(lines)-1])
+}
+
+// previousRunJobs is the jobs list of a pull request run in which only Test
+// failed, the shape #2642 was seen in on #2641.
+const previousRunJobs = `[
+ {"name": "Delta", "conclusion": "success"},
+ {"name": "Lint", "conclusion": "success"},
+ {"name": "Test", "conclusion": "failure"},
+ {"name": "Build", "conclusion": "success"},
+ {"name": "Frontend Build", "conclusion": "success"},
+ {"name": "Frontend E2E", "conclusion": "success"},
+ {"name": "Security Scan", "conclusion": "success"},
+ {"name": "Stack changes", "conclusion": "success"},
+ {"name": "Acceptance (worker-off)", "conclusion": "skipped"},
+ {"name": "Acceptance (changed criteria) (2436,2634) / run", "conclusion": "success"},
+ {"name": "Acceptance (changed criteria) (1896) / run", "conclusion": "success"}
+]`
+
+// carried runs `ci-delta.py carry` over a change written into a fresh repo and
+// returns the groups it carries.
+func carried(t *testing.T, jobs string, change map[string]string) map[string]string {
+	t.Helper()
+	root := deltaRepo(t)
+	writeFile(t, root, "ui/src/app.ts", "export const a = 1\n")
+	writeFile(t, root, "lib/lib_test.go", "package lib\n")
+	commitAll(t, root, "files the change edits")
+	base := deltaGit(t, root, "rev-parse", "HEAD")
+	for rel, body := range change {
+		writeFile(t, root, rel, body)
+	}
+	writeFile(t, root, ".jobs.json", jobs)
+	out, ok := runScript(t, root, []string{ciDelta, "carry", "run 7 at abc1234", ".jobs.json"}, []string{"DELTA_BASE=" + base})
+	if !ok {
+		t.Fatalf("carry failed:\n%s", out)
+	}
+	got := map[string]string{}
+	if err := json.Unmarshal([]byte(lastLine(out)), &got); err != nil {
+		t.Fatalf("carry printed %q: %v", out, err)
+	}
+	return got
+}
+
+func groupsOf(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// TestCIDeltaCarriesWhatAFailedRunPassedAndTheChangeDoesNotReach pins
+// #2642's first criterion: after a run that failed only Test, a change to a
+// _test.go file skips the frontend and security jobs and narrows acceptance,
+// each saying which run it relies on.
+func TestCIDeltaCarriesWhatAFailedRunPassedAndTheChangeDoesNotReach(t *testing.T) {
+	got := carried(t, previousRunJobs, map[string]string{"lib/lib_test.go": "package lib\n\n// changed\n"})
+	want := []string{"acceptance", "frontend", "frontend_e2e", "security"}
+	if g := groupsOf(got); strings.Join(g, " ") != strings.Join(want, " ") {
+		t.Fatalf("carried %v, want %v", g, want)
+	}
+	for group, why := range got {
+		if !strings.Contains(why, "run 7 at abc1234") {
+			t.Errorf("%s says %q, which names no run it relies on", group, why)
+		}
+	}
+}
+
+// TestCIDeltaRunsAJobWhoseInputsTheChangeReaches pins #2642's second
+// criterion: a change to a file a carried job reads runs that job.
+func TestCIDeltaRunsAJobWhoseInputsTheChangeReaches(t *testing.T) {
+	cases := []struct {
+		name    string
+		change  map[string]string
+		running []string
+	}{
+		{"ui", map[string]string{"ui/src/app.ts": "export const a = 2\n"}, []string{"frontend", "frontend_e2e"}},
+		{"api description", map[string]string{"internal/apidocs/swagger.json": "{}\n"}, []string{"frontend", "frontend_e2e"}},
+		{"production go", map[string]string{"lib/lib.go": "package lib\n\nfunc One() int { return 2 - 1 }\n"}, []string{"security"}},
+		{"semgrep rule", map[string]string{".semgrep/rule.yml": "rules: []\n"}, []string{"security"}},
+		{"accepted advisory", map[string]string{".govulncheck-allow.txt": "GO-1\n"}, []string{"security"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := carried(t, previousRunJobs, tc.change)
+			for _, group := range tc.running {
+				if _, ok := got[group]; ok {
+					t.Errorf("the change reaches %s, which was carried: %v", group, groupsOf(got))
+				}
+			}
+		})
+	}
+}
+
+// TestCIDeltaCarriesNothingAFailedOrUnrunJobDidNotProve: a group with a failed
+// job, and every group of a run whose Delta job failed (every other job was
+// skipped without running), is not carried.
+func TestCIDeltaCarriesNothingAFailedOrUnrunJobDidNotProve(t *testing.T) {
+	failedCriterion := strings.Replace(previousRunJobs,
+		`"Acceptance (changed criteria) (1896) / run", "conclusion": "success"`,
+		`"Acceptance (changed criteria) (1896) / run", "conclusion": "failure"`, 1)
+	got := carried(t, failedCriterion, map[string]string{"lib/lib_test.go": "package lib\n\n// changed\n"})
+	if _, ok := got["acceptance"]; ok {
+		t.Errorf("acceptance carried from a run with a failed criteria job: %v", groupsOf(got))
+	}
+	if _, ok := got["frontend"]; !ok {
+		t.Errorf("a failed acceptance job stopped the frontend being carried: %v", groupsOf(got))
+	}
+
+	noDelta := strings.Replace(previousRunJobs, `"Delta", "conclusion": "success"`, `"Delta", "conclusion": "failure"`, 1)
+	if got := carried(t, noDelta, map[string]string{"lib/lib_test.go": "package lib\n\n// changed\n"}); len(got) != 0 {
+		t.Errorf("carried %v from a run whose Delta job failed", groupsOf(got))
+	}
+}
+
+// TestCIDeltaEveryCarriedGroupIsWiredIntoTheWorkflow: each skip output the
+// delta job writes is read by the job it names, so a group added to
+// CARRY_GROUPS without its job's condition fails here.
+func TestCIDeltaEveryCarriedGroupIsWiredIntoTheWorkflow(t *testing.T) {
+	ci := readRepoFile(t, ".github/workflows/ci.yml")
+	for _, want := range []string{
+		"needs.delta.outputs.skip_frontend != 'true'",
+		"needs.delta.outputs.skip_frontend_e2e != 'true'",
+		"needs.delta.outputs.skip_security != 'true'",
+		"needs.delta.outputs.carry_head",
+		"CARRIED: ${{ steps.base.outputs.carried }}",
+	} {
+		if !strings.Contains(ci, want) {
+			t.Errorf("ci.yml does not read %q", want)
+		}
+	}
 }

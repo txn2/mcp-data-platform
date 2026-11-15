@@ -96,6 +96,7 @@ func mediaSite2591(t *testing.T) *site2604 {
 		{"path": "404.html", "content": "<h1>not here</h1>"},
 	}})
 	s.setEnv(t, keyOwner2604, "stage", map[string]any{})
+	agentsMayPromote2643(t, s.name, "stage") // an agent's rollback here is about media, not who decides (#2643)
 	promote2602(t, s, "stage", 1)
 	host := s.publicDomain(t, "stage")
 	settled2619(t, host, nil, func(r pageResponse) bool { return r.status == http.StatusOK && strings.Contains(r.body, "<h1>v1</h1>") })

@@ -28,6 +28,8 @@ type Promoted struct {
 	URL         string            `json:"address,omitempty"`
 	Status      string            `json:"status" example:"promoted"`
 	Approval    *approval.Request `json:"approval,omitempty"`
+	// DecidedBy is whose decision carried an agent's move out (#2643).
+	DecidedBy string `json:"decided_by,omitempty"`
 }
 
 // The statuses a promotion answers with.
@@ -49,7 +51,7 @@ func (s *Service) Promote(ctx context.Context, actor Actor, req PromoteRequest) 
 	if err != nil {
 		return nil, err
 	}
-	if err := s.mayEdit(ctx, actor, st); err != nil {
+	if err := s.MayEdit(ctx, actor, st); err != nil {
 		return nil, err
 	}
 	target := st.Environment(req.To)
@@ -60,7 +62,7 @@ func (s *Service) Promote(ctx context.Context, actor Actor, req PromoteRequest) 
 	if err != nil {
 		return nil, err
 	}
-	out := &Promoted{Environment: target.Name, Release: rel.Number, Status: StatusPromoted}
+	out := &Promoted{Environment: target.Name, Release: rel.Number, Status: StatusPromoted, DecidedBy: actor.DecidedBy}
 	if target.RequiresApproval {
 		waiting, err := s.approvedOrRequest(ctx, actor, approval.SubmitRelease{
 			ReleaseID: rel.ID, Site: st.Name, Number: rel.Number, Target: target.Name, Digest: rel.ManifestSHA256, Reason: req.Reason,
@@ -168,7 +170,7 @@ func (s *Service) Rollback(ctx context.Context, actor Actor, ref, environment st
 	if err != nil {
 		return nil, err
 	}
-	if err := s.mayEdit(ctx, actor, st); err != nil {
+	if err := s.MayEdit(ctx, actor, st); err != nil {
 		return nil, err
 	}
 	env := st.Environment(environment)
@@ -193,7 +195,7 @@ func (s *Service) Rollback(ctx context.Context, actor Actor, ref, environment st
 	if err := s.move(ctx, actor, repoint{st: st, env: env, to: target, action: site.ActionRollback}); err != nil {
 		return nil, err
 	}
-	return &Promoted{Environment: env.Name, Release: target, URL: s.Address(ctx, st, env.Name), Status: site.ActionRollback}, nil
+	return &Promoted{Environment: env.Name, Release: target, URL: s.Address(ctx, st, env.Name), Status: site.ActionRollback, DecidedBy: actor.DecidedBy}, nil
 }
 
 // prunedNumbers is every release of the site a sweep pruned.

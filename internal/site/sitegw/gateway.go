@@ -27,6 +27,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/contentenc"
 	"github.com/txn2/mcp-data-platform/internal/httpobs"
 	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
+	"github.com/txn2/mcp-data-platform/internal/site/sitetraffic"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 
 	"golang.org/x/sync/singleflight"
@@ -91,6 +92,12 @@ type Deps struct {
 	Metrics *observability.Metrics
 	// Media serves a site's mounted resource folders (#2591); nil serves none.
 	Media Media
+	// Traffic is this replica's tally of each site's requests (#2647); nil
+	// records nothing.
+	Traffic *sitetraffic.Tally
+	// Now is the clock an offline answer's Retry-After is read from; nil is
+	// time.Now.
+	Now func() time.Time
 	// Secure is true where the origins answer over https: what decides
 	// whether an answer carries Strict-Transport-Security (#2557).
 	Secure bool
@@ -248,6 +255,9 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, host string) {
 			return
 		}
 		viewer = &v
+	}
+	if g.serveStatus(w, r, route) {
+		return
 	}
 	if g.serveSiteRoutes(w, r, route, viewer) {
 		return

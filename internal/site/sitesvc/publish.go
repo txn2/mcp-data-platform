@@ -477,7 +477,7 @@ func (s *Service) Publish(ctx context.Context, actor Actor, req PublishRequest) 
 	if err != nil {
 		return nil, err
 	}
-	if err := s.mayEdit(ctx, actor, st); err != nil {
+	if err := s.MayEdit(ctx, actor, st); err != nil {
 		return nil, err
 	}
 	env, err := s.publishTarget(st, req)

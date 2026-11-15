@@ -12028,12 +12028,22 @@ definitions:
         $ref: '#/definitions/resourceindex.PolicyCounts'
       last_run:
         $ref: '#/definitions/resindexapi.Run'
+      no_index_reason:
+        description: |-
+          NoIndexReason is why a reclassification queues no index work on this
+          deployment, absent when it queues what it owes.
+        type: string
     type: object
   resindexapi.Run:
     properties:
       error:
         type: string
       finished_at:
+        type: string
+      no_index_reason:
+        description: |-
+          NoIndexReason is why the reclassification queues no index work, absent
+          when it queues what it owes.
         type: string
       result:
         $ref: '#/definitions/resourcereclass.ReclassifyResult'
@@ -15594,10 +15604,23 @@ definitions:
         type: string
       created_at:
         type: string
+      decided_by:
+        description: |-
+          DecidedBy is whose decision carried out a move an agent asked for
+          (#2643), absent for a move a person made.
+        type: string
+      detail:
+        description: |-
+          Detail is what a status change said: the offline message or the
+          redirect target (#2631, #2632); a rename's old name (#2630).
+        type: string
       environment:
         type: string
       from_release:
         type: integer
+      removed:
+        description: Removed is a move of an environment that was removed (#2630).
+        type: boolean
       to_release:
         type: integer
     type: object
@@ -15635,10 +15658,23 @@ definitions:
     type: object
   site.Environment:
     properties:
+      agents_may_promote:
+        description: |-
+          AgentsMayPromote lets an agent's promote, rollback or public domain
+          here go ahead without a person's decision (#2643). Off by default;
+          only an administrator turns it on.
+        type: boolean
+      back_at:
+        description: |-
+          BackAt is when an offline environment's visitors are told it is
+          expected back.
+        type: string
       internal_view:
         description: |-
           InternalView opens the environment's private addresses to everyone
           signed in whose persona is not external: a company intranet.
+        type: boolean
+      keep_path:
         type: boolean
       keep_releases:
         description: |-
@@ -15649,6 +15685,9 @@ definitions:
       keep_releases_default:
         description: KeepDefault is true when Keep is the deployment's default.
         type: boolean
+      message:
+        description: StatusMessage is an offline environment's message.
+        type: string
       name:
         example: prod
         type: string
@@ -15661,6 +15700,11 @@ definitions:
         items:
           type: string
         type: array
+      redirect_to:
+        description: |-
+          RedirectTo and RedirectKeepPath are a redirecting environment's
+          target, and whether the request's path and query are kept.
+        type: string
       release:
         description: Release is the number of the release served, 0 before the first.
         example: 3
@@ -15675,6 +15719,16 @@ definitions:
           RequiresApproval makes a promotion here, and making one of its domains
           public, a request in the Approvals queue.
         type: boolean
+      status:
+        description: |-
+          Status is what every address of the environment answers (#2631,
+          #2632): online, offline or redirect.
+        example: online
+        type: string
+      status_changed_at:
+        type: string
+      status_changed_by:
+        type: string
       updated_at:
         type: string
       updated_by:
@@ -15972,6 +16026,86 @@ definitions:
           value.
         example: delete
         type: string
+      traffic_enabled:
+        description: |-
+          TrafficEnabled records each site's traffic (#2647); nil keeps the
+          file's value.
+        example: true
+        type: boolean
+      traffic_hour_days:
+        example: 90
+        type: integer
+      traffic_minute_hours:
+        description: |-
+          TrafficMinuteHours and TrafficHourDays are how long minute rows (in
+          hours) and hour rows (in days) are kept; nil keeps the file's value.
+        example: 24
+        type: integer
+    type: object
+  siteenv.DomainResult:
+    properties:
+      application:
+        example: shop
+        type: string
+      application_id:
+        description: |-
+          ApplicationID and Application name the application whose endpoints the
+          hostname serves.
+        type: string
+      approval:
+        $ref: '#/definitions/approval.Request'
+      created_at:
+        type: string
+      created_by:
+        type: string
+      decided_by:
+        type: string
+      environment:
+        example: prod
+        type: string
+      hostname:
+        example: www.example.com
+        type: string
+      public:
+        description: |-
+          Public answers anyone at this hostname (#2619): the one way a site
+          environment opens to someone who has not signed in. A domain is added
+          private unless public is asked for.
+        type: boolean
+      site:
+        example: marketing
+        type: string
+      site_id:
+        type: string
+      status:
+        description: |-
+          Status is StatusDone, or StatusAwaitingApproval when making the domain
+          public waits on Approvals; the domain is private meanwhile.
+        type: string
+    type: object
+  siteenv.NameCheck:
+    properties:
+      addresses:
+        additionalProperties:
+          type: string
+        description: |-
+          Addresses is where dev and prod would answer on the pages domain, ""
+          with no pages domain.
+        type: object
+      environment_name_room:
+        description: EnvironmentNameRoom is the longest environment name the site
+          can add.
+        example: 32
+        type: integer
+      input:
+        example: My Website
+        type: string
+      name:
+        example: my-website
+        type: string
+      refusal:
+        description: Refusal is why the name cannot be created, absent when it can.
+        type: string
     type: object
   sitehttp.AccessList:
     properties:
@@ -16111,7 +16245,16 @@ definitions:
           After places a new environment, or moves one, immediately after the
           environment it names: dev or one between dev and prod (#2617).
         type: string
+      agents_may_promote:
+        description: |-
+          AgentsMayPromote lets an agent's promote, rollback or public domain here
+          go ahead without a person's decision (#2643). Administrators only.
+        type: boolean
+      back_at:
+        type: string
       internal_view:
+        type: boolean
+      keep_path:
         type: boolean
       keep_releases:
         description: |-
@@ -16120,14 +16263,40 @@ definitions:
           (#2602). The owner and administrators only.
         example: "50"
         type: string
+      message:
+        type: string
       public:
         description: 'Public is refused (#2619): public is a setting of a domain.'
         type: boolean
+      reason:
+        description: Reason goes with a redirect that waits on Approvals.
+        type: string
+      redirect_to:
+        example: https://status.example.com
+        type: string
+      rename_to:
+        description: RenameTo renames an environment between dev and prod, alone (#2630).
+        example: qa
+        type: string
       requires_approval:
         type: boolean
+      status:
+        description: |-
+          Status is what every address of the environment answers (#2631,
+          #2632): online, offline (with message and back_at) or redirect (with
+          redirect_to and keep_path).
+        enum:
+        - online
+        - offline
+        - redirect
+        type: string
     type: object
   sitehttp.EnvironmentResponse:
     properties:
+      approval:
+        allOf:
+        - $ref: '#/definitions/sitesvc.ApprovalRequest'
+        description: Approval is the request a redirect waits on (status awaiting_approval).
       note:
         type: string
       site:
@@ -16422,6 +16591,41 @@ definitions:
       total_bytes:
         type: integer
     type: object
+  sitehttp.ReplicaTraffic:
+    properties:
+      classes:
+        additionalProperties:
+          format: int64
+          type: integer
+        type: object
+      instance:
+        example: platform-7d9f-abc:8080
+        type: string
+      p50_ms:
+        example: 12.5
+        type: number
+      p95_ms:
+        example: 48
+        type: number
+      p99_ms:
+        example: 120
+        type: number
+      requests:
+        example: 1200
+        type: integer
+    type: object
+  sitehttp.ReplicasView:
+    properties:
+      range:
+        example: 24h
+        type: string
+      recording:
+        type: boolean
+      replicas:
+        items:
+          $ref: '#/definitions/sitehttp.ReplicaTraffic'
+        type: array
+    type: object
   sitehttp.RetentionView:
     properties:
       every:
@@ -16536,10 +16740,34 @@ definitions:
           value.
         example: delete
         type: string
+      traffic_enabled:
+        description: |-
+          TrafficEnabled records each site's traffic (#2647); nil keeps the
+          file's value.
+        example: true
+        type: boolean
+      traffic_hour_days:
+        example: 90
+        type: integer
+      traffic_minute_hours:
+        description: |-
+          TrafficMinuteHours and TrafficHourDays are how long minute rows (in
+          hours) and hour rows (in days) are kept; nil keeps the file's value.
+        example: 24
+        type: integer
       updated_at:
         type: string
       updated_by:
         type: string
+    type: object
+  sitehttp.SiteTraffic:
+    properties:
+      p95_ms:
+        example: 48
+        type: number
+      requests_24h:
+        example: 1200
+        type: integer
     type: object
   sitehttp.SiteUpdate:
     properties:
@@ -16586,6 +16814,12 @@ definitions:
         items:
           $ref: '#/definitions/site.Domain'
         type: array
+      environment_name_room:
+        description: |-
+          EnvironmentNameRoom is the longest environment name the site can add:
+          its name and "--" leave the rest of one DNS label (#2636).
+        example: 32
+        type: integer
       environments:
         items:
           $ref: '#/definitions/site.Environment'
@@ -16627,6 +16861,12 @@ definitions:
         allOf:
         - $ref: '#/definitions/sitesvc.Permissions'
         description: Permissions is what the caller may do to this site.
+      traffic:
+        allOf:
+        - $ref: '#/definitions/sitehttp.SiteTraffic'
+        description: |-
+          Traffic is the site's last 24 hours over the environments the caller
+          sees (#2647), on the Sites list; absent elsewhere.
       updated_at:
         type: string
     type: object
@@ -16639,6 +16879,55 @@ definitions:
       site:
         description: Site, when set, sweeps that site alone, by name.
         type: string
+    type: object
+  sitehttp.TrafficPoint:
+    properties:
+      at:
+        type: string
+      classes:
+        additionalProperties:
+          format: int64
+          type: integer
+        type: object
+      p50_ms:
+        example: 12.5
+        type: number
+      p95_ms:
+        example: 48
+        type: number
+      p99_ms:
+        example: 120
+        type: number
+      requests:
+        example: 1200
+        type: integer
+    type: object
+  sitehttp.TrafficView:
+    properties:
+      environment:
+        type: string
+      environments:
+        additionalProperties:
+          $ref: '#/definitions/sitetraffic.Totals'
+        type: object
+      range:
+        example: 24h
+        type: string
+      recording:
+        description: |-
+          Recording is false where sites.traffic.enabled is off; nothing is
+          recorded then.
+        type: boolean
+      series:
+        items:
+          $ref: '#/definitions/sitehttp.TrafficPoint'
+        type: array
+      step_seconds:
+        description: StepSeconds is the width of each point of Series.
+        example: 900
+        type: integer
+      total:
+        $ref: '#/definitions/sitetraffic.Totals'
     type: object
   siteprune.Report:
     properties:
@@ -16748,6 +17037,109 @@ definitions:
       started_at:
         type: string
     type: object
+  sitesvc.ApprovalRequest:
+    properties:
+      approvers:
+        description: |-
+          Approvers are the people or personas the policies named; empty is an
+          administrator.
+        items:
+          type: string
+        type: array
+      arguments:
+        additionalProperties: {}
+        type: object
+      calls_approved:
+        type: integer
+      calls_asked:
+        type: integer
+      calls_used:
+        type: integer
+      changes:
+        $ref: '#/definitions/approval.Changes'
+      connection:
+        example: billing-api
+        type: string
+      created_at:
+        type: string
+      decided_at:
+        type: string
+      decided_by:
+        type: string
+      decision_comment:
+        type: string
+      handlers:
+        description: Handlers are the policies that held the call, with what each
+          said.
+        items:
+          $ref: '#/definitions/approval.HandlerAsk'
+        type: array
+      id:
+        example: apr_0f3c9d2e
+        type: string
+      kind:
+        description: |-
+          Kind is what the request is about: call, handler_version, form or
+          site.
+        type: string
+      operation:
+        example: addSubscribers
+        type: string
+      purpose:
+        example: form_public
+        type: string
+      reason:
+        type: string
+      rendering:
+        description: |-
+          Rendering is the platform's own reading of the call, which the
+          approver reads, never only a summary someone wrote.
+        type: string
+      requester_email:
+        example: jane@example.com
+        type: string
+      requester_persona:
+        type: string
+      script_id:
+        type: string
+      script_name:
+        example: order-intake
+        type: string
+      self_approved:
+        type: boolean
+      site_id:
+        description: SiteID is the site an environment request is about (#2604).
+        type: string
+      site_name:
+        description: SiteName is the site the release or environment belongs to.
+        example: marketing
+        type: string
+      site_release_id:
+        description: |-
+          SiteReleaseID and Target name a site release a promotion waits on and
+          the environment it would serve (#2518); SourceSHA256 is then the
+          release's manifest digest and Version its number.
+        type: string
+      source_sha256:
+        type: string
+      status:
+        example: pending
+        type: string
+      subject_kind:
+        example: script_version
+        type: string
+      target:
+        example: prod
+        type: string
+      tool:
+        example: api_invoke_endpoint
+        type: string
+      until:
+        type: string
+      version:
+        example: 2
+        type: integer
+    type: object
   sitesvc.Comparison:
     properties:
       added:
@@ -16837,6 +17229,9 @@ definitions:
         type: string
       approval:
         $ref: '#/definitions/approval.Request'
+      decided_by:
+        description: DecidedBy is whose decision carried an agent's move out (#2643).
+        type: string
       environment:
         type: string
       release:
@@ -16878,6 +17273,26 @@ definitions:
       truncated:
         type: boolean
       version:
+        type: integer
+    type: object
+  sitetraffic.Totals:
+    properties:
+      classes:
+        additionalProperties:
+          format: int64
+          type: integer
+        type: object
+      p50_ms:
+        example: 12.5
+        type: number
+      p95_ms:
+        example: 48
+        type: number
+      p99_ms:
+        example: 120
+        type: number
+      requests:
+        example: 1200
         type: integer
     type: object
   smtp.SettingsInput:
@@ -25981,8 +26396,9 @@ paths:
         a pause between them. A resource whose policy changes drops its vector and
         its kept text, and is re-indexed for what its new policy reads; a resource
         under a policy that reads no content keeps no extracted text. A policy a writer
-        chose is never changed. Answers 202 at once; GET reports the result when the
-        walk ends. Answers 409 while one is running.
+        chose is never changed. On a deployment with no embedding provider no index
+        job is queued, and no_index_reason says so. Answers 202 at once; GET reports
+        the result when the walk ends. Answers 409 while one is running.
       produces:
       - application/json
       responses:
@@ -27461,6 +27877,33 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Run a release sweep now
+      tags:
+      - Sites
+  /admin/sites/traffic/replicas:
+    get:
+      description: Each replica's requests and latency across every site over a range,
+        named by the X-Platform-Instance it answers as, so a slow replica stands out
+        beside the others (#2647). Administrators only.
+      parameters:
+      - description: 1h, 24h (default), 7d or 30d
+        in: query
+        name: range
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sitehttp.ReplicasView'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Read each replica's site traffic
       tags:
       - Sites
   /admin/storage:
@@ -38180,8 +38623,10 @@ paths:
     post:
       consumes:
       - application/json
-      description: Creates a site with its default environment. The caller, whose
-        persona must hold manage_site, is its owner.
+      description: 'Creates a site with dev and prod. The name given is what a person
+        typed: it becomes the name every address of the site uses (lowercase, separators
+        as hyphens, other characters dropped), the same rule POST /portal/sites/check-name
+        answers. The caller, whose persona must hold manage_site, is its owner.'
       parameters:
       - description: The site
         in: body
@@ -38572,7 +39017,7 @@ paths:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/sitesvc.DomainResult'
+            $ref: '#/definitions/siteenv.DomainResult'
         "403":
           description: Forbidden
           schema:
@@ -38659,7 +39104,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/sitesvc.DomainResult'
+            $ref: '#/definitions/siteenv.DomainResult'
         "403":
           description: Forbidden
           schema:
@@ -38679,18 +39124,66 @@ paths:
       tags:
       - Sites
   /portal/sites/{site}/environments/{name}:
+    delete:
+      description: Removes an environment between dev and prod (#2630). Refused while
+        it has a domain, holds the main address, is a part of an application or has
+        a job running, each naming what to do first; an environment that requires
+        approval is removed only by an administrator. Pending approvals that target
+        it are withdrawn, it is dropped from every share, a share that named only
+        it is deleted, its history is kept marked removed and stops counting toward
+        its release limit, and its address stops answering.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: Environment
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sitehttp.SiteView'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Remove an environment
+      tags:
+      - Sites
     put:
       consumes:
       - application/json
-      description: 'Creates the environment (private unless public is true), or changes
-        whether it is public, whether everyone internal may open it, whether promoting
-        to it needs approval, and how many releases it keeps (keep_releases: a whole
-        number, 0 for every release, or "default"; the owner and administrators only,
-        since a lower limit removes rollback history at the next sweep). Only the
-        owner or an administrator makes an environment public, and where it requires
-        approval a non-administrator''s request waits in Approvals (status awaiting_approval)
-        until approved, after which the same request succeeds. dev is always private.
-        Only an administrator takes the approval rule off.'
+      description: 'Creates the environment, or changes whether everyone internal
+        may open it, whether promoting to it needs approval, how many releases it
+        keeps (keep_releases: a whole number, 0 for every release, or "default"; the
+        owner and administrators only, since a lower limit removes rollback history
+        at the next sweep), and whether agents may promote into it (agents_may_promote,
+        administrators only). status takes it offline (message, back_at: every address
+        answers 503), redirects it (redirect_to, keep_path: every address answers
+        302) or brings it online; never dev, and the release pointer is untouched.
+        A redirect on an environment that requires approval, by someone who is not
+        an administrator, waits in Approvals (status awaiting_approval) until approved,
+        after which the same request succeeds. rename_to renames an environment between
+        dev and prod, alone, moving every reference to its name. Only an administrator
+        takes the approval rule off.'
       parameters:
       - description: Site name or id
         in: path
@@ -38873,6 +39366,57 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Save one file
+      tags:
+      - Sites
+  /portal/sites/{site}/file/content:
+    get:
+      description: 'The bytes of one file of dev, or of a release with release, for
+        the portal''s viewer (#2629). Read as /file is: the people who manage the
+        site read dev''s source, someone dev is shared with what dev serves; a release''s
+        file is read by the people who manage the site, and by anyone else only while
+        an environment they can open serves it. Served with a sandbox Content-Security-Policy,
+        nosniff, a parameter-free Content-Type, private caching, and as an attachment
+        for HTML, SVG, JavaScript and XML; byte ranges are answered, so a video seeks.
+        _redirects and _headers answer their rendered text. A path outside the tree
+        is refused.'
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: The file's path
+        in: query
+        name: path
+        required: true
+        type: string
+      - description: A release number; absent for dev's file
+        in: query
+        name: release
+        type: integer
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+        "206":
+          description: Partial Content
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Read one site file's bytes
       tags:
       - Sites
   /portal/sites/{site}/file/diff:
@@ -39399,6 +39943,85 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Roll back an environment
+      tags:
+      - Sites
+  /portal/sites/{site}/traffic:
+    get:
+      description: Requests by status class and p50, p95 and p99 latency over the
+        last hour, 24 hours, 7 days or 30 days, the range's totals, and the same by
+        environment (#2647). Recorded by the platform in its own database, so it needs
+        no Prometheus backend and no grant beyond seeing the site; someone who does
+        not manage the site sees the environments they can open. No figure holds anything
+        a visitor's request carried.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: 1h, 24h (default), 7d or 30d
+        in: query
+        name: range
+        type: string
+      - description: One environment; absent for every one the caller sees
+        in: query
+        name: environment
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sitehttp.TrafficView'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Read a site's traffic
+      tags:
+      - Sites
+  /portal/sites/check-name:
+    post:
+      consumes:
+      - application/json
+      description: 'What the name a person typed becomes, the addresses dev and prod
+        would answer at, how long an environment name it leaves room for, and why
+        it would be refused, if it would. Creates nothing. The one copy of the site-name
+        rule: the New site dialog asks it as the person types (#2636).'
+      parameters:
+      - description: The typed name; description is ignored
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/sitehttp.SiteRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/siteenv.NameCheck'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Check a new site's name
       tags:
       - Sites
   /portal/threads:

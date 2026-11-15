@@ -39,6 +39,9 @@ type Actor struct {
 	// Roles are the actor's roles: what a handler version an administrator
 	// approves runs with.
 	Roles []string
+	// Agent is true when an agent acts for the person (an MCP tool call, or
+	// the platform's own API reached from one), false in the portal.
+	Agent bool
 }
 
 // Service is the queue's operations.
@@ -248,6 +251,12 @@ func (s *Service) DecideAllowance(ctx context.Context, actor Actor, id string, r
 	if err != nil {
 		return nil, err //nolint:wrapcheck // read by identity
 	}
+	if actor.Agent && kindOf(cur.SubjectKind, cur.Purpose) == KindSite {
+		// #2643: moving an environment people use, making a domain public or
+		// redirecting one is a person's decision, made in the portal.
+		return nil, refused("A site request is decided by a person in the portal (Approvals), never from an agent's session: " +
+			"give the person the request and the dev address to look at.")
+	}
 	if cur.SubjectKind == SubjectCall {
 		if !mayRead(actor, cur) {
 			return nil, ErrNotFound
@@ -452,10 +461,13 @@ type SubmitEnvironment struct {
 	// alone.
 	Stamp  string
 	Reason string
+	// Purpose is PurposeSitePublic (the default) or PurposeSiteRedirect.
+	Purpose string
 }
 
-// SubmitEnvironment files a request to make a site environment public, or
-// returns the one already waiting.
+// SubmitEnvironment files a request to make a site environment's domain
+// public, or to redirect the environment (#2632), or returns the one already
+// waiting.
 func (s *Service) SubmitEnvironment(ctx context.Context, actor Actor, in SubmitEnvironment) (*Request, error) {
 	if actor.Email == "" {
 		return nil, refused("a request belongs to a person: sign in with an account that has an email")
@@ -464,8 +476,12 @@ func (s *Service) SubmitEnvironment(ctx context.Context, actor Actor, in SubmitE
 	if err != nil {
 		return nil, refused("reason: at most %d bytes", MaxReason)
 	}
+	purpose := in.Purpose
+	if purpose == "" {
+		purpose = PurposeSitePublic
+	}
 	r := &Request{
-		ID: NewID(), SubjectKind: SubjectSiteEnvironment, Purpose: PurposeSitePublic, SourceSHA256: in.Stamp,
+		ID: NewID(), SubjectKind: SubjectSiteEnvironment, Purpose: purpose, SourceSHA256: in.Stamp,
 		RequesterEmail: actor.Email, RequesterPersona: actor.Persona, Reason: reason,
 		SiteID: in.SiteID, Target: in.Target, SiteName: in.Site,
 	}

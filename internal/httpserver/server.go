@@ -315,7 +315,7 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	defer streetMaps.Stop()
 	storage.Start(ctx)
 	defer storage.Stop()
-	stopSites := sites.Start(ctx)
+	stopSites := sites.Start(ctx, instanceheader.HostName(address))
 	defer stopSites()
 	apiChanges.Start(ctx)
 	defer apiChanges.Stop()

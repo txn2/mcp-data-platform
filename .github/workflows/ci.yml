@@ -17,6 +17,10 @@ jobs:
   # ancestor, every push to main, and a change to a file that decides how the
   # gates run (scripts/ci-delta.py FULL_RUN_FILES) run everything. Lint, Test
   # and Build always run, so the checks a merge requires are never skipped.
+  # A push after a failed run carries the jobs that passed on it when the
+  # change since reaches none of their inputs (#2642, ci-delta.py
+  # CARRY_GROUPS): the frontend jobs and Security Scan skip, and the
+  # acceptance jobs run the criteria of the tickets the change reaches.
   delta:
     name: Delta
     runs-on: ubuntu-latest
@@ -28,6 +32,11 @@ jobs:
       old_head: ${{ steps.base.outputs.old_head }}
       old_main: ${{ steps.base.outputs.old_main }}
       ui: ${{ steps.scope.outputs.ui }}
+      skip_frontend: ${{ steps.base.outputs.skip_frontend }}
+      skip_frontend_e2e: ${{ steps.base.outputs.skip_frontend_e2e }}
+      skip_security: ${{ steps.base.outputs.skip_security }}
+      carry_head: ${{ steps.base.outputs.carry_head }}
+      carry_main: ${{ steps.base.outputs.carry_main }}
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -52,6 +61,7 @@ jobs:
           REASON: ${{ steps.base.outputs.reason }}
           OLD_HEAD: ${{ steps.base.outputs.old_head }}
           OLD_MAIN: ${{ steps.base.outputs.old_main }}
+          CARRIED: ${{ steps.base.outputs.carried }}
         run: |
           if [ "$MODE" = "delta" ]; then
             DELTA_BASE=$(python3 scripts/ci-delta.py rebuild "$OLD_HEAD" "$OLD_MAIN")
@@ -307,7 +317,7 @@ jobs:
   frontend:
     name: Frontend Build
     needs: delta
-    if: ${{ !cancelled() && (needs.delta.outputs.mode != 'delta' || needs.delta.outputs.ui == 'true') }}
+    if: ${{ !cancelled() && needs.delta.outputs.skip_frontend != 'true' && (needs.delta.outputs.mode != 'delta' || needs.delta.outputs.ui == 'true') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -351,7 +361,7 @@ jobs:
   frontend-e2e:
     name: Frontend E2E
     needs: delta
-    if: ${{ !cancelled() && (needs.delta.outputs.mode != 'delta' || needs.delta.outputs.ui == 'true') }}
+    if: ${{ !cancelled() && needs.delta.outputs.skip_frontend_e2e != 'true' && (needs.delta.outputs.mode != 'delta' || needs.delta.outputs.ui == 'true') }}
     runs-on: ubuntu-latest
     # The suite takes about ten minutes. A step that hangs (a browser install
     # that never finishes unpacking, #1976) fails here instead of holding the
@@ -385,7 +395,7 @@ jobs:
   security:
     name: Security Scan
     needs: delta
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.delta.outputs.skip_security != 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -487,6 +497,15 @@ jobs:
           OLD_HEAD: ${{ needs.delta.outputs.old_head }}
           OLD_MAIN: ${{ needs.delta.outputs.old_main }}
         run: echo "DELTA_BASE=$(python3 scripts/ci-delta.py rebuild "$OLD_HEAD" "$OLD_MAIN")" >> "$GITHUB_ENV"
+
+      # After a failed run whose acceptance jobs passed (#2642), the tickets
+      # come from the change since the merge that run tested.
+      - name: Rebuild the carried run's base
+        if: needs.delta.outputs.mode != 'delta' && needs.delta.outputs.carry_head != ''
+        env:
+          CARRY_HEAD: ${{ needs.delta.outputs.carry_head }}
+          CARRY_MAIN: ${{ needs.delta.outputs.carry_main }}
+        run: echo "DELTA_BASE=$(python3 scripts/ci-delta.py rebuild "$CARRY_HEAD" "$CARRY_MAIN")" >> "$GITHUB_ENV"
 
       # The paths since the PR base, or on a delta run since the last green
       # tree, so a follow-up push runs the criteria of the tickets it touches.

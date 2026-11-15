@@ -9,11 +9,13 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/site"
 	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
 	"github.com/txn2/mcp-data-platform/internal/site/sitetool"
+	"github.com/txn2/mcp-data-platform/pkg/blobserve"
 	"github.com/txn2/mcp-data-platform/pkg/textpatch"
 )
 
@@ -70,6 +72,7 @@ func (a *portalAPI) registerFiles(mux *http.ServeMux) {
 	mux.HandleFunc("PUT "+pathSite+"/file", a.saveFile)
 	mux.HandleFunc("DELETE "+pathSite+"/file", a.deleteFile)
 	mux.HandleFunc("GET "+pathSite+"/file/diff", a.fileDiff)
+	mux.HandleFunc("GET "+pathSite+"/file/content", a.fileContent)
 }
 
 func devRef(r *http.Request, p string) site.Ref {
@@ -382,4 +385,65 @@ func failFile(w http.ResponseWriter, r *http.Request, err error) {
 		}
 	}
 	fail(w, r, err)
+}
+
+// contentMaxAge is how long a browser keeps a site file the viewer read. The
+// file of a release never changes; dev's does, and a short window is what the
+// editor's View tab tolerates.
+const contentMaxAge = 30 * time.Second
+
+// fileContent handles GET /api/v1/portal/sites/{site}/file/content.
+//
+// @Summary      Read one site file's bytes
+// @Description  The bytes of one file of dev, or of a release with release, for the portal's viewer (#2629). Read as /file is: the people who manage the site read dev's source, someone dev is shared with what dev serves; a release's file is read by the people who manage the site, and by anyone else only while an environment they can open serves it. Served with a sandbox Content-Security-Policy, nosniff, a parameter-free Content-Type, private caching, and as an attachment for HTML, SVG, JavaScript and XML; byte ranges are answered, so a video seeks. _redirects and _headers answer their rendered text. A path outside the tree is refused.
+// @Tags         Sites
+// @Produce      octet-stream
+// @Param        site     path   string  true   "Site name or id"
+// @Param        path     query  string  true   "The file's path"
+// @Param        release  query  int     false  "A release number; absent for dev's file"
+// @Success      200
+// @Success      206
+// @Failure      403  {object}  httpjson.ProblemDetail
+// @Failure      404  {object}  httpjson.ProblemDetail
+// @Failure      422  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/sites/{site}/file/content [get]
+func (a *portalAPI) fileContent(w http.ResponseWriter, r *http.Request) {
+	c, r, ok := a.who(w, r)
+	if !ok {
+		return
+	}
+	release := 0
+	if raw := r.URL.Query().Get("release"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n <= 0 {
+			httpjson.WriteError(w, http.StatusBadRequest, "release: a release number")
+			return
+		}
+		release = n
+	}
+	svc := a.svc()
+	fb, err := a.ops().ContentOf(r.Context(), c.actor, r.PathValue(paramSite), r.URL.Query().Get(paramPath), release)
+	if err != nil {
+		failFile(w, r, err)
+		return
+	}
+	opts := blobserve.Options{Name: path.Base(fb.Path), ContentType: fb.ContentType}
+	blobserve.CachePrivate(w, contentMaxAge)
+	if fb.Text != nil {
+		opts.Data = fb.Text
+		blobserve.Serve(w, r, opts)
+		return
+	}
+	if blobserve.ServeRanged(w, r, opts, blobserve.Object{Store: svc.Objects, Bucket: svc.Bucket, Key: fb.Key, Size: fb.Size}) {
+		return
+	}
+	data, _, err := svc.Objects.GetObject(r.Context(), svc.Bucket, fb.Key)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	opts.Data = data
+	blobserve.Serve(w, r, opts)
 }

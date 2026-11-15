@@ -3,6 +3,7 @@ import { screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { resetSitesMock } from "@/mocks/handlers/sites";
 import { bumpSiteFile } from "@/mocks/handlers/siteFiles";
 import { useSite } from "@/api/portal/hooks/sites";
+import { useAuthStore } from "@/stores/auth";
 import { renderWithQuery, signIn } from "@/test/applicationHarness";
 import { SiteDetailPage } from "./SiteDetailPage";
 import { SiteFilePage } from "./SiteFilePage";
@@ -175,11 +176,28 @@ describe("the file editor (#2590)", () => {
     expect(failed).toHaveTextContent("dev still serves release 12");
   });
 
-  it("does not open a file that is not text", async () => {
+  // #2629: a file that is not text opens in the portal's viewer from the
+  // content route, with Download, and Replace for someone who manages the site.
+  it("opens a file that is not text in the viewer", async () => {
     serveSites();
     signIn("admin@example.com", true);
     editor("images/hero.8b1d44f0.webp");
-    expect(await screen.findByTestId("file-binary")).toHaveTextContent("This file isn’t text");
+    const viewer = await screen.findByTestId("file-viewer");
+    await waitFor(() => expect(viewer.querySelector("img")?.getAttribute("src")).toBe("/api/v1/portal/sites/marketing/file/content?path=images%2Fhero.8b1d44f0.webp"));
+    expect(within(viewer).getByRole("button", { name: /Download/ })).toBeInTheDocument();
+    expect(within(viewer).getByRole("button", { name: "Replace" })).toBeInTheDocument();
+  });
+
+  // An API-key session has no credential an <img> carries: the viewer reads the
+  // bytes with the key and draws them from an object URL.
+  it("draws a file from an object URL on an API-key session", async () => {
+    serveSites();
+    signIn("admin@example.com", true);
+    useAuthStore.setState({ authMethod: "apikey", apiKey: "k" } as never);
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: () => "blob:site-file", revokeObjectURL: () => {} }));
+    editor("images/hero.8b1d44f0.webp");
+    const viewer = await screen.findByTestId("file-viewer");
+    await waitFor(() => expect(viewer.querySelector("img")?.getAttribute("src")).toBe("blob:site-file"));
   });
 
   it("asks before leaving with unsaved changes", async () => {

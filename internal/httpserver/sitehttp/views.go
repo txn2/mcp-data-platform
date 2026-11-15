@@ -1,8 +1,16 @@
 package sitehttp
 
 import (
+	"context"
+	"fmt"
+	"net/http"
+	"slices"
+	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/site"
 	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
+	"github.com/txn2/mcp-data-platform/internal/site/sitetraffic"
 )
 
 // SiteLimits is what a release may hold, shown before an upload.
@@ -32,10 +40,16 @@ type SiteView struct {
 	PagesAddresses map[string]string `json:"pages_addresses"`
 	// AddressNote says why the site's environments have no address on the
 	// pages domain: a two-character site name (#2611). Absent otherwise.
-	AddressNote string        `json:"address_note,omitempty"`
-	Domains     []site.Domain `json:"domains"`
+	AddressNote string `json:"address_note,omitempty"`
+	// EnvironmentNameRoom is the longest environment name the site can add:
+	// its name and "--" leave the rest of one DNS label (#2636).
+	EnvironmentNameRoom int           `json:"environment_name_room" example:"32"`
+	Domains             []site.Domain `json:"domains"`
 	// Permissions is what the caller may do to this site.
 	Permissions sitesvc.Permissions `json:"permissions"`
+	// Traffic is the site's last 24 hours over the environments the caller
+	// sees (#2647), on the Sites list; absent elsewhere.
+	Traffic *SiteTraffic `json:"traffic,omitempty"`
 }
 
 // SiteList is the Sites page.
@@ -78,4 +92,178 @@ type EnvironmentResponse struct {
 	Site   SiteView `json:"site"`
 	Status string   `json:"status" example:"done"`
 	Note   string   `json:"note,omitempty"`
+	// Approval is the request a redirect waits on (status awaiting_approval).
+	Approval *sitesvc.ApprovalRequest `json:"approval,omitempty"`
+}
+
+// TrafficPoint is one step of the Traffic view's series.
+type TrafficPoint struct {
+	At time.Time `json:"at"`
+	sitetraffic.Totals
+}
+
+// TrafficView is a site's traffic over a range (#2647): requests by status
+// class and latency percentiles over time, the range's totals, and the same by
+// environment. Its figures are the platform's own, recorded by every replica
+// into shared rows, so it needs no Prometheus backend.
+type TrafficView struct {
+	Range string `json:"range" example:"24h"`
+	// StepSeconds is the width of each point of Series.
+	StepSeconds int64 `json:"step_seconds" example:"900"`
+	// Recording is false where sites.traffic.enabled is off; nothing is
+	// recorded then.
+	Recording    bool                          `json:"recording"`
+	Environment  string                        `json:"environment,omitempty"`
+	Total        sitetraffic.Totals            `json:"total"`
+	Series       []TrafficPoint                `json:"series"`
+	Environments map[string]sitetraffic.Totals `json:"environments"`
+}
+
+// SiteTraffic is the Sites list's figures for one site: its last 24 hours.
+type SiteTraffic struct {
+	Requests int64   `json:"requests_24h" example:"1200"`
+	P95      float64 `json:"p95_ms" example:"48"`
+}
+
+// traffic handles GET /api/v1/portal/sites/{site}/traffic.
+//
+// @Summary      Read a site's traffic
+// @Description  Requests by status class and p50, p95 and p99 latency over the last hour, 24 hours, 7 days or 30 days, the range's totals, and the same by environment (#2647). Recorded by the platform in its own database, so it needs no Prometheus backend and no grant beyond seeing the site; someone who does not manage the site sees the environments they can open. No figure holds anything a visitor's request carried.
+// @Tags         Sites
+// @Produce      json
+// @Param        site         path   string  true   "Site name or id"
+// @Param        range        query  string  false  "1h, 24h (default), 7d or 30d"
+// @Param        environment  query  string  false  "One environment; absent for every one the caller sees"
+// @Success      200  {object}  TrafficView
+// @Failure      400  {object}  httpjson.ProblemDetail
+// @Failure      403  {object}  httpjson.ProblemDetail
+// @Failure      404  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/sites/{site}/traffic [get]
+func (a *portalAPI) traffic(w http.ResponseWriter, r *http.Request) {
+	ss, r, ok := a.siteAndScope(w, r)
+	if !ok {
+		return
+	}
+	if !ss.scope.manage && len(ss.scope.open) == 0 {
+		fail(w, r, site.ErrNotAllowed)
+		return
+	}
+	rg, err := sitetraffic.RangeOf(r.URL.Query().Get("range"))
+	if err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	env, _ := site.CanonicalEnvironment(r.URL.Query().Get("environment"))
+	if env != "" && !ss.scope.sees(env) {
+		fail(w, r, noSuchEnvironment(env))
+		return
+	}
+	out, err := a.trafficView(r.Context(), ss, rg, env)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func noSuchEnvironment(env string) error {
+	return fmt.Errorf("environment %q: %w", env, site.ErrNoEnvironment)
+}
+
+// trafficView reads the view. Someone who does not manage the site reads only
+// the environments they can open: the series is then the sum of those.
+func (a *portalAPI) trafficView(ctx context.Context, ss *scopedSite, rg sitetraffic.Range, env string) (*TrafficView, error) {
+	store := a.d.Runtime.TrafficStore
+	out := &TrafficView{
+		Range: rg.Name, StepSeconds: int64(rg.Step / time.Second), Recording: a.d.Runtime.Live.Get().Traffic.IsEnabled(),
+		Environment: env, Series: []TrafficPoint{}, Environments: map[string]sitetraffic.Totals{},
+	}
+	if store == nil {
+		return out, nil
+	}
+	since := rg.Since(time.Now())
+	by, _, err := store.ByEnvironment(ctx, sitetraffic.KindSite, ss.ID, rg.Grain, since)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // answered by fail
+	}
+	var total sitetraffic.Counts
+	for e, c := range by {
+		if !ss.scope.sees(e) {
+			continue
+		}
+		out.Environments[e] = sitetraffic.TotalsOf(c)
+		if env == "" || env == e {
+			total.Add(c)
+		}
+	}
+	out.Total = sitetraffic.TotalsOf(total)
+	out.Series, err = seriesOf(ctx, store, sitetraffic.SeriesQuery{Kind: sitetraffic.KindSite, Subject: ss.ID, Range: rg, Since: since}, viewedEnvironments(ss, env))
+	return out, err
+}
+
+// viewedEnvironments are the environments a series sums: the one asked for,
+// every one ("") for someone who manages the site, or the ones they open.
+func viewedEnvironments(ss *scopedSite, env string) []string {
+	if env != "" || ss.scope.manage {
+		return []string{env}
+	}
+	envs := make([]string, 0, len(ss.scope.open))
+	for e := range ss.scope.open {
+		envs = append(envs, e)
+	}
+	return envs
+}
+
+// seriesOf is the summed series of envs, in time order.
+func seriesOf(ctx context.Context, store *sitetraffic.Store, q sitetraffic.SeriesQuery, envs []string) ([]TrafficPoint, error) {
+	points := map[time.Time]*sitetraffic.Counts{}
+	var order []time.Time
+	for _, e := range envs {
+		q.Environment = e
+		series, err := store.Series(ctx, q)
+		if err != nil {
+			return nil, err //nolint:wrapcheck // answered by fail
+		}
+		for _, p := range series {
+			if points[p.At] == nil {
+				points[p.At] = &sitetraffic.Counts{}
+				order = append(order, p.At)
+			}
+			points[p.At].Add(p.Counts)
+		}
+	}
+	slices.SortFunc(order, time.Time.Compare)
+	out := make([]TrafficPoint, 0, len(order))
+	for _, at := range order {
+		out = append(out, TrafficPoint{At: at, Totals: sitetraffic.TotalsOf(*points[at])})
+	}
+	return out, nil
+}
+
+// listTraffic is every site's last 24 hours, read once for the Sites list
+// from hour rows, by environment so each caller's figure sums only the
+// environments they see.
+func (a *portalAPI) listTraffic(ctx context.Context) map[string]map[string]sitetraffic.Counts {
+	store := a.d.Runtime.TrafficStore
+	if store == nil {
+		return nil
+	}
+	since := time.Now().UTC().Truncate(time.Hour).Add(-23 * time.Hour)
+	by, err := store.BySubject(ctx, sitetraffic.KindSite, since)
+	if err != nil {
+		return nil
+	}
+	return by
+}
+
+// siteTraffic is one site's list figures over the environments in view.
+func siteTraffic(by map[string]sitetraffic.Counts, st *site.Site) *SiteTraffic {
+	var c sitetraffic.Counts
+	for _, e := range st.Environments {
+		c.Add(by[e.Name])
+	}
+	t := sitetraffic.TotalsOf(c)
+	return &SiteTraffic{Requests: t.Requests, P95: t.P95}
 }

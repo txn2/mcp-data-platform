@@ -284,54 +284,88 @@ func handlerTest(t *testing.T, c *client, args map[string]any) map[string]any {
 	return c.call("manage_script", params)
 }
 
-// unmatchedLatency measures 1,000 unmatched tool calls as caller with no
-// handler bound, with 50 handlers of kind (on scripts of source, drafted
-// through entry) bound to other connections, and with none again, and fails when the p50 or p99 with the 50
-// is more than 5% over the mean of the two runs without: the runs before and
-// after are averaged so drift in the stack over the run is not read as the
-// handlers' cost.
+// unmatchedLatency holds an unmatched call to within 5% of its latency with
+// no handlers, at p50 and p99, while 50 handlers of kind are bound to other
+// connections (#2436, #2634). The two states are measured interleaved (#2645):
+// five rounds of 200 calls each, the order alternating, the 50 handlers
+// enabled or disabled between blocks, so both states sample the same stack.
+// Measured one after the other, anything else the stack did during the middle
+// block was read as the handlers' cost.
 func unmatchedLatency(t *testing.T, admin, caller *client, prefix, kind, source, entry string) {
 	t.Helper()
-	measure := func() (p50, p99 time.Duration) {
-		d := make([]time.Duration, 0, 1000)
-		for range 1000 {
-			start := time.Now()
-			res, text, err := caller.callRaw("api_invoke_endpoint", map[string]any{"connection": handlerConnection, "method": "GET", "path": "/v1/fixed/latency", "purpose": handlerPurpose})
-			if err != nil || res.IsError {
-				t.Fatalf("an unmatched call failed: %v %s", err, text)
-			}
-			d = append(d, time.Since(start))
+	const rounds, block, settle = 5, 200, 20
+	const toggleSettle = 3 * time.Second
+	call := func() time.Duration {
+		start := time.Now()
+		res, text, err := caller.callRaw("api_invoke_endpoint", map[string]any{"connection": handlerConnection, "method": "GET", "path": "/v1/fixed/latency", "purpose": handlerPurpose})
+		if err != nil || res.IsError {
+			t.Fatalf("an unmatched call failed: %v %s", err, text)
 		}
-		slices.Sort(d)
-		return d[len(d)/2], d[len(d)*99/100]
+		return time.Since(start)
 	}
-	// The scripts are saved, and a warm-up run, before anything is measured:
-	// a save starts background work of its own (the script's tile, its
-	// index entry) that would otherwise land in one phase and not the others.
+	// The scripts are saved, and the handlers bound, before anything is
+	// measured: a save starts background work of its own (the script's tile,
+	// its index entry) that would otherwise land in one state's blocks.
 	names := make([]string, 0, 3)
 	for range 3 {
 		name := handlerNonce(prefix)
 		saveHandlerScript(t, admin, name, source, entry)
 		names = append(names, name)
 	}
-	measure()
-	before50, before99 := measure()
-	var bound []any
+	bound := make([]string, 0, 50)
 	for i := range 50 {
 		// A script holds at most 20 handlers of a kind.
 		h := admin.handlerSet(names[i/20], kind, map[string]any{"connection": fmt.Sprintf("acc-elsewhere-%d", i), "operations": []string{"*"}, "approve": i%20 == 0})
-		bound = append(bound, h["handler"])
+		id, _ := h["handler"].(string)
+		bound = append(bound, id)
 	}
-	with50, with99 := measure()
-	for _, h := range bound {
-		admin.handlerOff(h)
+	t.Cleanup(func() {
+		for _, id := range bound {
+			admin.handlerOff(id)
+		}
+	})
+	toggle := func(on bool) {
+		command := "handler_disable"
+		if on {
+			command = "handler_enable"
+		}
+		for _, id := range bound {
+			if res, text, err := admin.callRaw("manage_script", map[string]any{"command": command, "handler": id}); err != nil || res.IsError {
+				t.Fatalf("%s %s: %v %s", command, id, err, text)
+			}
+		}
+		// Unmeasured: every toggle is heard on each replica as one change per
+		// handler, and the first call after a heard change waits for the index
+		// to read the handlers again. Let those notifications land and be read
+		// before measuring, so neither state's block pays for the other's
+		// toggle.
+		time.Sleep(toggleSettle)
+		for range settle {
+			call()
+		}
 	}
-	after50, after99 := measure()
-	base50, base99 := (before50+after50)/2, (before99+after99)/2
-	if float64(with50) > float64(base50)*1.05 {
-		t.Errorf("p50 with 50 %s handlers elsewhere is %v, more than 5%% over %v", kind, with50, base50)
+	samples := map[bool][]time.Duration{}
+	for r := range rounds {
+		// AB, BA, AB, ...: neither state always runs first in a round.
+		for _, on := range []bool{r%2 == 1, r%2 == 0} {
+			toggle(on)
+			for range block {
+				samples[on] = append(samples[on], call())
+			}
+		}
 	}
-	if float64(with99) > float64(base99)*1.05 {
-		t.Errorf("p99 with 50 %s handlers elsewhere is %v, more than 5%% over %v", kind, with99, base99)
+	pct := func(d []time.Duration, n int) time.Duration {
+		s := slices.Clone(d)
+		slices.Sort(s)
+		return s[len(s)*n/100]
+	}
+	without50, without99 := pct(samples[false], 50), pct(samples[false], 99)
+	with50, with99 := pct(samples[true], 50), pct(samples[true], 99)
+	t.Logf("%s: without handlers p50 %v p99 %v; with 50 elsewhere p50 %v p99 %v", kind, without50, without99, with50, with99)
+	if float64(with50) > float64(without50)*1.05 {
+		t.Errorf("p50 with 50 %s handlers elsewhere is %v, more than 5%% over %v", kind, with50, without50)
+	}
+	if float64(with99) > float64(without99)*1.05 {
+		t.Errorf("p99 with 50 %s handlers elsewhere is %v, more than 5%% over %v", kind, with99, without99)
 	}
 }

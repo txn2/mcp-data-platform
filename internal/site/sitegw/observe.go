@@ -9,6 +9,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/httpobs"
 	"github.com/txn2/mcp-data-platform/internal/site"
+	"github.com/txn2/mcp-data-platform/internal/site/sitetraffic"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
 
@@ -30,17 +31,20 @@ type observedWriter struct {
 	g               *Gateway
 	r               *http.Request
 	kind, name, env string
-	start           time.Time
-	status          int
+	// subject is what the traffic tally counts under: the site's id, which a
+	// rename leaves alone, or the application's name.
+	subject string
+	start   time.Time
+	status  int
 }
 
 // observe names the request on its server span and returns the writer that
 // counts it; done records it.
 func (g *Gateway) observe(w http.ResponseWriter, r *http.Request, route *site.Route) *observedWriter {
-	o := &observedWriter{ResponseWriter: w, g: g, r: r, kind: kindSite, name: route.Site, env: route.Environment, start: time.Now()}
+	o := &observedWriter{ResponseWriter: w, g: g, r: r, kind: kindSite, name: route.Site, env: route.Environment, subject: route.SiteID, start: time.Now()}
 	if route.Application != "" {
 		httpobs.SetRoute(r, httpobs.RoutePages)
-		o.kind, o.name, o.env = kindPages, route.Application, ""
+		o.kind, o.name, o.env, o.subject = kindPages, route.Application, "", route.Application
 	}
 	trace.SpanFromContext(r.Context()).SetAttributes(
 		attribute.String(attrSiteKind, o.kind), attribute.String(attrSiteName, o.name), attribute.String(attrSiteEnv, o.env))
@@ -76,6 +80,8 @@ func (o *observedWriter) done() {
 	if status == 0 {
 		status = http.StatusOK
 	}
-	o.g.deps.Metrics.RecordSiteRequest(o.r.Context(), o.kind, o.name, o.env,
-		observability.HTTPStatusClass(status), time.Since(o.start))
+	took := time.Since(o.start)
+	o.g.deps.Metrics.RecordSiteRequest(o.r.Context(), o.kind, o.name, o.env, observability.HTTPStatusClass(status), took)
+	// The tally's key is the route's and nothing the request carried.
+	o.g.deps.Traffic.Record(sitetraffic.Key{Kind: o.kind, Subject: o.subject, Environment: o.env}, status, took)
 }
