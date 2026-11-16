@@ -874,8 +874,8 @@ func (t *Toolkit) newConnClient(name string, cfg Config) (*http.Client, error) {
 		}
 		client = newInternalHTTPClient(name, h)
 	}
-	if cfg.SelfDispatch {
-		client.Transport = selfcall.Transport(newInternalHTTPClient(name, &t.selfHandler).Transport, client.Transport)
+	if cfg.SelfDispatch { // every call a tool call's, served in process (#2656)
+		client.Transport = selfcall.Transport(newInternalHTTPClient(name, &t.selfHandler).Transport)
 	}
 	client.Transport = secretref.Transport(client.Transport)
 	return client, nil

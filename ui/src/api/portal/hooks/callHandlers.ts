@@ -103,13 +103,18 @@ export interface TestCall {
 const connectionHandlersKey = (connection: string) => [...scriptsKey, "connection-handlers", connection];
 
 /** useConnectionHandlers reads every tool-call handler on a connection. */
+/** ConnectionHandlerList is a connection's handlers and the name its calls
+ * carry, which a handler added from its page names (#2649): an MCP
+ * connection's connection_name, not the instance name its page is reached by. */
+export interface ConnectionHandlerList {
+  connection: string;
+  data: CallHandlerDetail[];
+}
+
 export function useConnectionHandlers(connection: string, enabled = true) {
   return useQuery({
     queryKey: connectionHandlersKey(connection),
-    queryFn: () =>
-      apiFetch<{ data: CallHandlerDetail[] }>(`/connections/${encodeURIComponent(connection)}/handlers`).then(
-        (r) => r.data,
-      ),
+    queryFn: () => apiFetch<ConnectionHandlerList>(`/connections/${encodeURIComponent(connection)}/handlers`),
     enabled: enabled && connection !== "",
   });
 }
@@ -144,5 +149,31 @@ export function useHandlerFailures(handlerID: string, enabled: boolean) {
     queryKey: [...scriptsKey, "handler-failures", handlerID],
     queryFn: () => apiFetch<{ data: HandlerFailure[] }>(`/handlers/${handlerID}/failures`).then((r) => r.data),
     enabled,
+  });
+}
+
+/** HandlerScriptChoice is a script a tool-call handler of a kind can run (#2650). */
+export interface HandlerScriptChoice {
+  id: string;
+  name: string;
+  owner_email: string;
+  version: number;
+  running_version: number;
+  running_defines: boolean;
+}
+
+/** HandlerScripts is what the Add handler dialog lists for a kind. */
+export interface HandlerScripts {
+  kind: string;
+  entry: string;
+  scripts: HandlerScriptChoice[];
+  looked: number;
+}
+
+/** useHandlerScripts lists the scripts that define a kind's entry, matching q. */
+export function useHandlerScripts(kind: string, q: string) {
+  return useQuery({
+    queryKey: [...scriptsKey, "handler-scripts", kind, q],
+    queryFn: () => apiFetch<HandlerScripts>(`/handler-scripts?${new URLSearchParams({ kind, q }).toString()}`),
   });
 }

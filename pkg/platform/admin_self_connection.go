@@ -184,7 +184,7 @@ func ensureAdminSelfCatalog(ctx context.Context, store apigatewaycatalog.Store) 
 // registerAdminSelfConnection adds the platform-admin connection to the
 // toolkit, or reloads it when it already exists (a re-seed on a later
 // boot). The connection uses identity passthrough (the acting admin's
-// token authenticates the loopback call). It carries no special access
+// token authenticates the call, served in process as a tool call's, #2656). It carries no special access
 // flag: with connections deny-by-default, only personas that explicitly
 // allow it (the admin persona's "*") can reach it.
 func registerAdminSelfConnection(tk *apigatewaykit.Toolkit, baseURL string) error {
@@ -208,9 +208,9 @@ func registerAdminSelfConnection(tk *apigatewaykit.Toolkit, baseURL string) erro
 		// stored secret as {{secret:<name>}}, which the admin API stores as
 		// written; filling it here would save the value instead (#2066).
 		"fill_secrets": false,
-		// A call that carries no token -- a managed script's run -- is served
-		// by this process's own handler as the identity it was authenticated
-		// as (#2086).
+		// Every call is served by this process's own handler, marked as a
+		// tool call's (#2656); one that carries no token -- a managed script's
+		// run -- as the identity it was authenticated as (#2086).
 		"self_dispatch": true,
 	}); err != nil {
 		return fmt.Errorf("adding connection: %w", err)

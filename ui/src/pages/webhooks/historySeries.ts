@@ -91,17 +91,19 @@ export function spoolSeries(data: WebhookStatusOverview): Row[] {
 }
 
 /** ackSeries is the acknowledgement per bucket for one source or all: the
- * worst p50 and p99 of the sources, and each stage's average weighted by
- * deliveries. A bucket with no deliveries has no latency. */
+ * worst p50, p99 and max of the sources, the deliveries, and each stage's
+ * average weighted by deliveries (#2651). A bucket with no deliveries has no
+ * latency. */
 export function ackSeries(data: WebhookStatusOverview, source: string): Row[] {
-  const byAt = new Map<string, { n: number; p50: number; p99: number; buffer: number; mark: number; put: number }>();
+  const byAt = new Map<string, { n: number; p50: number; p99: number; max: number; buffer: number; mark: number; put: number }>();
   for (const p of data.history.ack) {
     if (source && p.source !== source) continue;
     const k = key(p.at);
-    const cur = byAt.get(k) ?? { n: 0, p50: 0, p99: 0, buffer: 0, mark: 0, put: 0 };
+    const cur = byAt.get(k) ?? { n: 0, p50: 0, p99: 0, max: 0, buffer: 0, mark: 0, put: 0 };
     cur.n += p.count;
     cur.p50 = Math.max(cur.p50, p.p50_ms);
     cur.p99 = Math.max(cur.p99, p.p99_ms);
+    cur.max = Math.max(cur.max, p.max_ms);
     cur.buffer += p.buffer_ms * p.count;
     cur.mark += p.mark_ms * p.count;
     cur.put += p.put_ms * p.count;
@@ -111,8 +113,19 @@ export function ackSeries(data: WebhookStatusOverview, source: string): Row[] {
     .filter(([, v]) => v.n > 0)
     .sort(([a], [b]) => compareOrdinal(a, b))
     .map(([at, v]) => ({
-      at, p50: v.p50, p99: v.p99, buffer: v.buffer / v.n, mark: v.mark / v.n, put: v.put / v.n,
+      at, max: v.max, p99: v.p99, p50: v.p50, count: v.n, buffer: v.buffer / v.n, mark: v.mark / v.n, put: v.put / v.n,
     }));
+}
+
+/** estimatedWithin is the bucket a percentile of ms was estimated in: the
+ * edges either side of it, the last bucket's upper edge null (#2651). */
+export function estimatedWithin(ms: number, edges: number[]): { from: number; to: number | null } {
+  let from = 0;
+  for (const e of edges) {
+    if (ms <= e) return { from, to: e };
+    from = e;
+  }
+  return { from, to: null };
 }
 
 /** compactionSeries is each compaction, oldest first, for one source or all:

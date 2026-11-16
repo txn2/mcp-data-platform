@@ -304,8 +304,15 @@ func ConnectionMatches(pattern, name string) bool {
 	return ok
 }
 
+// Everyone reports whether h applies to every caller: it names no persona
+// and no person, which a handler set since #2650 carries only when an
+// administrator chose everyone.
+func (h *Handler) Everyone() bool {
+	return len(h.Personas) == 0 && len(h.Users) == 0
+}
+
 func (h *Handler) coversCaller(c *Call) bool {
-	if len(h.Personas) == 0 && len(h.Users) == 0 {
+	if h.Everyone() {
 		return true
 	}
 	return (c.Persona != "" && slices.Contains(h.Personas, c.Persona)) ||

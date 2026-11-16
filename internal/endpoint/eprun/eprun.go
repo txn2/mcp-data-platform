@@ -19,6 +19,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/auditredact"
@@ -334,7 +335,11 @@ func (r *Runner) invoke(ctx context.Context, t *Target, sessionID string, call *
 	opts.ClampStatementTimeout = t.Version.PredatesStatementCap
 	opts.FireTime = time.Now().UTC()
 	opts.Caller, opts.Destinations, opts.Exporter = caller, r.Destinations, refuseExports{}
-	opts.Tokens = r.Tokens.Bind(scripttoken.Binding{Endpoint: t.Binding.Name}, t.Version.AuthorRoles)
+	var watch *secretWatch
+	if tokens := r.Tokens.Bind(scripttoken.Binding{Endpoint: t.Binding.Name}, t.Version.AuthorRoles); tokens != nil {
+		watch = &secretWatch{Caller: tokens}
+		opts.Tokens = watch
+	}
 	if r.Libraries != nil {
 		if opts.Libraries, err = r.Libraries(ctx, t.Version); err != nil {
 			return errorResponse(http.StatusInternalServerError, "the endpoint could not start"), err
@@ -348,7 +353,30 @@ func (r *Runner) invoke(ctx context.Context, t *Target, sessionID string, call *
 	if _, err := scriptrun.Run(ctx, opts); err != nil {
 		return failedRun(err), err
 	}
-	return call.respond(returned)
+	resp, err := call.respond(returned)
+	resp.Secret = resp.Secret || watch.used()
+	return resp, err
+}
+
+// secretWatch records whether a run called a member that hands it a secret,
+// platform.mint_token or platform.decrypt, whatever it did with the value, so
+// its answer is never sent compressed (#2655).
+type secretWatch struct {
+	scripttoken.Caller
+	called atomic.Bool
+}
+
+// CallTool implements scripttoken.Caller.
+func (s *secretWatch) CallTool(ctx context.Context, name string, args map[string]any) (map[string]any, error) {
+	if name == scripttoken.CapabilityMint || name == scripttoken.CapabilityDecrypt {
+		s.called.Store(true)
+	}
+	return s.Caller.CallTool(ctx, name, args) //nolint:wrapcheck // the member's own answer
+}
+
+// used reports whether the run called one; false for no watch.
+func (s *secretWatch) used() bool {
+	return s != nil && s.called.Load()
 }
 
 // failedRun is the response to a handler that did not finish: past its time

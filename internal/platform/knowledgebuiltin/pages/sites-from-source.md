@@ -46,8 +46,23 @@ and front matter in full.
 
 ## 3. Load the source tree
 
-Pack the source tree into a zip or gzipped tar, upload it to Resources (the
-portal's upload, or `POST /api/v1/resources`), and publish from it:
+Pack the source tree into a zip or gzipped tar and put it in Resources. From the
+machine the tree is on, ask for an upload link and PUT the archive to it from the
+shell; the bytes never pass through a tool call, and no portal, API key or public
+object storage is needed:
+
+```
+manage_resource action=upload_link filename=site.zip path=sites/marketing
+  display_name="Marketing source" description="The marketing site's source tree"
+  content_type=application/zip size_bytes=<the archive's size or more>
+curl --fail -T site.zip -H 'Content-Type: application/zip' '<upload_url>'
+```
+
+The link is good for one upload, expires after 15 minutes (`ttl_seconds`, at most
+an hour), takes at most `size_bytes`, and files the archive at that address as you,
+with the checks the portal's upload makes. The PUT answers the resource's
+reference. A person can upload through the portal's Resources page instead. Then
+publish from the archive:
 
 ```
 manage_site command=publish site=marketing archive=mcp:resource:<id> note="From source"
@@ -73,11 +88,13 @@ manage_site command=update site=marketing
   media=[{"prefix":"/media/","scope":"global","folder":"sites/marketing/media"}]
 ```
 
-One archive holds up to `resources.managed.extract.max_members` files (100,000 by
-default) and `max_total_bytes` uncompressed (4 GiB by default); split a larger
-media set over several archives, or load it from a bucket prefix. Uploading an
-archive is bounded by `resources.managed.max_upload_bytes`, which an administrator
-raises for a large media archive.
+A media archive reaches Resources the way the source tree does: an upload link
+and one PUT from the shell. One archive holds up to
+`resources.managed.extract.max_members` files (100,000 by default) and
+`max_total_bytes` uncompressed (4 GiB by default); split a larger media set over
+several archives, or load it from a bucket prefix. Uploading an archive is bounded
+by `resources.managed.max_upload_bytes`, which an administrator raises for a large
+media archive.
 
 ## 5. Redirects and dynamic features
 

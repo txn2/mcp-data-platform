@@ -31,12 +31,19 @@ not an administrator, reads it on the script's page and changes nothing.
 
 The match is data the platform checks, never script:
 
-- **connection**: a connection's name, or a glob (`billing-*`).
+- **connection**: the name a connection's calls carry, or a glob (`billing-*`).
+  An MCP connection stored under one name whose `connection_name` its calls
+  carry is named by its `connection_name`: a handler naming the stored name is
+  refused, naming the one to use (#2649). The connection's page lists and tests
+  its handlers under either name.
 - **operations**: catalog operation ids (`addSubscribers`), tool names
   (`trino_query`), or `METHOD path` patterns (`POST /lists/*`, `PUT *`), each a
   glob; none matches every call on the connection. At most 50.
-- **who**: personas, people by address, or everyone; at most 200. A handler only
-  ever sees calls the caller's persona already allows: authorization runs first.
+- **who**: personas, people by address, or everyone (`everyone: true`); at most
+  200. Everyone is a choice: a new handler with no personas, no people and no
+  `everyone` is refused, and so is a change that empties both lists without it
+  (#2650). A handler only ever sees calls the caller's persona already allows:
+  authorization runs first.
 - **conditions**: equality on a path parameter, a body field (a dotted path) or
   a query parameter, so a handler on one record does not run for every call on
   its operation; at most 10.
@@ -44,6 +51,9 @@ The match is data the platform checks, never script:
 Each replica keeps the enabled handlers in memory, read again on the
 `call_handlers` notification a change sends, so a call on a connection no
 handler names costs one lookup and nothing else: no database read and no script.
+The handlers' layer reports its own time on every call, the call itself left
+out, as `call_handlers_layer_seconds{matched}` in sub-millisecond buckets
+(#2653): `matched="false"` is that lookup alone.
 
 A script's application database statements bind straight to a pool and never
 cross the `tools/call` chain, so the handlers are asked there too, on every path
@@ -59,7 +69,10 @@ be asked mid-run, so a statement a policy holds is refused, naming what holds it
 
 A tool-call handler runs the highest version of its script approved for
 handlers, with the roles of the administrator who approved it, recorded at the
-decision. An administrator's save of the script approves the version it saved
+decision. Adding or changing one checks that the version it will run (the latest
+when `approve` is set or none is approved, else the approved one) defines its
+kind's entry, `decide(call)`, `transform(call, result)` or `main()`, and refuses
+it naming the version otherwise, the refusal a save of the script gives (#2650). An administrator's save of the script approves the version it saved
 (recorded as self-approved); anyone else's save files a request administrators
 decide under **Approvals**, and the approved version keeps running meanwhile. A
 script nobody has approved runs nothing.

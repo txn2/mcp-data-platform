@@ -11,6 +11,8 @@
 package connid
 
 import (
+	"cmp"
+
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
@@ -117,15 +119,17 @@ func (r *Resolver) All(kind string) []Connection {
 }
 
 // fromToolkit reads the connections one toolkit serves. A multi-connection
-// toolkit routes on the instance key, so both names are the connection's own; a
-// single-connection toolkit is its connection, and its bound name is the
-// connection_name it carries or its instance name when it carries none.
+// toolkit routes on the instance key, so both names are the connection's own
+// unless it reports the name its calls carry (an MCP connection's
+// connection_name, #2649); a single-connection toolkit is its connection, and
+// its bound name is the connection_name it carries or its instance name when
+// it carries none.
 func (r *Resolver) fromToolkit(tk registry.Toolkit) []Connection {
 	if lister, ok := tk.(toolkit.ConnectionLister); ok {
 		conns := lister.ListConnections()
 		out := make([]Connection, 0, len(conns))
 		for _, c := range conns {
-			out = append(out, r.connection(tk.Kind(), Instance(c.Name), Bound(c.Name), tk.Name(), true))
+			out = append(out, r.connection(tk.Kind(), Instance(c.Name), Bound(cmp.Or(c.Bound, c.Name)), tk.Name(), true))
 		}
 		return out
 	}
@@ -169,6 +173,19 @@ func BoundByInstance(resolver func() *Resolver) func(kind, instance string) stri
 	return func(kind, instance string) string {
 		return string(resolver().ByInstance(kind, Instance(instance)).Bound)
 	}
+}
+
+// CallName is the name the calls of the connection name names carry: name
+// itself, unless a live connection is stored under name and its calls carry
+// another (an MCP connection's connection_name, #2649), whatever its kind.
+// stored reports that case.
+func (r *Resolver) CallName(name string) (bound string, stored bool) {
+	for _, c := range r.All("") {
+		if string(c.Instance) == name && string(c.Bound) != name {
+			return string(c.Bound), true
+		}
+	}
+	return name, false
 }
 
 // ByBound resolves the connection a tool call's argument, a persona rule, or a

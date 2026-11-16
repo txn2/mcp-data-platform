@@ -22,6 +22,8 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scripttiles"
 	"github.com/txn2/mcp-data-platform/internal/platform/thumbworker"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
+	"github.com/txn2/mcp-data-platform/internal/site/sitetile"
+	"github.com/txn2/mcp-data-platform/internal/site/sitetile/tilepage"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
@@ -47,6 +49,19 @@ func Build(p *platform.Platform, routes http.Handler) *thumbworker.Worker {
 		return nil
 	}
 	return assemble(p, routes, contentviewer.TileEntryURL())
+}
+
+// sitePage builds the page a site environment's tile is drawn from, nil on a
+// deployment that serves no sites.
+func sitePage(p source) thumbworker.SitePage {
+	pp, ok := p.(*platform.Platform)
+	if !ok {
+		return nil
+	}
+	if e := pp.Endpoints(); e != nil && e.Sites != nil && e.Sites.Serving() {
+		return tilepage.Release{Store: e.Sites.Store, Objects: e.Sites.Service.Objects, Bucket: e.Sites.Service.Bucket}.Page
+	}
+	return nil
 }
 
 // ScriptTiles is the reader a script's tile is served from (#1909): the tile
@@ -129,6 +144,11 @@ func assemble(p source, routes http.Handler, tileEntry string) *thumbworker.Work
 	}
 	if db := p.DB(); db != nil {
 		deps.Scripts = scripttiles.NewPostgres(db)
+		// Each site environment's tile, drawn from the release it serves
+		// (#2658).
+		if page := sitePage(p); page != nil {
+			deps.Sites, deps.SitePage = sitetile.NewStore(db), page
+		}
 	}
 	if resources, ok := p.ResourceStore().(resource.ThumbnailWork); ok && p.ResourceS3Client() != nil {
 		deps.Resources = resources

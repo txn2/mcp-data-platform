@@ -209,9 +209,11 @@ func (r *Runner) specResponse(t *Target) func(starlark.Value) (Response, error) 
 		if err != nil {
 			return errorResponse(http.StatusInternalServerError, "the form could not be signed"), err
 		}
-		return jsonResponse(http.StatusOK, map[string]any{
+		resp := jsonResponse(http.StatusOK, map[string]any{
 			"spec": spec, "form_token": token, "token_field": epform.TokenField, "honeypot_field": epform.HoneypotField,
-		}), nil
+		})
+		resp.Secret = true
+		return resp, nil
 	}
 }
 

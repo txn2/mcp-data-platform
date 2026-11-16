@@ -127,7 +127,7 @@ func (s *Store) RollupTelemetry(ctx context.Context, before time.Time) error {
 			counts AS (
 			  SELECT source, hour, array_agg(n ORDER BY i) AS buckets
 			    FROM (SELECT b.source, b.hour, u.i, SUM(u.n) AS n
-			            FROM binned b, unnest(b.buckets) WITH ORDINALITY AS u(n, i)
+			            FROM binned b, unnest(webhook_ack_counts(b.buckets, b.ack_buckets)) WITH ORDINALITY AS u(n, i)
 			           GROUP BY b.source, b.hour, u.i) per_bucket
 			   GROUP BY source, hour),
 			sums AS (
@@ -138,7 +138,7 @@ func (s *Store) RollupTelemetry(ctx context.Context, before time.Time) error {
 			         slowest_buffer_ms, slowest_mark_ms, slowest_put_ms
 			    FROM binned ORDER BY source, hour, max_ms DESC)
 			INSERT INTO webhook_ack_latency
-			       (source, minute, buckets, max_ms, slowest_at, slowest_buffer_ms, slowest_mark_ms, slowest_put_ms,
+			       (source, minute, ack_buckets, max_ms, slowest_at, slowest_buffer_ms, slowest_mark_ms, slowest_put_ms,
 			        buffer_ms_sum, mark_ms_sum, put_ms_sum)
 			SELECT c.source, c.hour, c.buckets, sl.max_ms, sl.slowest_at, sl.slowest_buffer_ms, sl.slowest_mark_ms,
 			       sl.slowest_put_ms, su.bs, su.ms, su.ps
@@ -146,9 +146,11 @@ func (s *Store) RollupTelemetry(ctx context.Context, before time.Time) error {
 			  JOIN sums su ON su.source = c.source AND su.hour = c.hour
 			  JOIN slowest sl ON sl.source = c.source AND sl.hour = c.hour
 			ON CONFLICT (source, minute) DO UPDATE SET
-			   buckets = ARRAY(SELECT COALESCE(t.a, 0) + COALESCE(t.b, 0)
-			                     FROM unnest(webhook_ack_latency.buckets, EXCLUDED.buckets) WITH ORDINALITY AS t(a, b, i)
+			   ack_buckets = ARRAY(SELECT COALESCE(t.a, 0) + COALESCE(t.b, 0)
+			                     FROM unnest(webhook_ack_counts(webhook_ack_latency.buckets, webhook_ack_latency.ack_buckets),
+			                                 EXCLUDED.ack_buckets) WITH ORDINALITY AS t(a, b, i)
 			                    ORDER BY t.i),
+			   buckets = '{}',
 			   slowest_at = CASE WHEN EXCLUDED.max_ms > webhook_ack_latency.max_ms
 			                     THEN EXCLUDED.slowest_at ELSE webhook_ack_latency.slowest_at END,
 			   slowest_buffer_ms = CASE WHEN EXCLUDED.max_ms > webhook_ack_latency.max_ms
@@ -265,7 +267,8 @@ func (s *Store) replicaSeries(ctx context.Context, sp timeSpan) ([]ReplicaMinute
 func (s *Store) ackSeries(ctx context.Context, source string, sp timeSpan) ([]AckPoint, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`WITH binned AS (
-		   SELECT to_timestamp((floor(extract(epoch FROM minute) / $2::integer) * $2::integer)::double precision) AS at, source, buckets, max_ms,
+		   SELECT to_timestamp((floor(extract(epoch FROM minute) / $2::integer) * $2::integer)::double precision) AS at, source,
+		          `+ackCounts+` AS buckets, max_ms,
 		          buffer_ms_sum, mark_ms_sum, put_ms_sum
 		     FROM webhook_ack_latency
 		    WHERE minute >= $1 AND ($4::timestamptz IS NULL OR minute < $4) AND ($3::text = '' OR source = $3::text))

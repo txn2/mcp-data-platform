@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { mockWebhookOverview, mockWebhookSources } from "@/mocks/data/webhooks";
-import { WebhookHistory } from "./WebhookHistory";
+import { AckTooltip, WebhookHistory } from "./WebhookHistory";
 
 describe("WebhookHistory (#2150)", () => {
   it("says plainly that an answer from in front of the platform is not counted", () => {
@@ -38,5 +38,20 @@ describe("WebhookHistory (#2150)", () => {
     data.history.sizing = { ...data.history.sizing, memory_limit_bytes: 0, warning: false };
     render(<WebhookHistory data={data} source="email-events" isLoading={false} />);
     expect(screen.getByText("This replica has no memory limit to set it against.")).toBeInTheDocument();
+  });
+
+  it("names the slowest, the bucket p99 was estimated in, and the stages' averages (#2651)", () => {
+    const row = { at: "2026-09-29T10:32:00Z", max: 2410, p99: 1180, p50: 85, count: 1102, put: 64, mark: 3, buffer: 2 };
+    render(<AckTooltip active payload={[{ payload: row }]} step={60} edges={[500, 1000, 1500, 2000]} />);
+    const tip = screen.getByTestId("ack-tooltip");
+    expect(tip).toHaveTextContent("max 2,410 ms");
+    expect(tip).toHaveTextContent("p99 1,180 ms (estimated within 1,000 to 1,500 ms)");
+    expect(tip).toHaveTextContent("put 64 ms, mark 3 ms, buffer 2 ms (averages)");
+    expect(tip).toHaveTextContent("1,102 deliveries");
+  });
+
+  it("says a line between edges is an estimate, never a timeout", () => {
+    render(<WebhookHistory data={mockWebhookOverview(mockWebhookSources, "day")} source="" isLoading={false} />);
+    expect(screen.getByText(/never a timeout/)).toBeInTheDocument();
   });
 });

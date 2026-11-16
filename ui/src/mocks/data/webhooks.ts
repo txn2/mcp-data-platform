@@ -442,6 +442,7 @@ export function mockWebhookHistory(sources: string[], from: number, until: numbe
     statuses,
     replicas,
     ack,
+    ack_edges_ms: [10, 25, 50, 100, 250, 500, 1000, 1500, 2000, 2500, 3000, 5000, 10000, 30000],
     compactions,
     storage: sources.map((source, i) => ({
       source, raw_bytes: 210_000_000 + i * 30_000_000, raw_segments: 2_800 + i * 100,

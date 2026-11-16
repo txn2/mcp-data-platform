@@ -64,6 +64,7 @@ Config toggles (set on `load-up`):
 | `oauth-token` | OAuth DCR (`/register`): the bcrypt-bound, rate-limited path (see note below) |
 | `portal-read` | portal REST list/read endpoints plus the public viewer path |
 | `audit-burst` | high-concurrency audited calls sized past the async audit queue |
+| `endpoint-bytes` | a JSON endpoint fetched with and without compression; reports the bytes per view before and after (#2655) |
 | `soak` | fixed moderate rate for a long duration; asserts flat memory and goroutines |
 
 **On `oauth-token`:** the platform's token endpoint is not headless-drivable for

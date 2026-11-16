@@ -193,6 +193,15 @@ var defaultDurationBuckets = []float64{
 	0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60,
 }
 
+// webhookAckBuckets are webhook_ack_seconds' bounds: the platform's, with
+// edges at 1.5, 2 and 3 seconds around the timeouts senders give up at, so a
+// crossing of a 2 second give-up is visible (#2651).
+//
+//nolint:gochecknoglobals // OTel histogram bounds are config, not state.
+var webhookAckBuckets = []float64{
+	0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 1.5, 2, 2.5, 3, 5, 10, 30, 60,
+}
+
 // Attribute keys. Constants so a typo can't silently create a new
 // label dimension at runtime.
 const (
@@ -347,6 +356,8 @@ type Metrics struct {
 	webhook webhookInstruments
 	// webhookTelemetry is the webhooks page's history as series (#2150).
 	webhookTelemetry webhookTelemetryInstruments
+	// callHandlersLayer is the tool-call handlers' own time per call (#2653).
+	callHandlersLayer metric.Float64Histogram
 
 	// Inbound HTTP and MCP method instruments (#1889), metrics_http.go.
 	http httpInstruments
@@ -543,8 +554,13 @@ func durationHistogramView() sdkmetric.View {
 		if isIndexJobHistogram(inst.Name) {
 			bounds = indexJobDurationBuckets
 		}
-		if inst.Name == instDBClientOperationDuration {
+		switch inst.Name {
+		case instDBClientOperationDuration:
 			bounds = dbStatementDurationBuckets
+		case instWebhookAck:
+			bounds = webhookAckBuckets
+		case instCallHandlersLayer:
+			bounds = callHandlersLayerBuckets
 		}
 		return sdkmetric.Stream{
 			Name:        inst.Name,
@@ -670,6 +686,9 @@ func (m *Metrics) registerInstruments(meter metric.Meter) error {
 		return err
 	}
 	if err := m.registerWebhookInstruments(meter); err != nil {
+		return err
+	}
+	if err := m.registerCallHandlers(meter); err != nil {
 		return err
 	}
 	if err := m.registerWebhookTelemetry(meter); err != nil {

@@ -87,7 +87,11 @@ type File struct {
 
 // Input is the tool's arguments.
 type Input struct {
-	Command     string `json:"command"`
+	Command string `json:"command"`
+	// Query, Limit and Offset narrow and page list (#2658).
+	Query       string `json:"query,omitempty"`
+	Limit       int    `json:"limit,omitempty"`
+	Offset      int    `json:"offset,omitempty"`
 	Site        string `json:"site,omitempty"`
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
@@ -257,6 +261,9 @@ func schema() map[string]any {
 			"name":        str("create: the site's name, a lowercase slug."),
 			keyDesc:       str("create, update: what the site is."),
 			"owner_email": str("update: move the site to another owner."),
+			"query":       str("list: the sites a part of whose name, description, owner or domain hostname this is, any case; every site without it."),
+			"limit":       num("list: how many sites to return, at most 200; every match without it."),
+			"offset":      num("list: how many matching sites to skip."),
 			"media": map[string]any{
 				keyType: typArray,
 				keyDesc: "update: EVERY managed-resource folder the site serves as media, replacing the list ([] removes them all). Each is " +
@@ -452,10 +459,8 @@ func (t *Tool) handlers() map[string]handler {
 			return s.Create(ctx, a, in.Name, in.Description)
 		},
 		CmdGet: t.get,
-		CmdList: func(ctx context.Context, _ sitesvc.Actor, _ Input) (any, error) {
-			list, err := s.Store.List(ctx)
-			total := len(list)
-			return map[string]any{"sites": list, "total": total}, err //nolint:wrapcheck // the caller's message
+		CmdList: func(ctx context.Context, _ sitesvc.Actor, in Input) (any, error) {
+			return listSites(ctx, s, in)
 		},
 		CmdUpdate: func(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
 			u := sitesvc.UpdateRequest{}
@@ -610,6 +615,7 @@ func (t *Tool) get(ctx context.Context, actor sitesvc.Actor, in Input) (any, err
 	}
 	at := t.Service.Addressing()
 	out := map[string]any{keySite: st, "domains": domains, "addresses": at.Addresses(st, domains), "pages_addresses": at.PagesAddresses(st)}
+	out["production_address"], _ = at.ProductionAddress(st, domains)
 	if note := at.AddressNote(st); note != "" {
 		out["address_note"] = note
 	}
@@ -823,4 +829,48 @@ func jsonResult(v any) (*mcp.CallToolResult, any, error) {
 		return errorResult("failed to encode the result: " + err.Error())
 	}
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(data)}}}, nil, nil
+}
+
+// maxListLimit is the most sites one list answers.
+const maxListLimit = 200
+
+// listSites is the sites in.Query names, in.Limit at a time from in.Offset,
+// each with its production address (#2658): the rule the portal's list reads.
+func listSites(ctx context.Context, s *sitesvc.Service, in Input) (any, error) {
+	if in.Limit < 0 || in.Limit > maxListLimit || in.Offset < 0 {
+		return nil, fmt.Errorf("limit is 0 to %d and offset 0 or more", maxListLimit)
+	}
+	list, err := s.Store.List(ctx)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // the caller's message
+	}
+	domains, err := s.Store.Domains(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing domains: %w", err)
+	}
+	bySite := map[string][]site.Domain{}
+	for _, d := range domains {
+		bySite[d.SiteID] = append(bySite[d.SiteID], d)
+	}
+	list = slices.DeleteFunc(list, func(st site.Site) bool { return !site.Matches(&st, bySite[st.ID], in.Query) })
+	total := len(list)
+	list = pageOf(list, in.Offset, in.Limit)
+	at := s.Addressing()
+	addresses := make(map[string]string, len(list))
+	for i := range list {
+		addresses[list[i].Name], _ = at.ProductionAddress(&list[i], bySite[list[i].ID])
+	}
+	return map[string]any{"sites": list, "total": total, "production_addresses": addresses}, nil
+}
+
+// pageOf is list from offset, at most limit of it when limit is set.
+func pageOf(list []site.Site, offset, limit int) []site.Site {
+	if offset >= len(list) {
+		return []site.Site{}
+	}
+	list = list[offset:]
+	if limit > 0 && limit < len(list) {
+		list = list[:limit]
+	}
+	return list
 }

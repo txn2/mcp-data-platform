@@ -3,12 +3,18 @@ package contentenc
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
+	"crypto/rand"
 	"errors"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/andybalholm/brotli"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAccepted(t *testing.T) {
@@ -105,4 +111,71 @@ func TestCompressTo_AFailureNamesTheForm(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "writing the form form: bad level") {
 		t.Errorf("a writer that cannot open: %v", err)
 	}
+}
+
+// TestRespond: an answer produced per request is sent in the form the caller
+// accepts, brotli first, and as it is when it may hold a platform token, is a
+// HEAD, a 204 or 304, under the threshold, an image, or already encoded
+// (#2655).
+func TestRespond(t *testing.T) {
+	big := []byte(strings.Repeat(`{"slot":"09:00","room":"A"},`, 100))
+	send := func(method, accept, contentType, encoded string, status int, body []byte, secret bool) (http.Header, []byte) {
+		r := httptest.NewRequestWithContext(context.Background(), method, "/", http.NoBody)
+		if accept != "" {
+			r.Header.Set("Accept-Encoding", accept)
+		}
+		h := http.Header{"Content-Type": {contentType}}
+		if encoded != "" {
+			h.Set("Content-Encoding", encoded)
+		}
+		return h, Respond(r, h, status, body, secret)
+	}
+	h, out := send(http.MethodGet, "br, gzip", "application/json", "", http.StatusOK, big, false)
+	assert.Equal(t, EncodingBrotli, h.Get("Content-Encoding"))
+	assert.Equal(t, "Accept-Encoding", h.Get("Vary"))
+	got, err := io.ReadAll(brotli.NewReader(bytes.NewReader(out)))
+	require.NoError(t, err)
+	assert.Equal(t, big, got)
+
+	h, out = send(http.MethodGet, "gzip", "text/html; charset=utf-8", "", http.StatusOK, big, false)
+	assert.Equal(t, EncodingGzip, h.Get("Content-Encoding"))
+	zr, err := gzip.NewReader(bytes.NewReader(out))
+	require.NoError(t, err)
+	got, err = io.ReadAll(zr)
+	require.NoError(t, err)
+	assert.Equal(t, big, got)
+
+	h, out = send(http.MethodGet, "", "application/json", "", http.StatusOK, big, false)
+	assert.Empty(t, h.Get("Content-Encoding"), "no Accept-Encoding gets identity")
+	assert.Equal(t, "Accept-Encoding", h.Get("Vary"), "but the answer still varies by it")
+	assert.Equal(t, big, out)
+
+	for label, c := range map[string]struct {
+		method, contentType, encoded string
+		status                       int
+		body                         []byte
+		secret                       bool
+	}{
+		"a platform token": {http.MethodGet, "application/json", "", http.StatusOK, big, true},
+		"HEAD":             {http.MethodHead, "application/json", "", http.StatusOK, big, false},
+		"204":              {http.MethodGet, "application/json", "", http.StatusNoContent, big, false},
+		"304":              {http.MethodGet, "application/json", "", http.StatusNotModified, big, false},
+		"small":            {http.MethodGet, "application/json", "", http.StatusOK, big[:100], false},
+		"an image":         {http.MethodGet, "image/png", "", http.StatusOK, big, false},
+		"already encoded":  {http.MethodGet, "application/json", "zstd", http.StatusOK, big, false},
+	} {
+		h, out := send(c.method, "br, gzip", c.contentType, c.encoded, c.status, c.body, c.secret)
+		assert.Equal(t, c.encoded, h.Get("Content-Encoding"), label)
+		assert.Equal(t, c.body, out, label)
+	}
+	h, out = send(http.MethodGet, "br", "application/json", "", http.StatusOK, randomish(4096), false)
+	assert.Empty(t, h.Get("Content-Encoding"), "a form that saves too little is not sent")
+	assert.Len(t, out, 4096)
+}
+
+// randomish is n bytes compression cannot shrink.
+func randomish(n int) []byte {
+	out := make([]byte, n)
+	_, _ = rand.Read(out)
+	return out
 }

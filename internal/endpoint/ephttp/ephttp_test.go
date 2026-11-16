@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/andybalholm/brotli"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -424,6 +426,30 @@ func TestWriteLeavesTheBodyOffA204(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 	assert.Empty(t, rec.Body.String())
 	assert.Equal(t, "max-age=60", rec.Header().Get("Cache-Control"), "the handler's own cache policy is kept")
+}
+
+// TestWriteCompressesWhatTheCallerAccepts: an answer over the threshold is
+// sent brotli to a caller accepting it and decodes to the same bytes; one that
+// may hold a platform token is sent as it is (#2655).
+func TestWriteCompressesWhatTheCallerAccepts(t *testing.T) {
+	body := []byte(strings.Repeat(`{"slot":"09:00","room":"A"},`, 100))
+	send := func(secret bool) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		r := httptest.NewRequestWithContext(context.Background(), "GET", "/", http.NoBody)
+		r.Header.Set("Accept-Encoding", "br, gzip")
+		write(rec, r, eprun.Response{Status: http.StatusOK, Body: body, Header: http.Header{"Content-Type": {"application/json"}}, Secret: secret}, contentPolicy)
+		return rec
+	}
+	rec := send(false)
+	assert.Equal(t, "br", rec.Header().Get("Content-Encoding"))
+	assert.Equal(t, "Accept-Encoding", rec.Header().Get("Vary"))
+	decoded, err := io.ReadAll(brotli.NewReader(rec.Body))
+	require.NoError(t, err)
+	assert.Equal(t, body, decoded)
+
+	rec = send(true)
+	assert.Empty(t, rec.Header().Get("Content-Encoding"))
+	assert.Equal(t, body, rec.Body.Bytes())
 }
 
 // TestRefusalsAreCountedByEndpointAndReason is #2208: each request refused

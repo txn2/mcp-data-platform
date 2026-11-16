@@ -85,6 +85,7 @@ describe("a script's tool-call handlers", () => {
     fireEvent.change(within(form).getByLabelText("Add a protected column"), { target: { value: "hive.hr.employees.ssn" } });
     fireEvent.keyDown(within(form).getByLabelText("Add a protected column"), { key: "Enter" });
     expect(within(form).getByLabelText(/Return the original result/)).toBeDisabled();
+    fireEvent.click(within(form).getByRole("radio", { name: "Everyone" }));
     fireEvent.click(within(form).getByRole("button", { name: "Add handler" }));
     await waitFor(() =>
       expect(sent.find((r) => r.method === "POST" && r.path === "/api/v1/portal/scripts/script-005/handlers")?.body).toMatchObject({
@@ -93,6 +94,7 @@ describe("a script's tool-call handlers", () => {
         protected: ["hive.hr.employees.ssn"],
         on_failure: "fail",
         approve: true,
+        everyone: true,
       }),
     );
   });

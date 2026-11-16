@@ -798,7 +798,9 @@ metastore still lists. An operator may add one as a backstop, set longer than
 - **Requests**: request volume by outcome, stacked, for all sources or one,
   over the last hour (one bar a minute), the last 24 hours (one bar every
   fifteen minutes), the last 7 days (one bar an hour), or a custom range of up
-  to 31 days, with the total of each outcome beneath.
+  to 31 days, with the total of each outcome beneath. The status route reads a
+  custom range from `from` and `to` (RFC 3339), with or without
+  `range=custom` (#2651).
 - **Sources**: one row per source with its health, when it last received an
   event, the requests accepted and rejected in the last hour and the last day,
   how long accepted requests waited for their answer (Response time: the 99th
@@ -913,9 +915,16 @@ list is `[]`.
 
 `ack_last_hour` and `ack_last_day` are how long the requests answered `202`
 waited for that answer. Each replica counts them per minute in fixed buckets
-(10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000 and 30000 ms, and one for
-anything slower). `p50_ms` and `p99_ms` are the upper bound of the bucket the
-percentile falls in, capped at `max_ms`, so each is the most it could be.
+(10, 25, 50, 100, 250, 500, 1000, 1500, 2000, 2500, 3000, 5000, 10000 and
+30000 ms, and one for anything slower; the edges at 1.5, 2 and 3 seconds sit
+around the timeouts senders give up at, #2651). `p50_ms` and `p99_ms` are
+estimated within the bucket the percentile falls in, linearly between its edges
+as Prometheus's `histogram_quantile` does, and never past `max_ms`: a value
+between two edges is an estimate, not a ceiling. `max_ms` is the slowest request,
+and the Acknowledgement chart draws it beside p50 and p99. Minutes recorded
+before the 1.5, 2 and 3 second edges existed count a request in the new bucket
+at the top of its old one ((1000, 2500] in (2000, 2500]), so an old minute never
+reads faster than it was.
 `slowest` is the slowest request of the span with how long its events waited in
 the buffer (`buffer_ms`), recorded their window (`mark_ms`) and took to write to
 object storage (`put_ms`); it is `null` when nothing was accepted. A response
@@ -1121,7 +1130,7 @@ threshold is off. The spool volume is also a store on the
 | `webhook_compactions_total` | `source`, `result`: `compacted`, `failed` |
 | `webhook_duplicates_dropped_total` | `source` |
 | `webhook_buffer_events` | `source`: events held in memory on this replica |
-| `webhook_ack_seconds` | `source`: request to acknowledgement |
+| `webhook_ack_seconds` | `source`: request to acknowledgement, with bucket edges at 1.5, 2 and 3 seconds besides the platform's (#2651) |
 | `webhook_spool_bytes`, `webhook_spool_events`, `webhook_spool_files` | none: what this replica's spool holds |
 | `webhook_spool_oldest_age_seconds` | none: age of the oldest event waiting; rising means the spool is not draining |
 | `webhook_spool_drained_events_total` | `source`: events drained to object storage |

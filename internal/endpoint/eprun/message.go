@@ -80,6 +80,10 @@ type Response struct {
 	// Cookies are the application cookies the handler set (#2555), written
 	// by the HTTP surface on an application's own address and nowhere else.
 	Cookies []Cookie
+	// Secret says the answer may hold one of the platform's tokens: a form's
+	// signed spec token, or anything after the run called platform.mint_token
+	// or platform.decrypt. It is never sent compressed (#2655).
+	Secret bool
 }
 
 // credentialHeaders are the request headers a handler is not shown: they are

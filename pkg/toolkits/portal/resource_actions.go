@@ -118,6 +118,11 @@ type manageResourceInput struct {
 	// On create it is the writer's choice; on replace_content and update it
 	// changes the policy, which is otherwise kept.
 	Index string `json:"index,omitempty"`
+
+	// SizeBytes and TTLSeconds are an upload link's most bytes and lifetime
+	// (#2639).
+	SizeBytes  int64 `json:"size_bytes,omitempty"`
+	TTLSeconds int   `json:"ttl_seconds,omitempty"`
 }
 
 // resourceOutput is what the two content-writing actions report. It leads with
@@ -181,9 +186,11 @@ func (t *Toolkit) handleManageResource(
 		return t.handleExtractResource(ctx, input)
 	case resourceActionUpdate:
 		return t.handleUpdateResource(ctx, input)
+	case resourceActionUploadLink:
+		return t.handleUploadLink(ctx, input)
 	default:
 		return toolkit.ErrorResult(fmt.Sprintf(
-			"invalid action %q: must be one of: create, replace_content, update, get, list, delete, extract",
+			"invalid action %q: must be one of: create, replace_content, update, get, list, delete, extract, upload_link",
 			input.Action)), nil, nil
 	}
 }

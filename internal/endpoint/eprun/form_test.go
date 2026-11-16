@@ -56,6 +56,7 @@ func showForm(t *testing.T, f *fixture, query map[string][]string) (out map[stri
 	t.Helper()
 	resp := f.serve(t, Request{Method: "GET", Query: query})
 	require.Equal(t, http.StatusOK, resp.Status, string(resp.Body))
+	require.True(t, resp.Secret, "a form's spec carries its signed token, so it is never compressed (#2655)")
 	out = decode(t, resp.Body)
 	token, _ = out["form_token"].(string)
 	require.NotEmpty(t, token)

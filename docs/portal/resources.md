@@ -42,6 +42,22 @@ Sending a folder a second time does not file a second copy of it. A file whose f
 
 The portal does this through the create route every upload uses, `POST /api/v1/resources`, with the form field `if_exists=skip_unchanged` ahead of the file part. The answer carries `outcome`: `created` (201), `revised` or `unchanged` (200). Without the field, or with `if_exists=fail`, an address that is taken is refused with 409 as before. Each version records the SHA-256 of its bytes as `content_sha256` in the version history.
 
+## Uploading from an agent's shell
+
+An agent with only its MCP session uploads a file too large for a tool call
+through a single-use link (#2639): `manage_resource action=upload_link` with the
+address (`path`, `filename`, `scope`), `display_name`, `description`,
+`content_type` and `size_bytes` answers `upload_url` on the platform's own
+origin (`portal.public_base_url`), and one `PUT` of the file to it
+(`curl --fail -T site.zip -H 'Content-Type: application/zip' '<upload_url>'`)
+files it there as the caller, with the upload limit, the denied types and
+`if_exists` a portal upload has. The link needs no session or key: it is the
+credential for that one write. It expires after 15 minutes (`ttl_seconds`, at
+most an hour), takes at most `size_bytes`, writes only its address, and is spent
+by its first PUT; an unknown, used or expired link answers 404 and a body past
+the size 413. Only the token's SHA-256 is stored (`resource_upload_links`), never
+the token, and the row records what the link wrote or why it wrote nothing.
+
 ## Folders
 
 A resource is filed under a **folder path** inside its library: a slash-separated chain like `data/media-manager/shows`. Each folder name is lowercase letters, digits and hyphens starting with a letter or digit (so a dated folder like `2026-09-26` is legal), a path is at most 8 folders deep and 200 characters, and a refusal names the rule you broke rather than restating the whole grammar.

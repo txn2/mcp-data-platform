@@ -38,10 +38,14 @@ test.describe("Sites", () => {
 
   test("lists a site's address and environments, and leaves its domains to the site's page", async ({ page }) => {
     await page.goto("/portal/sites");
-    await expect(page.getByRole("link", { name: "marketing.pages.example.net" })).toBeVisible();
+    // #2658: the production address is prod's public domain when it has one.
+    const marketing = page.getByTestId("site-row-marketing");
+    await expect(marketing.getByTestId("site-address")).toHaveAttribute("href", "https://example.com");
+    await expect(marketing.getByText("1 more domain")).toBeVisible();
     await expect(page.getByText("dev 12")).toBeVisible();
-    // #2612: a domain is listed on the environments page, not in the list.
+    // #2612: the other domains are listed on the environments page, not in the list.
     await expect(page.getByRole("link", { name: "go.example.com" })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "www.example.com" })).toHaveCount(0);
     // The row's name, not its middle: the middle is the address, which opens
     // the live site in a new tab (#2587).
     await page.getByTestId("site-row-marketing").getByText("Company website").click();

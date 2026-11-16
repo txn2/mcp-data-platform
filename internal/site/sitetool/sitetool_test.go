@@ -659,6 +659,18 @@ func TestHandle_EveryCommandDispatches(t *testing.T) {
 	assert.NotEmpty(t, byID["addresses"], "a site is read by id too")
 
 	assert.EqualValues(t, 1, do(Input{Command: CmdList})["total"])
+	// #2658: a query names sites by name, description, owner or domain, the
+	// page is applied after it, and each site comes with its production
+	// address, the one get names.
+	assert.Equal(t, "https://marketing.pages.example.com", got["production_address"])
+	listed := do(Input{Command: CmdList, Query: "FIRST"})
+	assert.EqualValues(t, 1, listed["total"])
+	assert.Equal(t, map[string]any{siteName: "https://marketing.pages.example.com"}, listed["production_addresses"])
+	assert.EqualValues(t, 0, do(Input{Command: CmdList, Query: "nothing"})["total"])
+	paged := do(Input{Command: CmdList, Offset: 5})
+	assert.EqualValues(t, 1, paged["total"], "total counts every match, whatever the page")
+	assert.Equal(t, []any{}, paged["sites"])
+	assert.Len(t, do(Input{Command: CmdList, Limit: 1})["sites"], 1)
 
 	updated := do(Input{Command: CmdUpdate, Site: siteName, Description: "second", OwnerEmail: "jane@example.com"})
 	assert.Equal(t, "second", updated["description"])
@@ -1052,6 +1064,7 @@ func TestHandle_ErrorsAreResultsTheCallerCanRead(t *testing.T) {
 		{name: "an unknown site for releases", in: Input{Command: CmdReleases, Site: "nope"}, want: "no such site"},
 		{name: "an unknown site for deployments", in: Input{Command: CmdDeployments, Site: "nope"}, want: "no such site"},
 		{name: "a failing list", in: Input{Command: CmdList}, set: func(m *memStore) { m.err = errors.New("db down") }, want: "db down"},
+		{name: "a list past the most", in: Input{Command: CmdList, Limit: 500}, want: "limit is 0 to 200"},
 		{name: "failing domains", in: Input{Command: CmdDomains}, set: func(m *memStore) { m.err = errors.New("db down") }, want: "db down"},
 	}
 	for _, tt := range tests {

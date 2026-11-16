@@ -323,8 +323,11 @@ A script's handlers are what start it besides someone running it, and
   recorded as `skipped_backlog` and not run.
 
 An administrator can also bind a script to a connection so it runs for other
-people's calls on it (`connection`, `operations`, `personas` or `users`,
-`conditions`):
+people's calls on it (`connection`, `operations`, `conditions`, and who:
+`personas`, `users`, or `everyone=true`). A new handler names who it applies to:
+naming no persona, no user and not `everyone` is refused, so one never applies to
+every caller by omission. `connection` is the name calls use, the same name
+`list_connections` shows:
 
 - `policy` runs `decide(call)` before each matched call, read-only and under its
   `timeout_ms`, and returns `platform.allow()`, `platform.deny(reason)` or

@@ -91,8 +91,65 @@ describe("the Sites list's rows", () => {
     const owner = within(found).getByRole("img", { name: "jane.doe@example.com" });
     expect(owner).toHaveTextContent("JD");
     const address = within(found).getByTestId("site-address");
-    expect(address).toHaveAttribute("title", "marketing.pages.example.net, opens in a new tab");
-    expect(address.querySelector(".truncate")).toHaveTextContent("marketing.pages.example.net");
+    expect(address).toHaveAttribute("title", "example.com, opens in a new tab");
+    expect(address.querySelector(".truncate")).toHaveTextContent("example.com");
+  });
+
+  it("names the production address, its public domain first, and counts the other domains (#2658)", async () => {
+    const { found } = await row();
+    expect(within(found).getByTestId("site-address")).toHaveAttribute("href", "https://example.com");
+    expect(within(found).getByTestId("site-serves")).toHaveTextContent("serves prod · 1 more domain");
+  });
+
+  it("shows the tile of the environment holding the main address, a placeholder until it is drawn (#2658)", async () => {
+    const { found } = await row();
+    const tile = await within(found).findByTestId(/site-tile/);
+    expect(["site-tile-prod", "site-tile-placeholder-prod"]).toContain(tile.getAttribute("data-testid"));
+  });
+});
+
+describe("searching and paging the Sites list (#2658, #2654)", () => {
+  afterEach(() => window.history.replaceState(null, "", "/"));
+
+  it("narrows to a domain on the server, keeps the query in the address and marks the match", async () => {
+    await row();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search sites" }), { target: { value: "example.com" } });
+    await vi.waitFor(() => expect(window.location.search).toContain("q=example.com"));
+    await vi.waitFor(() => expect(screen.getByTestId("sites-pager")).toHaveTextContent("sites match example.com"));
+    expect(screen.getByTestId("site-row-marketing").querySelector("mark")).toHaveTextContent("example.com");
+  });
+
+  it("reads the query from the address on a reload", async () => {
+    window.history.replaceState(null, "", "/?q=marketing");
+    renderWithQuery(<SitesPage onNavigate={vi.fn()} />);
+    expect(await screen.findByRole("searchbox", { name: "Search sites" })).toHaveValue("marketing");
+    await screen.findByTestId("site-row-marketing");
+  });
+
+  it("says nothing matched and clears the search", async () => {
+    window.history.replaceState(null, "", "/?q=zz-nothing");
+    renderWithQuery(<SitesPage onNavigate={vi.fn()} />);
+    expect(await screen.findByTestId("sites-none-matched")).toHaveTextContent("No site matches zz-nothing");
+    fireEvent.click(screen.getByRole("button", { name: "Clear the search" }));
+    await screen.findByTestId("site-row-marketing");
+  });
+
+  it("pages a long list", async () => {
+    window.history.replaceState(null, "", "/?state=many");
+    renderWithQuery(<SitesPage onNavigate={vi.fn()} />);
+    const pager = await screen.findByTestId("sites-pager");
+    await vi.waitFor(() => expect(pager).toHaveTextContent("1 to 25 of 60 sites"));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await vi.waitFor(() => expect(screen.getByTestId("sites-pager")).toHaveTextContent("26 to 50 of 60 sites"));
+    expect(screen.getByRole("button", { name: "Previous" })).toBeEnabled();
+  });
+
+  it("keeps every header on one line in a column sized for it", async () => {
+    await row();
+    for (const name of ["Production address", "Requests (24h)", "Environments"]) {
+      const head = screen.queryByRole("columnheader", { name });
+      if (head) expect(head).toHaveClass("whitespace-nowrap");
+    }
   });
 });
 

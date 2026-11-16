@@ -214,7 +214,7 @@ func New(cfg Config) *Handle {
 	if h.endpoints != nil {
 		commands = h.endpoints.Commands
 	}
-	if h.handlers = scripthandler.New(cfg.DB, commands, h.store); h.handlers != nil {
+	if h.handlers = scripthandler.New(cfg.DB, commands, h.store, cfg.Toolkits); h.handlers != nil {
 		h.gate.Handlers = h.handlers.Check
 		h.gate.HandlersSaved = h.handlers.VersionSaved
 		if h.endpoints != nil && h.endpoints.Approvals != nil {

@@ -13510,7 +13510,7 @@
                     },
                     {
                         "type": "string",
-                        "description": "Start of a custom range, RFC 3339",
+                        "description": "Start of a custom range, RFC 3339; from without range reads the span from to",
                         "name": "from",
                         "in": "query"
                     },
@@ -21429,6 +21429,67 @@
                 }
             }
         },
+        "/portal/handler-scripts": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The scripts the Add handler dialog offers for kind policy, transform or watch (#2650): those that run (not libraries) whose latest version defines the kind's entry, matching q, at most 50, each with its latest version, the version approved for handlers and whether that version defines the entry too. looked is how many scripts were read to find them. An administrator's only.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "List the scripts a tool-call handler can run",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "policy, transform or watch",
+                        "name": "kind",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "A part of a script's name or description",
+                        "name": "q",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/scripthandler.HandlerScripts"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/handlers/{id}": {
             "get": {
                 "security": [
@@ -28276,7 +28337,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Every site with its environments, its own address and its domains, what the caller may do to each, the pages domain and the limits a release is held to.",
+                "description": "The sites q names (a part of a name, description, owner or domain hostname, any case; every site without it), limit at a time from offset, each with its environments, its production address and its domains, what the caller may do to each, the pages domain and the limits a release is held to. total counts every site q names.",
                 "produces": [
                     "application/json"
                 ],
@@ -28284,11 +28345,37 @@
                     "Sites"
                 ],
                 "summary": "List sites",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "A part of a site's name, description, owner or domain hostname",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "How many sites to return, at most 200; every match without it",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "How many matching sites to skip",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/sitehttp.SiteList"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "401": {
@@ -29234,6 +29321,59 @@
                     },
                     "422": {
                         "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/sites/{site}/environments/{name}/tile": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The picture of the release an environment serves (#2658), drawn by the tile worker from the release's own files and redrawn when the release changes. Answered only to someone who may open the environment, by the rule its addresses apply; an environment with no release, offline or redirecting, or whose tile for its current release is not drawn yet, answers 404, which the portal shows as a placeholder.",
+                "produces": [
+                    "image/png"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "An environment's tile",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Environment",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -32370,6 +32510,57 @@
                     },
                     "401": {
                         "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/resources/uploads/{token}": {
+            "put": {
+                "description": "Files the request body as the managed resource the link was issued for (manage_resource action=upload_link, #2639), as the person who asked for it, with the checks a portal upload gets: the deployment's upload limit, the denied types and the link's if_exists. The link is the credential: it takes no session or key, is good for one PUT, and expires minutes after it was issued. A body past the size the link was issued for is refused. An unknown, used or expired link answers 404, the three told apart to no one.",
+                "consumes": [
+                    "application/octet-stream"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Upload a file to an upload link",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "The link's token",
+                        "name": "token",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "resource_id, reference, uri, filename, content_type and size_bytes of the file filed",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -44189,6 +44380,11 @@
         "handlerhttp.ConnectionHandlerList": {
             "type": "object",
             "properties": {
+                "connection": {
+                    "description": "Connection is the name the connection's calls carry, the one a handler\nadded from its page names (#2649): an MCP connection's connection_name\nwhen the path names the instance it is stored under.",
+                    "type": "string",
+                    "example": "mcptest"
+                },
                 "data": {
                     "type": "array",
                     "items": {
@@ -44338,6 +44534,10 @@
                     "description": "EventSource is a webhook handler's source.",
                     "type": "string",
                     "example": "form-contact"
+                },
+                "everyone": {
+                    "description": "Everyone applies a new handler to every caller, which an empty\npersonas and users list no longer means on its own (#2650).",
+                    "type": "boolean"
                 },
                 "ip_rate_limit": {
                     "description": "IPRateLimit is one client address's requests a minute (#2556); nil\nkeeps it, 0 removes it.",
@@ -51673,6 +51873,52 @@
                 }
             }
         },
+        "scripthandler.HandlerScriptChoice": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner_email": {
+                    "type": "string"
+                },
+                "running_defines": {
+                    "type": "boolean"
+                },
+                "running_version": {
+                    "description": "Running is the version approved for handlers, 0 for none, and\nRunningDefines whether it defines the entry too.",
+                    "type": "integer"
+                },
+                "version": {
+                    "description": "Version is the latest version, which defines the kind's entry.",
+                    "type": "integer"
+                }
+            }
+        },
+        "scripthandler.HandlerScripts": {
+            "type": "object",
+            "properties": {
+                "entry": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "looked": {
+                    "description": "Looked is how many scripts were read to find them.",
+                    "type": "integer"
+                },
+                "scripts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scripthandler.HandlerScriptChoice"
+                    }
+                }
+            }
+        },
         "scripthandler.Offer": {
             "type": "object",
             "properties": {
@@ -55031,7 +55277,7 @@
             "type": "object",
             "properties": {
                 "address": {
-                    "description": "Address is the site's main address, \"\" with no pages domain or when the\nmain address is given to no environment.",
+                    "description": "Address is the site's production address: where the environment\nholding the main address is reached, its public domain first, then\nanother domain, then its pages address (#2658); \"\" when the main address\nis given to no environment.",
                     "type": "string"
                 },
                 "address_note": {
@@ -55086,6 +55332,10 @@
                     "items": {
                         "$ref": "#/definitions/site.Mount"
                     }
+                },
+                "more_domains": {
+                    "description": "MoreDomains is how many other domains that environment answers at.",
+                    "type": "integer"
                 },
                 "name": {
                     "type": "string",
@@ -57532,6 +57782,13 @@
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/whstore.AckPoint"
+                    }
+                },
+                "ack_edges_ms": {
+                    "description": "AckEdgesMS are the acknowledgement buckets' upper bounds: a point's\np50 and p99 are estimated between two of them (#2651).",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
                     }
                 },
                 "compactions": {

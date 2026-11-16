@@ -54,7 +54,7 @@ func Mount(mux *http.ServeMux, p *platform.Platform, wrap func(http.Handler) htt
 	if e := p.Endpoints(); e != nil {
 		commands = e.Commands
 	}
-	d.Handlers = scripthandler.New(p.DB(), commands, scriptstore.New(p.DB()))
+	d.Handlers = scripthandler.New(p.DB(), commands, scriptstore.New(p.DB()), p.ToolkitRegistry())
 	// The site service manage_application reads, so a site part added here
 	// is checked, listed, pinned and released as it is there (#2613).
 	if e := p.Endpoints(); e != nil && e.Sites != nil {

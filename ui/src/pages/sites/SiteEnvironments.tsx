@@ -26,6 +26,7 @@ import { AccessBadge, AddressAccess, AddressLink, EVERYONE_INTERNAL, Failure, Sh
 import { PublishBanner } from "./SitePublishJob";
 import { KeptLine } from "./SiteRetention";
 import { bareAddress, cardAddresses, errorText, orderedEnvironments, when } from "./siteFormat";
+import { SiteTile, tilePlaceholder } from "./SiteTile";
 
 const EXPLAINER_KEY = "sites.explainer.hidden";
 
@@ -238,6 +239,7 @@ function EnvironmentCard({
         </div>
       </div>
       <StatusBlock site={site} env={env} canEdit={canEdit} />
+      <EnvironmentTile site={site} env={env} />
       <Release env={env} />
       <Addresses site={site} env={env} />
       <WhoCanOpen site={site} env={env} access={access} />
@@ -250,6 +252,20 @@ function EnvironmentCard({
       )}
       {canEdit && <CardActions env={env} movable={movable} onAct={onAct} />}
     </section>
+  );
+}
+
+// EnvironmentTile is the environment's tile and where it was drawn from (#2658).
+function EnvironmentTile({ site, env }: { site: Site; env: SiteEnvironment }) {
+  return (
+    <>
+      <SiteTile site={site} env={env} size="card" />
+      {!tilePlaceholder(site, env) && (
+        <p className="text-xs text-muted-foreground" data-testid={`tile-source-${env.name}`}>
+          Drawn from {bareAddress(site.pages_addresses[env.name] ?? "")} at release {env.release}
+        </p>
+      )}
+    </>
   );
 }
 

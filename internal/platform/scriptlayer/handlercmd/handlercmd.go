@@ -103,6 +103,7 @@ type CallSettings struct {
 	Operations *[]string                `json:"operations,omitempty"`
 	Personas   *[]string                `json:"personas,omitempty"`
 	Users      *[]string                `json:"users,omitempty"`
+	Everyone   *bool                    `json:"everyone,omitempty"`
 	Conditions *[]callhandler.Condition `json:"conditions,omitempty"`
 	TimeoutMS  *int                     `json:"timeout_ms,omitempty"`
 	OnFailure  *string                  `json:"on_failure,omitempty"`
@@ -129,7 +130,7 @@ type CallSettings struct {
 // (the connection setting endpoints share; "" leaves it).
 func (s CallSettings) Patch(connection string) callhandler.Patch {
 	p := callhandler.Patch{
-		Operations: s.Operations, Personas: s.Personas, Users: s.Users, Conditions: s.Conditions,
+		Operations: s.Operations, Personas: s.Personas, Users: s.Users, Everyone: s.Everyone, Conditions: s.Conditions,
 		TimeoutMS: s.TimeoutMS, OnFailure: s.OnFailure, ItemsPath: s.ItemsPath, Writes: s.Writes,
 		Protected: s.Protected, Order: s.Order,
 	}
@@ -161,9 +162,12 @@ func callProperties() map[string]any {
 	return map[string]any{
 		"operations": withDescription(stringList, "For handler_set with kind policy, transform or watch: the calls it applies to on its "+
 			"connection, as operation ids, tool names, or METHOD path patterns (PUT /customers/*, POST *). None is every call."),
-		"personas": withDescription(stringList, "For a policy, transform or watch: the personas it applies to. With users empty too, "+
-			"it applies to everyone; it only ever sees calls a persona may already make."),
+		"personas": withDescription(stringList, "For a policy, transform or watch: the personas it applies to; it only ever sees "+
+			"calls a persona may already make. A new handler names personas, users, or everyone."),
 		"users": withDescription(stringList, "For a policy, transform or watch: the people, by address, it applies to."),
+		"everyone": map[string]any{keyType: "boolean", keyDescription: "For a policy, transform or watch: true applies it to every " +
+			"caller on its connection, clearing personas and users. A new handler with no personas and no users is refused " +
+			"without it."},
 		"conditions": map[string]any{
 			keyType: valArray,
 			keyDescription: "For a policy, transform or watch: equalities a call's argument must meet for it to apply, so one on " +

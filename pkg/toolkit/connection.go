@@ -40,6 +40,10 @@ type ConnectionDetail struct {
 	// the deployment, zero when unlimited (#2209). It is reported so a caller
 	// sees it before fanning out calls that would queue behind each other.
 	MaxConcurrentCalls int
+	// Bound is the name a call binds this connection by when it differs from
+	// Name, the instance it is stored under: an MCP connection whose
+	// connection_name its calls carry (#2649). Empty means Name.
+	Bound string
 }
 
 // ConnectionHealth is the runtime reachability of a gateway upstream.

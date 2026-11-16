@@ -107,7 +107,7 @@ func TestWindowStorageAndAlertReadingsRealDB(t *testing.T) {
 	esp := readings["esp"]
 	require.NotNil(t, esp)
 	assert.Equal(t, int64(2), esp.Outcomes[now.Truncate(time.Minute)]["spool_full"])
-	assert.Equal(t, int64(3000), esp.Ack.P99MS)
+	assert.Equal(t, int64(2995), esp.Ack.P99MS, "estimated within the 2500 to 3000ms bucket (#2651)")
 	require.NotNil(t, esp.OldestOwedEnd, "the window is owed a compaction")
 	assert.Equal(t, window.Add(time.Hour), *esp.OldestOwedEnd)
 

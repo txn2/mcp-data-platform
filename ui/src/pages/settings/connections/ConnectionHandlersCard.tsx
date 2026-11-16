@@ -29,7 +29,12 @@ const SECTIONS: { kind: CallHandlerKind; title: string; hint: string }[] = [
 
 export function ConnectionHandlersCard({ connectionName }: { connectionName: string }) {
   const isAdmin = useAuthStore((s) => s.isAdmin());
-  const { data, isLoading, error } = useConnectionHandlers(connectionName, isAdmin);
+  const list = useConnectionHandlers(connectionName, isAdmin);
+  const { isLoading, error } = list;
+  const data = list.data?.data;
+  // A handler names the connection by the name its calls carry, which the
+  // list answers (#2649); the page is reached by the name it is stored under.
+  const calls = list.data?.connection || connectionName;
   const [adding, setAdding] = useState(false);
   const [testing, setTesting] = useState(false);
   if (!isAdmin) return null;
@@ -52,6 +57,17 @@ export function ConnectionHandlersCard({ connectionName }: { connectionName: str
         Scripts that decide whether a call on this connection runs, change what it returns, or run after it. Each runs
         with the roles of the administrator who approved its version.
       </p>
+      <HandlerSections isLoading={isLoading} error={Boolean(error)} data={data} calls={calls} />
+      {adding && <AddCallHandlerDialog connection={calls} onClose={() => setAdding(false)} />}
+      {testing && <TestCallDialog connection={calls} onClose={() => setTesting(false)} />}
+    </SectionCard>
+  );
+}
+
+// HandlerSections is the card's body: loading, a failure, none, or each kind.
+function HandlerSections({ isLoading, error, data, calls }: { isLoading: boolean; error: boolean; data?: CallHandlerDetail[]; calls: string }) {
+  return (
+    <>
       {isLoading && (
         <div className="space-y-3 py-1" aria-label="Loading the handlers">
           {[0, 1, 2].map((i) => (
@@ -73,7 +89,7 @@ export function ConnectionHandlersCard({ connectionName }: { connectionName: str
       {data && data.length > 0 && (
         <div className="space-y-5">
           {SECTIONS.map((s) => (
-            <KindSection key={s.kind} connection={connectionName} section={s} handlers={data.filter((h) => h.kind === s.kind)} />
+            <KindSection key={s.kind} connection={calls} section={s} handlers={data.filter((h) => h.kind === s.kind)} />
           ))}
           <p className="text-xs text-muted-foreground">
             A row opens the handler on its script&apos;s page. Counts and times come from the audit record of the last 24
@@ -81,9 +97,7 @@ export function ConnectionHandlersCard({ connectionName }: { connectionName: str
           </p>
         </div>
       )}
-      {adding && <AddCallHandlerDialog connection={connectionName} onClose={() => setAdding(false)} />}
-      {testing && <TestCallDialog connection={connectionName} onClose={() => setTesting(false)} />}
-    </SectionCard>
+    </>
   );
 }
 

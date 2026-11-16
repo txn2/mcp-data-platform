@@ -30,6 +30,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/site/siteprune"
 	"github.com/txn2/mcp-data-platform/internal/site/sitestore"
 	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
+	"github.com/txn2/mcp-data-platform/internal/site/sitetile"
 	"github.com/txn2/mcp-data-platform/internal/site/sitetool"
 	"github.com/txn2/mcp-data-platform/internal/site/sitetraffic"
 	"github.com/txn2/mcp-data-platform/internal/unarchive"
@@ -87,6 +88,8 @@ type Runtime struct {
 	// TrafficStore the shared rows it is flushed into and read from (#2647).
 	Traffic      *sitetraffic.Tally
 	TrafficStore *sitetraffic.Store
+	// Tiles is each environment's tile, drawn by the tile worker (#2658).
+	Tiles *sitetile.Store
 }
 
 // Refresh reads the saved settings into the configuration in force. A
@@ -170,7 +173,7 @@ func Register(server *mcp.Server, d Deps) (*Runtime, error) {
 		Settings: settingsjson.New[siteconfig.Settings](d.DB, siteconfig.SettingsSection),
 		Sources:  tool.Sources, Crawler: crawler, PortalURL: d.PortalURL, CookieDomain: d.CookieDomain,
 		Prune:   pruner(d, store, svc, live),
-		Traffic: sitetraffic.NewTally(), TrafficStore: &sitetraffic.Store{DB: d.DB},
+		Traffic: sitetraffic.NewTally(), TrafficStore: &sitetraffic.Store{DB: d.DB}, Tiles: sitetile.NewStore(d.DB),
 	}
 	tool.Traffic = rt.TrafficStore
 	if d.Sources != nil {

@@ -239,13 +239,14 @@ func writeEventChangeError(w http.ResponseWriter, err error) {
 // audit records a portal edit or delete as the manage_feedback call an agent
 // would make. The parameters name the thread and the message, never the text:
 // a deleted message's text is in no route, the audit log's among them. A
-// change an agent made through manage_feedback is served here in process and
+// change an agent made through a tool call (manage_feedback, or this route
+// reached over the platform-admin connection) is served here in process and
 // already audited as that tool call, so it is not recorded twice.
 func (h *Handler) audit(r *http.Request, c *eventChange, action string, opErr error) {
 	if h.cfg.Audit == nil {
 		return
 	}
-	if _, viaTool := selfcall.From(r.Context()); viaTool {
+	if selfcall.ByTool(r.Context()) {
 		return
 	}
 	ev := middleware.AuditEvent{
@@ -335,13 +336,13 @@ func writeUndoError(w http.ResponseWriter, err error) {
 // auditThread records a portal change to a thread as the manage_feedback
 // call an agent would make: a status change and its undo (#2532). The
 // parameters name the thread and the statuses, never text. A change an agent
-// made through manage_feedback is served in process and already audited as
-// that call.
+// made through a tool call (manage_feedback, or the platform-admin
+// connection) is served in process and already audited as that call.
 func (h *Handler) auditThread(r *http.Request, user *access.User, action string, params map[string]any, opErr error) {
 	if h.cfg.Audit == nil {
 		return
 	}
-	if _, viaTool := selfcall.From(r.Context()); viaTool {
+	if selfcall.ByTool(r.Context()) {
 		return
 	}
 	params[auditKeyAction] = action

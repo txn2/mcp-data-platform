@@ -638,6 +638,11 @@ content policy lists the sites the page frames, calls and posts to
 mcp:knowledge_page:platform-pages-and-sites. The JSON API, the schema and
 everything else on this page stay the same.
 
+Both the JSON API and a rendered page are sent brotli or gzip when the browser
+accepts it and the answer is text of 1 KiB or more, with nothing to set. An
+answer from a run that called `platform.mint_token` or `platform.decrypt` is sent
+as it is, so a secret is never compressed beside text a visitor can choose.
+
 ## 11. The same pieces for other sites
 
 - **A marketing site**: a static site, its layout rendered from `_layouts` at

@@ -18,13 +18,14 @@ type ConnectionStore interface {
 }
 
 // ConnectionHandlers is every tool-call handler that applies to a
-// connection, as the connection's page lists it: policies, transforms in the
+// connection, named by either of its names (#2649), as the connection's page lists it: policies, transforms in the
 // order they run, then watches, each with its script, the version it runs and
 // the one waiting, and its last day's counts. An administrator's only.
 func (s *Service) ConnectionHandlers(ctx context.Context, connection string, c Caller) ([]map[string]any, error) {
 	if !c.Admin {
 		return nil, fmt.Errorf("a connection's handlers are an administrator's: %w", ErrNotAllowed)
 	}
+	connection = s.CallName(connection)
 	store, ok := s.Calls.(ConnectionStore)
 	if s.Calls == nil || !ok {
 		return []map[string]any{}, nil

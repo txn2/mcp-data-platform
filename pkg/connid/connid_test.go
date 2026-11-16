@@ -167,3 +167,34 @@ func TestBoundByInstance(t *testing.T) {
 	assert.Equal(t, "gone", lookup("s3", "gone"), "a connection nothing serves answers under its own name")
 	assert.Equal(t, 2, calls)
 }
+
+// TestResolverCallName: an MCP connection stored as one name whose calls carry
+// its connection_name resolves to that name from either side, and every other
+// name is its own call name (#2649).
+func TestResolverCallName(t *testing.T) {
+	r := NewResolver([]registry.Toolkit{
+		&mockTK{kind: "s3", name: "data_lake", conn: "Data Lake"},
+		&listerTK{
+			kind:  "mcp",
+			name:  "mcp",
+			conns: []toolkit.ConnectionDetail{{Name: "mcp-test-server", Bound: "mcptest"}, {Name: "vendor"}},
+		},
+	}, nil)
+	for name, want := range map[string]struct {
+		bound  string
+		stored bool
+	}{
+		"mcp-test-server": {"mcptest", true},
+		"mcptest":         {"mcptest", false},
+		"vendor":          {"vendor", false},
+		"data_lake":       {"Data Lake", true},
+		"billing-*":       {"billing-*", false},
+	} {
+		bound, stored := r.CallName(name)
+		assert.Equal(t, want.bound, bound, name)
+		assert.Equal(t, want.stored, stored, name)
+	}
+	c, ok := r.ByBound("mcp", "mcptest")
+	require.True(t, ok)
+	assert.Equal(t, Instance("mcp-test-server"), c.Instance)
+}

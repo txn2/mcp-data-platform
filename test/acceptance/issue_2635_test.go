@@ -132,8 +132,10 @@ const gateWatch = `def main():
     print("done")
 `
 
-// TestIssue2635_AWatchDoesNotDelayTheCall: the update's p50 over 200 calls
-// with the watch bound is within 5% of the same calls with none. What is
+// TestIssue2635_AWatchDoesNotDelayTheCall: the handlers' layer, measured in
+// process, spends at most 2.5ms on at least half of the watched calls, and the
+// update's p50 over 200 calls with the watch bound is within 5% of the same
+// calls with none plus an absolute allowance (#2653). What is
 // measured is the call's own path, matching it and queuing its run: the
 // watch's script runs one at a time behind a run that waits, so the runs are
 // written and none executes on the replicas while the calls are timed (the
@@ -167,17 +169,31 @@ func TestIssue2635_AWatchDoesNotDelayTheCall(t *testing.T) {
 	p50()
 	before := p50()
 	h := bindHandler(t, admin, name, "", "watch", map[string]any{"operations": []string{"PUT /v1/echo"}, "users": []string{devOwnerEmail}})
+	scraped := scrapeRaw(t)
 	with := p50()
+	n, within := layerShare(scraped, scrapeRaw(t), "true", "0.0025")
 	admin.handlerOff(h["handler"])
 	after := p50()
 	base := (before + after) / 2
-	if float64(with) > float64(base)*1.05 {
-		t.Errorf("the update's p50 with a watch is %v, more than 5%% over %v", with, base)
+	// #2653: the handlers' own time, measured in process, is what a watch adds
+	// to a call; end to end the watched runs executing beside the calls and the
+	// runner's noise are allowed for.
+	t.Logf("the update's p50 without a watch %v, with %v; the layer spent at most 2.5ms on %.0f of %.0f matched calls", base, with, within, n)
+	if n == 0 || within < 0.5*n {
+		t.Errorf("the handlers' layer spent at most 2.5ms on %.0f of %.0f matched calls; want at least half", within, n)
+	}
+	if limit := allowed(base, watchAllowance); with > limit {
+		t.Errorf("the update's p50 with a watch is %v, over %v (5%% over %v plus %v)", with, limit, base, watchAllowance)
 	}
 	if runs := watchedRuns(t, admin, name); len(runs) == 0 {
 		t.Errorf("the watch queued no runs: its calls were not matched")
 	}
 }
+
+// watchAllowance is the absolute slack the watched update's end-to-end p50
+// is allowed beside 5% (#2653): its queued runs execute on the same stack
+// while the calls are measured.
+const watchAllowance = 5 * time.Millisecond
 
 // TestIssue2635_AFailedCallQueuesNothing: a call that fails queues no run; the
 // same call succeeding queues one.

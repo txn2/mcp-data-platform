@@ -112,8 +112,9 @@ export interface Site {
   created_by: string;
   created_at: string;
   updated_at: string;
-  /** The main address, "" when no environment holds it or there is no pages domain. */
+  /** The production address (#2658): public domain, other domain, pages address; "" for none. */
   address: string;
+  more_domains?: number; // other domains the environment holding it answers at
   /** Where people reach each environment (#2607): its first domain, else its pages address; what manage_site get answers. */
   addresses: Record<string, string>;
   /** Each environment's address on the pages domain; the main address for the one holding it, "" for none. */

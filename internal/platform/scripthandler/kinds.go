@@ -40,7 +40,7 @@ const settingArgs = "args"
 
 // callSettings are the manage_script arguments every tool-call kind reads.
 var callSettings = []string{
-	fieldConnection, "operations", "personas", "users", "conditions", settingArgs, "timeout_ms", "on_failure", "order", "approve",
+	fieldConnection, "operations", "personas", "users", "everyone", "conditions", settingArgs, "timeout_ms", "on_failure", "order", "approve",
 }
 
 // callCreator is who may create a tool-call handler.

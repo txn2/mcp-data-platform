@@ -254,6 +254,24 @@ func TestListConnections_MarksDefault(t *testing.T) {
 	}
 }
 
+// TestListConnections_ReportsTheNameCallsCarry: a connection stored under one
+// name whose connection_name its calls carry reports that name as Bound, and
+// one with none reports nothing there (#2649).
+func TestListConnections_ReportsTheNameCallsCarry(t *testing.T) {
+	tk := New(connCRM)
+	t.Cleanup(func() { _ = tk.Close() })
+	url := upstreamServer(t)
+	_ = tk.AddConnection(connCRM, connectionConfig(url, connCRM))
+	_ = tk.AddConnection("mcp-test-server", connectionConfig(url, connMKT))
+	bound := map[string]string{}
+	for _, d := range tk.ListConnections() {
+		bound[d.Name] = d.Bound
+	}
+	if bound[connCRM] != "" || bound["mcp-test-server"] != connMKT {
+		t.Errorf("Bound = %v; want none for %s and %s for mcp-test-server", bound, connCRM, connMKT)
+	}
+}
+
 func TestNewMulti_AbsorbsInitialFailures(t *testing.T) {
 	cfg, err := ParseMultiConfig("primary", map[string]map[string]any{
 		connCRM: {

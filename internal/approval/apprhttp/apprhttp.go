@@ -244,7 +244,7 @@ func (h *handler) actor(w http.ResponseWriter, r *http.Request) (approval.Actor,
 	out := *a
 	// A request an agent's tool call made to the platform's own API (the
 	// platform-admin connection) is the agent's, not the person's (#2643).
-	_, out.Agent = selfcall.From(r.Context())
+	out.Agent = selfcall.ByTool(r.Context())
 	return out, true
 }
 

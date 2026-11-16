@@ -101,6 +101,22 @@ func (s scripts) GetByID(_ context.Context, id string) (*script.Script, error) {
 	return s.w.scripts[id], nil
 }
 
+// List is every script of the world that runs, by name.
+func (s scripts) List(_ context.Context, f script.ListFilter) ([]script.Script, error) {
+	if s.w.scriptErr != nil {
+		return nil, s.w.scriptErr
+	}
+	out := []script.Script{}
+	for _, sc := range s.w.scripts {
+		if f.Library != nil && sc.Library != *f.Library {
+			continue
+		}
+		out = append(out, *sc)
+	}
+	slices.SortFunc(out, func(a, b script.Script) int { return strings.Compare(a.Name, b.Name) })
+	return out, nil
+}
+
 // view is the script_handlers view over the world.
 type view struct{ w *world }
 
@@ -559,6 +575,13 @@ type versions struct {
 	by       string
 	waiting  int
 	err      error
+	// sources are the sources of older versions, by script id and version.
+	sources map[string]map[int]string
+}
+
+func (v *versions) Source(_ context.Context, sc *script.Script, version int) (string, bool) {
+	src, ok := v.sources[sc.ID][version]
+	return src, ok
 }
 
 func (v *versions) ApproveFor(_ context.Context, c Caller, sc *script.Script, version int) error {

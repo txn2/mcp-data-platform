@@ -88,9 +88,12 @@ type SetRequest struct {
 	// The tool-call kinds' settings (policy, transform, watch; #2436): each
 	// left out keeps its value on a change. Connection is the connection
 	// setting endpoints share.
-	Operations *[]string                `json:"operations,omitempty"`
-	Personas   *[]string                `json:"personas,omitempty"`
-	Users      *[]string                `json:"users,omitempty"`
+	Operations *[]string `json:"operations,omitempty"`
+	Personas   *[]string `json:"personas,omitempty"`
+	Users      *[]string `json:"users,omitempty"`
+	// Everyone applies a new handler to every caller, which an empty
+	// personas and users list no longer means on its own (#2650).
+	Everyone   *bool                    `json:"everyone,omitempty"`
 	Conditions *[]callhandler.Condition `json:"conditions,omitempty"`
 	TimeoutMS  *int                     `json:"timeout_ms,omitempty" example:"2000"`
 	OnFailure  *string                  `json:"on_failure,omitempty" example:"hold"`
@@ -234,7 +237,7 @@ func setRequest(c scripthandler.Caller, sc *script.Script, body SetRequest) scri
 		Caller: c, Script: sc, Kind: body.Kind, Endpoint: body.Input, TimeoutSeconds: body.TimeoutSeconds,
 		Cron: body.Cron, Timezone: body.Timezone, Args: body.Args, EventSource: body.EventSource, Approve: body.Approve,
 		Call: callhandler.Patch{
-			Operations: body.Operations, Personas: body.Personas, Users: body.Users, Conditions: body.Conditions,
+			Operations: body.Operations, Personas: body.Personas, Users: body.Users, Everyone: body.Everyone, Conditions: body.Conditions,
 			TimeoutMS: body.TimeoutMS, OnFailure: body.OnFailure, ItemsPath: body.ItemsPath, Writes: body.Writes,
 			Protected: body.Protected, Order: body.Order,
 		},

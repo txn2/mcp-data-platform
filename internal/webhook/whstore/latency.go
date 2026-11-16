@@ -12,15 +12,32 @@ import (
 
 // ackBuckets is how many buckets an acknowledgement latency is counted in:
 // one per bound of AckBound, and one for everything slower than the last.
-const ackBuckets = 12
+// They are kept in webhook_ack_latency.ack_buckets; a row's counts are read
+// through webhook_ack_counts, which adds the 12 of the edges before #2651.
+const ackBuckets = 15
 
 // AckBound is the upper bound, in milliseconds, of acknowledgement-latency
 // bucket i, for i below ackBuckets-1. The last bucket has no upper bound.
+// 1500, 2000 and 3000 sit around the timeouts senders give up at (#2651).
 func AckBound(i int) int64 {
 	//nolint:revive // the bucket bounds are the table itself, named nowhere else
-	bounds := [ackBuckets - 1]int64{10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000}
+	bounds := [ackBuckets - 1]int64{10, 25, 50, 100, 250, 500, 1000, 1500, 2000, 2500, 3000, 5000, 10000, 30000}
 	return bounds[i]
 }
+
+// AckEdges is every bucket's upper bound in milliseconds, the last bucket's
+// none: the edges a p50 or p99 is estimated between (#2651).
+func AckEdges() []int64 {
+	out := make([]int64, 0, ackBuckets-1)
+	for i := range ackBuckets - 1 {
+		out = append(out, AckBound(i))
+	}
+	return out
+}
+
+// ackCounts is a stored row's counts in the current buckets, the SQL every
+// read of webhook_ack_latency takes them through.
+const ackCounts = "webhook_ack_counts(buckets, ack_buckets)"
 
 // The percentiles AckLatency reports.
 const (
@@ -86,9 +103,9 @@ func (l *Latency) Merge(o Latency) {
 }
 
 // AckLatency is a source's acknowledgement latency over a span. P50MS and
-// P99MS are the upper bound of the bucket the percentile falls in, capped at
-// MaxMS, so each is the most it could be: "p99_ms 250" means 99% of
-// deliveries were answered in 250ms or less.
+// P99MS are estimated within the bucket the percentile falls in, linearly
+// between its edges as Prometheus's histogram_quantile does, and never past
+// MaxMS (#2651): a value between two edges is an estimate, never a ceiling.
 type AckLatency struct {
 	Count int64 `json:"count"`
 	P50MS int64 `json:"p50_ms"`
@@ -98,22 +115,33 @@ type AckLatency struct {
 	Slowest *SlowAck `json:"slowest"`
 }
 
-// percentile is the bound of the bucket rank q of the counted deliveries
-// falls in, capped at most.
+// percentile is rank q of the counted deliveries, placed linearly within the
+// bucket it falls in, between the bucket's lower and upper edge, and capped at
+// most. The last bucket, with no upper edge, is bounded by most.
 func percentile(buckets [ackBuckets]int64, count int64, q float64, most int64) int64 {
 	if count == 0 {
 		return 0
 	}
-	rank := int64(math.Ceil(q * float64(count)))
+	rank := q * float64(count)
 	var seen int64
 	for i, n := range buckets {
-		seen += n
-		if seen >= rank {
-			if i == ackBuckets-1 {
-				return most
-			}
-			return min(AckBound(i), most)
+		if n == 0 || float64(seen+n) < rank {
+			seen += n
+			continue
 		}
+		lower := int64(0)
+		if i > 0 {
+			lower = AckBound(i - 1)
+		}
+		upper := most
+		if i < ackBuckets-1 {
+			upper = min(AckBound(i), most)
+		}
+		if upper <= lower {
+			return min(upper, most)
+		}
+		into := (rank - float64(seen)) / float64(n)
+		return min(lower+int64(math.Round(into*float64(upper-lower))), most)
 	}
 	return most
 }
@@ -142,12 +170,12 @@ func (s *Store) RecordLatency(ctx context.Context, latencies []Latency) error {
 	for _, l := range latencies {
 		if _, err := s.db.ExecContext(ctx,
 			`INSERT INTO webhook_ack_latency
-			        (source, minute, buckets, max_ms, slowest_at, slowest_buffer_ms, slowest_mark_ms, slowest_put_ms,
+			        (source, minute, ack_buckets, max_ms, slowest_at, slowest_buffer_ms, slowest_mark_ms, slowest_put_ms,
 			         buffer_ms_sum, mark_ms_sum, put_ms_sum)
 			 SELECT ws.name, $2, $3::bigint[], $4, $5, $6, $7, $8, $9, $10, $11 FROM webhook_sources ws WHERE ws.name = $1
 			 ON CONFLICT (source, minute) DO UPDATE SET
-			    buckets = ARRAY(SELECT COALESCE(t.a, 0) + COALESCE(t.b, 0)
-			                      FROM unnest(webhook_ack_latency.buckets, EXCLUDED.buckets) WITH ORDINALITY AS t(a, b, i)
+			    ack_buckets = ARRAY(SELECT COALESCE(t.a, 0) + COALESCE(t.b, 0)
+			                      FROM unnest(webhook_ack_latency.ack_buckets, EXCLUDED.ack_buckets) WITH ORDINALITY AS t(a, b, i)
 			                     ORDER BY t.i),
 			    slowest_at = CASE WHEN EXCLUDED.max_ms > webhook_ack_latency.max_ms
 			                      THEN EXCLUDED.slowest_at ELSE webhook_ack_latency.slowest_at END,
@@ -208,7 +236,7 @@ func (s *Store) readLatencyBuckets(ctx context.Context, source string, hourFrom,
 		`SELECT l.source, b.i,
 		        COALESCE(SUM(b.n) FILTER (WHERE l.minute >= $1), 0),
 		        SUM(b.n)
-		   FROM webhook_ack_latency l, unnest(l.buckets) WITH ORDINALITY AS b(n, i)
+		   FROM webhook_ack_latency l, unnest(`+ackCounts+`) WITH ORDINALITY AS b(n, i)
 		  WHERE l.minute >= $2 AND ($3::text = '' OR l.source = $3::text)
 		  GROUP BY l.source, b.i`,
 		hourFrom, dayFrom, source)
@@ -361,7 +389,7 @@ func (s *Store) alertOutcomes(ctx context.Context, since time.Time, get func(str
 func (s *Store) alertAck(ctx context.Context, since time.Time, get func(string) *SourceReadings) error {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT l.source, b.i, SUM(b.n), MAX(l.max_ms)
-		   FROM webhook_ack_latency l, unnest(l.buckets) WITH ORDINALITY AS b(n, i)
+		   FROM webhook_ack_latency l, unnest(`+ackCounts+`) WITH ORDINALITY AS b(n, i)
 		  WHERE l.minute >= $1
 		  GROUP BY l.source, b.i`, since.UTC())
 	if err != nil {

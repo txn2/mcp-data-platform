@@ -24,6 +24,7 @@ var registry = map[string]factory{
 	"audit-burst":       func() harness.Scenario { return &auditBurst{} },
 	"soak":              func() harness.Scenario { return &soak{} },
 	"endpoint-appdb":    func() harness.Scenario { return &endpointAppDB{} },
+	"endpoint-bytes":    func() harness.Scenario { return &endpointBytes{} },
 }
 
 // Get returns a fresh scenario by name.

@@ -23,6 +23,11 @@ import (
 // `ingest-service` persona (acme-ingest-key), an automated principal, and the
 // `admin` persona (the default key), an interactive one. Both drive the same
 // api-test-fixture connection.
+//
+// Wire forms: api_invoke_endpoint takes connection, method, path and purpose as
+// strings, and body as a JSON object and as a string of JSON, both sent as
+// literal tools/call params by the body-forms criterion; the other calls send
+// no body. The observability proxy is read with GET and a PromQL query string.
 const (
 	ingestPersona1615 = "ingest-service"
 	adminPersona1615  = "admin"
@@ -281,13 +286,13 @@ func TestIssue1615_TheGatewayViewReadsTheSplit(t *testing.T) {
 	root := `topk(10, sum by (persona) (increase(apigateway_outbound_total[1h])))`
 	scoped := `topk(10, sum by (persona) (increase(apigateway_outbound_total{connection="` + apiTestConnection + `"}[1h])))`
 
-	rootPersonas := awaitProxyPersonas(t, person, root, 1)
+	rootPersonas := awaitProxyPersonas(t, person, root)
 	if len(rootPersonas) == 0 {
 		t.Fatal("the root outbound-by-principal query returned no principals")
 	}
 	// The panel's whole point: the connection's own traffic separates into
 	// the automated principal and the interactive one.
-	scopedPersonas := awaitProxyPersonas(t, person, scoped, 2)
+	scopedPersonas := awaitProxyPersonas(t, person, scoped, ingestPersona1615, adminPersona1615)
 	if !scopedPersonas[ingestPersona1615] || !scopedPersonas[adminPersona1615] {
 		t.Fatalf("the per-connection query did not separate the two principals; got %v", scopedPersonas)
 	}
@@ -297,7 +302,10 @@ func TestIssue1615_TheGatewayViewReadsTheSplit(t *testing.T) {
 // proxy until it reports at least want distinct personas, or the wait runs
 // out. Prometheus scrapes the platform on an interval, so a query issued the
 // moment a call returns can outrun the scrape.
-func awaitProxyPersonas(t *testing.T, c *client, query string, want int) map[string]bool {
+// With no persona named it waits for any; otherwise for every one named, since
+// another criterion's caller on the same connection within the hour can make
+// the count right before this criterion's own calls are scraped.
+func awaitProxyPersonas(t *testing.T, c *client, query string, want ...string) map[string]bool {
 	t.Helper()
 	const (
 		attempts = 40
@@ -319,10 +327,24 @@ func awaitProxyPersonas(t *testing.T, c *client, query string, want int) map[str
 				seen[persona] = true
 			}
 		}
-		if len(seen) >= want {
+		if hasAll(seen, want) {
 			return seen
 		}
 		time.Sleep(pause)
 	}
 	return seen
+}
+
+// hasAll reports whether seen holds every name in want, or any name when want
+// is empty.
+func hasAll(seen map[string]bool, want []string) bool {
+	if len(want) == 0 {
+		return len(seen) > 0
+	}
+	for _, name := range want {
+		if !seen[name] {
+			return false
+		}
+	}
+	return true
 }

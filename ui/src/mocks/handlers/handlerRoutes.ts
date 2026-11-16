@@ -301,17 +301,17 @@ export const handlerRouteMocks = [
   // A connection's tool-call handlers (#2436): policies, transforms in
   // order, watches; the test panel; the transform order; a handler's failures.
   http.get(`${PORTAL_BASE}/connections/:connection/handlers`, ({ params }) => {
-    const conn = String(params.connection);
+    const conn = callName(String(params.connection));
     const rank: Record<string, number> = { policy: 0, transform: 1, watch: 2 };
     const data = handlerStore
       .allCalls()
       .filter((c) => c.connection === conn)
       .sort((a, b) => (rank[a.kind] ?? 3) - (rank[b.kind] ?? 3) || a.order - b.order);
-    return HttpResponse.json({ data });
+    return HttpResponse.json({ connection: conn, data });
   }),
 
   http.post(`${PORTAL_BASE}/connections/:connection/handlers/test`, async ({ params, request }) => {
-    const conn = String(params.connection);
+    const conn = callName(String(params.connection));
     const body = (await request.json()) as { tool?: string; arguments?: Record<string, unknown> };
     if (!body.tool) return HttpResponse.json({ detail: "name the tool the call would be made with" }, { status: 400 });
     const on = handlerStore.allCalls().filter((c) => c.connection === conn && c.enabled);
@@ -334,8 +334,19 @@ export const handlerRouteMocks = [
       const found = handlerStore.find(id);
       if (found?.call) found.call.order = i + 1;
     });
-    const conn = String(params.connection);
-    return HttpResponse.json({ data: handlerStore.allCalls().filter((c) => c.connection === conn) });
+    const conn = callName(String(params.connection));
+    return HttpResponse.json({ connection: conn, data: handlerStore.allCalls().filter((c) => c.connection === conn) });
+  }),
+
+  // The scripts a tool-call handler of a kind can run (#2650): only those
+  // whose source defines the kind's entry.
+  http.get(`${PORTAL_BASE}/handler-scripts`, ({ request }) => {
+    const url = new URL(request.url);
+    const kind = url.searchParams.get("kind") ?? "policy";
+    const q = (url.searchParams.get("q") ?? "").toLowerCase();
+    const entry: Record<string, string> = { policy: "decide(call)", transform: "transform(call, result)", watch: "main()" };
+    const scripts = handlerScriptChoices.filter((s) => s.kinds.includes(kind) && s.name.includes(q)).map(({ kinds: _kinds, ...s }) => s);
+    return HttpResponse.json({ kind, entry: entry[kind], scripts, looked: 41 });
   }),
 
   http.get(`${PORTAL_BASE}/handlers/:id/failures`, ({ params }) => {
@@ -373,4 +384,18 @@ export const handlerRouteMocks = [
     const data = matched.slice(offset, offset + Math.min(limit, MAX_LIST_LIMIT));
     return HttpResponse.json({ data, total: matched.length });
   }),
+];
+
+/** callName is the name a connection's calls carry, as the server resolves a
+ * stored instance name to its connection_name (#2649). */
+function callName(connection: string): string {
+  return ({ "mcp-test-server": "mcptest" } as Record<string, string>)[connection] ?? connection;
+}
+
+/** handlerScriptChoices are the scripts the Add handler dialog finds, by the kinds whose entry each defines. */
+const handlerScriptChoices = [
+  { id: "script-001", name: "limit-subscribers", owner_email: "jane@example.com", version: 4, running_version: 0, running_defines: false, kinds: ["policy", "watch"] },
+  { id: "script-002", name: "block-weekend-writes", owner_email: "ops@example.com", version: 2, running_version: 2, running_defines: true, kinds: ["policy"] },
+  { id: "script-003", name: "vip-accounts-only", owner_email: "jane@example.com", version: 7, running_version: 3, running_defines: false, kinds: ["policy"] },
+  { id: "script-004", name: "weekly-email", owner_email: "ops@example.com", version: 2, running_version: 0, running_defines: false, kinds: ["watch"] },
 ];

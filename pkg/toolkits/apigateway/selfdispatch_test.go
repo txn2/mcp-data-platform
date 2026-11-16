@@ -16,7 +16,7 @@ import (
 func selfConnection(t *testing.T, self http.Handler, selfDispatch bool) *Toolkit {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
-		t.Error("a token-less call must not reach the network upstream")
+		t.Error("a self_dispatch call must not reach the network upstream")
 	}))
 	t.Cleanup(srv.Close)
 	tk := New("test")
@@ -51,30 +51,25 @@ func TestSelfDispatch_ServesATokenlessCallAsItsCaller(t *testing.T) {
 	}
 }
 
-// TestSelfDispatch_ATokenGoesOverTheWire: a call carrying a token is
-// forwarded with it, never served in process.
-func TestSelfDispatch_ATokenGoesOverTheWire(t *testing.T) {
+// TestSelfDispatch_ATokenIsServedInProcessAsAToolCall: a call carrying a
+// token is served by the platform's own handler with the token on it, marked
+// as a tool call's and naming no caller, so the authenticators check the token
+// and the agent gates see an agent (#2656).
+func TestSelfDispatch_ATokenIsServedInProcessAsAToolCall(t *testing.T) {
 	var auth string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		auth = r.Header.Get("Authorization")
+	var byTool, named bool
+	self := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth, byTool = r.Header.Get("Authorization"), selfcall.ByTool(r.Context())
+		_, named = selfcall.From(r.Context())
 		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer srv.Close()
-	tk := New("test")
-	tk.SetSelfHandler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		t.Error("a call with a token must not be served in process")
-	}))
-	if err := tk.AddConnection("pa", map[string]any{
-		"base_url": srv.URL, "auth_mode": AuthModeNone, "identity_passthrough": true, "self_dispatch": true,
-	}); err != nil {
-		t.Fatalf("AddConnection: %v", err)
-	}
+	})
+	tk := selfConnection(t, self, true)
 	ctx := mcpcontext.WithCaller(mcpcontext.WithAuthToken(context.Background(), "tok"), mcpcontext.Caller{UserID: "u"})
 	if res, _, err := tk.handleInvoke(ctx, nil, InvokeInput{Connection: "pa", Method: "GET", Path: "/x"}); err != nil || res.IsError {
 		t.Fatalf("handleInvoke: err=%v", err)
 	}
-	if auth != "Bearer tok" {
-		t.Errorf("upstream saw Authorization %q; want the caller's token", auth)
+	if auth != "Bearer tok" || !byTool || named {
+		t.Errorf("self handler saw Authorization %q byTool=%v named=%v; want the caller's token, marked, naming no one", auth, byTool, named)
 	}
 }
 

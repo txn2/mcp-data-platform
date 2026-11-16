@@ -141,7 +141,7 @@ func (f *selfDispatchFixture) call(t *testing.T) invokeResult {
 
 // TestPlatformAdminSelfConnection_DraftAndSavedRunAgree is #2086: the same
 // call on the platform-admin connection succeeds from a draft (the caller's
-// token, over the loopback) and from a saved script's run (no token, served
+// token, checked by the admin API in this process since #2656) and from a saved script's run (no token, served
 // in this process as the script's identity), each authorized by the admin
 // API's own rule and audited as the caller; a saved run whose owner's roles
 // do not reach the admin persona is refused by that rule, naming it.
@@ -156,11 +156,21 @@ func TestPlatformAdminSelfConnection_DraftAndSavedRunAgree(t *testing.T) {
 	}
 	signedIn := &middleware.UserInfo{UserID: "admin@example.com", Email: "admin@example.com", Roles: []string{"admin"}}
 
-	t.Run("a draft forwards the caller's token over the loopback", func(t *testing.T) {
+	// #2656: a call carrying the caller's token is served in this process too,
+	// marked as a tool call, and the admin API still checks the token.
+	t.Run("a draft is served in process as the token's holder", func(t *testing.T) {
 		f := newSelfDispatchFixture(t, signedIn, middleware.SourceScript, "admin-token")
 		out := f.call(t)
-		if out.Body["user"] != "admin@example.com" || f.overWire != 1 {
+		if out.Body["user"] != "admin@example.com" || f.overWire != 0 {
 			t.Fatalf("draft call: served %v over the wire %d times, result %s", f.served, f.overWire, out.text)
+		}
+	})
+
+	t.Run("a draft whose token the admin API does not admit is refused", func(t *testing.T) {
+		f := newSelfDispatchFixture(t, signedIn, middleware.SourceScript, "not-the-admin-token")
+		out := f.call(t)
+		if out.Status == http.StatusOK || len(f.served) != 0 {
+			t.Fatalf("an unadmitted token was served as %v, result %s", f.served, out.text)
 		}
 	})
 

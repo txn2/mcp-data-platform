@@ -49,6 +49,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/knowledgebuiltin"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceaudit"
+	"github.com/txn2/mcp-data-platform/internal/platform/resourceupload"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptgrant"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
@@ -465,6 +466,7 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform, notify *notifyd
 	}
 
 	extractClaims := resourceClaimsExtractor(p)
+	resourceupload.MountFrom(mux, p.ToolkitRegistry().All()) // a file PUT to an upload link (#2639)
 
 	// A deleted resource must not leave a table serving its file (#1327), and
 	// a revision of one moves the tables that follow it (#1536).

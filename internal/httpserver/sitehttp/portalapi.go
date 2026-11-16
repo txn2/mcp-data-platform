@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -90,6 +91,7 @@ func (a *portalAPI) register(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+pathSite+"/promote", a.promote)
 	mux.HandleFunc("POST "+pathSite+"/rollback", a.rollback)
 	mux.HandleFunc("PUT "+pathSite+"/environments/{name}", a.setEnvironment)
+	mux.HandleFunc("GET "+pathSite+"/environments/{name}/tile", a.tile)
 	mux.HandleFunc("DELETE "+pathSite+"/environments/{name}", a.removeEnvironment)
 	mux.HandleFunc("PUT "+pathSite+"/main-environment", a.setMainEnvironment)
 	mux.HandleFunc("POST "+pathSite+"/domains", a.addDomain)
@@ -125,7 +127,7 @@ func (a *portalAPI) who(w http.ResponseWriter, r *http.Request) (*caller, *http.
 	c.actor = sitesvc.Actor{Email: user.Email, Persona: c.personaName(), Admin: admin, EmailUnverified: stated && !verified}
 	// A request an agent's tool call made to the platform's own API is the
 	// agent's, not the person's (#2643): its moves wait on the person too.
-	_, c.actor.Agent = selfcall.From(r.Context())
+	c.actor.Agent = selfcall.ByTool(r.Context())
 	pc := middleware.NewPlatformContext("")
 	pc.UserID, pc.UserEmail, pc.PersonaName, pc.Roles, pc.IsAdmin = user.UserID, user.Email, c.personaName(), user.Roles, admin
 	return c, r.WithContext(middleware.WithPlatformContext(r.Context(), pc)), true
@@ -245,8 +247,10 @@ func (a *portalAPI) view(ctx context.Context, c *caller, st *site.Site, domains 
 		domains = slices.DeleteFunc(slices.Clone(domains), func(d site.Domain) bool { return trimmed.Environment(d.Environment) == nil })
 	}
 	at := a.svc().Addressing()
+	address, more := at.ProductionAddress(st, domains)
 	return SiteView{
-		Site: *st, Address: at.OwnAddress(st), Addresses: at.Addresses(st, domains), PagesAddresses: at.PagesAddresses(st),
+		Address: address, MoreDomains: more,
+		Site: *st, Addresses: at.Addresses(st, domains), PagesAddresses: at.PagesAddresses(st),
 		EnvironmentNameRoom: site.EnvironmentNameRoom(st.Name),
 		AddressNote:         at.AddressNote(st), Domains: domains, Permissions: perms,
 	}, nil
@@ -343,10 +347,14 @@ func (c *caller) canCreate() bool {
 // list handles GET /api/v1/portal/sites.
 //
 // @Summary      List sites
-// @Description  Every site with its environments, its own address and its domains, what the caller may do to each, the pages domain and the limits a release is held to.
+// @Description  The sites q names (a part of a name, description, owner or domain hostname, any case; every site without it), limit at a time from offset, each with its environments, its production address and its domains, what the caller may do to each, the pages domain and the limits a release is held to. total counts every site q names.
 // @Tags         Sites
 // @Produce      json
+// @Param        q       query  string   false  "A part of a site's name, description, owner or domain hostname"
+// @Param        limit   query  integer  false  "How many sites to return, at most 200; every match without it"
+// @Param        offset  query  integer  false  "How many matching sites to skip"
 // @Success      200  {object}  SiteList
+// @Failure      400  {object}  httpjson.ProblemDetail
 // @Failure      401  {object}  httpjson.ProblemDetail
 // @Failure      403  {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
@@ -371,23 +379,71 @@ func (a *portalAPI) list(w http.ResponseWriter, r *http.Request) {
 	for _, d := range domains {
 		bySite[d.SiteID] = append(bySite[d.SiteID], d)
 	}
+	page, ok := listPage(w, r)
+	if !ok {
+		return
+	}
+	// The query and the page are applied before anything is read per site, so
+	// a list of hundreds costs the page it shows (#2658).
+	matched := slices.DeleteFunc(sites, func(st site.Site) bool { return !site.Matches(&st, bySite[st.ID], page.q) })
 	out := SiteList{
-		Sites: make([]SiteView, 0, len(sites)), Total: len(sites), PagesDomain: a.d.Runtime.Live.Get().PagesDomain,
+		Sites: []SiteView{}, Total: len(matched), PagesDomain: a.d.Runtime.Live.Get().PagesDomain,
 		Limits: a.limits(), CanCreate: c.canCreate(), Admin: c.actor.Admin,
 	}
+	matched = page.of(matched)
 	traffic := a.listTraffic(r.Context())
-	for i := range sites {
-		v, err := a.view(r.Context(), c, &sites[i], nonNil(bySite[sites[i].ID]))
+	for i := range matched {
+		v, err := a.view(r.Context(), c, &matched[i], nonNil(bySite[matched[i].ID]))
 		if err != nil {
 			fail(w, r, err)
 			return
 		}
 		if traffic != nil {
-			v.Traffic = siteTraffic(traffic[sites[i].ID], &v.Site)
+			v.Traffic = siteTraffic(traffic[matched[i].ID], &v.Site)
 		}
 		out.Sites = append(out.Sites, v)
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// The most sites one list answer holds.
+const maxListLimit = 200
+
+// listQuery is a list's query and page.
+type listQuery struct {
+	q             string
+	limit, offset int
+}
+
+// listPage reads q, limit and offset, answering a malformed one 400.
+func listPage(w http.ResponseWriter, r *http.Request) (listQuery, bool) {
+	out := listQuery{q: r.URL.Query().Get("q")}
+	for name, dst := range map[string]*int{"limit": &out.limit, "offset": &out.offset} {
+		raw := r.URL.Query().Get(name)
+		if raw == "" {
+			continue
+		}
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 || (name == "limit" && n > maxListLimit) {
+			httpjson.WriteError(w, http.StatusBadRequest, fmt.Sprintf("limit is 0 to %d and offset 0 or more", maxListLimit))
+			return listQuery{}, false
+		}
+		*dst = n
+	}
+	return out, true
+}
+
+// of is the page of in the query asks for: everything from offset, at most
+// limit of it when limit is set.
+func (q listQuery) of(in []site.Site) []site.Site {
+	if q.offset >= len(in) {
+		return nil
+	}
+	in = in[q.offset:]
+	if q.limit > 0 && q.limit < len(in) {
+		in = in[:q.limit]
+	}
+	return in
 }
 
 func nonNil(in []site.Domain) []site.Domain {

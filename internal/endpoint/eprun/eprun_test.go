@@ -532,7 +532,9 @@ func TestServe_ATokenMintedByOneRequestVerifiesOnALaterOne(t *testing.T) {
 	}
 	f.scripts.versions[1].AuthorRoles = []string{"sales"}
 
-	minted := decode(t, f.serve(t, Request{Method: "GET"}).Body)
+	mintedResp := f.serve(t, Request{Method: "GET"})
+	assert.True(t, mintedResp.Secret, "an answer after platform.mint_token is never compressed (#2655)")
+	minted := decode(t, mintedResp.Body)
 	tok, _ := minted["token"].(string)
 	require.NotEmpty(t, tok, "%v", minted)
 
@@ -541,6 +543,7 @@ func TestServe_ATokenMintedByOneRequestVerifiesOnALaterOne(t *testing.T) {
 		require.NoError(t, err)
 		resp := f.runner.Serve(context.Background(), target, Request{Method: "GET", Query: map[string][]string{"token": {tok}}})
 		require.Equal(t, http.StatusOK, resp.Status, string(resp.Body))
+		assert.False(t, resp.Secret, "verifying a token the caller sent hands the run no secret")
 		return decode(t, resp.Body)
 	}
 	elsewhere := verify("elsewhere")
