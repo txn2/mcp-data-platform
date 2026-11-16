@@ -136,7 +136,7 @@ function Facts({ site }: { site: Site }) {
   const domains = site.domains.map((d) => d.hostname).join(", ");
   const facts: [string, string, boolean?][] = [
     ["Owner", site.owner_email],
-    ["Main address", site.address ? bareAddress(site.address) : "None", true],
+    ["Production address", site.address ? bareAddress(site.address) : "None", true],
     ["Domains", domains || "None"],
     ["Created", `${day(site.created_at)} by ${site.created_by}`],
   ];
