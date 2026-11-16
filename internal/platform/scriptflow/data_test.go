@@ -36,10 +36,6 @@ platform.batch("appdb", ["DELETE FROM shop.holds", {"sql": "INSERT INTO audit.lo
 		"a transaction's statements through tx")
 	assert.Equal(t, DataRef{Connection: "appdb", Reads: []string{}, Writes: []string{"shop.holds", "audit.log"}, Write: true}, refs[6])
 
-	assert.Equal(t, "public", SchemaOf("orders"))
-	assert.Equal(t, "shop", SchemaOf("shop.orders"))
-	assert.Equal(t, "shop", SchemaOf(`"shop"."orders"`))
-	assert.Equal(t, "s", SchemaOf("hive.s.t"))
 	assert.Empty(t, DataRefs("not starlark ("))
 }
 
@@ -191,43 +187,6 @@ def main():
 		"UPDATE s.u",
 	}, subtitles)
 }
-
-// TestWritesOf is the tables a statement writes, by its verb, and the
-// positions a verb is not a write in.
-func TestWritesOf(t *testing.T) {
-	tests := []struct {
-		name string
-		sql  string
-		want []write
-	}{
-		{"a plain insert", "INSERT INTO s.t (a) VALUES (1)", []write{{"INSERT", "s.t"}}},
-		{
-			"a CTE insert and the statement's own", "with a as (insert into s.x values (1) returning id) update s.y set n = 1 from a",
-			[]write{{"INSERT", "s.x"}, {"UPDATE", "s.y"}},
-		},
-		{
-			"two CTEs, one deleting", "WITH a AS (DELETE FROM s.old RETURNING *), b AS (SELECT 1) INSERT INTO s.archive SELECT * FROM a",
-			[]write{{"DELETE", "s.old"}, {"INSERT", "s.archive"}},
-		},
-		{
-			"ON CONFLICT DO UPDATE is not a second write", "INSERT INTO s.t (id) VALUES (1) ON CONFLICT (id) DO UPDATE SET n = 1",
-			[]write{{"INSERT", "s.t"}},
-		},
-		{
-			"a CTE upsert", "WITH a AS (INSERT INTO s.t (id) VALUES (1) ON CONFLICT (id) DO UPDATE SET n = 1 RETURNING id) SELECT * FROM a",
-			[]write{{"INSERT", "s.t"}},
-		},
-		{"SELECT FOR UPDATE writes nothing", "WITH a AS (SELECT * FROM s.t FOR UPDATE) SELECT * FROM a", nil},
-		{"a read", "SELECT * FROM s.t", nil},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, writesOf(tt.sql))
-		})
-	}
-}
-
-// TestOutputRefs is what each output step names (#2540).
 func TestOutputRefs(t *testing.T) {
 	refs := OutputRefs(`
 def main():
@@ -276,4 +235,98 @@ def main():
 	assert.Equal(t, []string{"s.stale"}, refs[1].Writes, "a module-level list")
 	assert.Equal(t, []string{"s.counter"}, refs[2].Writes, "the statements keyword after another")
 	assert.Empty(t, refs[3].Writes, "a batch naming no statements writes no table it names")
+}
+
+// TestDataRefs_CopyInIsAWrite pins #2665 (a): rows written through COPY are a
+// write to the table copy_in names, in a transaction (tx.copy_in) and outside
+// one (platform.copy_in); a table the script computes makes the step computed.
+func TestDataRefs_CopyInIsAWrite(t *testing.T) {
+	refs := DataRefs(`
+COLUMNS = ["id", "url"]
+
+def work(tx):
+    """Loads the photos."""
+    tx.copy_in("s.photos", COLUMNS, [])
+
+def main():
+    """Syncs."""
+    platform.transaction("appdb", work)
+    platform.copy_in("appdb", "s.albums", COLUMNS, [])
+    platform.copy_in("appdb", table = "s.tags", columns = COLUMNS, rows = [])
+    platform.copy_in("appdb", run.params["t"], COLUMNS, [])
+`)
+	require.Len(t, refs, 4)
+	assert.Equal(t, DataRef{Connection: "appdb", Reads: []string{}, Writes: []string{"s.photos"}, Write: true}, refs[0],
+		"tx.copy_in is the transaction's write")
+	assert.Equal(t, DataRef{Connection: "appdb", Reads: []string{}, Writes: []string{"s.albums"}, Write: true}, refs[1])
+	assert.Equal(t, DataRef{Connection: "appdb", Reads: []string{}, Writes: []string{"s.tags"}, Write: true}, refs[2], "by keyword")
+	assert.True(t, refs[3].Computed, "a computed table")
+	assert.Empty(t, refs[3].Writes)
+
+	g := Derive(`
+def work(tx):
+    """Loads the photos."""
+    tx.copy_in("s.photos", ["id"], [])
+
+def main():
+    """Syncs."""
+    platform.transaction("appdb", work)
+    platform.copy_in("appdb", "s.albums", ["id"], [])
+`)
+	var details []string
+	subtitles := make([]string, 0, len(g.Nodes))
+	for _, n := range g.Nodes {
+		details = append(details, n.Detail...)
+		subtitles = append(subtitles, n.Subtitle)
+	}
+	assert.Contains(t, details, "COPY s.photos", "the transaction card lists the copy")
+	assert.Contains(t, subtitles, "COPY s.albums")
+}
+
+// TestDataRefs_HandlersNamedAsValues pins #2665 (b): a function reached only
+// by being named, as the argument of a wrapper that returns a lambda calling
+// it or as a route table's value, is followed, so its statements count.
+func TestDataRefs_HandlersNamedAsValues(t *testing.T) {
+	const handler = `ADD_SQL = "INSERT INTO s.guesses (g) VALUES (:g)"
+
+def refuse(code, msg):
+    """Refuses."""
+    return {"status": code, "body": msg}
+
+def signed_in(fn):
+    """Gates a route on a signed-in caller."""
+    return lambda req: fn(req) if req["caller"] else refuse(401, "sign in")
+
+def guess(req):
+    """Records a guess."""
+    platform.execute(ADD_SQL, {"g": 1}, connection = "appdb")
+    return {"status": 200}
+
+def handle(req):
+    """Dispatches."""
+    fn = routes().get(req["method"] + " " + req["path"])
+    return fn(req)
+`
+	for name, routes := range map[string]string{
+		"through a wrapper": "\ndef routes():\n    \"\"\"Routes.\"\"\"\n    return {\"POST guess\": signed_in(guess)}\n",
+		"named directly":    "\ndef routes():\n    \"\"\"Routes.\"\"\"\n    return {\"POST guess\": guess}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			refs := DataRefs(handler + routes)
+			require.Len(t, refs, 1)
+			assert.Equal(t, DataRef{Connection: "appdb", Reads: []string{}, Writes: []string{"s.guesses"}, Write: true}, refs[0])
+		})
+	}
+
+	shadowed := DataRefs(`
+def guess(req):
+    """Records a guess."""
+    platform.execute("INSERT INTO s.guesses (g) VALUES (1)", connection = "appdb")
+
+def main():
+    """A local variable named like a function is the variable."""
+    guess = 1
+    print(guess)
+`)
+	assert.Empty(t, shadowed, "a variable shadowing a function name is not a call of it")
 }

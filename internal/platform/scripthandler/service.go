@@ -199,6 +199,8 @@ func (s *Service) Set(ctx context.Context, req SetRequest) (map[string]any, erro
 		return nil, err
 	}
 	switch k.Name {
+	case KindIntegration:
+		return nil, errIntegration("chosen")
 	case KindEndpoint:
 		return s.setEndpoint(ctx, req)
 	case KindSchedule:
@@ -287,6 +289,8 @@ func (s *Service) Enable(ctx context.Context, id string, enabled bool, c Caller)
 		return nil, err
 	}
 	switch h.Kind {
+	case KindIntegration:
+		return nil, errIntegration("turned off by clearing it")
 	case KindEndpoint:
 		if err := s.enableEndpoint(ctx, h, sc, enabled, c); err != nil {
 			return nil, err
@@ -334,6 +338,8 @@ func (s *Service) Delete(ctx context.Context, id string, c Caller) (map[string]a
 		return nil, err
 	}
 	switch h.Kind {
+	case KindIntegration:
+		return nil, errIntegration("cleared")
 	case KindEndpoint:
 		err = s.deleteEndpoint(ctx, h, sc, c)
 	case KindSchedule:
@@ -423,9 +429,20 @@ func checkOne(h Handler, source string) string {
 	return ""
 }
 
+// errIntegration refuses acting on an integration's script through the
+// handler commands: it is chosen, changed and cleared where the operation is.
+func errIntegration(what string) error {
+	return fmt.Errorf("an integration's script is %s by %s: %w", what, integrationCreator, ErrNotAllowed)
+}
+
 // describe is one handler as its kind reports it.
 func (s *Service) describe(ctx context.Context, h Handler, sc *script.Script) (map[string]any, error) {
 	switch h.Kind {
+	case KindIntegration:
+		return map[string]any{
+			fieldHandler: h.ID, fieldKind: h.Kind, fieldName: sc.Name, "operation": h.Target,
+			"enabled": h.Enabled, "chosen_in": "Admin > Settings > Integrations",
+		}, nil
 	case KindEndpoint:
 		return s.describeEndpoint(ctx, h, sc)
 	case KindSchedule:
@@ -461,10 +478,14 @@ type Offer struct {
 	Contract string `json:"contract"`
 }
 
-// Offers is every kind as adding a handler to sc offers it to the caller.
+// Offers is every kind as adding a handler to sc offers it to the caller. An
+// integration is not offered: its script is chosen where the operation is.
 func (s *Service) Offers(sc *script.Script, c Caller) []Offer {
 	out := make([]Offer, 0, len(kinds))
 	for _, k := range kinds {
+		if k.Name == KindIntegration {
+			continue
+		}
 		reason := s.offerRefusal(sc, c, k.Name)
 		out = append(out, Offer{Kind: k.Name, Allowed: reason == "", Reason: reason, Contract: k.Contract})
 	}

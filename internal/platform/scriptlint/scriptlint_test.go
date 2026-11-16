@@ -200,6 +200,19 @@ func TestCheck_AHandlerWithoutMainIsNotALibrary(t *testing.T) {
 	assert.NotContains(t, rules(res), RuleEntryPoint)
 }
 
+// A Site routing script, route(req) and no main(), is run by the platform and
+// is not a library: it may name platform (#2659). route with other parameters
+// is refused naming its contract.
+func TestCheck_ARouteWithoutMainIsNotALibrary(t *testing.T) {
+	res := Check("def route(req):\n    \"\"\"Routes.\"\"\"\n    return {\"a\": platform.query(\"SELECT 1\")}\n")
+	assert.NotContains(t, rules(res), RuleLibraryEffect)
+	assert.NotContains(t, rules(res), RuleEntryPoint)
+	unused := Check("def route(req):\n    \"\"\"Routes nothing.\"\"\"\n    return {}\n")
+	assert.NotContains(t, rules(unused), RuleUnusedParameter, "the platform passes req whether route reads it or not")
+	bad := Check("def route(req, extra):\n    \"\"\"Routes.\"\"\"\n    return {}\n")
+	assert.Contains(t, rules(bad), RuleEntryPoint)
+}
+
 // A form script, form_spec(req) and form_submit(req, values) and no main(),
 // is an endpoint's script, not a library (#2176).
 func TestCheck_AFormWithoutMainIsNotALibrary(t *testing.T) {

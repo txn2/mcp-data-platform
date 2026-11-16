@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiFetchRaw, ApiError } from "../client";
 import type { ApprovalRequest } from "./approvals";
 import type { EnvironmentStatus } from "./siteOps";
+import type { Routing } from "./siteRouting";
 
 // Sites (#2559, #2604, #2617, #2619): agents and the people who manage a site
 // work in dev; people use the environments a release was promoted to, one step
@@ -42,6 +43,8 @@ export interface SiteEnvironment {
   status_changed_at?: string;
   /** An agent's moves into it go ahead without a person's decision (#2643); an administrator's setting. */
   agents_may_promote?: boolean;
+  /** Why the release it serves could not be drawn as its tile (#2664), as the tile worker recorded it. */
+  tile_failure?: string;
   updated_by?: string;
   updated_at: string;
 }
@@ -56,6 +59,7 @@ export interface SiteDomain {
   public: boolean;
   created_by: string;
   created_at: string;
+  routing?: Routing; // the routing script's status (#2659); absent when no script is chosen
 }
 
 /** What adding a domain or changing its access did: done, or waiting on Approvals. */
@@ -122,6 +126,7 @@ export interface Site {
   /** Why the environments have no pages address (#2611): a two-character name; absent otherwise. */
   address_note?: string;
   domains: SiteDomain[];
+  pages_routing?: Record<string, Routing>; // each pages address's routing status by environment (#2659)
   permissions: SitePermissions;
   /** The media folders it serves, outside its releases (#2591); never null. */
   media?: SiteMedia[];
@@ -588,12 +593,6 @@ export function useSetMainEnvironment(site: string) {
 }
 
 /** Where an application answers: its page origin and the domains mapped to it. */
-export function useApplicationAddresses(application: string) {
-  return useQuery({
-    queryKey: ["application-addresses", application],
-    queryFn: () => apiFetch<{ page_origin: string; domains: string[] }>(`/application-addresses/${encodeURIComponent(application)}`),
-    retry: false,
-  });
-}
 
 export * from "./siteOps";
+export * from "./siteRouting";

@@ -64,7 +64,7 @@ func TestService_GivesEveryServiceTheSites(t *testing.T) {
 
 func TestKitAndConnections(t *testing.T) {
 	assert.Nil(t, Kit(nil)(), "no registry, no toolkit")
-	assert.False(t, hasConnection(nil)("orders"))
+	assert.False(t, hasConnection(nil)(context.Background(), "orders"))
 	reg := registry.NewRegistry()
 	assert.Nil(t, Kit(reg)())
 	multi, err := postgreskit.ParseMultiConfig("orders", map[string]map[string]any{})
@@ -73,7 +73,7 @@ func TestKitAndConnections(t *testing.T) {
 	t.Cleanup(func() { _ = pg.Close() })
 	require.NoError(t, reg.Register(pg))
 	assert.NotNil(t, Kit(reg)())
-	assert.False(t, hasConnection(reg)("orders"), "a connection the toolkit does not hold")
+	assert.False(t, hasConnection(reg)(context.Background(), "orders"), "a connection the toolkit does not hold")
 }
 
 func TestSourceReads(t *testing.T) {

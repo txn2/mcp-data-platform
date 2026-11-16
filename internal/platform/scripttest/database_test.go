@@ -22,7 +22,7 @@ type usersDB struct {
 	emails map[string]bool
 }
 
-func (*usersDB) HasConnection(name string) bool { return name == "shop" }
+func (*usersDB) ServesConnection(_ context.Context, name string) bool { return name == "shop" }
 
 func (d *usersDB) Query(context.Context, postgres.Statement) (*postgres.Result, error) {
 	d.mu.Lock()

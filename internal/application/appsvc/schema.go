@@ -11,6 +11,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/application"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptflow"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptflow/sqlread"
 )
 
 // Roles creates, grants and drops an application's run role on its
@@ -329,7 +330,7 @@ func (s *Service) staysInside(ctx context.Context, a *application.Application, s
 		return nil //nolint:nilerr // a script with no readable version has nothing to check
 	}
 	for _, ref := range scriptflow.DataRefs(v.Source) {
-		if !s.onAppDB(ref) {
+		if !s.onAppDB(ctx, ref) {
 			continue
 		}
 		if err := s.tablesInside(ctx, a, scriptName(sc), ref); err != nil {
@@ -341,15 +342,15 @@ func (s *Service) staysInside(ctx context.Context, a *application.Application, s
 
 // onAppDB reports whether a statement step names an application database
 // connection, and names it literally.
-func (s *Service) onAppDB(ref scriptflow.DataRef) bool {
-	return !ref.Computed && ref.Connection != "" && (s.HasConnection == nil || s.HasConnection(ref.Connection))
+func (s *Service) onAppDB(ctx context.Context, ref scriptflow.DataRef) bool {
+	return !ref.Computed && ref.Connection != "" && (s.HasConnection == nil || s.HasConnection(ctx, ref.Connection))
 }
 
 // tablesInside refuses a statement step naming a table in a schema another
 // application holds.
 func (s *Service) tablesInside(ctx context.Context, a *application.Application, script string, ref scriptflow.DataRef) error {
 	for _, table := range append(slices.Clone(ref.Reads), ref.Writes...) {
-		schema := scriptflow.SchemaOf(table)
+		schema := sqlread.SchemaOf(table)
 		other, err := s.Store.Holding(ctx, ref.Connection, schema)
 		if err != nil || other.ID == a.ID {
 			continue

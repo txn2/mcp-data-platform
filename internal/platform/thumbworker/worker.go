@@ -455,6 +455,21 @@ func outcome(err error) (retry bool, reason string) {
 	return false, failureReason(err)
 }
 
+// renderOutcome is what every family does with a render's error, in one
+// place (#2664): an error worth retrying ends the attempt unfinished, and
+// anything else is the document's, counted under reason="document" and
+// returned as the reason to record. A nil error returns neither.
+func renderOutcome(ctx context.Context, err error) (reason string, unfinished error) {
+	retry, why := outcome(err)
+	if retry {
+		return "", err
+	}
+	if why != "" {
+		recordDocumentFailure(ctx)
+	}
+	return why, nil
+}
+
 // failureReason is the recorded text of a document's failure, which a reader
 // sees beside the missing tile: the renderer's own sentence, without the
 // prefixes the error picked up on its way here, bounded.

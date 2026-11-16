@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useId } from "react";
 import {
   useSMTPSettings,
+  useIntegrations,
   useGeneralFeedback,
   useSetSMTPSettings,
   useSendTestEmail,
@@ -14,20 +15,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ConfigField, ConfigSelect, ConfigToggle } from "./connections/fields";
-import { ConnectionAlertCard } from "./ConnectionAlertCard";
-import { MapsCard } from "./MapsCard";
-import { SitesSettingsCard } from "./SitesSettingsCard";
-import { NotificationChannelsCard } from "./NotificationChannelsCard";
-import { ReviewAlertCard } from "./ReviewAlertCard";
-import { GeneralFeedbackCard } from "./GeneralFeedbackCard";
-import { ScriptRunAlertCard } from "./ScriptRunAlertCard";
-import { BotChecksSettingsCard } from "./BotChecksSettingsCard";
-import { AccessRequestsSettingsCard } from "./AccessRequestsSettingsCard";
-import { AppDBAlertCard } from "./AppDBAlertCard";
-import { EmbedHostsSettingsCard } from "./EmbedHostsSettingsCard";
-import { StorageSettingsCard } from "./StorageSettingsCard";
-import { WebhookAlertCard } from "./WebhookAlertCard";
 import { SettingsCard } from "./panels";
+import { OTHER_SECTION_CARDS } from "./settingsCards";
 import {
   ErrorBanner,
   ReadOnlyBanner,
@@ -410,38 +399,7 @@ export function AdminSettingsPage({
 // SECTION_CARDS is the card each section shows.
 const SECTION_CARDS: Record<SettingsSectionId, (isReadOnly: boolean) => React.ReactNode> = {
   email: (ro) => <SMTPCard isReadOnly={ro} />,
-  channels: (ro) => <NotificationChannelsCard isReadOnly={ro} />,
-  "general-feedback": (ro) => <GeneralFeedbackCard isReadOnly={ro} />,
-  "knowledge-review": (ro) => (
-    <ReviewAlertCard
-      queue="review-queue-alert"
-      title="Knowledge review queue alert"
-      description="Email a digest when knowledge insights are left unreviewed"
-      enabledHelp="Check the pending insight queue hourly and alert when it crosses a threshold"
-      itemNoun="insight"
-      isReadOnly={ro}
-    />
-  ),
-  "approvals-queue": (ro) => (
-    <ReviewAlertCard
-      queue="approval-queue-alert"
-      title="Approvals queue alert"
-      description="Email when held calls and handler versions wait for a decision"
-      enabledHelp="Check the approvals queue hourly and alert when it crosses a threshold"
-      itemNoun="request"
-      isReadOnly={ro}
-    />
-  ),
-  "connection-revocations": (ro) => <ConnectionAlertCard isReadOnly={ro} />,
-  "run-failures": (ro) => <ScriptRunAlertCard isReadOnly={ro} />,
-  webhooks: (ro) => <WebhookAlertCard isReadOnly={ro} />,
-  storage: (ro) => <StorageSettingsCard isReadOnly={ro} />,
-  "application-databases": (ro) => <AppDBAlertCard isReadOnly={ro} />,
-  maps: () => <MapsCard />,
-  sites: () => <SitesSettingsCard />,
-  "embed-hosts": (ro) => <EmbedHostsSettingsCard isReadOnly={ro} />,
-  "bot-checks": (ro) => <BotChecksSettingsCard isReadOnly={ro} />,
-  "access-requests": (ro) => <AccessRequestsSettingsCard isReadOnly={ro} />,
+  ...OTHER_SECTION_CARDS,
 };
 
 // useSectionStatus is what the nav marks beside a section: an email server
@@ -450,7 +408,10 @@ function useSectionStatus(): Partial<Record<SettingsSectionId, string>> {
   const { data: smtp } = useSMTPSettings();
   const failing = useFailingChannelCount();
   const { data: general } = useGeneralFeedback();
+  const { data: integrations } = useIntegrations();
   const out: Partial<Record<SettingsSectionId, string>> = {};
+  const failedOp = integrations?.integrations.find((op) => op.binding?.last_status === "failed" && !op.binding.current_run_id);
+  if (failedOp) out.integrations = `The ${failedOp.label.toLowerCase()} script failed`;
   if (general?.warnings.includes("reaches_nobody")) out["general-feedback"] = "A new post reaches nobody";
   if (smtp && !smtp.host) out.email = "Not configured";
   if (failing > 0) out.channels = failing === 1 ? "A channel's last delivery failed" : `${failing} channels' last delivery failed`;

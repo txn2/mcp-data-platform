@@ -74,7 +74,7 @@ type Deps struct {
 	Handlers *scripthandler.Service
 	// HasSchemaConnection reports whether an application database
 	// connection is configured here.
-	HasSchemaConnection func(name string) bool
+	HasSchemaConnection func(ctx context.Context, name string) bool
 	// Recordings is where the recorded runs a script's tests replay are read
 	// from on export and stored on import (#2476). Nil exports and imports
 	// none: a script whose tests name one is refused.

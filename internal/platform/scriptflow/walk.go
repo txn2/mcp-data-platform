@@ -133,6 +133,13 @@ func (a *analyzer) exprList(f *frame, list []syntax.Expr) origins {
 func (a *analyzer) expr(f *frame, e syntax.Expr) origins {
 	switch e := e.(type) {
 	case *syntax.Ident:
+		if d := a.namedFunction(f, e); d != nil {
+			// A function named as a value (an argument, a dict's value, a
+			// return) is called later through whatever holds it: a route
+			// table, a wrapper that returns a lambda calling it. It is
+			// followed where it is named, as a call (#2665).
+			return a.invoke(f, d, &syntax.CallExpr{Fn: e, Lparen: e.NamePos, Rparen: e.NamePos})
+		}
 		return a.lookup(f, e.Name).clone()
 	case *syntax.DotExpr:
 		return a.dotExpr(f, e)
@@ -147,6 +154,24 @@ func (a *analyzer) expr(f *frame, e syntax.Expr) origins {
 		return a.call(f, e)
 	}
 	return a.exprList(f, parts(e))
+}
+
+// namedFunction is the user function an identifier names as a value, nil
+// when it names none or a variable of the frame shadows it.
+func (a *analyzer) namedFunction(f *frame, id *syntax.Ident) *syntax.DefStmt {
+	d := a.funcs[id.Name]
+	if d == nil {
+		return nil
+	}
+	for fr := f; fr != nil; fr = fr.lexical {
+		if _, bound := fr.env[id.Name]; bound {
+			return nil
+		}
+	}
+	if _, bound := a.top.env[id.Name]; bound {
+		return nil
+	}
+	return d
 }
 
 // parts is the subexpressions whose origins an expression's value carries,

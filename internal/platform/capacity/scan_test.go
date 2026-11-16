@@ -122,6 +122,8 @@ func TestScan_CountsUsageOrphansAndDangling(t *testing.T) {
 			{Key: "webhooks/s/raw/x.jsonl.gz", Size: 3, LastModified: old},
 		},
 	}}
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT DISTINCT ref FROM (SELECT s3_key FROM portal_assets")).
+		WithArgs("p", `{"artifacts/u/gone/content.csv"}`).WillReturnRows(keyRows("artifacts/u/gone/content.csv"))
 	s := &Scanner{DB: db, Layout: testLayout, Walkers: map[string]Walker{"p": walker, "r": walker}, OrphanGrace: 30 * time.Second}
 
 	res, err := s.Scan(context.Background())
@@ -151,12 +153,52 @@ func TestScan_BucketWithNoWalker(t *testing.T) {
 	db, mock := newMock(t)
 	expectSnapshot(mock)
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT s3_key FROM portal_assets")).WillReturnRows(keyRows("artifacts/u/a/content.html"))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT DISTINCT ref")).WillReturnRows(keyRows("artifacts/u/a/content.html"))
 	s := &Scanner{DB: db, Layout: testLayout, Walkers: map[string]Walker{"p": fakeWalker{}}}
 	res, err := s.Scan(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, []string{"p"}, res.Buckets)
 	assert.Equal(t, int64(1), res.Dangling[observability.StoragePurposePortalAssets])
 	assert.NotContains(t, res.Buckets, "r")
+}
+
+// TestScan_ARowRemovedDuringTheListingIsNotDangling pins #2663: a reference
+// read before the listing whose row and object were both removed while it
+// ran is not counted as dangling, and a row that still references a missing
+// object is. Only the keys the listing did not find are re-read.
+func TestScan_ARowRemovedDuringTheListingIsNotDangling(t *testing.T) {
+	db, mock := newMock(t)
+	expectSnapshot(mock)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT s3_key FROM resources")).WithArgs("r").
+		WillReturnRows(keyRows("resources/global/global/kept/f.csv", "resources/global/global/replaced/old.csv", "resources/global/global/lost/g.csv"))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT DISTINCT ref FROM (SELECT s3_key FROM resources")).
+		WithArgs("r", sqlmock.AnyArg()).WillReturnRows(keyRows("resources/global/global/lost/g.csv"))
+	walker := fakeWalker{objects: map[string][]s3adapter.WalkedObject{
+		"r": {{Key: "resources/global/global/kept/f.csv", Size: 1, LastModified: time.Now().Add(-time.Hour)}},
+	}}
+	s := &Scanner{DB: db, Layout: testLayout, Walkers: map[string]Walker{"r": walker}}
+
+	res, err := s.Scan(context.Background())
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+	assert.Equal(t, map[string]int64{observability.StoragePurposeResources: 1}, res.Dangling,
+		"the replaced version's row is gone after the listing; only the row whose object is lost is dangling")
+
+	db, mock = newMock(t)
+	expectSnapshot(mock)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT s3_key FROM resources")).WillReturnRows(keyRows("resources/global/global/lost/g.csv"))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT DISTINCT ref")).WillReturnError(errors.New("down"))
+	s = &Scanner{DB: db, Layout: testLayout, Walkers: map[string]Walker{"r": fakeWalker{}}}
+	_, err = s.Scan(context.Background())
+	require.ErrorContains(t, err, "re-reading object references")
+
+	db, mock = newMock(t)
+	expectSnapshot(mock)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT s3_key FROM resources")).WillReturnRows(keyRows("resources/global/global/lost/g.csv"))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT DISTINCT ref")).WillReturnRows(sqlmock.NewRows([]string{"a", "b"}).AddRow("x", "y"))
+	s = &Scanner{DB: db, Layout: testLayout, Walkers: map[string]Walker{"r": fakeWalker{}}}
+	_, err = s.Scan(context.Background())
+	require.ErrorContains(t, err, "re-reading object references")
 }
 
 func TestScan_Failures(t *testing.T) {

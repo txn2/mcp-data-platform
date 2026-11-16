@@ -16,11 +16,11 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/postgres"
 )
 
-// shopOnly serves one application database, "shop". Only HasConnection is
+// shopOnly serves one application database, "shop". Only ServesConnection is
 // read here: the calls go through the run's Caller, as a session's would.
 type shopOnly struct{}
 
-func (shopOnly) HasConnection(name string) bool { return name == "shop" }
+func (shopOnly) ServesConnection(_ context.Context, name string) bool { return name == "shop" }
 func (shopOnly) Query(context.Context, postgres.Statement) (*postgres.Result, error) {
 	return &postgres.Result{}, nil
 }

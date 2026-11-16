@@ -191,6 +191,15 @@ an environment's pointer: no file is copied and the change shows at once.
 | `https://<site>--<env>.<pages_domain>/` | That environment. Private |
 | A domain added to an environment | That environment: private, or public when set public |
 
+Where an administrator chose a Site routing script (Admin > Settings >
+Integrations), the platform hands it every one of these hostnames to route
+through the deployment's ingress. `get`, `domains` and `add_domain` then carry
+`routing` on each domain (`pages_routing` by environment for the pages
+addresses): `pending` until the script answers, then `ready` or `failed` with
+its message. A domain you add is saved at once and reads `pending`; tell the
+person it routes once it reads `ready`, and pass on a `failed` message as it is.
+With no script chosen there is no `routing`, and a person adds the ingress.
+
 `set_environment ... main=true` gives an environment the main address, and
 `update main_environment=""` gives it to none; both are the owner's or an
 administrator's. Every environment keeps its `<site>--<env>` address. A site or

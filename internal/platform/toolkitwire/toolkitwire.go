@@ -16,6 +16,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/application"
 	"github.com/txn2/mcp-data-platform/internal/application/apprunrole"
+	"github.com/txn2/mcp-data-platform/internal/platform/connrecords"
 	"github.com/txn2/mcp-data-platform/internal/platform/migrationstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrefs"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
@@ -49,11 +50,15 @@ func Metrics(toolkits []registry.Toolkit, m *observability.Metrics) {
 // (postgreskit.OwnDatabaseGuard), the store manage_schema keeps its
 // migrations in (#2404), and the saved scripts a migration's rename is
 // checked against (#2405), and what it asks about the applications holding
-// its schemas (#2539). The platform runs it before any tool is registered,
+// its schemas (#2539), and the connection store a name another replica saved
+// is answered from before its announcement arrives (#2662). The platform runs
+// it before any tool is registered,
 // so no statement runs on a connection the check has not seen and the toolkit
 // lists manage_schema when it registers. A deployment with no database has
 // nothing to protect and no store, and installs nothing.
-func PostgresGuard(toolkits []registry.Toolkit, platformDB *sql.DB, sealer *fieldcrypt.RestFieldEncryptor) {
+func PostgresGuard(toolkits []registry.Toolkit, platformDB *sql.DB, sealer *fieldcrypt.RestFieldEncryptor,
+	saved func(kind string, kindNotFound error) connrecords.Reader,
+) {
 	if platformDB == nil {
 		return
 	}
@@ -68,6 +73,11 @@ func PostgresGuard(toolkits []registry.Toolkit, platformDB *sql.DB, sealer *fiel
 			pg.SetScriptReferences(refs)
 			pg.SetApplications(apps.Holder, apps.RunRole)
 			pg.StartTestSweep(platformDB)
+			if saved != nil {
+				if store := saved(postgreskit.Kind, postgreskit.ErrConnectionNotFound); store != nil {
+					pg.SetConnectionStore(store)
+				}
+			}
 		}
 	}
 }
@@ -104,7 +114,7 @@ func AppDB(all func() []registry.Toolkit, authn middleware.Authenticator, authz 
 	}
 	runner := func() scriptsession.AppDBRunner {
 		if pg := live(); pg != nil {
-			return appdbRunner{pg}
+			return appdbRunner{Toolkit: pg, others: all}
 		}
 		return nil
 	}
@@ -149,12 +159,39 @@ func testDatabase(ctx context.Context, pg *postgreskit.Toolkit, connection strin
 	if err != nil {
 		return nil, nil, err //nolint:wrapcheck // the toolkit's refusal names the connection and the fix
 	}
-	return appdbRunner{db.Toolkit}, db.Close, nil
+	return appdbRunner{Toolkit: db.Toolkit}, db.Close, nil
 }
 
 // appdbRunner is the postgres toolkit as a script session runs statements on
 // it: its transaction is handed back as the session's interface.
-type appdbRunner struct{ *postgreskit.Toolkit }
+type appdbRunner struct {
+	*postgreskit.Toolkit
+	// others are the registry's other toolkits; nil reads none.
+	others func() []registry.Toolkit
+}
+
+// connectionHolder is a toolkit's live connection set.
+type connectionHolder interface {
+	HasConnection(name string) bool
+}
+
+// ServesConnection implements scriptsession.AppDBRunner. A name another
+// kind serves is not an application database (the two kinds never share a
+// name), so platform.query on a Trino connection is answered without the
+// connection store read a name no toolkit holds costs (#2662).
+func (r appdbRunner) ServesConnection(ctx context.Context, name string) bool {
+	if r.HasConnection(name) {
+		return true
+	}
+	if r.others != nil {
+		for _, tk := range r.others() {
+			if h, ok := tk.(connectionHolder); ok && tk != registry.Toolkit(r.Toolkit) && h.HasConnection(name) {
+				return false
+			}
+		}
+	}
+	return r.Toolkit.ServesConnection(ctx, name)
+}
 
 // Begin implements scriptsession.AppDBRunner.
 func (r appdbRunner) Begin(ctx context.Context, o postgreskit.TxOptions) (scriptsession.AppDBTx, error) {

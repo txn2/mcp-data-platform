@@ -129,6 +129,7 @@ describe("HANDLER_TYPE_LABELS", () => {
       policy: "Policy",
       transform: "Transform",
       watch: "Watch",
+      integration: "Integration",
     });
   });
 });

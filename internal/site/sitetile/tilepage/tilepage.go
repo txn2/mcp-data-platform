@@ -27,11 +27,19 @@ const (
 	pageScale  = 0.625
 )
 
-// ready waits for the page's images and fonts, so a tile is not a picture of
-// a page half loaded.
-const ready = `Promise.all([document.fonts ? document.fonts.ready : Promise.resolve()]
-  .concat(Array.prototype.map.call(document.images, function(i){ return i.decode().catch(function(){}); })))
-  .then(function(){ return ""; })`
+// ready waits for what is in the picture and nothing else (#2677): the fonts,
+// then every image whose box intersects the 1280x960 frame the tile is
+// captured from. An image outside the frame cannot change a pixel of the tile,
+// and a loading="lazy" one there is never fetched, so its decode() never
+// settles; waiting on it held every such page to the render deadline. An
+// image inside the frame is fetched by the browser on its own, lazy or not,
+// so nothing about the page is rewritten.
+const ready = `(document.fonts ? document.fonts.ready : Promise.resolve()).then(function(){
+  return Promise.all(Array.prototype.filter.call(document.images, function(i){
+    var r = i.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth;
+  }).map(function(i){ return i.decode().catch(function(){}); }));
+}).then(function(){ return ""; })`
 
 // slash separates a path's segments.
 const slash = "/"

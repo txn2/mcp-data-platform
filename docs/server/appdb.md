@@ -77,6 +77,8 @@ toolkits:
 
 An application database cannot take a name a Trino connection holds, or the reverse: `platform.query` names its connection alone, and the save is refused with 409.
 
+A connection saved through one replica is usable through every replica as soon as the save returns. A replica that has not yet received the save's announcement reads the connection from the connection store the first time a call names it: creating an application, `manage_schema`, a script's `platform.query`, and the admin routes all find it, and a name no replica saved is refused as before (#2662).
+
 A script uses a connection only when the persona its run presents allows the connection in its `connections:` list. The check runs once per run, at the run's first statement on that connection. The driver is `jackc/pgx/v5`; the platform's own database stays on `lib/pq`.
 
 **Admin > Connections > Test** opens a connection and reports the server version, the database and the user it reached, logs in as every persona role and names each (warning of one that is a superuser or has `BYPASSRLS`, which row-level security does not apply to), and reports whether a notification sent through the pool reaches a listening connection, which a [webhook source with input postgres](webhooks.md#an-application-database-as-a-source) needs. Through PgBouncer in transaction mode it does not. Each connection's state (`healthy`, `unreachable`, `auth_failed`) is the one its statements last found; a persona role's failed login is reported under the connection's name.

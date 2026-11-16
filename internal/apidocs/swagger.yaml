@@ -8255,6 +8255,151 @@ definitions:
         example: mcp:dataset:(trino,warehouse,iceberg.retail.daily_sales)
         type: string
     type: object
+  integration.Binding:
+    properties:
+      created_at:
+        type: string
+      created_by:
+        type: string
+      current_run_id:
+        type: string
+      id:
+        type: string
+      interval_seconds:
+        type: integer
+      last_error:
+        type: string
+      last_finished_at:
+        type: string
+      last_reason:
+        type: string
+      last_run_id:
+        type: string
+      last_started_at:
+        type: string
+      last_status:
+        type: string
+      operation:
+        type: string
+      retry_requested:
+        type: boolean
+      script_id:
+        type: string
+      updated_at:
+        type: string
+      updated_by:
+        type: string
+    type: object
+  integration.Candidate:
+    properties:
+      approved_by:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      owner_email:
+        type: string
+      running_serves:
+        type: boolean
+      running_version:
+        type: integer
+      version:
+        type: integer
+    type: object
+  integration.Overview:
+    properties:
+      approved_by:
+        type: string
+      binding:
+        $ref: '#/definitions/integration.Binding'
+      counts:
+        additionalProperties:
+          type: integer
+        type: object
+      function:
+        description: Function is the top-level function the script defines, taking
+          req.
+        type: string
+      items:
+        items:
+          $ref: '#/definitions/integration.StoredItem'
+        type: array
+      items_field:
+        description: |-
+          ItemsField is the request field holding every item now, and the name
+          an item is counted by.
+        type: string
+      key_field:
+        description: KeyField is the entry field an item is keyed by.
+        type: string
+      label:
+        description: Label is how the portal names it.
+        type: string
+      operation:
+        description: Name is the operation's name in the API and the view's target.
+        type: string
+      running_version:
+        type: integer
+      script_name:
+        type: string
+      total:
+        description: |-
+          Total is how many items the operation has now, whether or not a script
+          is chosen.
+        type: integer
+    type: object
+  integration.StoredItem:
+    properties:
+      checked_at:
+        type: string
+      entry:
+        additionalProperties: {}
+        type: object
+      failed_run:
+        type: string
+      key:
+        type: string
+      message:
+        type: string
+      status:
+        type: string
+    type: object
+  integrationapi.BindInput:
+    properties:
+      approve:
+        description: Approve approves the script's latest version for handlers, as
+          you.
+        type: boolean
+      interval_seconds:
+        description: |-
+          IntervalSeconds is the timer, 60 to 86400; 0 or omitted keeps the
+          current one, 900 for a new binding.
+        type: integer
+      script_id:
+        type: string
+    type: object
+  integrationapi.CandidateList:
+    properties:
+      scripts:
+        items:
+          $ref: '#/definitions/integration.Candidate'
+        type: array
+    type: object
+  integrationapi.Done:
+    properties:
+      done:
+        type: boolean
+      operation:
+        type: string
+    type: object
+  integrationapi.IntegrationList:
+    properties:
+      integrations:
+        items:
+          $ref: '#/definitions/integration.Overview'
+        type: array
+    type: object
   knowledge.Changeset:
     properties:
       applied_by:
@@ -15695,6 +15840,12 @@ definitions:
           environment opens to someone who has not signed in. A domain is added
           private unless public is asked for.
         type: boolean
+      routing:
+        allOf:
+        - $ref: '#/definitions/site.Routing'
+        description: |-
+          Routing is the Site routing script's status for the hostname (#2659),
+          absent when no script is chosen.
       site:
         example: marketing
         type: string
@@ -15773,6 +15924,12 @@ definitions:
       status_changed_at:
         type: string
       status_changed_by:
+        type: string
+      tile_failure:
+        description: |-
+          TileFailure is why the release the environment serves could not be
+          drawn as its tile, as the tile worker recorded it (#2664); empty while
+          it is drawn, being drawn, or not tried yet.
         type: string
       updated_at:
         type: string
@@ -15992,6 +16149,34 @@ definitions:
       total_bytes:
         type: integer
     type: object
+  site.Routing:
+    properties:
+      checked_at:
+        type: string
+      message:
+        type: string
+      run_error:
+        type: string
+      run_id:
+        type: string
+      run_script_id:
+        type: string
+      script_failed:
+        type: boolean
+      status:
+        enum:
+        - pending
+        - ready
+        - failed
+        type: string
+    type: object
+  site.RoutingRetry:
+    properties:
+      retried:
+        type: boolean
+      site:
+        type: string
+    type: object
   site.Site:
     properties:
       created_at:
@@ -16117,6 +16302,12 @@ definitions:
           environment opens to someone who has not signed in. A domain is added
           private unless public is asked for.
         type: boolean
+      routing:
+        allOf:
+        - $ref: '#/definitions/site.Routing'
+        description: |-
+          Routing is the Site routing script's status for the hostname (#2659),
+          absent when no script is chosen.
       site:
         example: marketing
         type: string
@@ -16200,6 +16391,12 @@ definitions:
         type: array
       page_origin:
         type: string
+      page_origin_routing:
+        allOf:
+        - $ref: '#/definitions/site.Routing'
+        description: |-
+          PageOriginRouting is the Site routing script's status for the page
+          origin (#2659); absent when no script is chosen.
     type: object
   sitehttp.CopyBody:
     properties:
@@ -16908,6 +17105,14 @@ definitions:
           can be issued for. It answers only where the deployment's ingress
           routes it.
         type: object
+      pages_routing:
+        additionalProperties:
+          $ref: '#/definitions/site.Routing'
+        description: |-
+          PagesRouting is the Site routing script's status for each environment's
+          pages address, by environment (#2659); absent when no script is chosen,
+          and on the Sites list.
+        type: object
       permissions:
         allOf:
         - $ref: '#/definitions/sitesvc.Permissions'
@@ -17248,6 +17453,12 @@ definitions:
           environment opens to someone who has not signed in. A domain is added
           private unless public is asked for.
         type: boolean
+      routing:
+        allOf:
+        - $ref: '#/definitions/site.Routing'
+        description: |-
+          Routing is the Site routing script's status for the hostname (#2659),
+          absent when no script is chosen.
       site:
         example: marketing
         type: string
@@ -24583,6 +24794,156 @@ paths:
       summary: Re-index (manual retry / force re-embed)
       tags:
       - System
+  /admin/integrations:
+    get:
+      description: 'Returns every operation the platform hands to a script (Site routing
+        first): its contract, the script chosen for it with the version approved for
+        handlers, how its last run went (with the run''s error, which only administrators
+        read), each item''s status and the counts by status. An operation with no
+        script chosen has no binding and no items.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/integrationapi.IntegrationList'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List integrations
+      tags:
+      - Integrations
+  /admin/integrations/{operation}:
+    delete:
+      description: Stops the operation's calls and drops every status it kept, so
+        the deployment behaves as it does with no script. Audited.
+      parameters:
+      - description: Operation, such as site_routing
+        in: path
+        name: operation
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/integrationapi.Done'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Clear an integration's script
+      tags:
+      - Integrations
+    put:
+      consumes:
+      - application/json
+      description: Chooses the script an operation calls, or changes it or its interval,
+        and calls it with every item at once. Refused when the version that would
+        run does not define the operation's function, naming the contract, and when
+        no version is approved for handlers and approve is not set. Audited.
+      parameters:
+      - description: Operation, such as site_routing
+        in: path
+        name: operation
+        required: true
+        type: string
+      - description: The script, the interval and whether to approve its latest version
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/integrationapi.BindInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/integration.Binding'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Choose an integration's script
+      tags:
+      - Integrations
+  /admin/integrations/{operation}/retry:
+    post:
+      description: Calls the operation's script with every item at once, when the
+        run in flight, if any, ends. Audited.
+      parameters:
+      - description: Operation, such as site_routing
+        in: path
+        name: operation
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/integrationapi.Done'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Retry an integration now
+      tags:
+      - Integrations
+  /admin/integrations/{operation}/scripts:
+    get:
+      description: Returns the scripts, not libraries, whose latest version defines
+        the operation's function (route(req) for site_routing), with the version approved
+        for handlers and whether that version defines it too.
+      parameters:
+      - description: Operation, such as site_routing
+        in: path
+        name: operation
+        required: true
+        type: string
+      - description: Narrows by name or description
+        in: query
+        name: search
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/integrationapi.CandidateList'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List the scripts an integration may call
+      tags:
+      - Integrations
   /admin/knowledge/changesets:
     get:
       description: Returns paginated changesets with optional filtering.
@@ -40103,6 +40464,49 @@ paths:
       summary: Roll back an environment
       tags:
       - Sites
+  /portal/sites/{site}/routing/retry:
+    post:
+      description: Asks the Site routing script to run now with every hostname (#2659).
+        An administrator may ask at any time. Anyone else who can see the site may
+        ask when one of its addresses or domains failed, as the Retry on a failed
+        row offers, and not within 15 seconds of the script's last run starting (429,
+        saying when). 409 when nothing of the site failed; 404 when no routing script
+        is chosen.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/site.RoutingRetry'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Retry site routing
+      tags:
+      - Sites
   /portal/sites/{site}/traffic:
     get:
       description: Requests by status class and p50, p95 and p99 latency over the
@@ -42647,6 +43051,8 @@ tags:
     description: "Managed-script review and approval. Browse scripts and their version history, read a version alongside the capabilities and connections its source reaches for, and approve a version — which binds the capability grant it executes under and is the only thing that makes a script executable."
   - name: "Secrets"
     description: "Stored secrets a request references by placeholder: {{secret:<name>}} in an api_invoke_endpoint or api_export request's body, query_params, path_params or headers is filled in as the gateway sends it and redacted from the response. Each secret names the connections it may be sent through and, optionally, the personas that may use it. Values are write-only."
+  - name: "Integrations"
+    description: "Operations only a deployment's environment knows how to do, handed to a script an administrator chooses: Site routing first, which hands the script every hostname the platform serves for sites and applications. List each operation with its script, its last run and each item's status, list the scripts that define its function, choose or clear its script, and retry it now."
   - name: "Catalog"
     description: "The platform catalog's scan of every connection: how often it runs, the catalogs, schemas and operations each connection keeps out of the catalog, each connection's last scan, and a request to scan now."
   - name: "Webhooks"
@@ -42719,6 +43125,7 @@ x-tagGroups:
       - "Connections"
       - "Endpoints"
       - "External users"
+      - "Integrations"
       - "Notifications"
       - "Personas"
       - "Scripts"

@@ -87,3 +87,29 @@ func TestDrawSite(t *testing.T) {
 	w.deps.Sites = nil
 	assert.Nil(t, w.claimSites(context.Background()), "no store draws none")
 }
+
+// TestDrawSite_ADeadlineIsTheReleasesFailure pins #2664: a page that does not
+// finish drawing by the deadline is recorded on its first attempt, counted as
+// a document failure and never as storage; a renderer that stops answering
+// mid-draw is still held back and tried again.
+func TestDrawSite_ADeadlineIsTheReleasesFailure(t *testing.T) {
+	_, scrape := installMetrics(t)
+	deadline := errors.New("headless: the document did not finish drawing before the deadline")
+	d := &fakeDrawer{results: []error{deadline}}
+	w := worker(d, nil, newBlobs())
+	sites := newFakeSites(sitetile.Work{SiteID: "s1", Environment: "prod", Release: 4, Attempts: 1})
+	w.deps.Sites, w.deps.SitePage = sites, siteRelease(true)
+
+	w.drawBatch(context.Background(), w.claimSites(context.Background()))
+	assert.Equal(t, "the document did not finish drawing before the deadline", sites.failed["s1/prod"])
+	assert.Empty(t, sites.held, "a deadline the release owns is not held back")
+	body := scrape()
+	assert.Contains(t, body, `thumbnail_render_failures_total{kind="site",reason="document"} 1`)
+	assert.NotContains(t, body, `thumbnail_render_failures_total{kind="site",reason="storage"}`)
+
+	d.results = []error{headless.ErrUnavailable}
+	sites.work = []sitetile.Work{{SiteID: "s2", Environment: "prod", Release: 1, Attempts: 1}}
+	w.drawBatch(context.Background(), w.claimSites(context.Background()))
+	assert.Positive(t, sites.held["s2/prod"], "a renderer gone mid-draw is held and tried again")
+	assert.NotContains(t, sites.failed, "s2/prod")
+}

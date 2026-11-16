@@ -261,7 +261,7 @@ def main():
     platform.query("SELECT * FROM " + run.params["t"], connection = "orders")
     platform.query("SELECT * FROM billing.invoices", connection = "warehouse")
 `
-	svc.HasConnection = func(name string) bool { return name == "orders" }
+	svc.HasConnection = func(_ context.Context, name string) bool { return name == "orders" }
 	_, err = svc.AddPart(ctx, jane, "shop", application.KindScript, scriptA)
 	require.NoError(t, err)
 }

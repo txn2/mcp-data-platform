@@ -145,8 +145,8 @@ func TestWorker_ACancelRequestedBeforeTheClaimEndsTheRunUnexecuted(t *testing.T)
 }
 
 func TestCancelledError(t *testing.T) {
-	assert.Equal(t, "canceled on request", cancelledError(""))
-	assert.Equal(t, "canceled by a@b.c", cancelledError("a@b.c"))
+	assert.Equal(t, "canceled on request", runstate.CanceledError(""))
+	assert.Equal(t, "canceled by a@b.c", runstate.CanceledError("a@b.c"))
 }
 
 // TestOutputWriter_RecordsAToolsOutputWithoutClaimingTheName is #1854 at the

@@ -123,8 +123,8 @@ func (d *TestDatabases) runner(connection string) (AppDBRunner, error) {
 // connection.
 type testRunner struct{ d *TestDatabases }
 
-// HasConnection implements AppDBRunner: the connections the test opened.
-func (r testRunner) HasConnection(name string) bool {
+// ServesConnection implements AppDBRunner: the connections the test opened.
+func (r testRunner) ServesConnection(_ context.Context, name string) bool {
 	_, err := r.d.runner(name)
 	return err == nil
 }

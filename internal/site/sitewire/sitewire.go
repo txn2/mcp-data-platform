@@ -13,6 +13,8 @@ import (
 	"path"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/site/siterouting"
+
 	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -90,6 +92,9 @@ type Runtime struct {
 	TrafficStore *sitetraffic.Store
 	// Tiles is each environment's tile, drawn by the tile worker (#2658).
 	Tiles *sitetile.Store
+	// Routing is the Site routing integration's statuses (#2659); its Service
+	// is set where the deployment has integrations.
+	Routing *siterouting.Lookup
 }
 
 // Refresh reads the saved settings into the configuration in force. A
@@ -158,7 +163,8 @@ func Register(server *mcp.Server, d Deps) (*Runtime, error) {
 	if d.Sources != nil {
 		svc.MediaFolders, svc.MediaStore = mediaFolders{reader: d.Sources}, store
 	}
-	tool := &sitetool.Tool{Service: svc, PortalURL: d.PortalURL}
+	routing := &siterouting.Lookup{Addressing: svc.Addressing}
+	tool := &sitetool.Tool{Service: svc, PortalURL: d.PortalURL, Routing: routing}
 	if d.Sources != nil {
 		tool.Sources = sources{reader: d.Sources, live: live, buckets: d.Buckets}
 	}
@@ -174,6 +180,7 @@ func Register(server *mcp.Server, d Deps) (*Runtime, error) {
 		Sources:  tool.Sources, Crawler: crawler, PortalURL: d.PortalURL, CookieDomain: d.CookieDomain,
 		Prune:   pruner(d, store, svc, live),
 		Traffic: sitetraffic.NewTally(), TrafficStore: &sitetraffic.Store{DB: d.DB}, Tiles: sitetile.NewStore(d.DB),
+		Routing: routing,
 	}
 	tool.Traffic = rt.TrafficStore
 	if d.Sources != nil {

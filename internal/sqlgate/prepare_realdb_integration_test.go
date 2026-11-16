@@ -31,6 +31,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/approval"
 	"github.com/txn2/mcp-data-platform/internal/platform/callrun"
+	"github.com/txn2/mcp-data-platform/internal/platform/capacity"
 	scriptstore "github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	portalstore "github.com/txn2/mcp-data-platform/internal/portal/portalstore"
 	"github.com/txn2/mcp-data-platform/internal/portal/reachstore"
@@ -118,6 +119,7 @@ var sampleSources = map[string]source{
 	"github.com/txn2/mcp-data-platform/internal/thumbdue":             {thumbdue.SQLSamples, 1},
 	"github.com/txn2/mcp-data-platform/internal/approval":             {approval.SQLSamples, 0},
 	"github.com/txn2/mcp-data-platform/internal/platform/callrun":     {callrun.SQLSamples, 0},
+	"github.com/txn2/mcp-data-platform/internal/platform/capacity":    {capacity.SQLSamples, 1},
 }
 
 func TestStoreStatementsPrepare_RealDB(t *testing.T) {

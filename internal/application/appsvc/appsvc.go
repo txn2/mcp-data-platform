@@ -57,8 +57,9 @@ type Service struct {
 	Sources       Sources
 	Schema        Schema
 	// HasConnection reports whether an application database connection
-	// (kind appdb) is named so; nil checks nothing.
-	HasConnection func(name string) bool
+	// (kind appdb) is named so, one another replica saved a moment ago
+	// included (#2662); nil checks nothing.
+	HasConnection func(ctx context.Context, name string) bool
 	// Schedules, Activity and Lister describe parts and list the ones that
 	// may be added (#2527); nil leaves out what each reads.
 	Schedules Schedules
@@ -146,7 +147,7 @@ func (s *Service) Create(ctx context.Context, actor application.Actor, a applica
 		// (#2604): an application holding such a name would take it over.
 		return nil, refused("name %q: \"--\" is kept for site environment addresses; use single hyphens", a.Name)
 	}
-	if a.Connection != "" && s.HasConnection != nil && !s.HasConnection(a.Connection) {
+	if a.Connection != "" && s.HasConnection != nil && !s.HasConnection(ctx, a.Connection) {
 		// Stored, a mistyped name surfaced only later, as a problem on the
 		// application's page (#2491).
 		return nil, refused("connection %q is not an application database connection (kind appdb) on this deployment; "+

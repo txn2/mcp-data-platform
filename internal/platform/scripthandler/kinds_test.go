@@ -1,6 +1,7 @@
 package scripthandler
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -16,15 +17,19 @@ import (
 )
 
 func TestKindsAndTypes(t *testing.T) {
-	assert.Equal(t, []string{KindEndpoint, KindSchedule, KindWebhook, KindPolicy, KindTransform, KindWatch}, Kinds())
-	assert.Equal(t, []string{KindEndpoint, TypeForm, KindSchedule, KindWebhook, KindPolicy, KindTransform, KindWatch, TypeNone}, Types())
+	assert.Equal(t, []string{KindEndpoint, KindSchedule, KindWebhook, KindPolicy, KindTransform, KindWatch, KindIntegration}, Kinds())
+	assert.Equal(t, []string{KindEndpoint, TypeForm, KindSchedule, KindWebhook, KindPolicy, KindTransform, KindWatch, KindIntegration, TypeNone}, Types())
 
 	for _, name := range Kinds() {
 		k, ok := KindOf(name)
 		require.True(t, ok, name)
 		assert.Equal(t, name, k.Name)
 		assert.NotEmpty(t, k.Contract, name)
-		assert.NotEmpty(t, k.Settings, name)
+		if name != KindIntegration {
+			// An integration takes no manage_script arguments: its script is
+			// chosen in Admin > Settings > Integrations.
+			assert.NotEmpty(t, k.Settings, name)
+		}
 		assert.NotEmpty(t, k.Creator, name)
 	}
 	_, ok := KindOf(TypeForm)
@@ -105,4 +110,21 @@ func TestStoreOr(t *testing.T) {
 	require.ErrorIs(t, got, ErrStore)
 	require.ErrorIs(t, got, errDown)
 	assert.Equal(t, errDown.Error(), got.Error(), "the store's failure keeps the text the log records")
+}
+
+// TestIntegrationKind pins #2659 on the handler side: the save gate refuses a
+// version without the operation's function, and the handler commands point
+// at Admin > Settings > Integrations rather than acting on one.
+func TestIntegrationKind(t *testing.T) {
+	refusal := checkOne(Handler{ID: "h1", Kind: KindIntegration, Target: "site_routing"}, "def main():\n    pass\n")
+	assert.Contains(t, refusal, "route(req)")
+	assert.Empty(t, checkOne(Handler{ID: "h1", Kind: KindIntegration}, "def route(req):\n    return {}\n"))
+
+	svc := &Service{}
+	_, err := svc.Set(context.Background(), SetRequest{Admin: true, Script: &script.Script{ID: "s"}, Kind: KindIntegration})
+	require.ErrorIs(t, err, ErrNotAllowed)
+	assert.Contains(t, err.Error(), "Admin > Settings > Integrations")
+	for _, o := range svc.Offers(&script.Script{OwnerEmail: "a@example.com"}, Caller{Admin: true}) {
+		assert.NotEqual(t, KindIntegration, o.Kind, "an integration is chosen in Settings, not offered as a handler")
+	}
 }

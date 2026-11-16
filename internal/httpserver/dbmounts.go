@@ -30,6 +30,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/formpublishwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/formwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/generalfeedbackwire"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/integrationwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/mentionhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/personashare"
@@ -274,8 +275,8 @@ func mountScriptAdminAPI(mux *http.ServeMux, p *platform.Platform, prefix string
 	scripts.RegisterAdmin(mux, prefix, buildAdminAuth(p))
 	// A version drawn as a diagram (#1906), read through the same lookup.
 	flowhttp.ForAdmin(scripts, deps).RegisterAdmin(mux, prefix, buildAdminAuth(p))
-	// The scripts saved before the harness that it has not caught up with
-	// (#1943).
+	// Integrations: the script each operation calls (#2659).
+	integrationwire.Mount(mux, p, func() func(http.Handler) http.Handler { return buildAdminAuth(p) })
 }
 
 // mountScriptPortalAPI registers the portal script routes: the scripts a caller

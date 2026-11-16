@@ -153,6 +153,10 @@ type Environment struct {
 	Status string `json:"status" example:"online"`
 	// StatusMessage is an offline environment's message.
 	StatusMessage string `json:"message,omitempty"`
+	// TileFailure is why the release the environment serves could not be
+	// drawn as its tile, as the tile worker recorded it (#2664); empty while
+	// it is drawn, being drawn, or not tried yet.
+	TileFailure string `json:"tile_failure,omitempty"`
 	// BackAt is when an offline environment's visitors are told it is
 	// expected back.
 	BackAt *time.Time `json:"back_at,omitempty"`

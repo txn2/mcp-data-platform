@@ -1011,7 +1011,10 @@ counted once; when it began is read off the store's own clock, from a marker
 object it writes first at `_mcp_platform_capacity/listing-start` in each
 bucket, outside every platform prefix), removes the rows of a bucket the deployment no longer uses, and
 counts the orphans and dangling references, holding only the keys rows
-reference. Between listings, each put and delete the platform makes moves its
+reference. A reference is dangling only when a row still names it after the
+listing ends: the references are read before it begins, and a row removed
+together with its object while it runs (a refresh replacing a version) is
+re-read once and dropped, not counted (#2663). Between listings, each put and delete the platform makes moves its
 bucket's row within seconds (each replica adds its writes every ten seconds),
 so an upload shows without waiting for the listing. A delete takes its object
 off the count but not its bytes, which the listing corrects. Tiles are counted

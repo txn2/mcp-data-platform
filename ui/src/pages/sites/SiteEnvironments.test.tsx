@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { getResponse } from "msw";
 import { handlers } from "@/mocks/handlers";
 import { resetSitesMock } from "@/mocks/handlers/sites";
 import { renderWithQuery, signIn, type SentRequest } from "@/test/applicationHarness";
 import { SiteDetailPage } from "./SiteDetailPage";
 import { envNameProblem } from "./envName";
-import { tilePlaceholder } from "./SiteTile";
+import { SiteTile, tilePlaceholder } from "./SiteTile";
 import type { SiteEnvironment } from "@/api/portal/hooks/sites";
 
 // The Environments and Access tabs of #2604, #2617 and #2619: dev is the
@@ -389,5 +389,23 @@ describe("tilePlaceholder (#2658)", () => {
     expect(tilePlaceholder(site, env({ name: "qa" }))?.label).toBe("No pages address");
     expect(tilePlaceholder(site, env({}))).toBeNull();
     expect(tilePlaceholder(site, undefined)?.label).toBe("No environment");
+  });
+
+  it("says a release that could not be drawn can't be, and why (#2664)", () => {
+    const site = { pages_addresses: { prod: "https://a.example" } };
+    const why = "the document did not finish drawing before the deadline";
+    expect(tilePlaceholder(site, { name: "prod", release: 3, tile_failure: why } as SiteEnvironment)).toEqual({ label: "Can't draw", why });
+  });
+
+  it("shows a small tile's reason as its title and a card's as text (#2664)", () => {
+    const site = { name: "m", pages_addresses: { prod: "https://a.example" } };
+    const why = "<b>the page</b> threw";
+    const env = { name: "prod", release: 3, tile_failure: why } as SiteEnvironment;
+    const { unmount } = render(<SiteTile site={site} env={env} size="row" />);
+    expect(screen.getByTestId("site-tile-placeholder-prod")).toHaveAttribute("title", why);
+    unmount();
+    render(<SiteTile site={site} env={env} size="card" />);
+    expect(screen.getByText(why)).toBeInTheDocument();
+    expect(screen.getByText("Can't draw")).toBeInTheDocument();
   });
 });

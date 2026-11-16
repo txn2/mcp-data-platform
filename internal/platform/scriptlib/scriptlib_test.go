@@ -63,6 +63,7 @@ func TestLoadsAndRefs(t *testing.T) {
 		"a form script is not a library (#2176)")
 	assert.False(t, SourceIsLibrary("def ("))
 	assert.False(t, SourceIsLibrary("def handle(req):\n    return 1\n"), "an endpoint's handle makes a script (#2172)")
+	assert.False(t, SourceIsLibrary("def route(req):\n    return {}\n"), "an integration's route makes a script (#2659)")
 }
 
 // run executes source's main with the loader over src.

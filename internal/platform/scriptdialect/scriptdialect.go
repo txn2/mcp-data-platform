@@ -96,6 +96,11 @@ func EntryPoint(file *syntax.File) *syntax.DefStmt {
 // as its one argument (#2172).
 const HandlerName = "handle"
 
+// RouteName is the function the Site routing integration calls with its
+// request (#2659): a script defining it is run by the platform, so it is a
+// script and not a library, as one defining handle(req) is.
+const RouteName = "route"
+
 // FormSpecName and FormSubmitName are the functions a form endpoint's
 // requests call instead (#2176): the spec on a GET, and the checked
 // submission otherwise. internal/endpoint/epform holds the contract.

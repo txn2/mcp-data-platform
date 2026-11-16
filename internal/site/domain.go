@@ -28,6 +28,30 @@ type Domain struct {
 	AccessChangedAt time.Time `json:"-"`
 	CreatedBy       string    `json:"created_by"`
 	CreatedAt       time.Time `json:"created_at"`
+	// Routing is the Site routing script's status for the hostname (#2659),
+	// absent when no script is chosen.
+	Routing *Routing `json:"routing,omitempty"`
+}
+
+// Routing is the Site routing integration's status for one hostname (#2659):
+// pending until the script answers, then ready or failed with the script's
+// message. When the script itself failed, Message is one sentence and
+// ScriptFailed is set; RunID, RunScriptID (where the run's page is) and
+// RunError, the run's own error, are filled for an administrator only.
+type Routing struct {
+	Status       string     `json:"status" enums:"pending,ready,failed"`
+	Message      string     `json:"message"`
+	CheckedAt    *time.Time `json:"checked_at,omitempty"`
+	ScriptFailed bool       `json:"script_failed,omitempty"`
+	RunID        string     `json:"run_id,omitempty"`
+	RunScriptID  string     `json:"run_script_id,omitempty"`
+	RunError     string     `json:"run_error,omitempty"`
+}
+
+// RoutingRetry is the answer to a Site routing retry (#2659).
+type RoutingRetry struct {
+	Site    string `json:"site"`
+	Retried bool   `json:"retried"`
 }
 
 // Route is what a hostname serves.

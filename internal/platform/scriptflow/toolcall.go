@@ -1,12 +1,12 @@
 package scriptflow
 
 import (
-	"regexp"
 	"slices"
 	"strings"
 
 	"go.starlark.net/syntax"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptflow/sqlread"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptflow/stmtlookup"
 )
 
@@ -29,54 +29,6 @@ var writeActions = map[string]bool{
 // writeMethods are the HTTP methods that make an API call a write. POST is not
 // among them: APIs search and query with it as often as they create.
 var writeMethods = map[string]bool{"PUT": true, "PATCH": true, "DELETE": true}
-
-// dmlRe reads the statement verb and target a trino_execute writes with.
-var dmlRe = regexp.MustCompile(`(?i)^\s*(INSERT\s+INTO|DELETE\s+FROM|UPDATE|MERGE\s+INTO|CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?|CREATE\s+OR\s+REPLACE\s+VIEW|CREATE\s+VIEW|DROP\s+TABLE(?:\s+IF\s+EXISTS)?|TRUNCATE\s+TABLE|ALTER\s+TABLE|CALL)\s+([^\s(]+)`)
-
-// withRe matches a statement that starts with common table expressions.
-var withRe = regexp.MustCompile(`(?i)^\s*WITH\s`)
-
-// cteDMLRe reads each data-modifying statement of a statement that starts with
-// WITH (#2615): one a common table expression runs opens with "(", and the
-// statement that follows the expressions comes after the last ")". Neither
-// position holds a verb otherwise: ON CONFLICT ... DO UPDATE and FOR UPDATE put
-// a word before it.
-var cteDMLRe = regexp.MustCompile(`(?i)[()]\s*(INSERT\s+INTO|DELETE\s+FROM|UPDATE|MERGE\s+INTO)\s+([^\s(),;]+)`)
-
-// write is one table a statement writes, with the verb it writes it by.
-type write struct{ verb, table string }
-
-// writesOf is every table a statement writes, in the order it names them: the
-// target of a statement that starts with its verb, or, for one that starts with
-// WITH, each common table expression's target and the target of the statement
-// that follows them.
-func writesOf(sql string) []write {
-	if withRe.MatchString(sql) {
-		matches := cteDMLRe.FindAllStringSubmatch(sql, -1)
-		if len(matches) == 0 {
-			return nil
-		}
-		out := make([]write, 0, len(matches))
-		for _, m := range matches {
-			out = append(out, write{verb: strings.ToUpper(strings.Fields(m[1])[0]), table: m[2]})
-		}
-		return out
-	}
-	if m := dmlRe.FindStringSubmatch(sql); m != nil {
-		return []write{{verb: strings.ToUpper(strings.Fields(m[1])[0]), table: m[2]}}
-	}
-	return nil
-}
-
-// lastWrite is the write a card names for a statement: the statement's own
-// target, which follows any its common table expressions write.
-func lastWrite(sql string) (write, bool) {
-	ws := writesOf(sql)
-	if len(ws) == 0 {
-		return write{}, false
-	}
-	return ws[len(ws)-1], true
-}
 
 // toolCall renders a platform.call: the tool, and what its argument dict names.
 func (c *card) toolCall(n *Node) {
@@ -183,14 +135,14 @@ func (c *card) writeStatement(n *Node, sqlExpr syntax.Expr, conn string) {
 		return
 	}
 	sql, _ := c.value(sqlExpr)
-	w, ok := lastWrite(sql)
+	w, ok := sqlread.LastWrite(sql)
 	if !ok {
 		n.Subtitle = "SQL assembled at run time"
 		n.Computed = true
 		return
 	}
-	n.Subtitle = w.verb + " " + w.table
-	if strings.Contains(w.table, "{") {
+	n.Subtitle = w.Verb + " " + w.Table
+	if strings.Contains(w.Table, "{") {
 		n.Computed = true
 	}
 }
@@ -202,9 +154,9 @@ func (c *card) trinoQuery(n *Node, f map[string]syntax.Expr, conn string) {
 	}
 	n.Title = "Query " + conn
 	sql, sqlFull := c.value(f[argSQL])
-	tables := tablesIn(sql)
+	tables := sqlread.TablesIn(sql)
 	n.Detail = shortList(tables, maxDetail)
-	if hasHole(tables) {
+	if sqlread.HasHole(tables) {
 		n.Computed = true
 	}
 	if !sqlFull && len(tables) == 0 {
@@ -329,17 +281,17 @@ func (c *card) lookupWrites(e syntax.Expr) (verb string, tables []string, ok boo
 	}
 	for _, x := range exprs {
 		sql, full := c.value(x)
-		w, wrote := lastWrite(sql)
+		w, wrote := sqlread.LastWrite(sql)
 		if !full || !wrote {
 			return "", nil, false
 		}
 		switch {
 		case verb == "":
-			verb = w.verb
-		case verb != w.verb:
+			verb = w.Verb
+		case verb != w.Verb:
 			verb = "writes"
 		}
-		tables = union(tables, []string{w.table})
+		tables = union(tables, []string{w.Table})
 	}
 	return verb, tables, true
 }
@@ -368,17 +320,17 @@ func (c *card) statementRefs(e syntax.Expr) (reads, writes []string, computed bo
 // oneStatementRefs is what one statement the source writes reads and writes.
 func (c *card) oneStatementRefs(e syntax.Expr) (reads, writes []string, computed bool) {
 	sql, full := c.value(e)
-	for _, w := range writesOf(sql) {
-		if !slices.Contains(writes, w.table) {
-			writes = append(writes, w.table)
+	for _, w := range sqlread.WritesOf(sql) {
+		if !slices.Contains(writes, w.Table) {
+			writes = append(writes, w.Table)
 		}
 	}
-	for _, t := range tablesIn(sql) {
+	for _, t := range sqlread.TablesIn(sql) {
 		if !slices.Contains(writes, t) {
 			reads = append(reads, t)
 		}
 	}
-	computed = hasHole(reads) || hasHole(writes) || (!full && len(reads) == 0 && len(writes) == 0)
+	computed = sqlread.HasHole(reads) || sqlread.HasHole(writes) || (!full && len(reads) == 0 && len(writes) == 0)
 	return reads, writes, computed
 }
 
@@ -387,24 +339,47 @@ func (c *card) oneStatementRefs(e syntax.Expr) (reads, writes []string, computed
 // tx.batch list (#2615): a list or a list comprehension (#2623), written in
 // the call, bound to a name in the function, or bound in the scope the
 // transaction is started from (sc), which is the function a nested one closes
-// over.
-func txStatementExprs(body []syntax.Stmt, tx string, sc *scope) []syntax.Expr {
+// over. copies are the tables each tx.copy_in writes rows into (#2665).
+func txStatementExprs(body []syntax.Stmt, tx string, sc *scope) (stmts, copies []syntax.Expr) {
 	lists := stmtlookup.ListsBound(body)
-	var out []syntax.Expr
 	for _, stmt := range body {
 		syntax.Walk(stmt, func(node syntax.Node) bool {
 			call, member := txCall(node, tx)
 			switch member {
 			case KindQuery, memberExecute:
-				out = append(out, call.Args[0])
+				stmts = append(stmts, call.Args[0])
 			case memberBatch:
-				stmts, _ := stmtlookup.Statements(sc, callArg(call, "statements", 0), lists)
-				out = append(out, stmts...)
+				batch, _ := stmtlookup.Statements(sc, callArg(call, "statements", 0), lists)
+				stmts = append(stmts, batch...)
+			case memberCopyIn:
+				copies = append(copies, callArg(call, argTable, 0))
 			}
 			return true
 		})
 	}
-	return out
+	return stmts, copies
+}
+
+// memberCopyIn is the member that writes rows into a table through COPY
+// (#2453): platform.copy_in(connection, table, ...) and tx.copy_in(table, ...).
+const memberCopyIn = "copy_in"
+
+// argTable is the argument copy_in names its table in.
+const argTable = "table"
+
+// addCopies adds to ref each table a copy_in writes rows into (#2665): a
+// table the source holds whole is written, one it computes makes the step
+// computed.
+func (c *card) addCopies(ref *DataRef, tables ...syntax.Expr) {
+	for _, e := range tables {
+		name, full := c.value(e)
+		if e == nil || !full || name == "" || sqlread.HasHole([]string{name}) {
+			ref.Computed = true
+			continue
+		}
+		ref.Writes = union(ref.Writes, []string{name})
+		ref.Reads = slices.DeleteFunc(ref.Reads, func(r string) bool { return r == name })
+	}
 }
 
 // txCall is node as a call of a member of the transaction parameter tx, with
@@ -454,20 +429,4 @@ func union(a, b []string) []string {
 		}
 	}
 	return a
-}
-
-// SchemaOf is the schema a table name written in SQL is in: its qualifier,
-// or public for an unqualified name, which is where an application
-// database's search path finds it. A three-part name's middle part is the
-// schema.
-func SchemaOf(table string) string {
-	parts := strings.Split(strings.Trim(table, `"`), ".")
-	switch len(parts) {
-	case 1:
-		return "public"
-	case 2:
-		return strings.Trim(parts[0], `"`)
-	default:
-		return strings.Trim(parts[len(parts)-2], `"`)
-	}
 }

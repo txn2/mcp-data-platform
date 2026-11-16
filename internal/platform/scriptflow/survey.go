@@ -153,11 +153,15 @@ func (a *analyzer) collectDefs(stmts []syntax.Stmt, parent string) {
 type bodyCalls struct {
 	platform int
 	callees  []string
+	// named are the user functions the body names as a value, which the walk
+	// follows as calls (#2665).
+	named []string
 }
 
 // scanBody reads the calls a function makes itself.
 func (a *analyzer) scanBody(d *syntax.DefStmt) bodyCalls {
 	var out bodyCalls
+	called := map[*syntax.Ident]bool{}
 	for _, st := range d.Body {
 		walkCalls(st, func(c *syntax.CallExpr) {
 			if member, ok := platformMember(c); ok && !nonStep(member) {
@@ -165,7 +169,21 @@ func (a *analyzer) scanBody(d *syntax.DefStmt) bodyCalls {
 			}
 			if name, ok := a.userCall(c); ok {
 				out.callees = append(out.callees, name)
+				if id, isIdent := c.Fn.(*syntax.Ident); isIdent {
+					called[id] = true
+				}
 			}
+		})
+	}
+	for _, st := range d.Body {
+		syntax.Walk(st, func(n syntax.Node) bool {
+			if _, ok := n.(*syntax.DefStmt); ok {
+				return false
+			}
+			if id, ok := n.(*syntax.Ident); ok && !called[id] && a.funcs[id.Name] != nil {
+				out.named = append(out.named, id.Name)
+			}
+			return true
 		})
 	}
 	return out
@@ -202,7 +220,7 @@ func (a *analyzer) survey() {
 			a.hasSteps[name] = true
 		}
 	}
-	settle(calls, a.hasSteps, func(_ string, c bodyCalls) bool { return a.anyHasSteps(c.callees) })
+	settle(calls, a.hasSteps, func(_ string, c bodyCalls) bool { return a.anyHasSteps(c.callees) || a.anyHasSteps(c.named) })
 	settle(calls, a.wrapper, func(name string, c bodyCalls) bool { return a.hasSteps[name] && a.isWrapper(c) })
 	a.whole = a.wholeScript()
 }

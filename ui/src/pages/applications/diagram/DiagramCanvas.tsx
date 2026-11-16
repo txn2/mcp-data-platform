@@ -9,6 +9,7 @@ import {
   FONT_CHIP,
   FONT_TITLE,
   NODE_COLOR,
+  NODE_KIND_LABEL,
   changeColor,
   nodeChips,
   nodeDetail,
@@ -49,7 +50,12 @@ export function DiagramCanvas({ layout, selected, compared, onSelect }: Props) {
       onBackground={() => onSelect(null)}
     >
       {groups.map((g) => (
-        <GroupBox key={g.group.id} placed={g} />
+        <GroupBox
+          key={g.group.id}
+          placed={g}
+          selected={!!g.heading && selected === g.heading.id}
+          onSelect={g.heading ? () => onSelect(g.heading!.id) : undefined}
+        />
       ))}
       {layout.links.map((l) => (
         <LinkPath key={l.key} placed={l} lit={selected !== null && (l.link.from === selected || l.link.to === selected)} />
@@ -77,7 +83,7 @@ function Legend({ compared }: { compared: boolean }) {
   );
 }
 
-function GroupBox({ placed }: { placed: PlacedGroup }) {
+function GroupBox({ placed, selected, onSelect }: { placed: PlacedGroup; selected: boolean; onSelect?: () => void }) {
   const { group, x, y, width, height, depth } = placed;
   return (
     <g data-group={group.id}>
@@ -88,11 +94,46 @@ function GroupBox({ placed }: { placed: PlacedGroup }) {
         height={height}
         rx={12}
         fill={depth > 1 ? "hsl(var(--muted) / 0.8)" : "hsl(var(--muted) / 0.5)"}
-        stroke="hsl(var(--border))"
+        stroke={selected ? SELECT_COLOR : "hsl(var(--border))"}
+        strokeWidth={selected ? 2 : 1}
         strokeDasharray={group.id === "outside" ? "6 4" : undefined}
       />
-      <text x={x + 14} y={y + 24} fontSize={13} fontWeight={650} fill="hsl(var(--foreground))">
-        {fitText(group.label, width - 28, FONT_TITLE)}
+      {placed.heading && onSelect ? (
+        <GroupHeading placed={placed} selected={selected} onSelect={onSelect} />
+      ) : (
+        <text x={x + 14} y={y + 24} fontSize={13} fontWeight={650} fill="hsl(var(--foreground))">
+          {fitText(group.label, width - 28, FONT_TITLE)}
+        </text>
+      )}
+    </g>
+  );
+}
+
+// GroupHeading is a part drawn as its group's heading (#2665): the schema's
+// kind and name over its tables, selected like a card to open its panel.
+function GroupHeading({ placed, selected, onSelect }: { placed: PlacedGroup; selected: boolean; onSelect: () => void }) {
+  const { x, y, width } = placed;
+  const node = placed.heading!;
+  return (
+    <g
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      aria-label={`${NODE_KIND_LABEL[node.kind] ?? node.kind} ${node.label}`}
+      data-heading={node.id}
+      className="cursor-pointer outline-none"
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect();
+      }}
+      onKeyDown={(e) => e.key === "Enter" && onSelect()}
+    >
+      <rect x={x + 1} y={y + 1} width={width - 2} height={34} rx={11} fill="hsl(var(--muted))" />
+      <text x={x + 14} y={y + 23} fontSize={10.5} fontWeight={650} letterSpacing="0.04em" fill="hsl(var(--muted-foreground))">
+        {(NODE_KIND_LABEL[node.kind] ?? node.kind).toUpperCase()}
+      </text>
+      <text x={x + 76} y={y + 23} fontSize={13} fontWeight={650} fill="hsl(var(--foreground))">
+        {fitText(node.label, width - 90, FONT_TITLE)}
       </text>
     </g>
   );

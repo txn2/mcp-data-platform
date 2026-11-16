@@ -79,7 +79,9 @@ func IsAppDBCall(name string) bool {
 
 // AppDBRunner runs statements on application databases: the postgres toolkit.
 type AppDBRunner interface {
-	HasConnection(name string) bool
+	// ServesConnection reports whether name is an application database
+	// connection, one another replica just saved included (#2662).
+	ServesConnection(ctx context.Context, name string) bool
 	Query(ctx context.Context, s postgres.Statement) (*postgres.Result, error)
 	Execute(ctx context.Context, s postgres.Statement) (*postgres.Result, error)
 	Batch(ctx context.Context, connection string, stmts []postgres.Statement) ([]*postgres.Result, error)
@@ -144,15 +146,25 @@ func InstallAppDB(a AppDB) { installed.Store(&a) }
 
 // IsAppDB reports whether connection names an application database, which is
 // how platform.query and platform.execute choose between the direct path and
-// the query engine's tools.
+// the query engine's tools. A connection another replica saved a moment ago
+// is one (#2662).
 func IsAppDB(connection string) bool {
 	a := installed.Load()
 	if a == nil || a.Runner == nil || connection == "" {
 		return false
 	}
 	r := a.Runner()
-	return r != nil && r.HasConnection(connection)
+	if r == nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), isAppDBTimeout)
+	defer cancel()
+	return r.ServesConnection(ctx, connection)
 }
+
+// isAppDBTimeout bounds the connection store read IsAppDB makes for a name
+// this replica does not serve.
+const isAppDBTimeout = 10 * time.Second
 
 // appdbCaller answers the application-database calls of one session.
 type appdbCaller struct {

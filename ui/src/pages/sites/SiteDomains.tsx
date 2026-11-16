@@ -1,5 +1,14 @@
 import { useState } from "react";
-import { DEV_ENVIRONMENT, placeChoices, useAddSiteDomain, useRemoveSiteDomain, type Site, type SiteDomain } from "@/api/portal/hooks/sites";
+import {
+  DEV_ENVIRONMENT,
+  placeChoices,
+  useAddSiteDomain,
+  useRemoveSiteDomain,
+  useRetryRouting,
+  type Routing,
+  type Site,
+  type SiteDomain,
+} from "@/api/portal/hooks/sites";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -12,6 +21,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useAuthStore } from "@/stores/auth";
 import { envNameProblem } from "./envName";
 import { ConfirmPublic, MakeDomainPrivateDialog, MakeDomainPublicDialog } from "./SiteDomainAccess";
+import { RoutingCell } from "./RoutingCell";
 import { AddressAccess, AddressLink } from "./SiteParts";
 import { bareAddress, envAddress, errorText, hostUrl, orderedEnvironments, when } from "./siteFormat";
 
@@ -31,6 +41,10 @@ export function SiteDomainsTab({ site }: { site: Site }) {
   const canEdit = site.permissions.manage;
   const envs = orderedEnvironments(site.environments);
   const withAddress = envs.filter((e) => envAddress(site, e.name));
+  // Routing shows only while an administrator has chosen a routing script (#2659).
+  const pagesRouting = site.pages_routing;
+  const domainsRouted = site.domains.some((d) => d.routing);
+  const retry = useRetryRouting(site.name);
   return (
     <>
       {withAddress.length > 0 && (
@@ -44,6 +58,7 @@ export function SiteDomainsTab({ site }: { site: Site }) {
                     <TableHead>Address</TableHead>
                     <TableHead>Serves</TableHead>
                     <TableHead>Access</TableHead>
+                    {pagesRouting && <TableHead>Routing</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -59,6 +74,11 @@ export function SiteDomainsTab({ site }: { site: Site }) {
                       <TableCell>
                         <AddressAccess isPublic={false} />
                       </TableCell>
+                      {pagesRouting && (
+                        <TableCell className="min-w-64">
+                          <EnvRouting routing={pagesRouting[e.name]} onRetry={() => retry.mutate()} retrying={retry.isPending} retryError={retry.error?.message} />
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>
@@ -91,6 +111,7 @@ export function SiteDomainsTab({ site }: { site: Site }) {
                     <TableHead>Domain</TableHead>
                     <TableHead>Serves</TableHead>
                     <TableHead>Access</TableHead>
+                    {domainsRouted && <TableHead>Routing</TableHead>}
                     <TableHead>Added</TableHead>
                     {canEdit && <TableHead />}
                   </TableRow>
@@ -102,6 +123,10 @@ export function SiteDomainsTab({ site }: { site: Site }) {
                       site={site}
                       domain={d}
                       canEdit={canEdit}
+                      routed={domainsRouted}
+                      onRetry={() => retry.mutate()}
+                      retrying={retry.isPending}
+                      retryError={retry.error?.message}
                       onRemove={() => setRemoving(d)}
                       onPublic={() => setOpening(d)}
                       onPrivate={() => setClosing(d)}
@@ -134,6 +159,11 @@ export function SiteDomainsTab({ site }: { site: Site }) {
   );
 }
 
+// EnvRouting is a pages address's routing status, nothing when the script has none for it.
+function EnvRouting({ routing, onRetry, retrying, retryError }: { routing?: Routing; onRetry: () => void; retrying: boolean; retryError?: string }) {
+  return routing ? <RoutingCell routing={routing} onRetry={onRetry} retrying={retrying} retryError={retryError} /> : null;
+}
+
 function DomainDialogs({
   site,
   adding,
@@ -160,6 +190,10 @@ function DomainRow({
   site,
   domain: d,
   canEdit,
+  routed,
+  onRetry,
+  retrying,
+  retryError,
   onRemove,
   onPublic,
   onPrivate,
@@ -167,6 +201,10 @@ function DomainRow({
   site: Site;
   domain: SiteDomain;
   canEdit: boolean;
+  routed: boolean;
+  onRetry: () => void;
+  retrying: boolean;
+  retryError?: string;
   onRemove: () => void;
   onPublic: () => void;
   onPrivate: () => void;
@@ -180,6 +218,7 @@ function DomainRow({
       <TableCell>
         <AddressAccess isPublic={d.public} />
       </TableCell>
+      {routed && <TableCell className="min-w-64">{d.routing && <RoutingCell routing={d.routing} onRetry={onRetry} retrying={retrying} retryError={retryError} />}</TableCell>}
       <TableCell>
         <div>{when(d.created_at)}</div>
         <div className="text-xs text-muted-foreground">{d.created_by}</div>

@@ -24,7 +24,7 @@ const (
 type DiagramDeps struct {
 	Bindings     func(ctx context.Context, scriptID string) ([]appdiagram.Binding, error)
 	AssetContent func(ctx context.Context, assetID string, version int) string
-	SchemaWrites func(ctx context.Context, connection, schema string) []string
+	SchemaTables func(ctx context.Context, connection, schema string) appdiagram.SchemaTables
 }
 
 // DiagramRequest is a diagram asked for: the application, the version drawn
@@ -216,17 +216,17 @@ func (r *diagramReader) AssetContent(ctx context.Context, id string, version int
 	return r.s.Diagrams.AssetContent(ctx, id, version)
 }
 
-// SchemaWrites reads the tables a schema's migrations fill.
-func (r *diagramReader) SchemaWrites(ctx context.Context, connection, schema string) []string {
-	if r.s.Diagrams.SchemaWrites == nil {
-		return nil
+// SchemaTables reads the tables a schema's migrations create and fill.
+func (r *diagramReader) SchemaTables(ctx context.Context, connection, schema string) appdiagram.SchemaTables {
+	if r.s.Diagrams.SchemaTables == nil {
+		return appdiagram.SchemaTables{}
 	}
-	return r.s.Diagrams.SchemaWrites(ctx, connection, schema)
+	return r.s.Diagrams.SchemaTables(ctx, connection, schema)
 }
 
 // IsAppDB reports whether a connection is an application database.
-func (r *diagramReader) IsAppDB(connection string) bool {
-	return r.s.HasConnection != nil && r.s.HasConnection(connection)
+func (r *diagramReader) IsAppDB(ctx context.Context, connection string) bool {
+	return r.s.HasConnection != nil && r.s.HasConnection(ctx, connection)
 }
 
 // FindingsIntroduced is what a save of the script scriptID, over version

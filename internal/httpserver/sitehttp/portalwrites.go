@@ -560,7 +560,11 @@ func (a *portalAPI) fullView(ctx context.Context, c *caller, st *site.Site) (Sit
 	if err != nil {
 		return SiteView{}, err //nolint:wrapcheck // answered by fail
 	}
-	return a.view(ctx, c, st, domains)
+	v, err := a.view(ctx, c, st, domains)
+	if err != nil {
+		return v, err
+	}
+	return a.withRouting(ctx, c, v), nil
 }
 
 // addDomain handles POST /api/v1/portal/sites/{site}/domains.

@@ -24,6 +24,8 @@ export interface PlacedNode {
 
 export interface PlacedGroup {
   group: ApplicationDiagramGroup;
+  /** The part the group is (#2665): the schema, drawn as the group's heading rather than a card of its own. */
+  heading?: ApplicationDiagramNode;
   depth: number;
   x: number;
   y: number;
@@ -65,6 +67,18 @@ const ROOT_OPTIONS: Record<string, string> = {
 
 const GROUP_PREFIX = "g:";
 
+// headings is each group's heading part: a schema is drawn as its group's
+// heading, its tables inside it (#2665), not as a card beside them.
+function headings(d: ApplicationDiagram): Map<string, ApplicationDiagramNode> {
+  const out = new Map<string, ApplicationDiagramNode>();
+  for (const n of d.nodes) if (n.kind === "schema") out.set(n.group, n);
+  return out;
+}
+
+// HEADING_MIN is the least a group drawn with a heading takes, so a schema
+// with no table yet still shows its name.
+const HEADING_MIN = "(260,64)";
+
 // drawnGroups is the groups that hold a node, directly or through a group
 // inside them; an empty box says nothing.
 function drawnGroups(d: ApplicationDiagram): Map<string, ApplicationDiagramGroup> {
@@ -103,7 +117,15 @@ export function elkDiagram(d: ApplicationDiagram): ElkNode {
     return made;
   };
   for (const g of groups.values()) box(g.id);
-  for (const n of d.nodes) box(n.group).children!.push({ id: n.id, width: NODE_WIDTH, height: nodeHeight(n) });
+  const heads = headings(d);
+  for (const group of heads.keys()) {
+    const b = boxes.get(group);
+    if (b) b.layoutOptions = { ...b.layoutOptions, "elk.nodeSize.constraints": "MINIMUM_SIZE", "elk.nodeSize.minimum": HEADING_MIN };
+  }
+  for (const n of d.nodes) {
+    if (heads.get(n.group) === n && boxes.has(n.group)) continue;
+    box(n.group).children!.push({ id: n.id, width: NODE_WIDTH, height: nodeHeight(n) });
+  }
   const ids = new Set(d.nodes.map((n) => n.id));
   d.links.forEach((l, i) => {
     if (!ids.has(l.from) || !ids.has(l.to) || l.from === l.to) return;
@@ -124,6 +146,7 @@ export function placeDiagram(d: ApplicationDiagram, out: ElkNode): DiagramLayout
   const layout: DiagramLayout = { width: out.width ?? 0, height: out.height ?? 0, nodes: [], groups: [], links: [] };
   const nodes = new Map(d.nodes.map((n) => [n.id, n]));
   const groups = new Map(d.groups.map((g) => [g.id, g]));
+  const heads = headings(d);
   const origin = new Map<string, { x: number; y: number }>();
   const edges: ElkExtendedEdge[] = [];
   const record = (n: ElkNode, at: { x: number; y: number }, depth: number) => {
@@ -131,7 +154,7 @@ export function placeDiagram(d: ApplicationDiagram, out: ElkNode): DiagramLayout
     const node = nodes.get(n.id);
     if (node) layout.nodes.push({ node, ...size });
     const group = n.id.startsWith(GROUP_PREFIX) ? groups.get(n.id.slice(GROUP_PREFIX.length)) : undefined;
-    if (group) layout.groups.push({ group, depth, ...size });
+    if (group) layout.groups.push({ group, heading: heads.get(group.id), depth, ...size });
   };
   const walk = (n: ElkNode, ox: number, oy: number, depth: number) => {
     const at = { x: ox + (n.x ?? 0), y: oy + (n.y ?? 0) };

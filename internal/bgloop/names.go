@@ -105,6 +105,9 @@ const (
 	NameCallHandlerSweep = "call_handler_sweep"
 	// NameWatchQueue writes the runs watch handlers are owed (#2635).
 	NameWatchQueue = "watch_queue"
+	// NameIntegrations applies each integration's finished run and starts the
+	// next one it is owed (#2659).
+	NameIntegrations = "integrations"
 
 	// LISTEN connections (Listen). The two pglisten channels report under
 	// "listen_" + their channel name.

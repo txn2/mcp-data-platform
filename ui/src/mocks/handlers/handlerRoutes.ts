@@ -17,7 +17,7 @@ const MAX_PER_KIND = 20;
 const MAX_LIST_LIMIT = 500;
 
 // LIST_TYPES are the types a handler list filters on; none matches no handler.
-const LIST_TYPES = ["endpoint", "form", "schedule", "webhook", "policy", "transform", "watch", "none"];
+const LIST_TYPES = ["endpoint", "form", "schedule", "webhook", "policy", "transform", "watch", "integration", "none"];
 
 const OFFERS: HandlerOffer[] = [
   { kind: "endpoint", allowed: true, contract: "handle(req), or form_spec(req) and form_submit(req, values) on a form" },

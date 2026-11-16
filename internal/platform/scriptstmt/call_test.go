@@ -17,7 +17,7 @@ import (
 // shop serves one application database, "shop".
 type shop struct{}
 
-func (shop) HasConnection(name string) bool { return name == "shop" }
+func (shop) ServesConnection(_ context.Context, name string) bool { return name == "shop" }
 func (shop) Query(context.Context, postgres.Statement) (*postgres.Result, error) {
 	return &postgres.Result{}, nil
 }

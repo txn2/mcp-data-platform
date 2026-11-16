@@ -31,6 +31,9 @@ type ReleaseDetail struct {
 type ApplicationAddresses struct {
 	PageOrigin string   `json:"page_origin"`
 	Domains    []string `json:"domains"`
+	// PageOriginRouting is the Site routing script's status for the page
+	// origin (#2659); absent when no script is chosen.
+	PageOriginRouting *site.Routing `json:"page_origin_routing,omitempty"`
 }
 
 // DeploymentList is every move of a site's environments, newest first.

@@ -22,6 +22,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/site"
 	"github.com/txn2/mcp-data-platform/internal/site/sitecrawl"
 	"github.com/txn2/mcp-data-platform/internal/site/siteenv"
+	"github.com/txn2/mcp-data-platform/internal/site/siterouting"
 	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
 	"github.com/txn2/mcp-data-platform/internal/site/sitetraffic"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
@@ -185,6 +186,9 @@ type Tool struct {
 	PortalURL string
 	// Traffic reads each site's traffic for get; nil reports none.
 	Traffic TrafficReader
+	// Routing reads each hostname's Site routing status (#2659); nil shows
+	// none.
+	Routing *siterouting.Lookup
 }
 
 const description = "Static sites served by the platform. AGENTS WORK IN dev, PEOPLE USE WHAT WAS PROMOTED: every publish, " +
@@ -501,11 +505,17 @@ func (t *Tool) handlers() map[string]handler {
 			if err != nil {
 				return nil, &sitesvc.RefusedError{Msg: err.Error()}
 			}
-			return t.ops().AddDomain(ctx, a, sitesvc.DomainRequest{
+			res, err := t.ops().AddDomain(ctx, a, sitesvc.DomainRequest{
 				Hostname: in.Hostname, Site: in.Site, Environment: in.Environment, Application: in.Application, Reason: in.Reason,
 				RequiresApproval: in.RequiresApproval, Public: in.Public != nil && *in.Public, Keep: keep.Keep,
 				Place: placeOf(in),
 			})
+			if err == nil && res != nil && res.DomainResult != nil && res.Domain != nil {
+				// A domain just added is pending until the routing script
+				// answers for it (#2659).
+				res.Routing = t.Routing.Of(ctx, a.Admin, []string{res.Hostname})[res.Hostname]
+			}
+			return res, err //nolint:wrapcheck // the caller's message
 		},
 		CmdSetDomain: func(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
 			if in.Public == nil {
@@ -516,9 +526,12 @@ func (t *Tool) handlers() map[string]handler {
 		CmdRemoveDomain: func(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
 			return map[string]any{"removed": in.Hostname}, s.RemoveDomain(ctx, a, in.Hostname)
 		},
-		CmdDomains: func(ctx context.Context, _ sitesvc.Actor, _ Input) (any, error) {
+		CmdDomains: func(ctx context.Context, a sitesvc.Actor, _ Input) (any, error) {
 			list, err := s.Store.Domains(ctx)
-			return map[string]any{"domains": list}, err //nolint:wrapcheck // the caller's message
+			if err != nil {
+				return nil, err //nolint:wrapcheck // the caller's message
+			}
+			return map[string]any{"domains": t.Routing.Domains(ctx, a.Admin, list)}, nil
 		},
 		CmdCrawl: t.crawl,
 		CmdGrant: func(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
@@ -614,7 +627,12 @@ func (t *Tool) get(ctx context.Context, actor sitesvc.Actor, in Input) (any, err
 		return nil, fmt.Errorf("listing domains: %w", err)
 	}
 	at := t.Service.Addressing()
-	out := map[string]any{keySite: st, "domains": domains, "addresses": at.Addresses(st, domains), "pages_addresses": at.PagesAddresses(st)}
+	routed, pagesRouting := t.Routing.Site(ctx, actor.Admin, st, domains)
+	out := map[string]any{keySite: st, "domains": routed, "addresses": at.Addresses(st, domains), "pages_addresses": at.PagesAddresses(st)}
+	if pagesRouting != nil {
+		// The Site routing script's status for each pages address (#2659).
+		out["pages_routing"] = pagesRouting
+	}
 	out["production_address"], _ = at.ProductionAddress(st, domains)
 	if note := at.AddressNote(st); note != "" {
 		out["address_note"] = note

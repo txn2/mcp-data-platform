@@ -19,8 +19,9 @@ var hostNames = []string{"platform", "run"}
 //
 // A script an endpoint calls defines handle(req) (#2172), which takes the
 // request as its one parameter, or a form's form_spec(req) and
-// form_submit(req, values) (#2176); one that defines any of them and no
-// main() is a script rather than a library, since a request runs it.
+// form_submit(req, values) (#2176), and a Site routing script route(req)
+// (#2659); one that defines any of them and no main() is a script rather than
+// a library, since the platform runs it.
 func (l *linter) entryPoint() {
 	var main *syntax.DefStmt
 	called := false
@@ -82,6 +83,10 @@ var requestHandlers = map[string]requestHandler{
 	scriptdialect.FormSubmitName: {
 		2, "form_submit() must take two parameters, the request and the values",
 		"A form's submission calls form_submit(req, values) once the values passed the spec: `def form_submit(req, values):`.",
+	},
+	scriptdialect.RouteName: {
+		1, "route() must take one parameter, the request",
+		"The Site routing integration calls route(req) with every hostname: `def route(req):`, returning a status for each.",
 	},
 }
 

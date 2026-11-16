@@ -2,15 +2,14 @@ package scriptflow
 
 import (
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 
 	"go.starlark.net/syntax"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptflow/sqlread"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptflow/stmtlookup"
 	"github.com/txn2/mcp-data-platform/internal/scriptconst"
-	"github.com/txn2/mcp-data-platform/internal/sqltables"
 )
 
 // step is one platform call as the walk found it.
@@ -118,6 +117,7 @@ var memberCards = map[string]func(*card, *Node){
 	"call":         (*card).toolCall,
 	"transaction":  (*card).transaction,
 	"batch":        (*card).batch,
+	memberCopyIn:   (*card).copyIn,
 	"save_state": func(_ *card, n *Node) {
 		n.Role, n.Kind, n.Title, n.Subtitle = RoleOutput, KindSaveState, "Save state", "run.state of the next run"
 	},
@@ -169,9 +169,9 @@ func (c *card) query(n *Node) {
 	n.Title = "Query " + conn
 	n.Data = c.dataRef(c.kw[argConnection], c.arg(argSQL, 0))
 	sql, sqlFull := c.value(c.arg(argSQL, 0))
-	tables := tablesIn(sql)
+	tables := sqlread.TablesIn(sql)
 	n.Detail = shortList(tables, maxDetail)
-	n.Computed = !full || hasHole(tables) || (!sqlFull && len(tables) == 0)
+	n.Computed = !full || sqlread.HasHole(tables) || (!sqlFull && len(tables) == 0)
 	if !sqlFull && len(tables) == 0 {
 		n.Detail = []string{"SQL assembled at run time"}
 	}
@@ -205,7 +205,7 @@ func (c *card) export(n Node) []Node {
 	n.Subtitle = name
 	n.Computed = !full
 	nameValue, nameFull := c.value(c.arg("name", 0))
-	n.Output = &OutputRef{Kind: KindExport, Name: nameValue, Computed: !nameFull || hasHole([]string{nameValue}), Portal: dest == "portal"}
+	n.Output = &OutputRef{Kind: KindExport, Name: nameValue, Computed: !nameFull || sqlread.HasHole([]string{nameValue}), Portal: dest == "portal"}
 	if k, ok := c.kw["key"]; ok {
 		kt, _ := c.value(k)
 		n.Detail = append(n.Detail, kt)
@@ -276,50 +276,6 @@ func (c *card) publish(n *Node) {
 // maxDetail is how many tables or paths a card lists before "+ n more".
 const maxDetail = 4
 
-var (
-	holeRe = regexp.MustCompile(`\{[^{}]*\}`)
-	holeID = regexp.MustCompile(`zzhole(\d+)zz`)
-)
-
-// tablesIn lists the tables a rendered SQL statement reads. A computed part of
-// a name is kept as {its source}, so "warehouse.public.{t}" is reported as
-// that rather than dropped or guessed.
-func tablesIn(sql string) []string {
-	var holes []string
-	masked := holeRe.ReplaceAllStringFunc(sql, func(m string) string {
-		holes = append(holes, m)
-		return fmt.Sprintf("zzhole%dzz", len(holes)-1)
-	})
-	seen := map[string]bool{}
-	out := []string{}
-	for _, ref := range sqltables.Extract(masked) {
-		p := holeID.ReplaceAllStringFunc(ref.FullPath, func(m string) string {
-			var i int
-			_, _ = fmt.Sscanf(m, "zzhole%dzz", &i)
-			if i < len(holes) {
-				return holes[i]
-			}
-			return m
-		})
-		if p == "" || seen[p] {
-			continue
-		}
-		seen[p] = true
-		out = append(out, p)
-	}
-	return out
-}
-
-// hasHole reports whether any name carries a computed part.
-func hasHole(names []string) bool {
-	for _, n := range names {
-		if strings.Contains(n, "{") {
-			return true
-		}
-	}
-	return false
-}
-
 func shortList(xs []string, n int) []string {
 	if len(xs) <= n {
 		return xs
@@ -370,11 +326,34 @@ func (c *card) transaction(n *Node) {
 	}
 	tx, _ := def.Params[0].(*syntax.Ident)
 	n.Detail = c.txStatements(def.Body, nameOf(tx, tx != nil))
-	n.Data = c.dataRef(c.arg(argConnection, 0), txStatementExprs(def.Body, nameOf(tx, tx != nil), c.s.scope)...)
+	stmts, copies := txStatementExprs(def.Body, nameOf(tx, tx != nil), c.s.scope)
+	n.Data = c.dataRef(c.arg(argConnection, 0), stmts...)
+	c.addCopies(n.Data, copies...)
 	n.Data.Write = n.Role == RoleWrites
 	if len(n.Detail) == 0 {
 		n.Detail = []string{"no statement through tx"}
 	}
+}
+
+// copyIn is platform.copy_in (#2453): the table it writes rows into through
+// COPY, a write as an INSERT is (#2665).
+func (c *card) copyIn(n *Node) {
+	conn, full := c.value(c.arg(argConnection, 0))
+	n.Role, n.Kind, n.Title = RoleWrites, KindWrite, onConn("Write", conn)
+	n.Subtitle = c.copyLine(c.arg(argTable, 1))
+	n.Data = c.dataRef(c.arg(argConnection, 0))
+	c.addCopies(n.Data, c.arg(argTable, 1))
+	n.Data.Write = true
+	n.Computed = !full || n.Data.Computed
+}
+
+// copyLine is a copy_in as a card lists it.
+func (c *card) copyLine(table syntax.Expr) string {
+	name, full := c.value(table)
+	if table == nil || !full {
+		return "COPY into a table named at run time"
+	}
+	return "COPY " + name
 }
 
 // batch is platform.batch: the statements it pipelines in one transaction.
@@ -417,6 +396,8 @@ func (c *card) txStatements(body []syntax.Stmt, tx string) []string {
 			switch dot.Name.Name {
 			case "query", memberExecute:
 				out = append(out, c.statementLine(dot.Name.Name, call.Args[0]))
+			case memberCopyIn:
+				out = append(out, c.copyLine(callArg(call, argTable, 0)))
 			case memberBatch:
 				stmts, ok := stmtlookup.Statements(c.s.scope, callArg(call, "statements", 0), bound)
 				if !ok {
@@ -442,10 +423,10 @@ func (c *card) statementLine(member string, e syntax.Expr) string {
 		return verb + " " + strings.Join(tables, ", ")
 	}
 	sql, full := c.value(e)
-	if w, ok := lastWrite(sql); ok {
-		return w.verb + " " + w.table
+	if w, ok := sqlread.LastWrite(sql); ok {
+		return w.Verb + " " + w.Table
 	}
-	if tables := tablesIn(sql); len(tables) > 0 {
+	if tables := sqlread.TablesIn(sql); len(tables) > 0 {
 		return "read " + strings.Join(tables, ", ")
 	}
 	switch {

@@ -135,11 +135,12 @@ func Refs(source string) []Ref {
 // them at its top level is not a library.
 var entryNames = []string{
 	scriptdialect.EntryPointName, scriptdialect.HandlerName, scriptdialect.FormSpecName, scriptdialect.FormSubmitName,
+	scriptdialect.RouteName,
 }
 
 // IsLibrary reports whether file is a library: it defines neither main(), an
-// endpoint's handle() (#2172) nor a form's form_spec() or form_submit()
-// (#2176) at its top level.
+// endpoint's handle() (#2172), a form's form_spec() or form_submit() (#2176)
+// nor an integration's route() (#2659) at its top level.
 func IsLibrary(file *syntax.File) bool {
 	for _, s := range file.Stmts {
 		if d, ok := s.(*syntax.DefStmt); ok && slices.Contains(entryNames, d.Name.Name) {

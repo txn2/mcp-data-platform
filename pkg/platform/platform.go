@@ -2771,7 +2771,7 @@ func (p *Platform) Start(ctx context.Context) error {
 	// installs its mcp-s3 metrics middleware in SetMetrics, which must be in
 	// place when RegisterAllTools registers the handlers.
 	p.WireToolkitMetrics()
-	toolkitwire.PostgresGuard(p.toolkitRegistry.All(), p.db, p.restEncryptor)
+	toolkitwire.PostgresGuard(p.toolkitRegistry.All(), p.db, p.restEncryptor, p.savedConnections)
 	toolkitwire.AppDB(p.toolkitRegistry.All, p.authenticator, p.authorizer, p.config.Admin.Persona, p.db)
 
 	// Register tools from all toolkits

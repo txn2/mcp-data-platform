@@ -256,7 +256,8 @@ REALDB_APPDB_IMAGES := \
 # inherits it through the environment. CI sets it the same way on a follow-up
 # push. The steps that read it: test, coverage-summary, patch-coverage-check,
 # schedule-lane, schedule-lane-ui, frontend-e2e, lint, security, security-diff,
-# e2e-standalone, migrate-check-lane and test-realdb.
+# route-template-diff, semgrep-diff, semgrep-changed, migrate-check-diff,
+# dev-smoke-diff, e2e-standalone, migrate-check-lane and test-realdb.
 ifneq ($(filter verify,$(MAKECMDGOALS)),)
 ifeq ($(origin DELTA_BASE),undefined)
 export DELTA_BASE := $(shell python3 scripts/ci-delta.py local-base)
@@ -268,6 +269,13 @@ endif
 delta_reaches_ui = { [ -z "$(DELTA_BASE)" ] || python3 scripts/ci-delta.py ui; }
 delta_reaches_e2e = { [ -z "$(DELTA_BASE)" ] || python3 scripts/ci-delta.py tagged-affected ./test/e2e; }
 delta_reaches_migrations = { [ -z "$(DELTA_BASE)" ] || python3 scripts/ci-delta.py files | grep -q '^pkg/database/migrate/'; }
+# diff_base sets $$base to what a diff-scoped step reads its diff against
+# (#2660): DELTA_BASE, the last green tree, when verify set it, so a re-run
+# checks only the change since that run; the merge base with main otherwise.
+# Every diff-scoped step takes its base here or from scripts/schedule-lane.py
+# merge_base; TestDiffScopedStepsReadTheLastGreenTree fails one that does not.
+diff_base = base="$(DELTA_BASE)"; \
+	if [ -z "$$base" ]; then base=$$(git merge-base origin/main HEAD 2>/dev/null || git merge-base main HEAD); fi
 # REALDB_PKGS is what test-realdb runs: every package, unless realdb-lane
 # narrows it to the packages a branch can break (#1947), or a delta run to the
 # ones the change since the last green tree can (#2535).
@@ -856,10 +864,12 @@ dev-smoke:
 	echo "dev-smoke: checking the dev stack at $$base"; \
 	$(GOTEST) -count=1 -timeout 2m -tags=integration ./test/acceptance/ -run '^TestDevSmoke_'
 
-## dev-smoke-diff: Run dev-smoke when the diff against main changes a file under dev/ (#2248)
+## dev-smoke-diff: Run dev-smoke when the diff changes a file under dev/ (#2248)
+## The diff is diff_base's: the change since the last green tree under verify
+## (#2660), the branch's change against main otherwise.
 DEV_DIR := dev
 dev-smoke-diff:
-	@base=$$(git merge-base origin/main HEAD 2>/dev/null || git merge-base main HEAD); \
+	@$(diff_base); \
 	changed=$$( { git diff --name-only $$base -- $(DEV_DIR); git ls-files --others --exclude-standard -- $(DEV_DIR); } | sort -u); \
 	if [ -z "$$changed" ]; then echo "dev-smoke-diff: nothing under dev/ changed; skipped"; exit 0; fi; \
 	echo "dev-smoke-diff: $$(echo $$changed | wc -w | tr -d ' ') file(s) under dev/ changed"; \
@@ -1276,7 +1286,7 @@ route-template-diff:
 		echo "route-template-diff: no route registration changed; skipped"; exit 0; fi; \
 	$(MAKE) --no-print-directory test-realdb REALDB_PKGS=./internal/httpserver/ REALDB_RUN=TestEveryRouteReportsItsTemplate_RealDB
 
-## migrate-check-diff: Run migrate-check when the diff against main adds or changes a migration (#2239)
+## migrate-check-diff: Run migrate-check when the diff adds or changes a migration (#2239)
 ## The RealDB tests run on pg16 alone, so a migration PostgreSQL 17 refuses
 ## (#2169's 000209: an index function called by an unqualified name, which an
 ## index build on 17 resolves under search_path pg_catalog) passed every test
@@ -1284,9 +1294,9 @@ route-template-diff:
 ## changed migration is checked before the lanes start; a diff with no
 ## migration skips it.
 MIGRATIONS_DIR := pkg/database/migrate/migrations
-# migrations_changed sets $$changed to the migration files the branch changes
-# against main, committed, staged, unstaged or untracked.
-migrations_changed = base=$$(git merge-base origin/main HEAD 2>/dev/null || git merge-base main HEAD); \
+# migrations_changed sets $$changed to the migration files the diff changes
+# against diff_base (#2660), committed, staged, unstaged or untracked.
+migrations_changed = $(diff_base); \
 	changed=$$( { git diff --name-only $$base -- $(MIGRATIONS_DIR); git ls-files --others --exclude-standard -- $(MIGRATIONS_DIR); } | sort -u)
 migrate-check-diff:
 	@$(migrations_changed); \

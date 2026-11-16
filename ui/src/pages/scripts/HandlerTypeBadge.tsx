@@ -15,6 +15,7 @@ const TYPE_VARIANTS: Record<HandlerType, "info" | "success" | "warning" | "secon
   policy: "danger",
   transform: "muted",
   watch: "secondary",
+  integration: "info",
 };
 
 export function HandlerTypeBadge({ type, className }: { type: HandlerType; className?: string }) {

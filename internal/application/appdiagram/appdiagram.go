@@ -25,6 +25,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/application"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptflow"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptflow/sqlread"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -171,10 +172,18 @@ type Reader interface {
 	Asset(ctx context.Context, id string) (name, identity string, ok bool)
 	// AssetContent is an asset version's content, empty for one not text.
 	AssetContent(ctx context.Context, id string, version int) string
-	// SchemaWrites is the tables the schema's migrations write rows to.
-	SchemaWrites(ctx context.Context, connection, schema string) []string
+	// SchemaTables is the tables the schema's migrations create and the
+	// ones they write rows to.
+	SchemaTables(ctx context.Context, connection, schema string) SchemaTables
 	// IsAppDB reports whether a connection is an application database.
-	IsAppDB(connection string) bool
+	IsAppDB(ctx context.Context, connection string) bool
+}
+
+// SchemaTables is what a schema's migrations say about its tables, by bare
+// name: the tables they leave created, and the ones they write rows to.
+type SchemaTables struct {
+	Created []string
+	Filled  []string
 }
 
 // Input is what a diagram is drawn from.
@@ -196,6 +205,8 @@ type builder struct {
 	libs     map[string]string
 	reads    map[string][]string
 	writes   map[string]bool
+	// schema is what the application schema's migrations say (#2665).
+	schema SchemaTables
 	// unknownWriters are the scripts with a write step whose table is named
 	// when it runs, on a connection that may be the schema's (#2615).
 	unknownWriters []string
@@ -215,6 +226,7 @@ func Build(ctx context.Context, r Reader, in Input) *Diagram {
 		},
 	}
 	b.partNodes(in.Parts)
+	b.schemaTables()
 	for _, p := range in.Parts {
 		if p.Kind == application.KindScript {
 			b.script(p)
@@ -431,19 +443,19 @@ func connDetail(connection string) []string {
 // when it is there, outside the application otherwise. A table in a schema
 // of an application database the application does not hold is a finding.
 func (b *builder) table(sc *script.Script, connection, table string) string {
-	schema := scriptflow.SchemaOf(table)
+	schema := sqlread.SchemaOf(table)
 	name := table
 	if _, after, ok := strings.CutLast(table, "."); ok {
 		name = after
 	}
 	if b.app.Schema != "" && connection == b.app.Connection && schema == b.app.Schema {
-		id := "table:" + connection + "/" + schema + "." + name
+		id := b.schemaTableID(name)
 		b.node(Node{ID: id, Kind: NodeTable, Label: name, Group: GroupSchema})
 		return id
 	}
 	id := "table:" + connection + "/" + table
 	b.node(Node{ID: id, Kind: NodeTable, Label: table, Group: GroupOutside, Detail: connDetail(connection)})
-	if connection != "" && b.r.IsAppDB(connection) {
+	if connection != "" && b.r.IsAppDB(b.ctx, connection) {
 		b.finding(Finding{
 			Kind: FindingForeignSchema, Node: "script:" + sc.ID,
 			Message: fmt.Sprintf("script %s uses %s, in schema %s on connection %s, which this application does not hold",
@@ -529,13 +541,30 @@ func (b *builder) endpointLink(from, name, kind string) {
 	b.link(Link{From: from, To: node, Kind: kind, Detail: name})
 }
 
+// schemaTables draws every table the application schema's migrations
+// create, used by a script or not, so a table nothing uses is seen (#2665).
+func (b *builder) schemaTables() {
+	if b.app.Schema == "" {
+		return
+	}
+	b.schema = b.r.SchemaTables(b.ctx, b.app.Connection, b.app.Schema)
+	for _, name := range b.schema.Created {
+		b.node(Node{ID: b.schemaTableID(name), Kind: NodeTable, Label: name, Group: GroupSchema})
+	}
+}
+
+// schemaTableID is the node of a table of the application's schema.
+func (b *builder) schemaTableID(name string) string {
+	return "table:" + b.app.Connection + "/" + b.app.Schema + "." + name
+}
+
 // unwritten finds a table of the application's schema its scripts read that
 // no script writes and no migration fills.
 func (b *builder) unwritten() {
 	if b.app.Schema == "" {
 		return
 	}
-	filled := b.r.SchemaWrites(b.ctx, b.app.Connection, b.app.Schema)
+	filled := b.schema.Filled
 	ids := make([]string, 0, len(b.reads))
 	for id := range b.reads {
 		ids = append(ids, id)

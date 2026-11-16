@@ -90,7 +90,7 @@ func (f *fakeAppDB) CopyOut(_ context.Context, s postgres.Statement, _ string, w
 	return &postgres.CopyOutResult{Rows: 2, Bytes: int64(n)}, nil
 }
 
-func (*fakeAppDB) HasConnection(name string) bool { return name == "shop" }
+func (*fakeAppDB) ServesConnection(_ context.Context, name string) bool { return name == "shop" }
 
 func (f *fakeAppDB) Query(ctx context.Context, s postgres.Statement) (*postgres.Result, error) {
 	f.ids = append(f.ids, postgres.IdentityOf(ctx))

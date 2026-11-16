@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/conncatchup"
 	"github.com/txn2/mcp-data-platform/internal/connprobe"
 	"github.com/txn2/mcp-data-platform/internal/connstate"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
@@ -47,6 +48,11 @@ type Toolkit struct {
 
 	mu          sync.RWMutex
 	connections map[string]*conn
+	// connStore answers a name this instance does not serve (catchup.go);
+	// changes and catchUp are the shared catch-up's locks and resolver.
+	connStore ConnectionStore
+	changes   conncatchup.Locks
+	catchUp   *conncatchup.Resolver
 
 	// open are the script transactions in progress, rolled back by Close.
 	openMu sync.Mutex
@@ -120,6 +126,7 @@ func NewMulti(cfg MultiConfig) *Toolkit {
 		connections: make(map[string]*conn, len(cfg.Instances)),
 		dbCfg:       observability.DBConfigFromEnv(),
 	}
+	t.catchUp = conncatchup.New(&t.changes, Kind, ErrConnectionNotFound)
 	names := make([]string, 0, len(cfg.Instances))
 	for name := range cfg.Instances {
 		names = append(names, name)
@@ -398,14 +405,6 @@ func (t *Toolkit) ListConnections() []toolkit.ConnectionDetail {
 	return out
 }
 
-// lookup returns a connection in service.
-func (t *Toolkit) lookup(name string) (*conn, bool) {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	c, ok := t.connections[name]
-	return c, ok
-}
-
 // probeSQL is what a connection probe asks.
 const probeSQL = "/* mcp-data-platform */ SELECT current_setting('server_version'), current_database(), current_user"
 
@@ -487,3 +486,103 @@ func (c *conn) reader() ledgerReader {
 	}
 	return c.pool
 }
+
+// A connection saved through the admin API is applied on the replica that
+// served the request and reaches the others over the reload bus. Until that
+// announcement arrives, every check on another replica that read this
+// toolkit's live set refused the connection: creating an application naming
+// it, manage_schema on it, a script's platform.query (#2662). The resolution
+// is internal/conncatchup, shared with the api, graphql and trino kinds
+// (#1714, #1746, #2218): on a name this instance does not hold, the
+// connection store is read before the answer is given.
+
+// ConnectionStore reads the connections an operator saved. The platform wires
+// its database-backed store, narrowed to this kind; a deployment that keeps
+// connections in its configuration file alone wires none.
+type ConnectionStore interface {
+	// GetConnection returns the stored configuration of one appdb
+	// connection, reporting a name it does not hold with an error
+	// satisfying ErrConnectionNotFound.
+	GetConnection(ctx context.Context, name string) (map[string]any, error)
+}
+
+// SetConnectionStore wires the store a request for a connection this instance
+// does not serve is answered from. Passing nil leaves this instance serving
+// only the connections it was handed.
+func (t *Toolkit) SetConnectionStore(s ConnectionStore) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.connStore = s
+}
+
+// ServesConnection reports whether this toolkit serves the named connection,
+// taking on one another replica saved when the announcement of that save has
+// not reached this instance yet. HasConnection answers from this instance's
+// live set alone, which is what the reload reconcile reads.
+func (t *Toolkit) ServesConnection(ctx context.Context, name string) bool {
+	if t.HasConnection(name) {
+		return true
+	}
+	if t.catchUp == nil {
+		// A throwaway database's toolkit (testdb.go) serves the one
+		// connection it was built with and reads no store.
+		return false
+	}
+	t.mu.RLock()
+	store := t.connStore
+	t.mu.RUnlock()
+	// A nil store travels as a nil interface rather than an adapter wrapping
+	// nothing, which is how the catch-up recognizes a deployment that keeps
+	// connections in memory only.
+	var reads conncatchup.Store
+	if store != nil {
+		reads = store
+	}
+	return t.catchUp.Resolve(ctx, catchUpServer{t: t}, reads, name)
+}
+
+// catchUpReadTimeout bounds the catch-up a lookup with no context of its own
+// makes.
+const catchUpReadTimeout = 10 * time.Second
+
+// lookup returns the connection served under name, taking on one another
+// replica saved when the announcement has not reached this instance yet.
+// Every statement, migration and probe this toolkit runs finds its
+// connection here, so each of them sees a just-saved connection alike.
+func (t *Toolkit) lookup(name string) (*conn, bool) {
+	if c, ok := t.live(name); ok {
+		return c, true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), catchUpReadTimeout)
+	defer cancel()
+	if !t.ServesConnection(ctx, name) {
+		return nil, false
+	}
+	return t.live(name)
+}
+
+// live returns a connection this instance holds in service.
+func (t *Toolkit) live(name string) (*conn, bool) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	c, ok := t.connections[name]
+	return c, ok
+}
+
+// catchUpServer is this kind's connection map as the catch-up changes it.
+type catchUpServer struct{ t *Toolkit }
+
+// Compile-time interface check.
+var _ conncatchup.Server = catchUpServer{}
+
+// HasConnection reports whether the toolkit serves name.
+func (s catchUpServer) HasConnection(name string) bool { return s.t.HasConnection(name) }
+
+// Install serves the connection the store holds under name, as a save on
+// this replica would.
+func (s catchUpServer) Install(_ context.Context, name string, config map[string]any) error {
+	return s.t.AddConnection(name, config)
+}
+
+// Withdraw takes a connection a deletion removed back out of service.
+func (s catchUpServer) Withdraw(name string) { _ = s.t.RemoveConnection(name) }
