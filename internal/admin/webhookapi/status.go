@@ -47,7 +47,11 @@ const errRange = "range must be hour, day, week or custom; custom takes from and
 // spanOf reads the range parameters into the span the overview covers.
 func spanOf(q url.Values, now time.Time) (whadmin.Span, string, bool) {
 	name := q.Get("range")
-	if name == "" {
+	switch {
+	case name == "" && q.Get("from") != "":
+		// from and to name a span of their own (#2651).
+		name = rangeCustom
+	case name == "":
 		name = defaultStatusRange
 	}
 	if rng, ok := statusRanges[name]; ok {
@@ -115,7 +119,7 @@ func customStep(from time.Time, span time.Duration, now time.Time) time.Duration
 // @Tags         Webhooks
 // @Produce      json
 // @Param        range   query  string  false  "Span of the series and the rejections: hour (one-minute buckets), day (fifteen-minute), week (hourly) or custom (from and to)"  Enums(hour, day, week, custom)  default(hour)
-// @Param        from    query  string  false  "Start of a custom range, RFC 3339"
+// @Param        from    query  string  false  "Start of a custom range, RFC 3339; from without range reads the span from to"
 // @Param        to      query  string  false  "End of a custom range, RFC 3339; now when absent"
 // @Param        source  query  string  false  "Name of one source to report on; every source when absent"
 // @Success      200  {object}  StatusOverview

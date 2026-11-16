@@ -2,10 +2,12 @@ package portalstore
 
 import (
 	"context"
+	"database/sql"
 
 	"github.com/txn2/mcp-data-platform/internal/bucketsource"
 	"github.com/txn2/mcp-data-platform/internal/indexpolicy"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceholds"
+	"github.com/txn2/mcp-data-platform/internal/platform/resourceupload"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
 	"github.com/txn2/mcp-data-platform/internal/unarchive"
@@ -64,6 +66,7 @@ func (h *Handle) BindResourceWrites(d ResourceWriteDeps) {
 		return
 	}
 	h.BindResourceWriter(w)
+	h.bindUploadLinks(w, d)
 	lander := resourcewrite.NewLander(resourcewrite.LanderDeps{Writer: w, MaxUploadBytes: d.MaxUploadBytes})
 	// The follower reaches the registrar the composition root binds onto the
 	// asset toolkit later.
@@ -150,4 +153,24 @@ func (h *Handle) ResourceSources() *scriptsrc.Reader {
 		return nil
 	}
 	return h.sources
+}
+
+// bindUploadLinks gives manage_resource action=upload_link its issuer and the
+// upload route its service (#2639), over the writer manage_resource writes
+// through, so a link's write is checked as a create is.
+func (h *Handle) bindUploadLinks(w *resourcewrite.Writer, d ResourceWriteDeps) {
+	store := resourceupload.NewStore(h.dbOrNil())
+	if store == nil || h.toolkit == nil {
+		return
+	}
+	base := h.baseURL
+	h.uploadLinks = &resourceupload.Service{Store: store, Writer: w, BaseURL: func() string { return base }, MaxUploadBytes: d.MaxUploadBytes}
+	h.toolkit.SetUploadLinks(h.uploadLinks)
+}
+
+func (h *Handle) dbOrNil() *sql.DB {
+	if h == nil {
+		return nil
+	}
+	return h.db
 }

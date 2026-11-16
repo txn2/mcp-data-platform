@@ -99,6 +99,11 @@ func bindHandler(t *testing.T, admin *client, name, owner, kind string, settings
 	for k, v := range settings {
 		params[k] = v
 	}
+	// Who a handler applies to is chosen (#2650): naming no persona and no
+	// person is everyone only when it says so.
+	if params["personas"] == nil && params["users"] == nil {
+		params["everyone"] = true
+	}
 	h := admin.handlerSet(name, kind, params)
 	t.Cleanup(func() { admin.handlerOff(h["handler"]) })
 	return h
@@ -284,13 +289,20 @@ func handlerTest(t *testing.T, c *client, args map[string]any) map[string]any {
 	return c.call("manage_script", params)
 }
 
-// unmatchedLatency holds an unmatched call to within 5% of its latency with
-// no handlers, at p50 and p99, while 50 handlers of kind are bound to other
-// connections (#2436, #2634). The two states are measured interleaved (#2645):
-// five rounds of 200 calls each, the order alternating, the 50 handlers
-// enabled or disabled between blocks, so both states sample the same stack.
-// Measured one after the other, anything else the stack did during the middle
-// block was read as the handlers' cost.
+// unmatchedLatency holds the handlers' own cost on a call none of them
+// applies to, while 50 handlers of kind are bound to other connections
+// (#2436, #2634), and measures the call end to end beside it (#2653).
+//
+// The handlers' layer reports its own time per call, the call itself left out
+// (call_handlers_layer_seconds): at least 99% of the unmatched calls spend
+// at most a millisecond in it. End to end, p50 and p99 with the handlers stay
+// within 5% of without them plus an absolute allowance (2.5ms at p50, 5ms at
+// p99): on a shared CI runner, two blocks of the same call differ by more
+// than 5% of a few milliseconds whatever the handlers do (#2653 measured
+// 0.18ms on 2.4ms and 1.9ms on 4.2ms there), so a percentage alone fails on
+// the runner's noise. The two states are measured interleaved (#2645): five
+// rounds of 200 calls each, the order alternating, the 50 handlers enabled or
+// disabled between blocks, so both states sample the same stack.
 func unmatchedLatency(t *testing.T, admin, caller *client, prefix, kind, source, entry string) {
 	t.Helper()
 	const rounds, block, settle = 5, 200, 20
@@ -315,7 +327,7 @@ func unmatchedLatency(t *testing.T, admin, caller *client, prefix, kind, source,
 	bound := make([]string, 0, 50)
 	for i := range 50 {
 		// A script holds at most 20 handlers of a kind.
-		h := admin.handlerSet(names[i/20], kind, map[string]any{"connection": fmt.Sprintf("acc-elsewhere-%d", i), "operations": []string{"*"}, "approve": i%20 == 0})
+		h := admin.handlerSet(names[i/20], kind, map[string]any{"connection": fmt.Sprintf("acc-elsewhere-%d", i), "operations": []string{"*"}, "everyone": true, "approve": i%20 == 0})
 		id, _ := h["handler"].(string)
 		bound = append(bound, id)
 	}
@@ -345,13 +357,20 @@ func unmatchedLatency(t *testing.T, admin, caller *client, prefix, kind, source,
 		}
 	}
 	samples := map[bool][]time.Duration{}
+	// The layer's time is read around each measured block alone: the settle
+	// calls after a toggle pay the index's re-read of the handlers, which a
+	// change of handlers costs once and is not what an unmatched call costs.
+	var n, within float64
 	for r := range rounds {
 		// AB, BA, AB, ...: neither state always runs first in a round.
 		for _, on := range []bool{r%2 == 1, r%2 == 0} {
 			toggle(on)
+			before := scrapeRaw(t)
 			for range block {
 				samples[on] = append(samples[on], call())
 			}
+			bn, bw := layerShare(before, scrapeRaw(t), "false", "0.001")
+			n, within = n+bn, within+bw
 		}
 	}
 	pct := func(d []time.Duration, n int) time.Duration {
@@ -362,10 +381,36 @@ func unmatchedLatency(t *testing.T, admin, caller *client, prefix, kind, source,
 	without50, without99 := pct(samples[false], 50), pct(samples[false], 99)
 	with50, with99 := pct(samples[true], 50), pct(samples[true], 99)
 	t.Logf("%s: without handlers p50 %v p99 %v; with 50 elsewhere p50 %v p99 %v", kind, without50, without99, with50, with99)
-	if float64(with50) > float64(without50)*1.05 {
-		t.Errorf("p50 with 50 %s handlers elsewhere is %v, more than 5%% over %v", kind, with50, without50)
+	if limit := allowed(without50, latencyAllowanceP50); with50 > limit {
+		t.Errorf("p50 with 50 %s handlers elsewhere is %v, over %v (5%% over %v plus %v)", kind, with50, limit, without50, latencyAllowanceP50)
 	}
-	if float64(with99) > float64(without99)*1.05 {
-		t.Errorf("p99 with 50 %s handlers elsewhere is %v, more than 5%% over %v", kind, with99, without99)
+	if limit := allowed(without99, latencyAllowanceP99); with99 > limit {
+		t.Errorf("p99 with 50 %s handlers elsewhere is %v, over %v (5%% over %v plus %v)", kind, with99, limit, without99, latencyAllowanceP99)
 	}
+	t.Logf("%s: the handlers' layer spent at most 1ms on %.0f of %.0f unmatched calls", kind, within, n)
+	if n < rounds*block*2 || within < 0.99*n {
+		t.Errorf("the handlers' layer spent at most 1ms on %.0f of %.0f unmatched calls; want at least 99%% of at least %d", within, n, rounds*block*2)
+	}
+}
+
+// The absolute allowance an end-to-end latency comparison adds to 5% (#2653).
+const (
+	latencyAllowanceP50 = 2500 * time.Microsecond
+	latencyAllowanceP99 = 5 * time.Millisecond
+)
+
+// allowed is the most a latency may be against base: 5% over it plus slack.
+func allowed(base, slack time.Duration) time.Duration {
+	return time.Duration(float64(base)*1.05) + slack
+}
+
+// layerShare is, of the calls the handlers' layer saw between two scrapes
+// that matched (or did not) a handler, how many there were and on how many it
+// spent at most le seconds (call_handlers_layer_seconds, #2653).
+func layerShare(before, after, matched, le string) (n, within float64) {
+	byMatch := map[string]string{"matched": matched}
+	n = metricSeries(after, "call_handlers_layer_seconds_count", byMatch) - metricSeries(before, "call_handlers_layer_seconds_count", byMatch)
+	byEdge := map[string]string{"matched": matched, "le": le}
+	within = metricSeries(after, "call_handlers_layer_seconds_bucket", byEdge) - metricSeries(before, "call_handlers_layer_seconds_bucket", byEdge)
+	return n, within
 }

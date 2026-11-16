@@ -26,6 +26,9 @@ type StatusHistory struct {
 	// Ack is the acknowledgement latency per bucket with each stage's
 	// average.
 	Ack []whstore.AckPoint `json:"ack"`
+	// AckEdgesMS are the acknowledgement buckets' upper bounds: a point's
+	// p50 and p99 are estimated between two of them (#2651).
+	AckEdgesMS []int64 `json:"ack_edges_ms"`
 	// Compactions is each window's compaction in the range, newest first.
 	Compactions []whstore.CompactionRun `json:"compactions"`
 	// Storage is each source's raw and compacted bytes now.
@@ -63,7 +66,7 @@ type LargestWindow struct {
 func historyOf(ov whadmin.Overview) StatusHistory {
 	t := ov.Telemetry
 	out := StatusHistory{
-		Statuses: nonNilSlice(t.Statuses), Replicas: nonNilSlice(t.Replicas), Ack: nonNilSlice(t.Ack),
+		Statuses: nonNilSlice(t.Statuses), Replicas: nonNilSlice(t.Replicas), Ack: nonNilSlice(t.Ack), AckEdgesMS: whstore.AckEdges(),
 		Compactions: nonNilSlice(t.Compactions), Storage: nonNilSlice(t.Storage),
 		Sizing: WindowSizing{MemoryLimitBytes: ov.MemoryLimit, WarnAtPercent: sizingWarnPercent},
 	}

@@ -23,6 +23,7 @@
 package epformpage
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"errors"
@@ -34,6 +35,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/contentenc"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/eprun"
@@ -210,9 +212,15 @@ func (h *Handler) page(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("Cache-Control", "no-store")
-	if err := page.Execute(w, map[string]any{"Config": cfg, "Solver": solverPath, "Script": ScriptPath}); err != nil {
+	var buf bytes.Buffer
+	if err := page.Execute(&buf, map[string]any{"Config": cfg, "Solver": solverPath, "Script": ScriptPath}); err != nil {
 		slog.WarnContext(r.Context(), "form page: writing the page failed", logKeyError, logsan.SanitizeForLog(err.Error()))
+		http.Error(w, "The form could not be shown.", http.StatusInternalServerError)
+		return
 	}
+	// A page carrying a viewer token is never sent compressed (#2655).
+	// #nosec G705 -- the page's own template, executed with html/template, compressed or not
+	_, _ = w.Write(contentenc.Respond(r, w.Header(), http.StatusOK, buf.Bytes(), cfg.Viewer != ""))
 }
 
 // preview answers a form's preview page (#2494), for the person who opened

@@ -390,6 +390,9 @@ export interface WebhookHistory {
   statuses: WebhookStatusPoint[];
   replicas: WebhookReplicaMinute[];
   ack: WebhookAckPoint[];
+  /** ack_edges_ms are the acknowledgement buckets' upper bounds, which a
+   * point's p50 and p99 are estimated between (#2651). */
+  ack_edges_ms: number[];
   compactions: WebhookCompactionRun[];
   storage: WebhookSourceStorage[];
   sizing: {

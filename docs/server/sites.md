@@ -50,7 +50,8 @@ changed in the meantime is asked about again. A client that cannot ask files a
 request in **Approvals** and answers `APPROVAL_REQUIRED`: a person decides it in
 the portal, and the agent's session can never decide it (`manage_approval decide`
 refuses a site request, and so does the portal's own API reached through the
-`platform-admin` connection). The portal's buttons are the person and are
+`platform-admin` connection, whose every call is served in process and marked as
+a tool call's whether or not it carries the caller's token, #2656). The portal's buttons are the person and are
 unchanged. An administrator can mark an environment **Agents may promote here**
 (`agents_may_promote`, off by default, set in the portal only) for a scratch or
 preview environment where unreviewed publishing is safe. History and the audit
@@ -756,7 +757,7 @@ is left out.
 | `revoke` | `email` or `persona` |
 | `add_domain`, `set_domain`, `remove_domain`, `domains` | Domains. `add_domain` with `public` opens the domain to anyone; `set_domain` with `hostname` and `public` changes it later. `after` places an environment `add_domain` creates, and `requires_approval` applies to the environment whether it creates it or it exists |
 | `crawl` | Copies an existing site into `dev` |
-| `get`, `list`, `releases`, `deployments` | Read; `get` answers the environments in their order, each environment's `addresses` and `pages_addresses`, the site's `domains` with each one's `public`, and `traffic`, the last 24 hours for the site and per environment |
+| `get`, `list`, `releases`, `deployments` | Read; `get` answers the environments in their order, each environment's `addresses` and `pages_addresses`, the site's `production_address` (the portal list's), the site's `domains` with each one's `public`, and `traffic`, the last 24 hours for the site and per environment. `list` takes `query` (a part of a name, description, owner or domain hostname), `limit` (at most 200) and `offset`, answering `total` and each site's `production_addresses` (#2658) |
 
 `default`, the old name of `dev`, is read as `dev` wherever an environment is named
 for one minor release, and the answer carries a `note` saying so. A reference
@@ -767,6 +768,8 @@ part `<site>/default` is added as `<site>/dev`.
 
 | Route | What it does |
 |---|---|
+| `GET /api/v1/portal/sites?q=&limit=&offset=` | The sites `q` names (a part of a name, description, owner or domain hostname, any case), `limit` at a time (at most 200, every match without it) from `offset`; `total` counts every match. The query and page are applied before anything is read per site (#2658) |
+| `GET /api/v1/portal/sites/{site}/environments/{name}/tile` | The environment's tile, a PNG of the release it serves, to someone who may open the environment; 404 for none drawn yet for its current release, no release, offline or redirecting, or one the caller may not open (#2658) |
 | `PUT /api/v1/portal/sites/{site}/environments/{name}` | Creates, places or changes an environment. Body `{requires_approval?, internal_view?, keep_releases?, after?, agents_may_promote?, status?, message?, back_at?, redirect_to?, keep_path?, reason?, rename_to?}`, a field left out left alone; `keep_releases` is a number or `"default"`, `agents_may_promote` is an administrator's, and `public` is refused. Answers `{site, status, note?, approval?}` |
 | `DELETE /api/v1/portal/sites/{site}/environments/{name}` | Removes an environment between dev and prod |
 | `POST /api/v1/portal/sites/check-name` | `{name}`: what the typed name becomes, its addresses, `environment_name_room` and `refusal?` |
@@ -780,15 +783,33 @@ part `<site>/default` is added as `<site>/dev`.
 | `DELETE /api/v1/portal/sites/{site}/access?email=` or `?persona=` | Removes the grant; applies on the next request |
 | `POST /api/v1/portal/sites/{site}/publish` | `environment` is `dev`, and may be left out |
 
-A site's JSON carries `main_environment`, `address` (the main address, `""` when it
-is given to none), `addresses` (where people reach each environment: the first of
-its domains, otherwise its pages address), `pages_addresses` (each environment's
+A site's JSON carries `main_environment`, `address` (the production address: where
+the environment holding the main address is reached, its public domain first, then
+any other domain mapped to it, then its pages address, `""` when the main address
+is given to none, #2658), `more_domains` (how many other domains that environment
+answers at), `addresses` (where people reach each environment: a public domain
+first, then another domain, otherwise its pages address), `pages_addresses` (each environment's
 address on the pages domain: the main address for the one holding it, otherwise
 `<site>--<env>`, which answers only where the deployment's ingress routes it),
 `address_note` when a two-character name leaves its environments without a pages
 address, `domains` with each one's `public`, and per environment, in the site's
 order, `public_domains` and `internal_view`. `addresses` and `pages_addresses` are
 the ones `manage_site get` answers (#2607).
+
+## Tiles
+
+Every environment serving a release has a tile (#2658): the tile worker draws
+the release's root page in the headless renderer from the release's own files,
+read in process from where the site keeps them, and keeps it in the portal
+bucket under the release it is of (`site_tiles`, migration 000253). A promote,
+rollback or publish changes the release and the tile is drawn again; a tile of
+another release is never served. Nothing is fetched from any hostname while a
+tile is drawn: every other origin, the environment's own domains included, is
+answered not found, so an environment is drawn the same whatever domains it has
+and drawing a private one opens nothing. An environment with no release,
+offline, redirecting, or with no pages address shows a placeholder saying so. A
+tile is answered only to someone who may open its environment, by the rule its
+addresses apply.
 
 ## In the portal
 

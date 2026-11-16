@@ -25,9 +25,13 @@ type SiteLimits struct {
 // SiteView is a site as the portal shows it.
 type SiteView struct {
 	site.Site
-	// Address is the site's main address, "" with no pages domain or when the
-	// main address is given to no environment.
+	// Address is the site's production address: where the environment
+	// holding the main address is reached, its public domain first, then
+	// another domain, then its pages address (#2658); "" when the main address
+	// is given to no environment.
 	Address string `json:"address"`
+	// MoreDomains is how many other domains that environment answers at.
+	MoreDomains int `json:"more_domains"`
 	// Addresses is where people reach each environment, by name: the first
 	// of its domains, otherwise its address on the pages domain, "" for
 	// none. manage_site get answers the same (#2607).
@@ -266,4 +270,57 @@ func siteTraffic(by map[string]sitetraffic.Counts, st *site.Site) *SiteTraffic {
 	}
 	t := sitetraffic.TotalsOf(c)
 	return &SiteTraffic{Requests: t.Requests, P95: t.P95}
+}
+
+// errNoTile answers an environment with no tile to show: none drawn yet for
+// the release it serves, none it may have, or one the caller may not open.
+const errNoTile = "this environment has no tile to show"
+
+// tile serves an environment's tile.
+//
+// @Summary      An environment's tile
+// @Description  The picture of the release an environment serves (#2658), drawn by the tile worker from the release's own files and redrawn when the release changes. Answered only to someone who may open the environment, by the rule its addresses apply; an environment with no release, offline or redirecting, or whose tile for its current release is not drawn yet, answers 404, which the portal shows as a placeholder.
+// @Tags         Sites
+// @Produce      png
+// @Param        site  path  string  true  "Site name or id"
+// @Param        name  path  string  true  "Environment"
+// @Success      200
+// @Failure      401  {object}  httpjson.ProblemDetail
+// @Failure      404  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/sites/{site}/environments/{name}/tile [get]
+func (a *portalAPI) tile(w http.ResponseWriter, r *http.Request) {
+	ss, r, ok := a.siteAndScope(w, r)
+	if !ok {
+		return
+	}
+	body, ok := a.tileOf(r.Context(), ss, r.PathValue("name"))
+	if !ok {
+		httpjson.WriteError(w, http.StatusNotFound, errNoTile)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	_, _ = w.Write(body) // #nosec G705 -- a PNG the tile worker drew, served as image/png with nosniff
+}
+
+// tileOf is the tile of the environment the caller names, when they may open
+// it and it is drawn for the release the environment serves now. A tile of
+// another release is not shown: the portal says it is being drawn rather than
+// show a picture of what the environment no longer serves.
+func (a *portalAPI) tileOf(ctx context.Context, ss *scopedSite, raw string) ([]byte, bool) {
+	name, _ := site.CanonicalEnvironment(raw)
+	env := ss.Environment(name)
+	tiles := a.d.Runtime.Tiles
+	if env == nil || !ss.scope.sees(name) || env.Release == 0 || !env.Online() || tiles == nil {
+		return nil, false
+	}
+	t, err := tiles.Get(ctx, ss.ID, name)
+	if err != nil || t.Key == "" || t.Release != env.Release {
+		return nil, false
+	}
+	body, _, err := a.svc().Objects.GetObject(ctx, a.svc().Bucket, t.Key)
+	return body, err == nil
 }

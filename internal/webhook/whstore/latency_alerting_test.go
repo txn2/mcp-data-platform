@@ -18,7 +18,7 @@ func TestAlertReadings(t *testing.T) {
 			AddRow("esp", minute, "accepted", int64(9)).
 			AddRow("esp", minute, "unauthorized", int64(1)).
 			AddRow("esp", minute.Add(-time.Minute), "spool_full", int64(2)))
-	mock.ExpectQuery(`FROM webhook_ack_latency l, unnest\(l.buckets\)`).
+	mock.ExpectQuery(`FROM webhook_ack_latency l, unnest\(webhook_ack_counts\(buckets, ack_buckets\)\)`).
 		WithArgs(start.Add(-5 * time.Minute)).
 		WillReturnRows(sqlmock.NewRows([]string{"source", "i", "n", "max"}).
 			AddRow("esp", 1, int64(98), int64(1800)).
@@ -38,7 +38,7 @@ func TestAlertReadings(t *testing.T) {
 	assert.Equal(t, map[string]int64{"accepted": 9, "unauthorized": 1}, esp.Outcomes[minute.UTC()])
 	assert.Equal(t, int64(2), esp.Outcomes[minute.Add(-time.Minute).UTC()]["spool_full"])
 	assert.Equal(t, int64(100), esp.Ack.Count)
-	assert.Equal(t, int64(1000), esp.Ack.P99MS, "the p99 is the bound of the bucket it falls in")
+	assert.Equal(t, int64(750), esp.Ack.P99MS, "the p99 is estimated within the bucket it falls in")
 	assert.Equal(t, int64(1800), esp.Ack.MaxMS)
 	require.NotNil(t, esp.OldestOwedEnd)
 	assert.Equal(t, 1, esp.FailingWindows)

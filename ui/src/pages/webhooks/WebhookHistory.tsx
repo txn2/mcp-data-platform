@@ -23,6 +23,7 @@ import {
   ackSeries,
   bucketLabel,
   compactionSeries,
+  estimatedWithin,
   flowSeries,
   replicaNames,
   spoolSeries,
@@ -222,6 +223,7 @@ function SpoolDepthChart({ data }: { data: WebhookStatusOverview }) {
 
 function AckChart({ data, source }: { data: WebhookStatusOverview; source: string }) {
   const rows = useMemo(() => ackSeries(data, source), [data, source]);
+  const edges = data.history.ack_edges_ms ?? [];
   return (
     <SectionCard title="Acknowledgement">
       {rows.length === 0 ? (
@@ -233,26 +235,59 @@ function AckChart({ data, source }: { data: WebhookStatusOverview; source: strin
               <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
               {TimeAxis({ step: data.bucket_seconds })}
               <YAxis className="text-xs" tick={tick} width={56} unit="ms" />
-              <Tooltip
-                contentStyle={tooltipStyle}
-                labelFormatter={(v: string) => bucketLabel(v, data.bucket_seconds)}
-                formatter={(v: number, name: string) => [`${Math.round(v)} ms`, name]}
-              />
+              <Tooltip content={<AckTooltip step={data.bucket_seconds} edges={edges} />} />
               <Legend wrapperStyle={{ fontSize: "0.75rem" }} />
+              <Line dataKey="max" stroke={color(5)} strokeDasharray="5 4" dot={false} isAnimationActive={false} />
               <Line dataKey="p99" stroke={color(4)} dot={false} isAnimationActive={false} />
               <Line dataKey="p50" stroke={color(0)} dot={false} isAnimationActive={false} />
-              <Line dataKey="put" stroke={color(2)} strokeDasharray="4 3" dot={false} isAnimationActive={false} />
-              <Line dataKey="mark" stroke={color(3)} strokeDasharray="4 3" dot={false} isAnimationActive={false} />
-              <Line dataKey="buffer" stroke={color(1)} strokeDasharray="4 3" dot={false} isAnimationActive={false} />
             </LineChart>
           </ResponsiveContainer>
           <p className="mt-2 text-xs text-muted-foreground">
-            p50 and p99 of the time to answer 202, and the average time a delivery spent in each stage: buffer,
-            mark, and put (with a spool, the sync to disk).
+            The slowest acknowledgement in each bucket (max), and p50 and p99 of the time to answer 202. p50 and p99 are
+            estimated within the histogram bucket they fall in (edges at 1, 1.5, 2, 2.5 and 3 s), so a line between edges is
+            an estimate, never a timeout. Stage times are averages: buffer, mark, and put (with a spool, the sync to disk).
           </p>
         </>
       )}
     </SectionCard>
+  );
+}
+
+const ms = (v: number) => `${Math.round(v).toLocaleString()} ms`;
+
+// AckTooltip is one bucket's acknowledgement: the slowest, p99 with the bucket
+// it was estimated in, p50, the stages' averages and the deliveries (#2651).
+export function AckTooltip({
+  active,
+  payload,
+  step,
+  edges,
+}: {
+  active?: boolean;
+  payload?: { payload: Row }[];
+  step: number;
+  edges: number[];
+}) {
+  const row = payload?.[0]?.payload;
+  if (!active || !row) return null;
+  const p99 = Number(row.p99);
+  const within = estimatedWithin(p99, edges);
+  return (
+    <div style={tooltipStyle} className="space-y-0.5 text-xs" data-testid="ack-tooltip">
+      <p className="font-semibold">{bucketLabel(String(row.at), step)}</p>
+      <p>max {ms(Number(row.max))}</p>
+      <p>
+        p99 {ms(p99)}{" "}
+        <span className="text-muted-foreground">
+          (estimated within {within.from.toLocaleString()} to {within.to === null ? "the slowest" : `${within.to.toLocaleString()} ms`})
+        </span>
+      </p>
+      <p>p50 {ms(Number(row.p50))}</p>
+      <p className="text-muted-foreground">
+        put {ms(Number(row.put))}, mark {ms(Number(row.mark))}, buffer {ms(Number(row.buffer))} (averages)
+      </p>
+      <p className="text-muted-foreground">{Number(row.count).toLocaleString()} deliveries</p>
+    </div>
   );
 }
 

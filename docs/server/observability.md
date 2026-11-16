@@ -164,6 +164,7 @@ query them; the tab is the at-a-glance read.
 | `mcp_request_duration_seconds` | histogram | `method`, `status` |
 | `endpoint_requests_total` | counter | `endpoint`, `status_class` |
 | `endpoint_request_duration_seconds` | histogram | `endpoint` |
+| `call_handlers_layer_seconds` | histogram | `matched`: the tool-call handlers' own time per call, the call left out, in sub-millisecond buckets (#2653) |
 | `site_requests_total` | counter | `kind`, `site`, `environment`, `status_class` |
 | `site_request_duration_seconds` | histogram | `kind`, `site`, `environment` |
 | `site_cache_reads_total` | counter | `outcome` |

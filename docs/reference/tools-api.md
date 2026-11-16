@@ -960,6 +960,8 @@ A `create` declares what the bytes are in `content_type`; a create that does not
 | `scope` | string | No | `user` | `user`, `persona`, or `global`. For `list`, omitting it means every library you can see rather than only your own |
 | `scope_id` | string | No | you | Persona name for `scope=persona`; must be empty for `scope=global` |
 | `change_summary` | string | No | `Content replaced via manage_resource` | Why the content changed, shown in the version history beside the revision |
+| `size_bytes` | integer | Conditional | - | For `upload_link`: the most the file may be, in bytes, at most the deployment's upload limit |
+| `ttl_seconds` | integer | No | `900` | For `upload_link`: how long the link lives, at most 3600 |
 
 **Actions:**
 
@@ -970,6 +972,7 @@ A `create` declares what the bytes are in `content_type`; a create that does not
 | `get` | Report what is filed at an address, or what a reference names, without the bytes. Nothing there is `found: false` rather than an error, on either branch | `path` + `filename`, or `reference` |
 | `list` | Report the files under a folder, newest first, with the `total` the page was cut from | - |
 | `delete` | Remove a file and its version history, refusing while something still points at it | `path` + `filename`, or `reference` |
+| `upload_link` | Issue a single-use link on the platform's own origin that a file larger than a tool call is PUT to from a shell (`curl -T`), filed at the address as the caller with the checks a portal upload gets (#2639). The answer carries `upload_url`, `method` (PUT), `expires_at`, `max_bytes` and an `example` curl; the PUT answers 201 with the resource's `reference`. The link is good for one PUT, expires after `ttl_seconds`, refuses a body past `size_bytes` (413), and an unknown, used or expired link answers 404. A saved script's run cannot ask for one | `filename`, `display_name`, `path`, `description`, `content_type`, `size_bytes` |
 
 **Response Schema (create):**
 

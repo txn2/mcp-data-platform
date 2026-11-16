@@ -17,6 +17,8 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptevents/sourcerule"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
+	"github.com/txn2/mcp-data-platform/pkg/connid"
+	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -111,18 +113,44 @@ type Service struct {
 	// OnCallChange is told when a tool-call handler changes, so this
 	// replica's index reads it for the next call; nil tells nothing.
 	OnCallChange func()
+	// CallNames is the name the calls of a connection carry, and whether
+	// name is a connection stored under another one (#2649,
+	// connid.Resolver.CallName); nil takes every name as its calls' own.
+	CallNames func(name string) (bound string, stored bool)
+}
+
+// CallNamesOver is the CallNames of the live toolkits kits holds: the
+// resolver every construction of the service sets (#2649).
+func CallNamesOver(kits interface{ All() []registry.Toolkit }) func(name string) (string, bool) {
+	if kits == nil {
+		return nil
+	}
+	return func(name string) (string, bool) { return connid.NewResolver(kits.All(), nil).CallName(name) }
+}
+
+// CallName is the name the calls of the connection name names carry, the one
+// a tool-call handler matches: an MCP connection's connection_name for the
+// instance it is stored under (#2649).
+func (s *Service) CallName(name string) string {
+	if s == nil || s.CallNames == nil {
+		return name
+	}
+	bound, _ := s.CallNames(name)
+	return bound
 }
 
 // New is the service over the platform's database, nil without one: there
-// is nowhere to keep a handler.
-func New(db *sql.DB, endpoints *epcmd.Handler, scripts Scripts) *Service {
+// is nowhere to keep a handler. kits is the live toolkit registry a
+// tool-call handler's connection name is resolved against (#2649); nil takes
+// every name as its calls' own.
+func New(db *sql.DB, endpoints *epcmd.Handler, scripts Scripts, kits interface{ All() []registry.Toolkit }) *Service {
 	if db == nil {
 		return nil
 	}
 	s := &Service{
 		View: View{DB: db}, Scripts: scripts, Endpoints: endpoints,
 		Schedules: scriptstore.New(db), Webhooks: scriptevents.NewStore(db), Now: time.Now,
-		Calls: callhandler.NewStore(db),
+		Calls: callhandler.NewStore(db), CallNames: CallNamesOver(kits),
 	}
 	if rule := sourcerule.NewRule(db, scripts.GetByID); rule != nil {
 		s.Sources, s.SourceList = rule, whsource.NewStore(db, nil)

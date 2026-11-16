@@ -2,14 +2,18 @@
 // served inside this process on behalf of a caller the platform has already
 // authenticated (#2086).
 //
-// The built-in platform-admin connection acts as its caller: a call that
-// carries the caller's token forwards it over the loopback, and the admin and
-// portal authenticators check it like any other. A managed script's run has
-// no token -- it presents the roles its owner held at the save -- so its call
-// is handed to the platform's handler directly, with the identity the
-// tool-call middleware authenticated recorded on the request's context. The
+// Every call on the built-in platform-admin connection is served by the
+// platform's own handler in this process, and its request is marked as made by
+// a tool call (ByTool), whether or not it carries the caller's token (#2656).
+// That marker says who is asking -- an agent, not the person at a browser --
+// and grants nothing: the routes that make an agent's move wait on a person
+// read it, and nothing authenticates by it. A call that carries the caller's
+// token keeps it, and the admin and portal authenticators check it like any
+// other. A managed script's run has no token -- it presents the roles its
+// owner held at the save -- so the identity the tool-call middleware
+// authenticated is recorded on the request's context too (With), and the
 // authenticators read it from there. A request that arrives over the network
-// cannot carry a context value, so this adds no credential anyone can send.
+// cannot carry a context value, so neither adds a credential anyone can send.
 package selfcall
 
 import (
@@ -21,11 +25,30 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 )
 
-type contextKey struct{}
+type (
+	contextKey struct{}
+	toolKey    struct{}
+)
 
-// With returns ctx marked as a request served inside this process for c.
+// With returns ctx marked as a request served inside this process for c, and
+// as made by a tool call.
 func With(ctx context.Context, c mcpcontext.Caller) context.Context {
-	return context.WithValue(ctx, contextKey{}, c)
+	return context.WithValue(MarkTool(ctx), contextKey{}, c)
+}
+
+// MarkTool returns ctx marked as a request a tool call made to the platform's
+// own API. It names no one and authenticates nothing.
+func MarkTool(ctx context.Context) context.Context {
+	return context.WithValue(ctx, toolKey{}, true)
+}
+
+// ByTool reports whether a request was made by a tool call (an agent's call on
+// the platform-admin connection, a managed script's run, a tool that serves
+// itself through the API) rather than by a person's own client. It is the one
+// answer every "is this an agent" check reads (#2656).
+func ByTool(ctx context.Context) bool {
+	marked, _ := ctx.Value(toolKey{}).(bool)
+	return marked
 }
 
 // From returns the caller a request served inside this process was made for,
@@ -69,22 +92,20 @@ func ForCall(ctx context.Context, req *http.Request) (*http.Request, bool) {
 	return req.WithContext(With(req.Context(), caller)), true
 }
 
-// Transport sends a request ForCall marked through self, and every other
-// request through network.
-func Transport(self, network http.RoundTripper) http.RoundTripper {
-	return router{self: self, network: network}
+// Transport serves every request through self, the platform's own handler,
+// marked as made by a tool call: the transport of the platform-admin
+// connection, every request of which is a tool call's (#2656).
+func Transport(self http.RoundTripper) http.RoundTripper {
+	return marker{self: self}
 }
 
-type router struct {
-	self, network http.RoundTripper
+type marker struct {
+	self http.RoundTripper
 }
 
 // RoundTrip implements http.RoundTripper.
-func (r router) RoundTrip(req *http.Request) (*http.Response, error) {
-	if _, ok := From(req.Context()); ok {
-		return r.self.RoundTrip(req) //nolint:wrapcheck // transport pass-through
-	}
-	return r.network.RoundTrip(req) //nolint:wrapcheck // transport pass-through
+func (m marker) RoundTrip(req *http.Request) (*http.Response, error) {
+	return m.self.RoundTrip(req.WithContext(MarkTool(req.Context()))) //nolint:wrapcheck // transport pass-through
 }
 
 // PersonaError refuses a caller whose roles do not resolve to the persona a

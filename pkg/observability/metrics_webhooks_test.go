@@ -36,6 +36,10 @@ func TestWebhookInstruments_Exposed(t *testing.T) {
 		`webhook_compactions_total{result="compacted",source="esp"} 1`,
 		`webhook_duplicates_dropped_total{source="esp"} 7`,
 		`webhook_ack_seconds_count{source="esp"} 1`,
+		// #2651: edges around the timeouts senders give up at.
+		`webhook_ack_seconds_bucket{source="esp",le="1.5"} 1`,
+		`webhook_ack_seconds_bucket{source="esp",le="2"} 1`,
+		`webhook_ack_seconds_bucket{source="esp",le="3"} 1`,
 		`webhook_spool_bytes 4096`,
 		`webhook_spool_events 12`,
 		`webhook_spool_files 3`,

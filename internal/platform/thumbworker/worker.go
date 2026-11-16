@@ -168,6 +168,11 @@ type Deps struct {
 	// diagram, stored beside the collection mosaics in AssetBlobs under
 	// CollectionBucket and CollectionPrefix.
 	Scripts ScriptWork
+	// Sites and SitePage are the site environment tiles (#2658): the store
+	// they are claimed and kept through, and the page a release is drawn
+	// from. Nil draws none.
+	Sites    SiteWork
+	SitePage SitePage
 
 	// Routes is the platform's own HTTP routes. The page a tile is drawn from
 	// loads the viewer's chunks, the served slide runtime and a document's
@@ -332,7 +337,8 @@ func (w *Worker) pass(ctx context.Context) bool {
 	resources := w.drawBatch(ctx, w.claimResources(ctx))
 	collections := w.drawBatch(ctx, w.claimCollections(ctx))
 	scripts := w.drawBatch(ctx, w.claimScripts(ctx))
-	return cleared || assets || resources || collections || scripts
+	sites := w.drawBatch(ctx, w.claimSites(ctx))
+	return cleared || assets || resources || collections || scripts || sites
 }
 
 // clear takes the due rows each kind owes nothing out of the due set and

@@ -88,8 +88,8 @@ func TestTelemetry(t *testing.T) {
 	require.Len(t, got.Ack, 2)
 	ack := got.Ack[0]
 	assert.Equal(t, int64(100), ack.Count)
-	assert.Equal(t, int64(10), ack.P50MS)
-	assert.Equal(t, int64(1000), ack.P99MS)
+	assert.Equal(t, int64(5), ack.P50MS, "estimated within the first bucket")
+	assert.Equal(t, int64(750), ack.P99MS, "estimated halfway into the 500 to 1000ms bucket")
 	assert.InDelta(t, 2.0, ack.BufferMS, 0.001, "the stage sum over the deliveries is their average")
 	assert.InDelta(t, 50.0, ack.PutMS, 0.001)
 	assert.Zero(t, got.Ack[1].BufferMS, "a bucket with no deliveries has no average")

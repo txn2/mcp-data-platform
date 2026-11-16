@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Globe } from "lucide-react";
-import { useCreateSite, useSiteNameCheck, useSites, type SiteList, type SiteNameCheck } from "@/api/portal/hooks/sites";
+import { SITES_PAGE, useSitePage } from "@/api/portal/hooks/siteList";
+import { useCreateSite, useSiteNameCheck, type SiteList, type SiteNameCheck } from "@/api/portal/hooks/sites";
 import { EmptyState } from "@/components/patterns/EmptyState";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -14,12 +15,46 @@ import { SiteTable } from "./SiteList";
 import { ReplicasSection } from "./SiteTraffic";
 import { bareAddress, errorText } from "./siteFormat";
 
-// SitesPage lists every site (#2559, #2604, #2612): who owns it, its main
-// address and the environment that serves it, and each environment with the
-// release it serves and whether it is private or public (SiteList).
+// SitesPage lists the sites (#2559, #2604, #2612, #2658): who owns each, its
+// production address and the environment that serves it, and each environment
+// with the release it serves and whether it is private or public (SiteList).
+// The search matches a name, description, owner or domain on the server, is
+// kept in the address so a filtered list can be linked and survives a reload,
+// and the list is paged there too, so hundreds of sites cost one page.
+
+/** readQuery is the search a page address carries. */
+function readQuery(): string {
+  return typeof window === "undefined" ? "" : (new URLSearchParams(window.location.search).get("q") ?? "");
+}
+
+/** keepQuery puts the search in the page address without a new history entry. */
+function keepQuery(q: string) {
+  const url = new URL(window.location.href);
+  if (q) url.searchParams.set("q", q);
+  else url.searchParams.delete("q");
+  window.history.replaceState(null, "", url);
+}
+
+/** useSiteSearch is the typed search, the one asked of the server a moment
+ * after typing stops, and the page. */
+function useSiteSearch() {
+  const [typed, setTyped] = useState(readQuery);
+  const [query, setQuery] = useState(typed.trim());
+  const [offset, setOffset] = useState(0);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setQuery(typed.trim());
+      setOffset(0);
+      keepQuery(typed.trim());
+    }, 250);
+    return () => clearTimeout(t);
+  }, [typed]);
+  return { typed, setTyped, query, offset, setOffset };
+}
 
 export function SitesPage({ onNavigate }: { onNavigate: (path: string) => void }) {
-  const { data, isLoading, error } = useSites();
+  const search = useSiteSearch();
+  const { data, isLoading, error } = useSitePage(search.query, search.offset);
   const [creating, setCreating] = useState(false);
   const open = (site: string) => onNavigate(`/sites/${encodeURIComponent(site)}`);
   const newSite = data?.can_create ? (
@@ -31,8 +66,33 @@ export function SitesPage({ onNavigate }: { onNavigate: (path: string) => void }
   return (
     <div className="space-y-4">
       {data && !data.pages_domain && <PreviewsOff admin={data.admin} onNavigate={onNavigate} />}
-      <SectionCard title="Sites" action={newSite}>
-        <SitesBody list={data} loading={isLoading} error={error} newSite={newSite} onOpen={open} />
+      <SectionCard
+        title="Sites"
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              type="search"
+              aria-label="Search sites"
+              placeholder="Search by name, description, owner or domain"
+              className="h-9 w-full sm:w-80"
+              value={search.typed}
+              onChange={(e) => search.setTyped(e.target.value)}
+            />
+            {newSite}
+          </div>
+        }
+      >
+        <SitesBody
+          list={data}
+          loading={isLoading}
+          error={error}
+          newSite={newSite}
+          onOpen={open}
+          query={search.query}
+          onClear={() => search.setTyped("")}
+          offset={search.offset}
+          onPage={search.setOffset}
+        />
       </SectionCard>
       {data?.admin && <ReplicasSection />}
       {creating && data && (
@@ -54,12 +114,20 @@ function SitesBody({
   error,
   newSite,
   onOpen,
+  query,
+  onClear,
+  offset,
+  onPage,
 }: {
   list?: SiteList;
   loading: boolean;
   error: Error | null;
   newSite: ReactNode;
   onOpen: (site: string) => void;
+  query: string;
+  onClear: () => void;
+  offset: number;
+  onPage: (offset: number) => void;
 }) {
   if (error) {
     return (
@@ -69,6 +137,17 @@ function SitesBody({
     );
   }
   if (loading || !list) return <SitesLoading />;
+  if (list.sites.length === 0 && query) {
+    return (
+      <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed p-10 text-center" data-testid="sites-none-matched">
+        <p className="text-base font-medium">No site matches {query}</p>
+        <p className="text-sm text-muted-foreground">Nothing in a site&apos;s name, description, owner or domains holds {query}.</p>
+        <Button variant="outline" size="sm" onClick={onClear}>
+          Clear the search
+        </Button>
+      </div>
+    );
+  }
   if (list.sites.length === 0) {
     return (
       <EmptyState icon={Globe} action={newSite}>
@@ -80,7 +159,30 @@ function SitesBody({
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">A new site starts with dev, its working copy, and prod, on its main address. Promote releases one step at a time when people should use them.</p>
-      <SiteTable list={list} onOpen={onOpen} />
+      <SiteTable list={list} onOpen={onOpen} query={query} />
+      <SitesPager total={list.total} shown={list.sites.length} offset={offset} query={query} onPage={onPage} />
+    </div>
+  );
+}
+
+/** SitesPager says which sites the page shows and moves between pages. */
+function SitesPager({ total, shown, offset, query, onPage }: { total: number; shown: number; offset: number; query: string; onPage: (o: number) => void }) {
+  const what = query ? `${total === 1 ? "site matches" : "sites match"} ${query}` : total === 1 ? "site" : "sites";
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground" data-testid="sites-pager">
+      <span>
+        {total <= SITES_PAGE ? `${total} ${what}` : `${offset + 1} to ${offset + shown} of ${total} ${what}`}
+      </span>
+      {total > SITES_PAGE && (
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" disabled={offset === 0} onClick={() => onPage(Math.max(0, offset - SITES_PAGE))}>
+            Previous
+          </Button>
+          <Button variant="outline" size="sm" disabled={offset + shown >= total} onClick={() => onPage(offset + SITES_PAGE)}>
+            Next
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

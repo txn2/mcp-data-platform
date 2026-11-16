@@ -50,7 +50,7 @@ func Handlers(p *platform.Platform) *scripthandler.Service {
 	if e != nil {
 		commands = e.Commands
 	}
-	svc := scripthandler.New(p.DB(), commands, scriptstore.New(p.DB()))
+	svc := scripthandler.New(p.DB(), commands, scriptstore.New(p.DB()), p.ToolkitRegistry())
 	if svc != nil && e != nil && e.Approvals != nil {
 		svc.Approvals = e.Approvals
 		svc.Versions = scripthandler.ApprovalVersions{Approvals: e.Approvals}

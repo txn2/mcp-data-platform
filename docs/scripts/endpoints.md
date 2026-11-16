@@ -870,6 +870,25 @@ an origin that is not listed is refused with 403. Credentials are never allowed
 across origins, so a browser session is never sent from another site, and a
 cross-origin caller of an `authenticated` endpoint calls with an API key.
 
+## Compression
+
+An endpoint's answer, in api mode and page mode alike, and a form's page are
+sent brotli or gzip when the request's `Accept-Encoding` takes one (brotli
+first), the content type compresses (text, JSON, JavaScript, XML, SVG), the body
+is at least 1 KiB and the compressed form saves enough to be worth sending, with
+`Content-Encoding` and `Vary: Accept-Encoding` (#2655). One rule
+(`contentenc.Respond`) decides for every surface, compressing at a fast level
+since each answer is produced per request. A `HEAD`, a `204` or `304`, and an
+answer whose handler set its own `Content-Encoding` are sent as they are.
+
+An answer that may hold one of the platform's tokens is never compressed: a
+form's spec answer (it carries the signed `form_token`), a form's page carrying
+a viewer token, and every answer of a run that called `platform.mint_token` or
+`platform.decrypt`, whatever it did with the value. Compressing a secret beside
+text the requester chose would let an observer of response sizes recover it a
+byte at a time (BREACH); sent uncompressed, the answer's length does not depend
+on how a guess matches the token.
+
 ## Limits and failures
 
 | Answer | When |

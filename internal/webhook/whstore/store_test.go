@@ -219,7 +219,7 @@ func TestStatus(t *testing.T) {
 	s, err := st.Status(ctx, "esp", start)
 	require.NoError(t, err)
 	assert.Equal(t, AckLatency{
-		Count: 2, P50MS: 40, P99MS: 40, MaxMS: 40,
+		Count: 2, P50MS: 33, P99MS: 40, MaxMS: 40,
 		Slowest: &SlowAck{At: start, TotalMS: 40, BufferMS: 1, MarkMS: 2, PutMS: 30},
 	}, s.AckLastHour)
 	assert.Equal(t, int64(4), s.AckLastDay.Count)

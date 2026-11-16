@@ -26,6 +26,31 @@ func (h *Handler) registerCalls(mux *http.ServeMux, wrap func(http.Handler) http
 	mux.Handle("GET /api/v1/portal/connections/{connection}/handlers", wrap(http.HandlerFunc(h.connectionHandlers)))
 	mux.Handle("POST /api/v1/portal/connections/{connection}/handlers/test", wrap(http.HandlerFunc(h.testCall)))
 	mux.Handle("PUT /api/v1/portal/connections/{connection}/handlers/order", wrap(http.HandlerFunc(h.orderTransforms)))
+	mux.Handle("GET /api/v1/portal/handler-scripts", wrap(http.HandlerFunc(h.handlerScripts)))
+}
+
+// handlerScripts lists the scripts a tool-call handler of a kind can run.
+//
+// @Summary      List the scripts a tool-call handler can run
+// @Description  The scripts the Add handler dialog offers for kind policy, transform or watch (#2650): those that run (not libraries) whose latest version defines the kind's entry, matching q, at most 50, each with its latest version, the version approved for handlers and whether that version defines the entry too. looked is how many scripts were read to find them. An administrator's only.
+// @Tags         Scripts
+// @Produce      json
+// @Param        kind  query  string  true   "policy, transform or watch"
+// @Param        q     query  string  false  "A part of a script's name or description"
+// @Success      200  {object}  scripthandler.HandlerScripts
+// @Failure      400  {object}  httpjson.ProblemDetail
+// @Failure      401  {object}  httpjson.ProblemDetail
+// @Failure      403  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/handler-scripts [get]
+func (h *Handler) handlerScripts(w http.ResponseWriter, r *http.Request) {
+	c, ok := h.caller(w, r)
+	if !ok {
+		return
+	}
+	out, err := h.deps.Handlers.HandlerScripts(r.Context(), r.URL.Query().Get("kind"), r.URL.Query().Get("q"), c)
+	write(w, r, http.StatusOK, out, err)
 }
 
 // FailureList is a tool-call handler's newest failures.
@@ -58,7 +83,11 @@ func (h *Handler) failures(w http.ResponseWriter, r *http.Request) {
 
 // ConnectionHandlerList is every tool-call handler on a connection.
 type ConnectionHandlerList struct {
-	Data []map[string]any `json:"data"`
+	// Connection is the name the connection's calls carry, the one a handler
+	// added from its page names (#2649): an MCP connection's connection_name
+	// when the path names the instance it is stored under.
+	Connection string           `json:"connection" example:"mcptest"`
+	Data       []map[string]any `json:"data"`
 }
 
 // connectionHandlers lists a connection's tool-call handlers.
@@ -81,7 +110,7 @@ func (h *Handler) connectionHandlers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	list, err := h.deps.Handlers.ConnectionHandlers(r.Context(), r.PathValue(pathConnection), c)
-	write(w, r, http.StatusOK, ConnectionHandlerList{Data: list}, err)
+	write(w, r, http.StatusOK, ConnectionHandlerList{Connection: h.deps.Handlers.CallName(r.PathValue(pathConnection)), Data: list}, err)
 }
 
 // TestRequest is a call the test panel asks about.
@@ -129,7 +158,7 @@ func (h *Handler) testCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out, err := h.deps.Tester.Test(r.Context(), callhandler.TestRequest{
-		Connection: r.PathValue(pathConnection), Tool: body.Tool, Arguments: body.Arguments,
+		Connection: h.deps.Handlers.CallName(r.PathValue(pathConnection)), Tool: body.Tool, Arguments: body.Arguments,
 		User: body.AsUser, Persona: body.AsPersona, At: body.At, Result: body.Result,
 	})
 	if err != nil {
@@ -176,5 +205,5 @@ func (h *Handler) orderTransforms(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	list, err := h.deps.Handlers.ConnectionHandlers(r.Context(), r.PathValue(pathConnection), c)
-	write(w, r, http.StatusOK, ConnectionHandlerList{Data: list}, err)
+	write(w, r, http.StatusOK, ConnectionHandlerList{Connection: h.deps.Handlers.CallName(r.PathValue(pathConnection)), Data: list}, err)
 }

@@ -326,9 +326,10 @@ func TestIssue2634_AProtectedValueReachesNoCoveredSink(t *testing.T) {
 	}
 }
 
-// TestIssue2634_AnUnmatchedCallIsNoSlower: an unmatched tool call's p50 and
-// p99 over 1,000 calls, with 50 transforms bound to other connections, are
-// within 5% of the same calls with none bound.
+// TestIssue2634_AnUnmatchedCallIsNoSlower: with 50 transforms bound to other
+// connections, the handlers' layer spends at most a millisecond on at least
+// 99% of the unmatched calls, measured in process, and end to end the calls
+// stay within 5% of none bound plus an absolute allowance (#2653).
 func TestIssue2634_AnUnmatchedCallIsNoSlower(t *testing.T) {
 	admin := connect(t)
 	owner := connectAs(t, devOwnerAPIKey)

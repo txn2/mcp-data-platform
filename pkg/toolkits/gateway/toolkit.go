@@ -1182,10 +1182,20 @@ func (t *Toolkit) ListConnections() []toolkit.ConnectionDetail {
 			Description: u.desc,
 			IsDefault:   name == t.defaultName,
 			Health:      u.health(),
+			Bound:       boundName(name, u.config.ConnectionName),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+// boundName is the name a connection's calls carry when it is not the
+// instance's own: the connection_name that prefixes its tools (#2649).
+func boundName(instance, connectionName string) string {
+	if connectionName == instance {
+		return ""
+	}
+	return connectionName
 }
 
 // Close closes every upstream session. Safe to call on a never-registered

@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/botcheck"
+	"github.com/txn2/mcp-data-platform/internal/contentenc"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/eprefusal"
@@ -491,11 +492,15 @@ func write(w http.ResponseWriter, r *http.Request, resp eprun.Response, policy s
 	if w.Header().Get(headerCacheControl) == "" {
 		w.Header().Set(headerCacheControl, "no-store")
 	}
+	// Sent compressed when the caller accepts it, unless it may hold one of
+	// the platform's tokens (#2655).
+	body := contentenc.Respond(r, w.Header(), resp.Status, resp.Body, resp.Secret)
 	w.WriteHeader(resp.Status)
 	if r.Method == http.MethodHead || resp.Status == http.StatusNoContent || resp.Status == http.StatusNotModified {
 		return
 	}
-	_, _ = w.Write(resp.Body)
+	// #nosec G705 -- the handler's own answer, as before compression, under its content policy with nosniff; the request only chooses the encoding
+	_, _ = w.Write(body)
 }
 
 // cors answers the request's cross-origin part from the binding's allowed

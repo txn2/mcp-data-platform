@@ -52,24 +52,45 @@ func TestForCall(t *testing.T) {
 	}
 }
 
-type tripper string
+type tripper func(*http.Request)
 
-func (t tripper) RoundTrip(*http.Request) (*http.Response, error) {
-	return &http.Response{StatusCode: http.StatusOK, Status: string(t), Body: http.NoBody}, nil
+func (t tripper) RoundTrip(r *http.Request) (*http.Response, error) {
+	t(r)
+	return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
 }
 
+// TestTransport: every request the platform-admin connection sends is marked
+// as a tool call's, token or not, and names no caller unless ForCall named one
+// (#2656).
 func TestTransport(t *testing.T) {
-	rt := Transport(tripper("self"), tripper("network"))
-	plain := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
-	marked := plain.WithContext(With(context.Background(), mcpcontext.Caller{UserID: "u"}))
-	for req, want := range map[*http.Request]string{plain: "network", marked: "self"} {
-		res, err := rt.RoundTrip(req)
-		if err == nil {
-			_ = res.Body.Close()
-		}
-		if err != nil || res.Status != want {
-			t.Errorf("RoundTrip = %v, %v; want %s", res, err, want)
-		}
+	var byTool, named bool
+	rt := Transport(tripper(func(r *http.Request) {
+		byTool = ByTool(r.Context())
+		_, named = From(r.Context())
+	}))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
+	req.Header.Set("Authorization", "Bearer tok")
+	res, err := rt.RoundTrip(req)
+	if err == nil {
+		_ = res.Body.Close()
+	}
+	if err != nil || !byTool || named {
+		t.Errorf("RoundTrip err=%v byTool=%v named=%v; want marked as a tool call naming no one", err, byTool, named)
+	}
+	if ByTool(req.Context()) {
+		t.Error("the caller's own request was changed")
+	}
+}
+
+func TestByTool(t *testing.T) {
+	if ByTool(context.Background()) {
+		t.Error("a person's request is not a tool call's")
+	}
+	if !ByTool(With(context.Background(), mcpcontext.Caller{UserID: "script:s"})) {
+		t.Error("a request served for a script's caller is a tool call's")
+	}
+	if _, ok := From(MarkTool(context.Background())); ok {
+		t.Error("the tool marker names no caller")
 	}
 }
 

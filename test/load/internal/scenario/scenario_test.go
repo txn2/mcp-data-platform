@@ -10,7 +10,7 @@ import (
 )
 
 func TestRegistryHasAllSpecifiedScenarios(t *testing.T) {
-	want := []string{"audit-burst", "endpoint-appdb", "mcp-session-churn", "mcp-tool-call", "oauth-token", "portal-read", "soak"}
+	want := []string{"audit-burst", "endpoint-appdb", "endpoint-bytes", "mcp-session-churn", "mcp-tool-call", "oauth-token", "portal-read", "soak"}
 	got := Names()
 	if len(got) != len(want) {
 		t.Fatalf("scenario count = %d, want %d (%v)", len(got), len(want), got)
@@ -117,5 +117,20 @@ func TestLatencyAssertionReadsTheBound(t *testing.T) {
 	}
 	if got := latencyAssertion(&report.Report{}, ""); got.Passed {
 		t.Error("no samples passed")
+	}
+}
+
+// TestBytesAssertion: bytes per view are stated before and after, passing
+// when compression sends fewer (#2655).
+func TestBytesAssertion(t *testing.T) {
+	a := bytesAssertion(10, 510_000, 60_000)
+	if !a.Passed || a.Message != "51000 bytes per view uncompressed, 6000 compressed (12%) over 10 views" {
+		t.Errorf("bytesAssertion = %+v", a)
+	}
+	if bytesAssertion(10, 1000, 1000).Passed {
+		t.Error("no saving passes")
+	}
+	if bytesAssertion(0, 0, 0).Passed {
+		t.Error("no views passes")
 	}
 }

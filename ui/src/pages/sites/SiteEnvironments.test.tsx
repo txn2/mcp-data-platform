@@ -6,6 +6,8 @@ import { resetSitesMock } from "@/mocks/handlers/sites";
 import { renderWithQuery, signIn, type SentRequest } from "@/test/applicationHarness";
 import { SiteDetailPage } from "./SiteDetailPage";
 import { envNameProblem } from "./envName";
+import { tilePlaceholder } from "./SiteTile";
+import type { SiteEnvironment } from "@/api/portal/hooks/sites";
 
 // The Environments and Access tabs of #2604, #2617 and #2619: dev is the
 // working copy, the environments are in the site's stored order with dev first
@@ -364,5 +366,28 @@ describe("envNameProblem", () => {
     expect(envNameProblem("intranet", "a--b")).toMatch(/single hyphens/);
     const long = "employee-benefits-open-enrollment-2026-information-hub";
     expect(envNameProblem(long, "review-copy")).toMatch(/at most 63/);
+  });
+});
+
+describe("environment tiles (#2658)", () => {
+  it("shows each environment's tile, or a placeholder saying why there is none", async () => {
+    serve();
+    open();
+    const dev = await screen.findByTestId("env-dev");
+    expect(within(dev).getByTestId("site-tile-dev")).toHaveAttribute("src", expect.stringContaining("/environments/dev/tile"));
+    expect(within(dev).getByTestId("tile-source-dev")).toHaveTextContent("Drawn from marketing--dev.pages.example.net at release 12");
+  });
+});
+
+describe("tilePlaceholder (#2658)", () => {
+  it("names offline, redirecting, no release and no pages address", () => {
+    const site = { pages_addresses: { prod: "https://a.example", qa: "" } };
+    const env = (e: Partial<SiteEnvironment>): SiteEnvironment => ({ name: "prod", release: 3, ...e }) as SiteEnvironment;
+    expect(tilePlaceholder(site, env({ status: "offline" }))?.label).toBe("Offline");
+    expect(tilePlaceholder(site, env({ status: "redirect", redirect_to: "https://x.example" }))?.label).toBe("Redirecting");
+    expect(tilePlaceholder(site, env({ release: 0 }))?.label).toBe("No release yet");
+    expect(tilePlaceholder(site, env({ name: "qa" }))?.label).toBe("No pages address");
+    expect(tilePlaceholder(site, env({}))).toBeNull();
+    expect(tilePlaceholder(site, undefined)?.label).toBe("No environment");
   });
 });

@@ -2,7 +2,9 @@
 // types are worth compressing, the gzip and brotli forms of a body, whether a
 // form saves enough to keep, and which forms a request's Accept-Encoding
 // allows. A site's published files (internal/site) and the portal's own build
-// files (internal/ui, #2598) are sent by these one set of rules.
+// files (internal/ui, #2598) are sent by these one set of rules, and Respond
+// is the rule for a body produced per request: an endpoint's answer in api and
+// page mode and a form's page (#2655).
 package contentenc
 
 import (
@@ -10,6 +12,7 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
+	"net/http"
 	"slices"
 	"strconv"
 	"strings"
@@ -22,9 +25,13 @@ const (
 	// costs about what the compression saves.
 	MinBytes = 1024
 
-	// brotliQuality trades compression time for size. Every caller compresses
-	// once and serves the result many times, so it leans toward size.
+	// brotliQuality trades compression time for size. A stored file is
+	// compressed once and served many times, so it leans toward size.
 	brotliQuality = 9
+	// fastBrotliQuality and fastGzipLevel compress a body produced per
+	// request (Respond), where the time is spent on every answer.
+	fastBrotliQuality = 4
+	fastGzipLevel     = 5
 
 	// A form is kept only when it is under worthwhilePercent of the original.
 	worthwhilePercent = 95
@@ -83,6 +90,78 @@ func compressTo(dst io.Writer, form string, open func(io.Writer) (io.WriteCloser
 		return fmt.Errorf("writing the %s form: %w", form, err)
 	}
 	return nil
+}
+
+// Encoding names the forms Respond sends.
+const (
+	EncodingBrotli = "br"
+	EncodingGzip   = "gzip"
+)
+
+// Respond is body as an answer produced for r is sent: brotli or gzip when r
+// accepts one, the content type compresses, the body is at least MinBytes
+// and the form saves enough, with Content-Encoding and Vary set on h; body
+// as it is otherwise (#2655). secret says the answer may hold one of the
+// platform's tokens beside text the requester chose, which is never
+// compressed: its compressed length would tell an observer how well a guess
+// matched the token (BREACH). A HEAD, a 204 or 304, and a body the handler
+// encoded itself are sent as they are.
+func Respond(r *http.Request, h http.Header, status int, body []byte, secret bool) []byte {
+	if !candidate(r, h, status, body, secret) {
+		return body
+	}
+	h.Add("Vary", "Accept-Encoding")
+	out, form := encodeFor(r.Header.Get("Accept-Encoding"), body)
+	if form == "" {
+		return body
+	}
+	h.Set("Content-Encoding", form)
+	return out
+}
+
+// candidate reports whether an answer may be sent compressed at all, whatever
+// the request accepts.
+func candidate(r *http.Request, h http.Header, status int, body []byte, secret bool) bool {
+	switch {
+	case secret, r.Method == http.MethodHead, status == http.StatusNoContent, status == http.StatusNotModified:
+		return false
+	case h.Get("Content-Encoding") != "", len(body) < MinBytes:
+		return false
+	}
+	return Compressible(h.Get("Content-Type"))
+}
+
+// encodeFor is body in the form acceptEncoding takes first, brotli before
+// gzip, and its name; "" when none is taken or none saves enough.
+func encodeFor(acceptEncoding string, body []byte) (out []byte, form string) {
+	br, gz := Accepted(acceptEncoding)
+	var err error
+	switch {
+	case br:
+		form = EncodingBrotli
+		out, err = compressed(body, form, func(dst io.Writer) (io.WriteCloser, error) {
+			return brotli.NewWriterLevel(dst, fastBrotliQuality), nil
+		})
+	case gz:
+		form = EncodingGzip
+		out, err = compressed(body, form, func(dst io.Writer) (io.WriteCloser, error) {
+			return gzip.NewWriterLevel(dst, fastGzipLevel) //nolint:wrapcheck // compressTo names the form
+		})
+	default:
+		return nil, ""
+	}
+	if err != nil || !Worthwhile(len(body), len(out)) {
+		return nil, ""
+	}
+	return out, form
+}
+
+func compressed(body []byte, form string, open func(io.Writer) (io.WriteCloser, error)) ([]byte, error) {
+	var buf bytes.Buffer
+	if err := compressTo(&buf, form, open, body); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // Worthwhile reports whether a compressed form of compressed bytes saves

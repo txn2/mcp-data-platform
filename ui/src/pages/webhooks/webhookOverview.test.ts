@@ -14,7 +14,7 @@ const base: WebhookStatusOverview = {
   spools: [],
   until: "2026-09-29T12:00:30Z",
   history: {
-    statuses: [], replicas: [], ack: [], compactions: [], storage: [],
+    statuses: [], replicas: [], ack: [], ack_edges_ms: [10, 25, 50, 100, 250, 500, 1000, 1500, 2000, 2500, 3000, 5000, 10000, 30000], compactions: [], storage: [],
     sizing: { memory_limit_bytes: 0, largest: null, warn_at_percent: 50, warning: false },
   },
 };

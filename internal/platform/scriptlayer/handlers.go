@@ -194,7 +194,7 @@ func (h *Handle) handleFormPreview(ctx context.Context, input manageScriptInput)
 
 // handleHandlerTest answers handler_test: an administrator's.
 func (h *Handle) handleHandlerTest(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
-	out, refusal := handlercmd.RunTest(ctx, h.isAdminPersona(ctx), h.callTester, input.Connection, input.CallSettings)
+	out, refusal := handlercmd.RunTest(ctx, h.isAdminPersona(ctx), h.callTester, h.handlers.CallName(input.Connection), input.CallSettings)
 	if refusal != "" {
 		return errorResult(refusal), nil, nil
 	}

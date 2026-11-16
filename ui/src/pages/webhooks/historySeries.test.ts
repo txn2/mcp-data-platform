@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { WebhookStatusOverview } from "@/api/admin/types";
 import {
   ackSeries,
+  estimatedWithin,
   bucketLabel,
   bucketTimes,
   compactionSeries,
@@ -27,7 +28,7 @@ function overview(history: Partial<WebhookStatusOverview["history"]>): WebhookSt
     rejections: [],
     spools: [],
     history: {
-      statuses: [], replicas: [], ack: [], compactions: [], storage: [],
+      statuses: [], replicas: [], ack: [], ack_edges_ms: [10, 25, 50, 100, 250, 500, 1000, 1500, 2000, 2500, 3000, 5000, 10000, 30000], compactions: [], storage: [],
       sizing: { memory_limit_bytes: 0, largest: null, warn_at_percent: 50, warning: false },
       ...history,
     },
@@ -82,8 +83,16 @@ describe("history series (#2150)", () => {
     });
     const rows = ackSeries(data, "");
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ p50: 25, p99: 100, buffer: 2, put: 8 });
-    expect(ackSeries(data, "crm")[0]).toMatchObject({ p99: 25 });
+    expect(rows[0]).toMatchObject({ p50: 25, p99: 100, max: 150, count: 4, buffer: 2, put: 8 });
+    expect(ackSeries(data, "crm")[0]).toMatchObject({ p99: 25, max: 25 });
+  });
+
+  it("names the bucket a percentile was estimated in (#2651)", () => {
+    const edges = [10, 25, 1000, 1500, 2000];
+    expect(estimatedWithin(1180, edges)).toEqual({ from: 1000, to: 1500 });
+    expect(estimatedWithin(5, edges)).toEqual({ from: 0, to: 10 });
+    expect(estimatedWithin(1500, edges)).toEqual({ from: 1000, to: 1500 });
+    expect(estimatedWithin(4000, edges)).toEqual({ from: 2000, to: null });
   });
 
   it("lists compactions oldest first in seconds", () => {

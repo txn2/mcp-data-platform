@@ -29,6 +29,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/knowledgepageindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/notices"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceholds"
+	"github.com/txn2/mcp-data-platform/internal/platform/resourceupload"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
@@ -89,10 +90,14 @@ type Config struct {
 type Handle struct {
 	// sources reads managed-resource text for managed scripts (#2113, #2114),
 	// and db counts the scripts loading a file before it is deleted.
-	sources    *scriptsrc.Reader
-	db         *sql.DB
-	assetStore portal.AssetStore
-	shareStore portal.ShareStore
+	sources *scriptsrc.Reader
+	db      *sql.DB
+	// uploadLinks issues and files upload links (#2639), naming baseURL,
+	// the portal's public origin.
+	uploadLinks *resourceupload.Service
+	baseURL     string
+	assetStore  portal.AssetStore
+	shareStore  portal.ShareStore
 	// sharingAllowed is the persona permission an export's share link is
 	// held to (#2241).
 	sharingAllowed     func(persona string) bool
@@ -199,6 +204,7 @@ func New(db *sql.DB, s3Client portal.S3Client, embedder embedding.Provider, cfg 
 // implementations (fakes or alternative backends) without a *sql.DB.
 func NewFromStores(s Stores, embedder embedding.Provider, cfg Config) *Handle {
 	h := &Handle{
+		baseURL:            cfg.BaseURL,
 		assetStore:         s.Asset,
 		shareStore:         s.Share,
 		versionStore:       s.Version,

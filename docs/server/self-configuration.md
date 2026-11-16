@@ -22,8 +22,8 @@ re-indexed automatically at startup — no URL fetch, no scheduled poll, no
 operator catalog upkeep.
 
 The connection's `base_url` is the loopback address of the platform's own admin
-listener (e.g. `http://127.0.0.1:8080`), so an `api_invoke_endpoint` call is a
-loopback round-trip to `/api/v1/admin/*`.
+listener (e.g. `http://127.0.0.1:8080`), and every call on it is served by the
+platform's own HTTP handler inside the process (#2656): nothing crosses a socket.
 
 In the Portal's Connections view the built-in connection carries a fixed
 description explaining its purpose and is attributed to **`system`** (it is
@@ -35,7 +35,7 @@ connections an admin creates.
 ```mermaid
 flowchart LR
     A[Admin in MCP session] -->|api_invoke_endpoint| G[API gateway toolkit]
-    G -->|loopback + acting admin's token| H[/api/v1/admin/*/]
+    G -->|in process + acting admin's token| H[/api/v1/admin/*/]
     H --> S[(personas / connections / config / prompts)]
 ```
 
@@ -46,14 +46,22 @@ admin**, not a shared connection identity. The `platform-admin` connection is
 configured with `identity_passthrough: true`: instead of applying a shared
 credential, `api_invoke_endpoint` forwards the acting caller's inbound bearer
 token (the token that authenticated the MCP session) as the `Authorization`
-header on the loopback call. The admin API authenticates that token through the
+header of the call. The admin API authenticates that token through the
 same authenticator the MCP transport uses, so authorization and audit logging
 attribute the change to the real admin.
 
+Every call on `platform-admin` is marked, on the request's context, as made by a
+tool call, whether or not it carries a token (#2656). The mark says who is
+asking, an agent and not the person at a browser, and grants nothing: the token
+is still checked as above. The routes that make an agent's move wait on a person
+read it: a promote, rollback or public domain on an environment other than dev
+answers `409 APPROVAL_REQUIRED`, and the approvals route refuses to let an agent
+decide a site request. A context value cannot be sent over the network, so a
+person's own browser or API key request never carries it.
+
 A saved script's run has no token: it presents the roles its owner held when
 the script was saved. A call it makes on `platform-admin`, from `run_script` or
-a schedule, is served inside the platform process instead of over the loopback,
-as the script's own identity, and the admin and portal APIs check that identity
+a schedule, is served inside the platform process as the script's own identity, and the admin and portal APIs check that identity
 the way they check a token. A script owned by an administrator reaches the admin
 routes; any other script is answered `403` with the persona the admin API
 requires and the roles that reach it. The `api_invoke_endpoint` audit row names

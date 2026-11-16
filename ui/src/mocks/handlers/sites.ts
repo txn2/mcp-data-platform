@@ -24,18 +24,30 @@ function pagesAddressesOf(s: Pick<Site, "name" | "main_environment" | "environme
 }
 
 /** The addresses the server answers with (#2607): each environment's first domain, else its pages address. */
+/** manySites is a deployment of 60 sites, for the pager (#2658). */
+function manySites(): Site[] {
+  return Array.from({ length: 60 }, (_, i) => ({ ...sites[0]!, id: `site_many_${i}`, name: `site-${String(i).padStart(2, "0")}`, domains: [] }));
+}
+
 function withAddresses(s: Site, pages = PAGES): Site {
   const own = pagesAddressesOf(s, pages);
-  const domains = [...s.domains].sort((a, b) => a.hostname.localeCompare(b.hostname));
+  // The server's rule (#2658): a public domain first, then another domain,
+  // then the pages address.
+  const domains = [...s.domains].sort((a, b) => Number(b.public) - Number(a.public) || a.hostname.localeCompare(b.hostname));
   const addresses = Object.fromEntries(
     s.environments.map((e) => {
       const d = domains.find((x) => x.environment === e.name);
       return [e.name, d ? `https://${d.hostname}` : own[e.name]!];
     }),
   );
+  const onMain = domains.filter((d) => d.environment === s.main_environment).length;
   const note = pages && s.name.length === 2 ? addressNote(s.name, pages) : undefined;
   const environments = s.environments.map((e) => ({ ...e, public_domains: domains.filter((d) => d.environment === e.name && d.public).map((d) => d.hostname) }));
-  return { ...s, environments, address: pages && s.main_environment ? `https://${s.name}.${pages}` : "", addresses, pages_addresses: own, ...(note ? { address_note: note } : {}) };
+  const address = s.main_environment ? (addresses[s.main_environment] ?? "") : "";
+  return {
+    ...s, environments, address: pages || onMain ? address : "", more_domains: Math.max(0, onMain - 1), addresses, pages_addresses: own,
+    ...(note ? { address_note: note } : {}),
+  };
 }
 
 /** What the server tells a two-character site (#2611), word for word. */
@@ -205,14 +217,24 @@ const base = "/api/v1/portal/sites";
 
 export const siteHandlers = [
   http.get("/api/v1/portal/application-addresses/:name", () => HttpResponse.json({ page_origin: "https://shop.pages.example.net", domains: ["shop.example.com"] })),
-  http.get(base, () => {
+  http.get(base, ({ request }) => {
     const state = page();
-    const list = state === "empty" ? [] : state === "crowded" ? [...sites, crowdedSite()] : sites;
+    const all = state === "empty" ? [] : state === "crowded" ? [...sites, crowdedSite()] : state === "many" ? manySites() : sites;
     const off = state === "previews-off";
+    // q, limit and offset as the server reads them (#2658).
+    const url = new URL(request.url);
+    const q = (url.searchParams.get("q") ?? "").toLowerCase();
+    const limit = Number(url.searchParams.get("limit") ?? 0);
+    const offset = Number(url.searchParams.get("offset") ?? 0);
+    const matched = all.filter(
+      (s) => !q || [s.name, s.description, s.owner_email, ...s.domains.map((d) => d.hostname)].some((f) => f.toLowerCase().includes(q)),
+    );
+    const list = limit > 0 ? matched.slice(offset, offset + limit) : matched.slice(offset);
     return HttpResponse.json({
-      sites: list.map((s) => withAddresses(s, off ? "" : PAGES)), total: list.length, pages_domain: off ? "" : PAGES, limits: LIMITS, can_create: true, admin: true,
+      sites: list.map((s) => withAddresses(s, off ? "" : PAGES)), total: matched.length, pages_domain: off ? "" : PAGES, limits: LIMITS, can_create: true, admin: true,
     });
   }),
+  http.get(`${base}/:site/environments/:env/tile`, () => new HttpResponse(null, { status: 404 })),
   http.post(base, async ({ request }) => {
     const b = (await request.json()) as { name: string; description: string };
     if (b.name.length === 2) {

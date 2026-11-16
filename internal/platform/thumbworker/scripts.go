@@ -3,14 +3,18 @@ package thumbworker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/headless"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptflow"
 	"github.com/txn2/mcp-data-platform/internal/platform/scripttiles"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/site/sitetile"
+	"github.com/txn2/mcp-data-platform/internal/site/sitetile/tilepage"
 )
 
 // FlowTileType is the content type a script's flow graph reaches the tile page
@@ -191,4 +195,86 @@ func (w *Worker) removeScriptTiles(ctx context.Context, lightKey string) bool {
 		}
 	}
 	return true
+}
+
+// Site environment tiles (#2658).
+
+// SiteWork is what the worker asks of the site tile store (#2658).
+type SiteWork interface {
+	Claim(ctx context.Context, renderer int, lease time.Duration, limit, maxAttempts int) ([]sitetile.Work, error)
+	Record(ctx context.Context, w sitetile.Work, key string, renderer int) error
+	RecordFailure(ctx context.Context, w sitetile.Work, reason string, renderer int) error
+	Hold(ctx context.Context, siteID, environment string, hold time.Duration) error
+}
+
+// SitePage is the page a site's release is drawn from (tilepage.Release.Page).
+type SitePage func(ctx context.Context, siteID string, release int) (headless.Page, error)
+
+const logKeySite = "site"
+
+// claimSites is claimAssets for site environment tiles.
+func (w *Worker) claimSites(ctx context.Context) []job {
+	if w.deps.Sites == nil || w.deps.SitePage == nil {
+		return nil
+	}
+	work, err := w.deps.Sites.Claim(ctx, sitetile.Renderer, w.cfg.Lease, w.cfg.Batch, w.cfg.MaxAttempts)
+	logClaim("sites", err)
+	jobs := make([]job, 0, len(work))
+	for _, s := range work {
+		jobs = append(jobs, w.siteJob(s))
+	}
+	return jobs
+}
+
+// siteJob is the job that draws one environment's tile.
+func (w *Worker) siteJob(s sitetile.Work) job {
+	return job{
+		name:     "site " + s.SiteID + " " + s.Environment,
+		attempts: s.Attempts,
+		draw:     func(ctx context.Context) error { return w.drawSite(ctx, s) },
+		hold: func(ctx context.Context, hold time.Duration, _ int) error {
+			return w.deps.Sites.Hold(ctx, s.SiteID, s.Environment, hold) //nolint:wrapcheck // logged by the caller with the environment named
+		},
+		fail: func(ctx context.Context, reason string) error {
+			return w.deps.Sites.RecordFailure(ctx, s, reason, sitetile.Renderer) //nolint:wrapcheck // logged by the caller
+		},
+	}
+}
+
+// drawSite draws the release an environment serves from its own files and
+// keeps the tile under the release it is of.
+func (w *Worker) drawSite(ctx context.Context, s sitetile.Work) error {
+	page, err := w.deps.SitePage(ctx, s.SiteID, s.Release)
+	if errors.Is(err, tilepage.ErrNoDocument) {
+		w.failSite(ctx, s, err.Error())
+		return nil
+	}
+	if err != nil {
+		return unreadable(err)
+	}
+	png, err := w.render(ctx, page)
+	if errors.Is(err, errTileTooLarge) {
+		w.failSite(ctx, s, err.Error())
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	key := sitetile.Key(w.deps.CollectionPrefix, s.SiteID, s.Environment, s.Release)
+	sctx, cancel := context.WithTimeout(ctx, storageTimeout)
+	defer cancel()
+	if err := w.deps.AssetBlobs.PutObject(sctx, w.deps.CollectionBucket, key, png, tileContentType); err != nil {
+		slog.ErrorContext(ctx, "thumbnails: storing a site tile failed", logKeySite, logsan.SanitizeForLog(s.SiteID), logKeyError, logsan.SanitizeForLog(err.Error()))
+		return nil
+	}
+	if err := w.deps.Sites.Record(ctx, s, key, sitetile.Renderer); err != nil {
+		slog.ErrorContext(ctx, "thumbnails: recording a site tile failed", logKeySite, logsan.SanitizeForLog(s.SiteID), logKeyError, logsan.SanitizeForLog(err.Error()))
+	}
+	return nil
+}
+
+func (w *Worker) failSite(ctx context.Context, s sitetile.Work, reason string) {
+	if err := w.deps.Sites.RecordFailure(ctx, s, reason, sitetile.Renderer); err != nil {
+		slog.ErrorContext(ctx, "thumbnails: recording a site tile's failure failed", logKeySite, logsan.SanitizeForLog(s.SiteID), logKeyError, logsan.SanitizeForLog(err.Error()))
+	}
 }

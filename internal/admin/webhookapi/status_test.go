@@ -33,6 +33,7 @@ func TestStatusEveryListIsEmptyWithNoSources(t *testing.T) {
 		"spools": [],
 		"history": {
 			"statuses": [], "replicas": [], "ack": [], "compactions": [], "storage": [],
+			"ack_edges_ms": [10, 25, 50, 100, 250, 500, 1000, 1500, 2000, 2500, 3000, 5000, 10000, 30000],
 			"sizing": {"memory_limit_bytes": 0, "largest": null, "warn_at_percent": 50, "warning": false}
 		}
 	}`, rec.Body.String(), "every list is [] when there is nothing, never null")
@@ -184,6 +185,13 @@ func TestStatusWeekAndCustom(t *testing.T) {
 	rec = do(newMux(svc), http.MethodGet, statusPath+"?range=custom&"+old, "")
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, time.Hour, svc.asked.Step, "past 48 hours the history is hourly")
+
+	// #2651: from and to without range read that span, not the last hour.
+	rec = do(newMux(svc), http.MethodGet, statusPath+"?"+old, "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, time.Date(2026, 1, 5, 0, 0, 0, 0, time.UTC), svc.asked.From)
+	assert.Equal(t, time.Date(2026, 1, 5, 6, 0, 0, 0, time.UTC), svc.asked.Until)
+	assert.Contains(t, rec.Body.String(), `"range":"custom"`)
 
 	now := time.Now()
 	for span, want := range map[time.Duration]time.Duration{

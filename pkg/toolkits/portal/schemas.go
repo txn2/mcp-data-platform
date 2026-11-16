@@ -405,12 +405,23 @@ var manageResourceSchema = json.RawMessage(`{
   "properties": {
     "action": {
       "type": "string",
-      "enum": ["create", "replace_content", "update", "get", "list", "delete", "extract"],
-      "description": "What to do: file new content as a managed resource (create), write new content over an existing one (replace_content), change an existing one's display_name, description, tags or index without touching its content (update; given a path and a description and no reference, update describes the folder instead, which is what search matches a folder of files that are not indexed one by one on), read what is filed at a path or a reference without its bytes (get), report the files under a folder (list), remove a file and its version history (delete), or write the files inside a stored zip, gzip or gzipped tar archive, or the objects under a bucket prefix (from_bucket), out as managed resources of their own (extract). A get finding nothing is an answer and not a failure: an empty address and a reference naming a file that is gone or outside what you can see both report found=false, the same way fetch reports a dangling reference, so a create-or-replace decides on it. A replacement moves every table registered over the file that follows it (the default) onto the new contents, and reports each table in its result; a table registered with follow=false stays on the version it was registered over and is reported as behind."
+      "enum": ["create", "replace_content", "update", "get", "list", "delete", "extract", "upload_link"],
+      "description": "What to do: get a single-use link to PUT a file to from your shell, for a file too large for a tool call (upload_link: name the address, content_type and size_bytes, then run the curl it returns; the file is filed there as you, and the answer names its reference for extract or manage_site publish), file new content as a managed resource (create), write new content over an existing one (replace_content), change an existing one's display_name, description, tags or index without touching its content (update; given a path and a description and no reference, update describes the folder instead, which is what search matches a folder of files that are not indexed one by one on), read what is filed at a path or a reference without its bytes (get), report the files under a folder (list), remove a file and its version history (delete), or write the files inside a stored zip, gzip or gzipped tar archive, or the objects under a bucket prefix (from_bucket), out as managed resources of their own (extract). A get finding nothing is an answer and not a failure: an empty address and a reference naming a file that is gone or outside what you can see both report found=false, the same way fetch reports a dangling reference, so a create-or-replace decides on it. A replacement moves every table registered over the file that follows it (the default) onto the new contents, and reports each table in its result; a table registered with follow=false stays on the version it was registered over and is reported as behind."
     },
     "reference": {
       "type": "string",
       "description": "The managed resource to act on, named by the mcp:resource:<id> reference a search hit, a fetch document, or a create reported. Required for replace_content and update, and for extract, where it names the archive (or pass from_bucket instead). For get and delete it is the alternative to naming the address (scope + path + filename); pass one or the other, and pass it verbatim."
+    },
+    "size_bytes": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "For upload_link: the most the file may be, in bytes, at most the deployment's upload limit. A larger PUT is refused and spends the link."
+    },
+    "ttl_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3600,
+      "description": "For upload_link: how long the link lives, default 900 (15 minutes), at most 3600."
     },
     "if_exists": {
       "type": "string",

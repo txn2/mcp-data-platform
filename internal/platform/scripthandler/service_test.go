@@ -34,14 +34,15 @@ var (
 )
 
 func TestNew(t *testing.T) {
-	assert.Nil(t, New(nil, nil, nil), "with no database there is nowhere to keep a handler")
+	assert.Nil(t, New(nil, nil, nil, nil), "with no database there is nowhere to keep a handler")
 
 	db, _, err := sqlmock.New()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	endpoints := &epcmd.Handler{}
 	scripts := scriptstore.New(db)
-	s := New(db, endpoints, scripts)
+	s := New(db, endpoints, scripts, kitList{})
+	assert.NotNil(t, s.CallNames, "a connection name is resolved against the toolkits given")
 	require.NotNil(t, s)
 	assert.Equal(t, View{DB: db}, s.View)
 	assert.Same(t, endpoints, s.Endpoints)

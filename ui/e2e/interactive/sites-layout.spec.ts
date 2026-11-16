@@ -77,13 +77,18 @@ for (const scheme of ["light", "dark"] as const) {
       await expect(desc).toHaveAttribute("title", /^Landing pages for the fall launch/);
       expect(await cut(page, `[data-testid="site-row-${CROWDED}"] [data-testid="site-description"]`), "the description is not cut").toBe(true);
       await expect(desc).toHaveCSS("text-overflow", "ellipsis");
+      // #2658: the production address is prod's public domain, the others
+      // counted and left to the site's page; stage's domains are not listed.
       const address = row.getByTestId("site-address");
-      await expect(address).toHaveAttribute("title", `${CROWDED}.pages.example.net, opens in a new tab`);
-      const text = address.locator(".truncate");
-      await expect(text).toHaveCSS("text-overflow", "ellipsis");
-      expect(await cut(page, `[data-testid="site-row-${CROWDED}"] [data-testid="site-address"] .truncate`), "the address is not cut").toBe(true);
-      // The domains are on the site's page, not in the list.
-      await expect(row.getByText("prod.fall-launch.example.com")).toHaveCount(0);
+      await expect(address).toHaveAttribute("title", "prod.fall-launch.example.com, opens in a new tab");
+      await expect(row.getByText("1 more domain")).toBeVisible();
+      await expect(row.getByText("prod.launch.example.org")).toHaveCount(0);
+      await expect(row.getByText("stage.fall-launch.example.com")).toHaveCount(0);
+      // A pages address too long for its column is cut and whole on hover.
+      const pages = page.getByTestId("site-row-annual-report").getByTestId("site-address");
+      await expect(pages).toHaveAttribute("title", "annual-report.pages.example.net, opens in a new tab");
+      await expect(pages.locator(".truncate")).toHaveCSS("text-overflow", "ellipsis");
+      expect(await cut(page, `[data-testid="site-row-annual-report"] [data-testid="site-address"] .truncate`), "the address is not cut").toBe(true);
     });
 
     test("the owner's address is cut and whole on hover where it shows", async ({ page }) => {

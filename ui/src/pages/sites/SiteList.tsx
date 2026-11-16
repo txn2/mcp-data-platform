@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { useListingLayout, type LayoutWidths, type ListingLayout } from "@/pages/scripts/useListingLayout";
 import { bareAddress, envBadgeText, envTip, initials, orderedEnvironments } from "./siteFormat";
 import { count, ms } from "./SiteTraffic";
+import { SiteTile } from "./SiteTile";
 
 // The Sites list (#2559, #2612) at the layout the width it HAS fits, the way
 // the Automations listing does (#2601): every row two lines, nothing cut at the
@@ -20,16 +21,19 @@ import { count, ms } from "./SiteTraffic";
 //
 // Name, description, owner and address are one line each, cut with an
 // ellipsis and whole on hover; each environment is one badge; domains are on
-// the site's page. A click anywhere on a row, or Enter on it, opens the site
+// the site's page. Each row starts with the tile of the environment holding
+// the main address, and the address is the production address, its public
+// domain first (#2658). Every header ends inside its own column (#2654): the
+// fixed columns are sized for their headers, which never wrap. A click anywhere on a row, or Enter on it, opens the site
 // (#2587), and the address still opens the live site in a new tab.
 
 /** The least width each table layout of the Sites list fits in. */
 export const SITE_LAYOUT_WIDTHS: LayoutWidths = { wide: 1000, medium: 680, narrow: 480 };
 
-const COLUMN_WIDTHS: Record<Exclude<ListingLayout, "list">, { owner: string; address: string; envs: string; traffic: string }> = {
-  wide: { owner: "w-[17%]", address: "w-[21%]", envs: "w-[24%]", traffic: "w-[9%]" },
-  medium: { owner: "w-[64px]", address: "w-[25%]", envs: "w-[28%]", traffic: "w-[10%]" },
-  narrow: { owner: "", address: "w-[28%]", envs: "w-[40%]", traffic: "" },
+const COLUMN_WIDTHS: Record<Exclude<ListingLayout, "list">, { tile: string; owner: string; address: string; envs: string; traffic: string }> = {
+  wide: { tile: "w-[88px]", owner: "w-[13%]", address: "w-[21%]", envs: "w-[24%]", traffic: "w-[128px]" },
+  medium: { tile: "w-[88px]", owner: "w-[64px]", address: "w-[22%]", envs: "w-[28%]", traffic: "w-[128px]" },
+  narrow: { tile: "w-[80px]", owner: "", address: "w-[32%]", envs: "w-[34%]", traffic: "" },
 };
 
 /** How many environment badges a row shows before the rest fold into "+N", keeping a row at two lines.
@@ -37,12 +41,12 @@ const COLUMN_WIDTHS: Record<Exclude<ListingLayout, "list">, { owner: string; add
  * narrower column wraps them to a third on Linux fonts (#2647). */
 const BADGES: Record<Exclude<ListingLayout, "list">, number> = { wide: 4, medium: 4, narrow: 2 };
 
-export function SiteTable({ list, onOpen }: { list: SiteListing; onOpen: (site: string) => void }) {
+export function SiteTable({ list, onOpen, query = "" }: { list: SiteListing; onOpen: (site: string) => void; query?: string }) {
   const { ref, layout } = useListingLayout(SITE_LAYOUT_WIDTHS);
   if (layout === "list") {
     return (
       <div ref={ref}>
-        <SitePhoneList sites={list.sites} onOpen={onOpen} />
+        <SitePhoneList sites={list.sites} onOpen={onOpen} query={query} />
       </div>
     );
   }
@@ -54,17 +58,23 @@ export function SiteTable({ list, onOpen }: { list: SiteListing; onOpen: (site: 
       <Table className="table-fixed">
         <TableHeader>
           <TableRow>
+            <TableHead className={widths.tile}>
+              <span className="sr-only">Preview</span>
+            </TableHead>
             <TableHead>Name</TableHead>
-            {owner && <TableHead className={widths.owner}>Owner</TableHead>}
-            <TableHead className={widths.address}>Main address</TableHead>
-            {traffic && <TableHead className={widths.traffic}>Requests (24h)</TableHead>}
-            <TableHead className={widths.envs}>Environments</TableHead>
+            {owner && <TableHead className={cn(widths.owner, "whitespace-nowrap")}>Owner</TableHead>}
+            <TableHead className={cn(widths.address, "whitespace-nowrap")}>Production address</TableHead>
+            {traffic && <TableHead className={cn(widths.traffic, "whitespace-nowrap")}>Requests (24h)</TableHead>}
+            <TableHead className={cn(widths.envs, "whitespace-nowrap")}>Environments</TableHead>
             <OpenRowHead />
           </TableRow>
         </TableHeader>
         <TableBody>
           {list.sites.map((s) => (
             <TableRow key={s.id} {...openRowProps(() => onOpen(s.name))} data-testid={`site-row-${s.name}`}>
+              <TableCell className="py-2">
+                <SiteTile site={s} env={s.environments.find((e) => e.name === s.main_environment)} size="row" />
+              </TableCell>
               <TableCell className="py-2.5">
                 <NameLines site={s} />
               </TableCell>
@@ -74,7 +84,7 @@ export function SiteTable({ list, onOpen }: { list: SiteListing; onOpen: (site: 
                 </TableCell>
               )}
               <TableCell>
-                <MainAddress site={s} />
+                <MainAddress site={s} query={query} />
               </TableCell>
               {traffic && (
                 <TableCell>
@@ -93,22 +103,25 @@ export function SiteTable({ list, onOpen }: { list: SiteListing; onOpen: (site: 
   );
 }
 
-/** SitePhoneList is the Sites list on a phone: one tap target per site, its name, what it is, its address and its environments. */
-function SitePhoneList({ sites, onOpen }: { sites: Site[]; onOpen: (site: string) => void }) {
+/** SitePhoneList is the Sites list on a phone: one tap target per site, its tile, name, what it is, its address and its environments. */
+function SitePhoneList({ sites, onOpen, query }: { sites: Site[]; onOpen: (site: string) => void; query: string }) {
   return (
     <ul className="-mx-4 divide-y border-t" data-testid="site-list">
       {sites.map((s) => {
         const open = openRowProps(() => onOpen(s.name));
         return (
           <li key={s.id}>
-            <div {...open} className={cn(open.className, "flex min-w-0 flex-col gap-1.5 px-4 py-3")} data-testid={`site-row-${s.name}`}>
-              <span className="flex min-w-0 items-center gap-2">
-                <span className="min-w-0 flex-1 truncate text-sm font-semibold">{s.name}</span>
-                <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            <div {...open} className={cn(open.className, "flex min-w-0 gap-3 px-4 py-3")} data-testid={`site-row-${s.name}`}>
+              <SiteTile site={s} env={s.environments.find((e) => e.name === s.main_environment)} size="phone" />
+              <span className="flex min-w-0 flex-1 flex-col gap-1.5">
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate text-sm font-semibold">{s.name}</span>
+                  <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                </span>
+                {s.description && <span className="line-clamp-2 text-xs text-muted-foreground">{s.description}</span>}
+                <MainAddress site={s} serves={false} query={query} />
+                <EnvironmentBadges site={s} />
               </span>
-              {s.description && <span className="line-clamp-2 text-xs text-muted-foreground">{s.description}</span>}
-              <MainAddress site={s} serves={false} />
-              <EnvironmentBadges site={s} />
             </div>
           </li>
         );
@@ -152,9 +165,10 @@ function Owner({ email, withAddress }: { email: string; withAddress: boolean }) 
   );
 }
 
-function MainAddress({ site, serves = true }: { site: Site; serves?: boolean }) {
+function MainAddress({ site, serves = true, query = "" }: { site: Site; serves?: boolean; query?: string }) {
   if (!site.address) return <span className="text-muted-foreground">None</span>;
   const text = bareAddress(site.address);
+  const more = site.more_domains ?? 0;
   return (
     <span className="block min-w-0">
       <a
@@ -164,12 +178,34 @@ function MainAddress({ site, serves = true }: { site: Site; serves?: boolean }) 
         rel="noreferrer"
         title={`${text}, opens in a new tab`}
         data-testid="site-address"
+        onClick={(e) => e.stopPropagation()}
       >
-        <span className="min-w-0 truncate">{text}</span>
+        <span className="min-w-0 truncate">
+          <Marked text={text} query={query} />
+        </span>
         <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
       </a>
-      {serves && site.main_environment && <span className="block text-xs text-muted-foreground">serves {site.main_environment}</span>}
+      {serves && site.main_environment && (
+        <span className="block text-xs text-muted-foreground" data-testid="site-serves">
+          serves {site.main_environment}
+          {more > 0 && ` · ${more} more ${more === 1 ? "domain" : "domains"}`}
+        </span>
+      )}
     </span>
+  );
+}
+
+/** Marked is text with the part a search matched marked. */
+function Marked({ text, query }: { text: string; query: string }) {
+  const q = query.trim().toLowerCase();
+  const at = q ? text.toLowerCase().indexOf(q) : -1;
+  if (at < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, at)}
+      <mark className="rounded-sm bg-yellow-100 text-inherit dark:bg-yellow-900">{text.slice(at, at + q.length)}</mark>
+      {text.slice(at + q.length)}
+    </>
   );
 }
 

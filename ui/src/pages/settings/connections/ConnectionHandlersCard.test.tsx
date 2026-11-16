@@ -61,6 +61,21 @@ describe("ConnectionHandlersCard", () => {
     );
   });
 
+  it("adds and tests under the name the connection's calls carry, not the one its page is reached by (#2649)", async () => {
+    const sent = serve();
+    signIn("admin@example.com", true);
+    renderWithQuery(<ConnectionHandlersCard connectionName="mcp-test-server" />);
+    await screen.findByText(/No handlers on this connection/);
+    fireEvent.click(screen.getByRole("button", { name: "Add handler" }));
+    expect(await screen.findByRole("heading", { name: "Add a handler to mcptest" })).toBeInTheDocument();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    fireEvent.click(await screen.findByRole("button", { name: "Test a call" }));
+    fireEvent.change(screen.getByLabelText("As"), { target: { value: "jo@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Test" }));
+    await screen.findByTestId("test-outcome");
+    expect(sent.some((r) => r.path.endsWith("/connections/mcptest/handlers/test"))).toBe(true);
+  });
+
   it("says when a connection has no handlers", async () => {
     serve();
     signIn("admin@example.com", true);
@@ -101,22 +116,72 @@ describe("ConnectionHandlersCard", () => {
     expect(sent.some((r) => r.path.endsWith("/handlers/test"))).toBe(false);
   });
 
-  it("adds a policy to the connection from a chosen script, approving its version", async () => {
+  it("adds a policy for the personas chosen from a script that defines decide(call), approving its version (#2650)", async () => {
     const sent = serve();
     signIn("admin@example.com", true);
     renderWithQuery(<ConnectionHandlersCard connectionName="crm-api" />);
     fireEvent.click(await screen.findByRole("button", { name: "Add handler" }));
     const dialog = await screen.findByRole("dialog");
-    await waitFor(() => expect(within(dialog).getAllByRole("option").length).toBeGreaterThan(1));
-    fireEvent.change(within(dialog).getByRole("combobox", { name: "Script" }), { target: { value: "script-001" } });
-    await within(dialog).findByTestId("call-handler-form-policy");
+    const list = await within(dialog).findByRole("list", { name: "Scripts" });
+    expect(within(list).queryByText("weekly-email")).toBeNull();
+    expect(within(dialog).getByText("3 of 41 scripts define decide(call), so only those are listed.")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Add handler" })).toBeDisabled();
+
+    fireEvent.click(within(dialog).getByRole("radio", { name: "Personas" }));
+    expect(within(dialog).getByText("Add at least one persona, or choose Everyone.")).toBeInTheDocument();
+    fireEvent.change(within(dialog).getByLabelText("Add a persona"), { target: { value: "marketing" } });
+    fireEvent.keyDown(within(dialog).getByLabelText("Add a persona"), { key: "Enter" });
     fireEvent.change(within(dialog).getByLabelText("Add an operation"), { target: { value: "createLead" } });
     fireEvent.keyDown(within(dialog).getByLabelText("Add an operation"), { key: "Enter" });
+    fireEvent.click(within(list).getByText("limit-subscribers"));
+    expect(await within(dialog).findByTestId("version-offer")).toHaveTextContent(
+      "Version 4 has not been approved for handlers. It defines decide(call).",
+    );
+    expect(within(dialog).getByTestId("scope-summary")).toHaveTextContent("It will decide createLead on crm-api for the personas marketing.");
     fireEvent.click(within(dialog).getByRole("button", { name: "Add handler" }));
     await waitFor(() => {
       const body = sent.find((r) => r.method === "POST" && r.path === "/api/v1/portal/scripts/script-001/handlers")?.body as Record<string, unknown>;
-      expect(body).toMatchObject({ kind: "policy", connection: "crm-api", operations: ["createLead"], approve: true, on_failure: "hold" });
+      expect(body).toMatchObject({
+        kind: "policy", connection: "crm-api", operations: ["createLead"], personas: ["marketing"], everyone: false, approve: true, on_failure: "hold",
+      });
     });
+  });
+
+  it("refuses a handler whose who is not chosen, and says what every caller means (#2650)", async () => {
+    const sent = serve();
+    signIn("admin@example.com", true);
+    renderWithQuery(<ConnectionHandlersCard connectionName="crm-api" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add handler" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(await within(dialog).findByRole("list", { name: "Scripts" })).getByText("block-weekend-writes"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add handler" }));
+    expect(await within(dialog).findByText("Choose who it applies to.", { selector: "[role=alert] *, div" })).toBeInTheDocument();
+    expect(sent.some((r) => r.method === "POST")).toBe(false);
+    fireEvent.click(within(dialog).getByRole("radio", { name: "Everyone" }));
+    expect(within(dialog).getByTestId("scope-summary")).toHaveTextContent("It will decide every call on crm-api, by every caller.");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add handler" }));
+    await waitFor(() => {
+      const body = sent.find((r) => r.method === "POST")?.body as Record<string, unknown>;
+      expect(body).toMatchObject({ everyone: true, personas: [], users: [] });
+    });
+  });
+
+  it("refuses a version the handlers would run that does not define the entry, and offers a watch for main() (#2650)", async () => {
+    serve();
+    signIn("admin@example.com", true);
+    renderWithQuery(<ConnectionHandlersCard connectionName="crm-api" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add handler" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(await within(dialog).findByRole("list", { name: "Scripts" })).getByText("vip-accounts-only"));
+    fireEvent.click(await within(dialog).findByRole("checkbox", { name: /Approve version 7/ }));
+    expect(within(dialog).getByTestId("version-offer")).toHaveTextContent(
+      "Version 7 defines decide(call), but version 3, the one approved for handlers, does not.",
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "Change" }));
+    fireEvent.change(within(dialog).getByLabelText("Script"), { target: { value: "weekly" } });
+    expect(await within(dialog).findByTestId("no-script")).toHaveTextContent("No script named like weekly defines decide(call).");
+    fireEvent.click(await within(dialog).findByRole("button", { name: "Add it as a watch" }));
+    expect(await within(dialog).findByTestId("call-handler-form-watch")).toBeInTheDocument();
   });
 });
 

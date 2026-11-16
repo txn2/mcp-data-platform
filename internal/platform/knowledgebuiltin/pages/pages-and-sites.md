@@ -198,13 +198,22 @@ environment whose address would be longer than 63 characters is refused with the
 reason, and so is a site name of two characters: `ab--prod` has `--` as its 3rd
 and 4th characters, a form DNS reserves and certificate authorities refuse.
 
-`get` answers `addresses`, where people reach each environment (the first of its
-domains, otherwise its address on the pages domain), and `pages_addresses`, each
+`get` answers `addresses`, where people reach each environment (its public
+domain first, then its other domains, otherwise its address on the pages domain),
+`production_address`, the address of the environment holding the main address,
+and `pages_addresses`, each
 environment's `<site>--<env>` or main address, which answers only where the
 deployment's ingress routes it. Give people the address in `addresses`. A site
 named with two characters before that rule has no pages address for its
 environments other than the main one, and `get` says so in `address_note`: give
 those environments a domain.
+
+`list` takes `query` (a part of a site's name, description, owner or domain),
+`limit` (at most 200) and `offset`, and answers the page of `sites`, `total`, how
+many sites match, and `production_addresses`, each listed site's production
+address by name. An endpoint's answer on a site's or an application's
+address is sent compressed when the client accepts it, unless it may hold one of
+the platform's tokens.
 
 ### Private and public
 

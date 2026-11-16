@@ -8,12 +8,14 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/approval"
 	"github.com/txn2/mcp-data-platform/internal/calltransform"
+	"github.com/txn2/mcp-data-platform/internal/opsobs"
 	"github.com/txn2/mcp-data-platform/internal/platform/callhandler"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -86,11 +88,22 @@ func (e *Evaluator) serve(ctx context.Context, method string, req mcp.Request, n
 	if !ok || method != methodToolsCall || ctr.Params == nil || e == nil || e.Index == nil || callhandler.Within(ctx) {
 		return next(ctx, method, req)
 	}
+	start := time.Now()
 	pc := middleware.GetPlatformContext(ctx)
 	if pc == nil || pc.Connection == "" || !e.Index.Any(pc.Connection) {
+		opsobs.Metrics().CallHandlersLayer(ctx, false, time.Since(start))
 		return next(ctx, method, req)
 	}
-	return e.handle(ctx, method, ctr, pc, next)
+	// The layer's own time is reported without the call it wraps (#2653).
+	var inner time.Duration
+	timed := func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		began := time.Now()
+		defer func() { inner += time.Since(began) }()
+		return next(ctx, method, req)
+	}
+	res, err := e.handle(ctx, method, ctr, pc, timed)
+	opsobs.Metrics().CallHandlersLayer(ctx, true, time.Since(start)-inner)
+	return res, err
 }
 
 // handle is one call some handler on its connection may apply to.

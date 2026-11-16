@@ -292,7 +292,7 @@ var actionTools = map[string]actionRule{
 	// manage_resource: get reads what is filed at an address and list reports
 	// a folder. extract writes a file per archive member.
 	"manage_resource": {arg: "action", reads: set("get", "list"), writes: set(
-		"create", "replace_content", "update", "delete", "extract",
+		"create", "replace_content", "update", "delete", "extract", "upload_link",
 	)},
 	// manage_feedback: create, reply, resolve, the two validation verbs, and
 	// edit and delete of one message (#2514) write.

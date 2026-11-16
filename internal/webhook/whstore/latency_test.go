@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	qLatencyBuckets = `FROM webhook_ack_latency l, unnest`
+	qLatencyBuckets = `FROM webhook_ack_latency l, unnest\(webhook_ack_counts\(buckets, ack_buckets\)\)`
 	qSlowest        = `AS day_rank`
 )
 
@@ -27,7 +27,7 @@ func rejectionRows() *sqlmock.Rows {
 }
 
 func TestAckBucket(t *testing.T) {
-	cases := map[int64]int{0: 0, 10: 0, 11: 1, 50: 2, 999: 6, 1000: 6, 30000: 10, 30001: 11}
+	cases := map[int64]int{0: 0, 10: 0, 11: 1, 50: 2, 999: 6, 1000: 6, 1001: 7, 1500: 7, 2000: 8, 2400: 9, 2999: 10, 30000: 13, 30001: 14}
 	for ms, want := range cases {
 		assert.Equal(t, want, AckBucket(ms), "%dms", ms)
 	}
@@ -43,20 +43,34 @@ func TestSummarize(t *testing.T) {
 	slow := &SlowAck{TotalMS: 41000}
 	got := summarize(b, slow)
 	assert.Equal(t, int64(100), got.Count)
-	assert.Equal(t, int64(10), got.P50MS, "the median is in the first bucket")
-	assert.Equal(t, int64(500), got.P99MS, "the 99th delivery is in the 500ms bucket")
+	assert.Equal(t, int64(5), got.P50MS, "the median is halfway into the first bucket's 98")
+	assert.Equal(t, int64(500), got.P99MS, "the 99th delivery is the whole of the 250 to 500ms bucket")
 	assert.Equal(t, int64(41000), got.MaxMS)
 	assert.Same(t, slow, got.Slowest)
 
 	var open [ackBuckets]int64
 	open[ackBuckets-1] = 2
-	assert.Equal(t, int64(45000), summarize(open, &SlowAck{TotalMS: 45000}).P50MS,
-		"a percentile in the last bucket is the slowest delivery")
+	assert.Equal(t, int64(37500), summarize(open, &SlowAck{TotalMS: 45000}).P50MS,
+		"a percentile in the last bucket is estimated between its edge and the slowest delivery")
 
 	var capped [ackBuckets]int64
 	capped[AckBucket(900)] = 3
-	assert.Equal(t, int64(900), summarize(capped, &SlowAck{TotalMS: 900}).P99MS,
-		"a bound above the slowest delivery is capped at it")
+	assert.Equal(t, int64(896), summarize(capped, &SlowAck{TotalMS: 900}).P99MS,
+		"estimated between the bucket's lower edge and the slowest delivery, which caps its upper")
+
+	// #2651: deliveries between 1 and 2.5 seconds no longer all read 2500.
+	var tail [ackBuckets]int64
+	tail[0], tail[AckBucket(1100)] = 980, 20
+	got = summarize(tail, &SlowAck{TotalMS: 1400})
+	assert.Equal(t, int64(1200), got.P99MS, "halfway into the 1000 to 1400ms the slowest bounds")
+	tail[AckBucket(1100)], tail[AckBucket(2400)] = 10, 10
+	got = summarize(tail, &SlowAck{TotalMS: 2400})
+	assert.Equal(t, int64(1500), got.P99MS, "the 990th delivery ends the 1000 to 1500ms bucket, not the 2500 one")
+	assert.Less(t, summarize([ackBuckets]int64{0, 0, 0, 0, 0, 0, 0, 4}, &SlowAck{TotalMS: 1450}).P99MS, int64(1500),
+		"a p99 within the 1000 to 1500ms bucket is estimated inside it, capped by the slowest")
+	var edge [ackBuckets]int64
+	edge[1] = 2
+	assert.Equal(t, int64(10), summarize(edge, &SlowAck{TotalMS: 10}).P50MS, "a bucket whose lower edge is the slowest reads the slowest")
 	assert.Zero(t, percentile(capped, 0, 0.5, 7), "no deliveries is zero")
 }
 

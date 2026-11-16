@@ -290,12 +290,14 @@ internal/endpoint/epform -> pkg/contenttype
 internal/endpoint/epform -> pkg/portal/shareguest
 internal/endpoint/epformcard -> internal/endpoint/epform
 internal/endpoint/epformcard -> internal/headless
+internal/endpoint/epformpage -> internal/contentenc
 internal/endpoint/epformpage -> internal/endpoint/epbinding
 internal/endpoint/epformpage -> internal/endpoint/epform
 internal/endpoint/epformpage -> internal/endpoint/eprun
 internal/endpoint/epformpage -> internal/logsan
 internal/endpoint/epformpage -> internal/portal/assetrefs
 internal/endpoint/ephttp -> internal/botcheck
+internal/endpoint/ephttp -> internal/contentenc
 internal/endpoint/ephttp -> internal/endpoint/epbinding
 internal/endpoint/ephttp -> internal/endpoint/epform
 internal/endpoint/ephttp -> internal/endpoint/eprefusal
@@ -436,6 +438,7 @@ internal/httpserver -> internal/platform/knowledgebuiltin
 internal/httpserver -> internal/platform/listenbridge
 internal/httpserver -> internal/platform/notifydelivery
 internal/httpserver -> internal/platform/resourceaudit
+internal/httpserver -> internal/platform/resourceupload
 internal/httpserver -> internal/platform/scriptgrant
 internal/httpserver -> internal/platform/scriptstore
 internal/httpserver -> internal/platform/sessionview
@@ -928,6 +931,8 @@ internal/httpserver/thumbwire -> internal/outbound
 internal/httpserver/thumbwire -> internal/platform/scripttiles
 internal/httpserver/thumbwire -> internal/platform/thumbworker
 internal/httpserver/thumbwire -> internal/portal/assetrefs
+internal/httpserver/thumbwire -> internal/site/sitetile
+internal/httpserver/thumbwire -> internal/site/sitetile/tilepage
 internal/httpserver/thumbwire -> pkg/platform
 internal/httpserver/thumbwire -> pkg/portal
 internal/httpserver/thumbwire -> pkg/resource
@@ -1096,6 +1101,7 @@ internal/platform/callrun -> internal/bgloop
 internal/platform/callrun -> internal/calltransform
 internal/platform/callrun -> internal/cfgmap
 internal/platform/callrun -> internal/logsan
+internal/platform/callrun -> internal/opsobs
 internal/platform/callrun -> internal/pathtemplate
 internal/platform/callrun -> internal/pglisten
 internal/platform/callrun -> internal/platform/callhandler
@@ -1360,6 +1366,7 @@ internal/platform/portalstore -> internal/platform/exportadapters
 internal/platform/portalstore -> internal/platform/knowledgepageindex
 internal/platform/portalstore -> internal/platform/notices
 internal/platform/portalstore -> internal/platform/resourceholds
+internal/platform/portalstore -> internal/platform/resourceupload
 internal/platform/portalstore -> internal/platform/resourcewrite
 internal/platform/portalstore -> internal/platform/scriptsrc
 internal/platform/portalstore -> internal/platform/scriptstore
@@ -1438,6 +1445,13 @@ internal/platform/resourcereclass -> pkg/resource
 internal/platform/resourcetemplates -> pkg/catalog
 internal/platform/resourcetemplates -> pkg/query
 internal/platform/resourcetemplates -> pkg/semantic
+internal/platform/resourceupload -> internal/httpjson
+internal/platform/resourceupload -> internal/indexpolicy
+internal/platform/resourceupload -> internal/logsan
+internal/platform/resourceupload -> pkg/contenttype
+internal/platform/resourceupload -> pkg/portal/knowledgepage
+internal/platform/resourceupload -> pkg/resource
+internal/platform/resourceupload -> pkg/toolkit
 internal/platform/resourcewrite -> internal/bucketsource
 internal/platform/resourcewrite -> internal/indexpolicy
 internal/platform/resourcewrite -> internal/opsobs
@@ -1582,6 +1596,8 @@ internal/platform/scripthandler -> internal/platform/scriptevents/sourcerule
 internal/platform/scripthandler -> internal/platform/scriptsave
 internal/platform/scripthandler -> internal/platform/scriptstore
 internal/platform/scripthandler -> internal/webhook/whsource
+internal/platform/scripthandler -> pkg/connid
+internal/platform/scripthandler -> pkg/registry
 internal/platform/scripthandler -> pkg/script
 internal/platform/scriptincident -> internal/logsan
 internal/platform/scriptincident -> pkg/notification
@@ -1913,6 +1929,8 @@ internal/platform/thumbworker -> internal/platform/scriptflow
 internal/platform/thumbworker -> internal/platform/scripttiles
 internal/platform/thumbworker -> internal/portal/assetrefs
 internal/platform/thumbworker -> internal/portal/portaldomain
+internal/platform/thumbworker -> internal/site/sitetile
+internal/platform/thumbworker -> internal/site/sitetile/tilepage
 internal/platform/thumbworker -> internal/thumbdue
 internal/platform/thumbworker -> internal/thumbtypes
 internal/platform/thumbworker -> pkg/contenttype
@@ -2137,6 +2155,9 @@ internal/site/sitesvc -> internal/site/siterender
 internal/site/sitesvc -> internal/site/sitestore
 internal/site/sitesvc -> pkg/contenttype
 internal/site/sitesvc -> pkg/textpatch
+internal/site/sitetile/tilepage -> internal/headless
+internal/site/sitetile/tilepage -> internal/site
+internal/site/sitetile/tilepage -> internal/site/sitesvc
 internal/site/sitetool -> internal/bucketsource
 internal/site/sitetool -> internal/logsan
 internal/site/sitetool -> internal/site
@@ -2169,6 +2190,7 @@ internal/site/sitewire -> internal/site/sitegw
 internal/site/sitewire -> internal/site/siteprune
 internal/site/sitewire -> internal/site/sitestore
 internal/site/sitewire -> internal/site/sitesvc
+internal/site/sitewire -> internal/site/sitetile
 internal/site/sitewire -> internal/site/sitetool
 internal/site/sitewire -> internal/site/sitetraffic
 internal/site/sitewire -> internal/unarchive
@@ -2861,6 +2883,7 @@ pkg/toolkits/portal -> internal/handlertransport
 pkg/toolkits/portal -> internal/httpjson
 pkg/toolkits/portal -> internal/indexpolicy
 pkg/toolkits/portal -> internal/logsan
+pkg/toolkits/portal -> internal/platform/resourceupload
 pkg/toolkits/portal -> internal/portal/access
 pkg/toolkits/portal -> internal/portal/assetrefs
 pkg/toolkits/portal -> internal/portal/contentrefs

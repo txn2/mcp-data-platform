@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Plus, X } from "lucide-react";
 import type { CallCondition, CallHandlerDetail } from "@/api/portal/hooks/callHandlers";
 import { useSaveHandler, type CallHandlerKind } from "@/api/portal/hooks/scriptHandlers";
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ChipInput } from "@/pages/settings/ChipInput";
+import { definesSentence, KIND_WORDS, ScopeSummary, versionRefusal, whoRefusal, type FormState, type HandlerApproval, type Who } from "./callHandlerRules";
 
 // CallHandlerForm adds or changes one tool-call handler (#2436, #2634, #2635):
 // a policy, a transform or a watch on a connection, its match (who, which
@@ -17,13 +18,7 @@ import { ChipInput } from "@/pages/settings/ChipInput";
 // one set of words serve both. Only administrators reach it; the server
 // refuses anyone else.
 
-export const KIND_WORDS: Record<CallHandlerKind, { label: string; hint: string; entry: string }> = {
-  policy: { label: "Policy", hint: "Decide whether a call runs", entry: "decide(call)" },
-  transform: { label: "Transform", hint: "Change what a call returns", entry: "transform(call, result)" },
-  watch: { label: "Watch", hint: "Run a script after a call", entry: "main(), reading run.call" },
-};
-
-type Who = "everyone" | "personas" | "users";
+export { KIND_WORDS };
 
 // whoOf is who an existing handler applies to.
 function whoOf(h?: CallHandlerDetail): Who {
@@ -39,26 +34,16 @@ export interface CallHandlerFormProps {
   connection?: string;
   /** handler is the handler being changed, absent when adding one. */
   handler?: CallHandlerDetail;
-  /** approval is the script's version state, for the approve offer. */
-  approval?: { latest: number; running: number };
+  /** approval is the script's version state, for the approve offer:
+   * whether the latest and the approved versions define the kind's entry,
+   * read from their source (#2650); absent where it is not known. */
+  approval?: HandlerApproval;
+  /** scriptSlot is where the script is chosen, after who and which calls,
+   * on a connection's page; scriptId is "" until one is (#2650). */
+  scriptSlot?: ReactNode;
   onDone: () => void;
 }
 
-// FormState is everything the form edits.
-interface FormState {
-  conn: string;
-  who: Who;
-  personas: string[];
-  users: string[];
-  operations: string[];
-  conditions: CallCondition[];
-  itemsPath: string;
-  timeoutMS: string;
-  onFailure: string;
-  protectedCols: string[];
-  args: Record<string, string>;
-  approve: boolean;
-}
 
 // initialState is the form for a handler being changed, or a new one.
 function initialState(kind: CallHandlerKind, connection: string | undefined, handler?: CallHandlerDetail, approval?: { latest: number; running: number }): FormState {
@@ -66,11 +51,12 @@ function initialState(kind: CallHandlerKind, connection: string | undefined, han
   return fromHandler(handler, Boolean(approval && approval.latest > approval.running));
 }
 
-// blankState is a new handler's form: every call, everyone, the defaults.
+// blankState is a new handler's form: who it applies to not chosen yet, every
+// call, the defaults.
 function blankState(kind: CallHandlerKind, conn: string): FormState {
   return {
     conn,
-    who: "everyone",
+    who: "",
     personas: [],
     users: [],
     operations: [],
@@ -114,6 +100,7 @@ export function inputOf(kind: CallHandlerKind, st: FormState, params: ScriptPara
     operations: st.operations,
     personas: st.who === "personas" ? st.personas : [],
     users: st.who === "users" ? st.users : [],
+    everyone: st.who === "everyone",
     conditions: st.conditions.filter((c) => c.name.trim() !== ""),
     timeout_ms: Number(st.timeoutMS) || undefined,
     args: typedArgs(st.args, params),
@@ -125,17 +112,20 @@ export function inputOf(kind: CallHandlerKind, st: FormState, params: ScriptPara
   return input;
 }
 
-export function CallHandlerForm({ scriptId, kind, connection, handler, approval, onDone }: CallHandlerFormProps) {
+export function CallHandlerForm({ scriptId, kind, connection, handler, approval, scriptSlot, onDone }: CallHandlerFormProps) {
   const save = useSaveHandler(scriptId, handler?.handler);
-  const params = useScriptContract(scriptId).data?.contract.params ?? [];
+  const params = useScriptContract(scriptId || null).data?.contract.params ?? [];
   const [st, setSt] = useState<FormState>(() => initialState(kind, connection, handler, approval));
   const set = (patch: Partial<FormState>) => setSt((cur) => ({ ...cur, ...patch }));
   const [problem, setProblem] = useState("");
+  const placement = partsPlacement(scriptSlot, scriptId);
+  const parts = <ScriptParts kind={kind} approval={approval} st={st} set={set} params={params} adding={!handler} />;
 
   const submit = async () => {
     setProblem("");
-    if (!st.conn.trim()) {
-      setProblem("Name the connection the handler watches.");
+    const refusal = submitRefusal(kind, st, approval);
+    if (refusal) {
+      setProblem(refusal);
       return;
     }
     try {
@@ -148,15 +138,8 @@ export function CallHandlerForm({ scriptId, kind, connection, handler, approval,
 
   return (
     <div className="space-y-4" data-testid={`call-handler-form-${kind}`}>
-      {connection === undefined && (
-        <Field label="Connection" htmlFor="ch-connection" hint="A connection's name, or a pattern like billing-*.">
-          <Input id="ch-connection" value={st.conn} onChange={(e) => set({ conn: e.target.value })} />
-        </Field>
-      )}
-      {approval && (
-        <VersionOffer kind={kind} approval={approval} approve={st.approve} onApprove={(approve) => set({ approve })} adding={!handler} />
-      )}
-      <ParamsFields params={params} args={st.args} onChange={(args) => set({ args })} />
+      <ConnectionField shown={connection === undefined} st={st} set={set} />
+      {placement === "before" && parts}
       <WhoFields st={st} set={set} />
       <div className="space-y-2">
         <p className="text-sm font-medium">Operations</p>
@@ -171,8 +154,11 @@ export function CallHandlerForm({ scriptId, kind, connection, handler, approval,
           call on the connection.
         </p>
       </div>
+      {scriptSlot}
+      {placement === "after" && parts}
       <Conditions conditions={st.conditions} onChange={(conditions) => set({ conditions })} />
       <KindSettings kind={kind} st={st} set={set} />
+      <ScopeSummary kind={kind} st={st} />
       {problem && (
         <Alert variant="destructive">
           <AlertDescription>{problem}</AlertDescription>
@@ -182,7 +168,7 @@ export function CallHandlerForm({ scriptId, kind, connection, handler, approval,
         <Button variant="outline" size="sm" onClick={onDone} disabled={save.isPending}>
           Cancel
         </Button>
-        <Button size="sm" onClick={() => void submit()} disabled={save.isPending}>
+        <Button size="sm" onClick={() => void submit()} disabled={save.isPending || !scriptId}>
           {handler ? "Save handler" : "Add handler"}
         </Button>
       </div>
@@ -217,7 +203,7 @@ function defaultText(p: ScriptParam): string {
   return p.default === undefined ? "" : String(p.default);
 }
 
-const WHO_LABELS: Record<Who, string> = { everyone: "Everyone", personas: "Personas", users: "People" };
+const WHO_LABELS: Record<Exclude<Who, "">, string> = { everyone: "Everyone", personas: "Personas", users: "People" };
 
 // WhoFields are who the handler applies to: everyone, personas, or people.
 function WhoFields({ st, set }: { st: FormState; set: SetState }) {
@@ -225,7 +211,7 @@ function WhoFields({ st, set }: { st: FormState; set: SetState }) {
     <fieldset className="space-y-2">
       <legend className="text-sm font-medium">Applies to</legend>
       <div className="flex flex-wrap gap-4 text-sm">
-        {(Object.keys(WHO_LABELS) as Who[]).map((w) => (
+        {(Object.keys(WHO_LABELS) as Exclude<Who, "">[]).map((w) => (
           <label key={w} className="flex items-center gap-2">
             <input type="radio" name="ch-who" checked={st.who === w} onChange={() => set({ who: w })} />
             {WHO_LABELS[w]}
@@ -238,7 +224,15 @@ function WhoFields({ st, set }: { st: FormState; set: SetState }) {
       {st.who === "users" && (
         <ListField label="Add a person" placeholder="name@example.com" values={st.users} onChange={(users) => set({ users })} lower />
       )}
-      <p className="text-xs text-muted-foreground">It only ever sees calls these people may already make.</p>
+      {st.who === "personas" && st.personas.length === 0 && (
+        <p className="text-xs text-destructive">Add at least one persona, or choose Everyone.</p>
+      )}
+      {st.who === "users" && st.users.length === 0 && (
+        <p className="text-xs text-destructive">Add at least one person, or choose Everyone.</p>
+      )}
+      <p className="text-xs text-muted-foreground">
+        {st.who === "" ? "Choose who it applies to. " : ""}It only ever sees calls these people may already make.
+      </p>
     </fieldset>
   );
 }
@@ -339,15 +333,16 @@ function VersionOffer({
   adding: boolean;
 }) {
   const waiting = approval.latest > approval.running;
+  const refused = versionRefusal(kind, approve, approval);
   return (
-    <div className="space-y-1 text-sm">
-      <p className={waiting ? "text-amber-700 dark:text-amber-300" : "text-muted-foreground"}>
-        {approval.running === 0
-          ? `Version ${approval.latest} has not been approved.`
-          : waiting
-            ? `Version ${approval.running} runs; version ${approval.latest} waits for approval.`
-            : `Version ${approval.running} is approved.`}{" "}
-        It defines {KIND_WORDS[kind].entry}.
+    <div className="space-y-1 text-sm" data-testid="version-offer">
+      <p className={refused ? "text-destructive" : waiting ? "text-amber-700 dark:text-amber-300" : "text-muted-foreground"}>
+        {refused ??
+          `${approval.running === 0
+            ? `Version ${approval.latest} has not been approved for handlers.`
+            : waiting
+              ? `Version ${approval.running} runs; version ${approval.latest} waits for approval.`
+              : `Version ${approval.running} is approved.`}${definesSentence(kind, approval)}`}
       </p>
       {(waiting || adding) && (
         <label className="flex items-start gap-2">
@@ -356,6 +351,55 @@ function VersionOffer({
         </label>
       )}
     </div>
+  );
+}
+
+// ConnectionField names the connection on a script's page; a connection's
+// page fixes it.
+function ConnectionField({ shown, st, set }: { shown: boolean; st: FormState; set: SetState }) {
+  if (!shown) return null;
+  return (
+    <Field label="Connection" htmlFor="ch-connection" hint="A connection's name, or a pattern like billing-*.">
+      <Input id="ch-connection" value={st.conn} onChange={(e) => set({ conn: e.target.value })} />
+    </Field>
+  );
+}
+
+// partsPlacement is where the parts that follow from the script go: before
+// who on a script's page, after the script slot once one is picked.
+function partsPlacement(slot: ReactNode, scriptId: string): "before" | "after" | "none" {
+  if (!slot) return "before";
+  return scriptId ? "after" : "none";
+}
+
+// submitRefusal is why the form cannot be saved as it stands, null when it can.
+function submitRefusal(kind: CallHandlerKind, st: FormState, approval?: HandlerApproval): string | null {
+  if (!st.conn.trim()) return "Name the connection the handler watches.";
+  return whoRefusal(st) ?? versionRefusal(kind, st.approve, approval);
+}
+
+// ScriptParts are the parts that follow from the script: the version offer
+// and the script's parameters.
+function ScriptParts({
+  kind,
+  approval,
+  st,
+  set,
+  params,
+  adding,
+}: {
+  kind: CallHandlerKind;
+  approval?: HandlerApproval;
+  st: FormState;
+  set: SetState;
+  params: ScriptParam[];
+  adding: boolean;
+}) {
+  return (
+    <>
+      {approval && <VersionOffer kind={kind} approval={approval} approve={st.approve} onApprove={(approve) => set({ approve })} adding={adding} />}
+      <ParamsFields params={params} args={st.args} onChange={(args) => set({ args })} />
+    </>
   );
 }
 

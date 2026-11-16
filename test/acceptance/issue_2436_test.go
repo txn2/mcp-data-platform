@@ -408,11 +408,12 @@ func TestIssue2436_TheTestPanelMatchesTheRealCall(t *testing.T) {
 	}
 }
 
-// TestIssue2436_AnUnmatchedCallIsNoSlower: an unmatched tool call's p50 and
-// p99 over 1,000 calls, with 50 policies bound to other connections, are
-// within 5% of the same calls with none bound, on the same server under the
-// same limits. The no-handler runs before and after are averaged, so drift in
-// the stack over the run is not read as the handlers' cost.
+// TestIssue2436_AnUnmatchedCallIsNoSlower: with 50 policies bound to other
+// connections, the handlers' layer spends at most a millisecond on at least
+// 99% of the unmatched calls, measured in process, and end to end the calls'
+// p50 and p99 stay within 5% of the same calls with none bound plus an
+// absolute allowance for the runner's noise (#2653), the two states
+// interleaved on the same server under the same limits.
 func TestIssue2436_AnUnmatchedCallIsNoSlower(t *testing.T) {
 	admin := connect(t)
 	owner := connectAs(t, devOwnerAPIKey)
