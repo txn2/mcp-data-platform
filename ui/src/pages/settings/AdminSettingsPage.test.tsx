@@ -13,6 +13,7 @@ vi.mock("@/api/admin/hooks", () => ({
   useSMTPRecipientStatus: vi.fn(),
   useFailingChannelCount: vi.fn(() => 0),
   useGeneralFeedback: vi.fn(() => ({ data: undefined })),
+  useIntegrations: vi.fn(() => ({ data: undefined })),
 }));
 
 // The page composes independent sections. This file covers the SMTP one, so

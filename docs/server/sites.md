@@ -81,7 +81,13 @@ takes the second.
 5. They add domains such as `example.com` to any environment but `dev`. A domain
    is private until the owner or an administrator sets it public.
 6. A system administrator adds an ingress rule for each domain. Admin > Domains
-   lists every address that needs one. The pages domain needs one wildcard.
+   lists every address that needs one. The pages domain needs one wildcard. Or
+   an administrator chooses a **Site routing** script in Admin > Settings >
+   Integrations, and the platform hands it every hostname it serves, and each
+   one added or removed, to route through the ingress itself
+   ([Integrations](../scripts/integrations.md), #2659). A domain added then reads
+   `pending` until the script answers, and `ready` or `failed` with the
+   script's message after, on its row and in `manage_site`.
 
 The platform does not manage or check DNS, certificates or who owns a name, and
 TLS belongs to the ingress.
@@ -810,6 +816,16 @@ and drawing a private one opens nothing. An environment with no release,
 offline, redirecting, or with no pages address shows a placeholder saying so. A
 tile is answered only to someone who may open its environment, by the rule its
 addresses apply.
+
+A tile waits for the fonts and for the images in the 1280x960 frame it is drawn
+from, and for nothing else (#2677): an image below the fold, a
+`loading="lazy"` one included, a slide parked off the canvas or a
+`content-visibility: auto` section cannot change a pixel of the tile and is not
+waited on. A page that does not finish drawing before the render deadline is
+the release's failure, recorded on its first attempt; the Sites list carries
+the reason as the environment's `tile_failure`, and its tile reads "Can't draw"
+with the reason beneath it (on a small tile, as its hover title). Only a
+renderer that stops answering is tried again (#2664).
 
 ## In the portal
 

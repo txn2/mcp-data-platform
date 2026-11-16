@@ -56,10 +56,22 @@ def run(*args: str) -> str:
 def merge_base() -> str:
     """Resolve the base this branch is measured against.
 
-    Mirrors `make lint`: origin/main when it is reachable, main otherwise, and
+    DELTA_BASE first (#2660): the last tree a `make verify` passed on, so a
+    re-run scans only what changed since it, as `make lint` does. Otherwise it
+    mirrors `make lint`: origin/main when it is reachable, main otherwise, and
     a hard failure when neither is. A gate that silently skips because it could
     not find a base is how lint findings reached CI in #393.
     """
+    delta = os.environ.get("DELTA_BASE", "").strip()
+    if delta:
+        rev = subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet", f"{delta}^{{commit}}"],
+            capture_output=True, text=True, check=False,
+        )
+        if rev.returncode != 0:
+            print(f"ERROR: DELTA_BASE {delta} is not a commit in this clone.", file=sys.stderr)
+            sys.exit(1)
+        return delta
     subprocess.run(
         ["git", "fetch", "--quiet", "origin", "main"],
         capture_output=True, check=False,
@@ -194,7 +206,7 @@ def main() -> None:
     # map and not on disk; semgrep errors on a path it cannot open.
     files = sorted(p for p in changed if os.path.exists(p) and not is_fixture(p))
     if not files:
-        print(f"No changed Go files vs merge-base {base[:12]}; nothing to scan.")
+        print(f"No changed Go files vs base {base[:12]}; nothing to scan.")
         return
 
     hits = []

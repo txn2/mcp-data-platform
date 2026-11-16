@@ -97,6 +97,7 @@ func (a *portalAPI) register(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+pathSite+"/domains", a.addDomain)
 	mux.HandleFunc("PUT "+pathSite+"/domains/{hostname}", a.setDomainAccess)
 	mux.HandleFunc("DELETE "+pathSite+"/domains/{hostname}", a.removeDomain)
+	mux.HandleFunc("POST "+pathSite+"/routing/retry", a.retryRouting)
 	mux.HandleFunc("GET "+pathSite+"/access", a.access)
 	mux.HandleFunc("PUT "+pathSite+"/access", a.grant)
 	mux.HandleFunc("DELETE "+pathSite+"/access", a.revoke)
@@ -562,7 +563,57 @@ func (a *portalAPI) get(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, v)
+	writeJSON(w, http.StatusOK, a.withRouting(r.Context(), c, v))
+}
+
+// withRouting adds the Site routing script's status to a site's domains and
+// pages addresses (#2659): one read, on a site's own page, never the list.
+func (a *portalAPI) withRouting(ctx context.Context, c *caller, v SiteView) SiteView {
+	v.Domains, v.PagesRouting = a.d.Runtime.Routing.Site(ctx, c.actor.Admin, &v.Site, v.Domains)
+	return v
+}
+
+// retryRouting handles POST /api/v1/portal/sites/{site}/routing/retry.
+//
+// @Summary      Retry site routing
+// @Description  Asks the Site routing script to run now with every hostname (#2659). An administrator may ask at any time. Anyone else who can see the site may ask when one of its addresses or domains failed, as the Retry on a failed row offers, and not within 15 seconds of the script's last run starting (429, saying when). 409 when nothing of the site failed; 404 when no routing script is chosen.
+// @Tags         Sites
+// @Produce      json
+// @Param        site  path      string  true  "Site name or id"
+// @Success      202   {object}  site.RoutingRetry
+// @Failure      403   {object}  httpjson.ProblemDetail
+// @Failure      404   {object}  httpjson.ProblemDetail
+// @Failure      409   {object}  httpjson.ProblemDetail
+// @Failure      429   {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/sites/{site}/routing/retry [post]
+func (a *portalAPI) retryRouting(w http.ResponseWriter, r *http.Request) {
+	c, r, ok := a.who(w, r)
+	if !ok {
+		return
+	}
+	st, err := a.svc().Find(r.Context(), r.PathValue(paramSite))
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	domains, err := a.svc().Store.SiteDomains(r.Context(), st.ID)
+	var v SiteView
+	if err == nil {
+		v, err = a.view(r.Context(), c, st, domains)
+	}
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	err = a.d.Runtime.Routing.Retry(r.Context(), c.actor.Admin, &v.Site, v.Domains)
+	a.record(r.Context(), c, "retry_routing", map[string]any{paramSite: st.Name}, err)
+	if status, msg := a.d.Runtime.Routing.Refusal(err); err != nil {
+		httpjson.WriteError(w, status, msg)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, site.RoutingRetry{Site: st.Name, Retried: true})
 }
 
 // update handles PATCH /api/v1/portal/sites/{site}.
@@ -778,12 +829,18 @@ func (a *portalAPI) compare(w http.ResponseWriter, r *http.Request) {
 // @Security     BearerAuth
 // @Router       /portal/application-addresses/{name} [get]
 func (a *portalAPI) applicationAddresses(w http.ResponseWriter, r *http.Request) {
+	c, r, ok := a.who(w, r)
+	if !ok {
+		return
+	}
 	origin, domains, err := a.d.Runtime.ApplicationAddresses(r.Context(), r.PathValue("name"))
 	if err != nil {
 		httpjson.WriteError(w, http.StatusNotFound, "no such application")
 		return
 	}
-	writeJSON(w, http.StatusOK, ApplicationAddresses{PageOrigin: origin, Domains: domains})
+	out := ApplicationAddresses{PageOrigin: origin, Domains: domains}
+	out.PageOriginRouting = a.d.Runtime.Routing.Origin(r.Context(), c.actor.Admin, origin)
+	writeJSON(w, http.StatusOK, out)
 }
 
 // deployments handles GET /api/v1/portal/sites/{site}/deployments.

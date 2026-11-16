@@ -20,6 +20,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
 	"github.com/txn2/mcp-data-platform/internal/platform/callhandler"
+	"github.com/txn2/mcp-data-platform/internal/platform/integration"
 )
 
 // The kinds of handler.
@@ -32,7 +33,14 @@ const (
 	KindPolicy    = callhandler.KindPolicy
 	KindTransform = callhandler.KindTransform
 	KindWatch     = callhandler.KindWatch
+	// KindIntegration is an operation's script (#2659), chosen by an
+	// administrator in Admin > Settings > Integrations, kept in
+	// integration_bindings.
+	KindIntegration = "integration"
 )
+
+// integrationCreator is where an integration's script is chosen.
+const integrationCreator = "an administrator, in Admin > Settings > Integrations"
 
 // settingArgs is the setting a schedule's and a tool-call handler's
 // arguments to its script are named by.
@@ -122,6 +130,13 @@ var kinds = []Kind{
 		Settings: callSettings,
 		Creator:  callCreator,
 	},
+	{
+		Name:     KindIntegration,
+		Contract: integration.Contracts(),
+		Check:    integration.Check,
+		Settings: []string{},
+		Creator:  integrationCreator,
+	},
 }
 
 // Kinds is the name of every registered kind, in list order.
@@ -135,7 +150,7 @@ func Kinds() []string {
 
 // Types is every type a handler list filters on, in list order.
 func Types() []string {
-	return []string{KindEndpoint, TypeForm, KindSchedule, KindWebhook, KindPolicy, KindTransform, KindWatch, TypeNone}
+	return []string{KindEndpoint, TypeForm, KindSchedule, KindWebhook, KindPolicy, KindTransform, KindWatch, KindIntegration, TypeNone}
 }
 
 // KindOf is the registered kind with the name.

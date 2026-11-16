@@ -388,7 +388,7 @@ func TestCreateAndEdit(t *testing.T) {
 // the way out, instead of being stored and reported later as a problem.
 func TestCreateRefusesAConnectionThatIsNoApplicationDatabase(t *testing.T) {
 	svc, store, _, _, _ := fixture()
-	svc.HasConnection = func(name string) bool { return name == "orders" }
+	svc.HasConnection = func(_ context.Context, name string) bool { return name == "orders" }
 	ctx := context.Background()
 	_, err := svc.Create(ctx, jane, application.Application{Name: "shop", Connection: "appdb-qq", Schema: "shop"})
 	var refusedErr *RefusedError

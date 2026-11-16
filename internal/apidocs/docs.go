@@ -7339,6 +7339,234 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/integrations": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns every operation the platform hands to a script (Site routing first): its contract, the script chosen for it with the version approved for handlers, how its last run went (with the run's error, which only administrators read), each item's status and the counts by status. An operation with no script chosen has no binding and no items.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Integrations"
+                ],
+                "summary": "List integrations",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/integrationapi.IntegrationList"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/integrations/{operation}": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Chooses the script an operation calls, or changes it or its interval, and calls it with every item at once. Refused when the version that would run does not define the operation's function, naming the contract, and when no version is approved for handlers and approve is not set. Audited.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Integrations"
+                ],
+                "summary": "Choose an integration's script",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Operation, such as site_routing",
+                        "name": "operation",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The script, the interval and whether to approve its latest version",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/integrationapi.BindInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/integration.Binding"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Stops the operation's calls and drops every status it kept, so the deployment behaves as it does with no script. Audited.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Integrations"
+                ],
+                "summary": "Clear an integration's script",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Operation, such as site_routing",
+                        "name": "operation",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/integrationapi.Done"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/integrations/{operation}/retry": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Calls the operation's script with every item at once, when the run in flight, if any, ends. Audited.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Integrations"
+                ],
+                "summary": "Retry an integration now",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Operation, such as site_routing",
+                        "name": "operation",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/integrationapi.Done"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/integrations/{operation}/scripts": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the scripts, not libraries, whose latest version defines the operation's function (route(req) for site_routing), with the version approved for handlers and whether that version defines it too.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Integrations"
+                ],
+                "summary": "List the scripts an integration may call",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Operation, such as site_routing",
+                        "name": "operation",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Narrows by name or description",
+                        "name": "search",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/integrationapi.CandidateList"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/knowledge/changesets": {
             "get": {
                 "security": [
@@ -30461,6 +30689,67 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/sites/{site}/routing/retry": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Asks the Site routing script to run now with every hostname (#2659). An administrator may ask at any time. Anyone else who can see the site may ask when one of its addresses or domains failed, as the Retry on a failed row offers, and not within 15 seconds of the script's last run starting (429, saying when). 409 when nothing of the site failed; 404 when no routing script is chosen.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Retry site routing",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/site.RoutingRetry"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/sites/{site}/traffic": {
             "get": {
                 "security": [
@@ -44758,6 +45047,211 @@ const docTemplate = `{
                 }
             }
         },
+        "integration.Binding": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "current_run_id": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "interval_seconds": {
+                    "type": "integer"
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "last_finished_at": {
+                    "type": "string"
+                },
+                "last_reason": {
+                    "type": "string"
+                },
+                "last_run_id": {
+                    "type": "string"
+                },
+                "last_started_at": {
+                    "type": "string"
+                },
+                "last_status": {
+                    "type": "string"
+                },
+                "operation": {
+                    "type": "string"
+                },
+                "retry_requested": {
+                    "type": "boolean"
+                },
+                "script_id": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "string"
+                }
+            }
+        },
+        "integration.Candidate": {
+            "type": "object",
+            "properties": {
+                "approved_by": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner_email": {
+                    "type": "string"
+                },
+                "running_serves": {
+                    "type": "boolean"
+                },
+                "running_version": {
+                    "type": "integer"
+                },
+                "version": {
+                    "type": "integer"
+                }
+            }
+        },
+        "integration.Overview": {
+            "type": "object",
+            "properties": {
+                "approved_by": {
+                    "type": "string"
+                },
+                "binding": {
+                    "$ref": "#/definitions/integration.Binding"
+                },
+                "counts": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                },
+                "function": {
+                    "description": "Function is the top-level function the script defines, taking req.",
+                    "type": "string"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/integration.StoredItem"
+                    }
+                },
+                "items_field": {
+                    "description": "ItemsField is the request field holding every item now, and the name\nan item is counted by.",
+                    "type": "string"
+                },
+                "key_field": {
+                    "description": "KeyField is the entry field an item is keyed by.",
+                    "type": "string"
+                },
+                "label": {
+                    "description": "Label is how the portal names it.",
+                    "type": "string"
+                },
+                "operation": {
+                    "description": "Name is the operation's name in the API and the view's target.",
+                    "type": "string"
+                },
+                "running_version": {
+                    "type": "integer"
+                },
+                "script_name": {
+                    "type": "string"
+                },
+                "total": {
+                    "description": "Total is how many items the operation has now, whether or not a script\nis chosen.",
+                    "type": "integer"
+                }
+            }
+        },
+        "integration.StoredItem": {
+            "type": "object",
+            "properties": {
+                "checked_at": {
+                    "type": "string"
+                },
+                "entry": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "failed_run": {
+                    "type": "string"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "integrationapi.BindInput": {
+            "type": "object",
+            "properties": {
+                "approve": {
+                    "description": "Approve approves the script's latest version for handlers, as you.",
+                    "type": "boolean"
+                },
+                "interval_seconds": {
+                    "description": "IntervalSeconds is the timer, 60 to 86400; 0 or omitted keeps the\ncurrent one, 900 for a new binding.",
+                    "type": "integer"
+                },
+                "script_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "integrationapi.CandidateList": {
+            "type": "object",
+            "properties": {
+                "scripts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/integration.Candidate"
+                    }
+                }
+            }
+        },
+        "integrationapi.Done": {
+            "type": "object",
+            "properties": {
+                "done": {
+                    "type": "boolean"
+                },
+                "operation": {
+                    "type": "string"
+                }
+            }
+        },
+        "integrationapi.IntegrationList": {
+            "type": "object",
+            "properties": {
+                "integrations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/integration.Overview"
+                    }
+                }
+            }
+        },
         "knowledge.Changeset": {
             "type": "object",
             "properties": {
@@ -53845,6 +54339,14 @@ const docTemplate = `{
                     "description": "Public answers anyone at this hostname (#2619): the one way a site\nenvironment opens to someone who has not signed in. A domain is added\nprivate unless public is asked for.",
                     "type": "boolean"
                 },
+                "routing": {
+                    "description": "Routing is the Site routing script's status for the hostname (#2659),\nabsent when no script is chosen.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/site.Routing"
+                        }
+                    ]
+                },
                 "site": {
                     "type": "string",
                     "example": "marketing"
@@ -53923,6 +54425,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "status_changed_by": {
+                    "type": "string"
+                },
+                "tile_failure": {
+                    "description": "TileFailure is why the release the environment serves could not be\ndrawn as its tile, as the tile worker recorded it (#2664); empty while\nit is drawn, being drawn, or not tried yet.",
                     "type": "string"
                 },
                 "updated_at": {
@@ -54209,6 +54715,48 @@ const docTemplate = `{
                 }
             }
         },
+        "site.Routing": {
+            "type": "object",
+            "properties": {
+                "checked_at": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "run_error": {
+                    "type": "string"
+                },
+                "run_id": {
+                    "type": "string"
+                },
+                "run_script_id": {
+                    "type": "string"
+                },
+                "script_failed": {
+                    "type": "boolean"
+                },
+                "status": {
+                    "type": "string",
+                    "enum": [
+                        "pending",
+                        "ready",
+                        "failed"
+                    ]
+                }
+            }
+        },
+        "site.RoutingRetry": {
+            "type": "object",
+            "properties": {
+                "retried": {
+                    "type": "boolean"
+                },
+                "site": {
+                    "type": "string"
+                }
+            }
+        },
         "site.Site": {
             "type": "object",
             "properties": {
@@ -54357,6 +54905,14 @@ const docTemplate = `{
                     "description": "Public answers anyone at this hostname (#2619): the one way a site\nenvironment opens to someone who has not signed in. A domain is added\nprivate unless public is asked for.",
                     "type": "boolean"
                 },
+                "routing": {
+                    "description": "Routing is the Site routing script's status for the hostname (#2659),\nabsent when no script is chosen.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/site.Routing"
+                        }
+                    ]
+                },
                 "site": {
                     "type": "string",
                     "example": "marketing"
@@ -54467,6 +55023,14 @@ const docTemplate = `{
                 },
                 "page_origin": {
                     "type": "string"
+                },
+                "page_origin_routing": {
+                    "description": "PageOriginRouting is the Site routing script's status for the page\norigin (#2659); absent when no script is chosen.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/site.Routing"
+                        }
+                    ]
                 }
             }
         },
@@ -55358,6 +55922,13 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "pages_routing": {
+                    "description": "PagesRouting is the Site routing script's status for each environment's\npages address, by environment (#2659); absent when no script is chosen,\nand on the Sites list.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/site.Routing"
+                    }
+                },
                 "permissions": {
                     "description": "Permissions is what the caller may do to this site.",
                     "allOf": [
@@ -55813,6 +56384,14 @@ const docTemplate = `{
                 "public": {
                     "description": "Public answers anyone at this hostname (#2619): the one way a site\nenvironment opens to someone who has not signed in. A domain is added\nprivate unless public is asked for.",
                     "type": "boolean"
+                },
+                "routing": {
+                    "description": "Routing is the Site routing script's status for the hostname (#2659),\nabsent when no script is chosen.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/site.Routing"
+                        }
+                    ]
                 },
                 "site": {
                     "type": "string",
@@ -58617,7 +59196,7 @@ const docTemplate = `{
             "in": "header"
         }
     }
-,"tags":[{"name": "User", "description": "Current user identity, roles, persona, and available tools."}, {"name": "Sites", "description": "Static sites and browser pages the platform serves on hostnames of their own: the hostnames the deployment's ingress needs and the certificate that covers them."}, {"name": "Applications", "description": "Applications built on the platform: one record naming an application database schema with its migrations, managed scripts (an endpoint or a form is its script's binding), webhook sources and portal assets, released together as a pinned set. While a part belongs to a released application its release's version is the one that runs and is served. Everyone signed in reads; the owner and administrators edit; administrators release, roll back, export and import."}, {"name": "Approvals", "description": "The Approvals queue: a request for an administrator's decision. A form is served to callers with no session only at a version an administrator approved; its owner files the request, and administrators decide every request, their own included."}, {"name": "Activity", "description": "Personal analytics for the authenticated user's tool usage. Timeseries, breakdowns, and summary statistics scoped to the calling user."}, {"name": "Assets", "description": "AI-generated assets \u2014 dashboards, reports, visualizations, and data exports. Supports HTML, JSX, SVG, Markdown, and CSV content types with versioning, thumbnails, and sharing."}, {"name": "Collections", "description": "Curated groups of assets organized into ordered sections with markdown descriptions. Collections support sharing via public links and user-level permissions."}, {"name": "Knowledge", "description": "Domain knowledge captured during AI sessions. Insights go through an admin review workflow before being written back to the data catalog. Includes insight statistics and governance lifecycle tracking."}, {"name": "Memory", "description": "Persistent memory records accumulated across sessions \u2014 corrections, preferences, business context, and data quality observations. Backed by PostgreSQL with pgvector for semantic search."}, {"name": "Prompts", "description": "Reusable prompt templates with argument placeholders. Users manage personal prompts and browse available global, persona, and system prompts."}, {"name": "Resources", "description": "Human-uploaded reference materials \u2014 SQL templates, runbooks, checklists, and brand assets. Scoped by visibility (global, persona, user) and accessible to AI agents via the MCP resources protocol."}, {"name": "Shares", "description": "Asset and collection sharing via public links (token-based, time-limited) and user shares (email-based with viewer/editor permissions)."}, {"name": "API Keys", "description": "The API keys a person issues for their own account. A key authenticates as its owner and carries the roles they hold, so a client that speaks only bearer tokens reaches the platform as the same identity their signed-in session does. A key value is readable once, at creation."}, {"name": "Audit", "description": "Platform-wide audit log of every tool call. Paginated event queries with filtering, aggregate statistics, performance percentiles, enrichment metrics, and discovery pattern analytics."}, {"name": "Auth Keys", "description": "API key management for programmatic access. Create, list, and revoke keys with role assignment and expiration. Keys from the config file are read-only."}, {"name": "Config", "description": "Platform configuration management. Read the active config, export as YAML, and manage per-key database overrides for whitelisted settings with hot-reload."}, {"name": "Connections", "description": "Toolkit connection management for Trino, S3, API, GraphQL and MCP backends. View file-configured connections, create database-managed instances, and inspect connection details."}, {"name": "Personas", "description": "Role-based access control profiles that determine which tools and connections a user can access. Each persona defines allow/deny patterns, context overrides, and priority-based role mapping."}, {"name": "Calls", "description": "The data-access calls the platform recorded: every query and API invocation with the purpose stated for it, what it addressed, and an outcome derived from what was later built from it. A satisfied record can be promoted, which turns a query into a catalog Query entity and an API call into a saved example on its endpoint."}, {"name": "Sessions", "description": "Sessions read back from the audit log. A session is not a stored row: it is every tool call sharing one session id, so the list reaches as far back as audit retention. One session opens onto the assets and insights it produced and the ordered record of its calls, each with the purpose the agent stated."}, {"name": "Endpoints", "description": "Every endpoint binding on the deployment, a managed script answering HTTP under /endpoints/{name}, with its script and owner, its access and limits, and over a day or a week the requests it answered by status class, their duration, its failures and callers, and the requests it refused before its handler ran. An endpoint is turned on, off and edited through its script's endpoint routes."}, {"name": "Scripts", "description": "Managed-script review and approval. Browse scripts and their version history, read a version alongside the capabilities and connections its source reaches for, and approve a version \u2014 which binds the capability grant it executes under and is the only thing that makes a script executable."}, {"name": "Secrets", "description": "Stored secrets a request references by placeholder: {{secret:<name>}} in an api_invoke_endpoint or api_export request's body, query_params, path_params or headers is filled in as the gateway sends it and redacted from the response. Each secret names the connections it may be sent through and, optionally, the personas that may use it. Values are write-only."}, {"name": "Catalog", "description": "The platform catalog's scan of every connection: how often it runs, the catalogs, schemas and operations each connection keeps out of the catalog, each connection's last scan, and a request to scan now."}, {"name": "Webhooks", "description": "Inbound webhook sources: the addresses external systems post events to at /hooks/{source}. Create, change, rotate the secret of, and delete a source, and read its status: request counts by outcome, when it last received an event, compaction progress, and its recently rejected requests. Secrets are write-only."}, {"name": "Storage", "description": "Storage capacity: every store the platform writes to (the database, the SeaweedFS cluster, each bucket, each replica's webhook spool volume), used and free, its growth over 7 and 30 days and when it would fill, a store's history, and the buckets, reconcile and tables behind them. Its settings are under Settings."}, {"name": "System", "description": "Platform identity, version, runtime feature availability, registered tools, and toolkit connections."}, {"name": "Tools", "description": "Tool schema introspection and interactive execution. Browse JSON schemas for all registered tools and execute tool calls with parameter validation."}, {"name": "Data Catalog", "description": "The platform catalog behind the portal: find and browse datasets, read a dataset with its columns, curation, lineage and history, edit and roll back its curation, and manage the glossary, tags, domains and data products."}, {"name": "Tables", "description": "Query-engine tables registered against a managed resource or a portal asset, so a file's contents can be queried through the platform's SQL surface."}, {"name": "Gateway", "description": "The API gateway data plane: call a configured upstream connection over REST, enveloped or streamed. This is what a non-MCP client (NiFi, Airflow, curl) uses in place of the api_invoke_endpoint tool."}, {"name": "APIs", "description": "The caller's view of the API catalogs: browse the connections this identity may reach, read an operation's parameters and schemas, and copy the gateway call."}, {"name": "API Catalogs", "description": "Administration of the OpenAPI documents behind API connections. Register a spec inline, by URL, or by upload, refresh it, and manage its embedding jobs."}, {"name": "Portal", "description": "Portal surfaces that are not asset content: navigation, search, and the pages the web UI is assembled from."}, {"name": "Portal Assets", "description": "Asset operations served to the portal UI: references, attachments, versions, and the managed resources an asset's content points at."}, {"name": "Feedback", "description": "Review threads on assets and knowledge: comments, activity, worklists, sign-off, and capturing a thread's conclusion as an insight."}, {"name": "Notifications", "description": "Email notification preferences, delivery history, and per-user unsubscribe. Mail-server settings live under Settings."}, {"name": "Settings", "description": "Deployment settings an administrator edits at runtime: the mail server and the review-queue alert thresholds."}, {"name": "Users", "description": "The directory of known people, keyed by email. Administrative counterpart to the single-identity User tag."}, {"name": "Access requests", "description": "A signed-in person asking an item's owner for access to an asset, collection or prompt they cannot open, the owner's answer, and how long a request waits."}, {"name": "External users", "description": "Accounts for people outside the organization under an external persona, signed in by an emailed one-time link, and how long their session and links last."}],"x-tagGroups":[{"name": "User API", "tags": ["User", "Access requests", "Activity", "Applications", "Approvals", "API Keys", "APIs", "Assets", "Collections", "Data Catalog", "Feedback", "Gateway", "Knowledge", "Memory", "Portal", "Portal Assets", "Prompts", "Resources", "Shares", "Tables"]}, {"name": "Admin API", "tags": ["Sites", "API Catalogs", "Audit", "Auth Keys", "Calls", "Catalog", "Config", "Connections", "Endpoints", "External users", "Notifications", "Personas", "Scripts", "Secrets", "Sessions", "Settings", "Storage", "System", "Tools", "Users", "Webhooks"]}]}`
+,"tags":[{"name": "User", "description": "Current user identity, roles, persona, and available tools."}, {"name": "Sites", "description": "Static sites and browser pages the platform serves on hostnames of their own: the hostnames the deployment's ingress needs and the certificate that covers them."}, {"name": "Applications", "description": "Applications built on the platform: one record naming an application database schema with its migrations, managed scripts (an endpoint or a form is its script's binding), webhook sources and portal assets, released together as a pinned set. While a part belongs to a released application its release's version is the one that runs and is served. Everyone signed in reads; the owner and administrators edit; administrators release, roll back, export and import."}, {"name": "Approvals", "description": "The Approvals queue: a request for an administrator's decision. A form is served to callers with no session only at a version an administrator approved; its owner files the request, and administrators decide every request, their own included."}, {"name": "Activity", "description": "Personal analytics for the authenticated user's tool usage. Timeseries, breakdowns, and summary statistics scoped to the calling user."}, {"name": "Assets", "description": "AI-generated assets \u2014 dashboards, reports, visualizations, and data exports. Supports HTML, JSX, SVG, Markdown, and CSV content types with versioning, thumbnails, and sharing."}, {"name": "Collections", "description": "Curated groups of assets organized into ordered sections with markdown descriptions. Collections support sharing via public links and user-level permissions."}, {"name": "Knowledge", "description": "Domain knowledge captured during AI sessions. Insights go through an admin review workflow before being written back to the data catalog. Includes insight statistics and governance lifecycle tracking."}, {"name": "Memory", "description": "Persistent memory records accumulated across sessions \u2014 corrections, preferences, business context, and data quality observations. Backed by PostgreSQL with pgvector for semantic search."}, {"name": "Prompts", "description": "Reusable prompt templates with argument placeholders. Users manage personal prompts and browse available global, persona, and system prompts."}, {"name": "Resources", "description": "Human-uploaded reference materials \u2014 SQL templates, runbooks, checklists, and brand assets. Scoped by visibility (global, persona, user) and accessible to AI agents via the MCP resources protocol."}, {"name": "Shares", "description": "Asset and collection sharing via public links (token-based, time-limited) and user shares (email-based with viewer/editor permissions)."}, {"name": "API Keys", "description": "The API keys a person issues for their own account. A key authenticates as its owner and carries the roles they hold, so a client that speaks only bearer tokens reaches the platform as the same identity their signed-in session does. A key value is readable once, at creation."}, {"name": "Audit", "description": "Platform-wide audit log of every tool call. Paginated event queries with filtering, aggregate statistics, performance percentiles, enrichment metrics, and discovery pattern analytics."}, {"name": "Auth Keys", "description": "API key management for programmatic access. Create, list, and revoke keys with role assignment and expiration. Keys from the config file are read-only."}, {"name": "Config", "description": "Platform configuration management. Read the active config, export as YAML, and manage per-key database overrides for whitelisted settings with hot-reload."}, {"name": "Connections", "description": "Toolkit connection management for Trino, S3, API, GraphQL and MCP backends. View file-configured connections, create database-managed instances, and inspect connection details."}, {"name": "Personas", "description": "Role-based access control profiles that determine which tools and connections a user can access. Each persona defines allow/deny patterns, context overrides, and priority-based role mapping."}, {"name": "Calls", "description": "The data-access calls the platform recorded: every query and API invocation with the purpose stated for it, what it addressed, and an outcome derived from what was later built from it. A satisfied record can be promoted, which turns a query into a catalog Query entity and an API call into a saved example on its endpoint."}, {"name": "Sessions", "description": "Sessions read back from the audit log. A session is not a stored row: it is every tool call sharing one session id, so the list reaches as far back as audit retention. One session opens onto the assets and insights it produced and the ordered record of its calls, each with the purpose the agent stated."}, {"name": "Endpoints", "description": "Every endpoint binding on the deployment, a managed script answering HTTP under /endpoints/{name}, with its script and owner, its access and limits, and over a day or a week the requests it answered by status class, their duration, its failures and callers, and the requests it refused before its handler ran. An endpoint is turned on, off and edited through its script's endpoint routes."}, {"name": "Scripts", "description": "Managed-script review and approval. Browse scripts and their version history, read a version alongside the capabilities and connections its source reaches for, and approve a version \u2014 which binds the capability grant it executes under and is the only thing that makes a script executable."}, {"name": "Secrets", "description": "Stored secrets a request references by placeholder: {{secret:<name>}} in an api_invoke_endpoint or api_export request's body, query_params, path_params or headers is filled in as the gateway sends it and redacted from the response. Each secret names the connections it may be sent through and, optionally, the personas that may use it. Values are write-only."}, {"name": "Integrations", "description": "Operations only a deployment's environment knows how to do, handed to a script an administrator chooses: Site routing first, which hands the script every hostname the platform serves for sites and applications. List each operation with its script, its last run and each item's status, list the scripts that define its function, choose or clear its script, and retry it now."}, {"name": "Catalog", "description": "The platform catalog's scan of every connection: how often it runs, the catalogs, schemas and operations each connection keeps out of the catalog, each connection's last scan, and a request to scan now."}, {"name": "Webhooks", "description": "Inbound webhook sources: the addresses external systems post events to at /hooks/{source}. Create, change, rotate the secret of, and delete a source, and read its status: request counts by outcome, when it last received an event, compaction progress, and its recently rejected requests. Secrets are write-only."}, {"name": "Storage", "description": "Storage capacity: every store the platform writes to (the database, the SeaweedFS cluster, each bucket, each replica's webhook spool volume), used and free, its growth over 7 and 30 days and when it would fill, a store's history, and the buckets, reconcile and tables behind them. Its settings are under Settings."}, {"name": "System", "description": "Platform identity, version, runtime feature availability, registered tools, and toolkit connections."}, {"name": "Tools", "description": "Tool schema introspection and interactive execution. Browse JSON schemas for all registered tools and execute tool calls with parameter validation."}, {"name": "Data Catalog", "description": "The platform catalog behind the portal: find and browse datasets, read a dataset with its columns, curation, lineage and history, edit and roll back its curation, and manage the glossary, tags, domains and data products."}, {"name": "Tables", "description": "Query-engine tables registered against a managed resource or a portal asset, so a file's contents can be queried through the platform's SQL surface."}, {"name": "Gateway", "description": "The API gateway data plane: call a configured upstream connection over REST, enveloped or streamed. This is what a non-MCP client (NiFi, Airflow, curl) uses in place of the api_invoke_endpoint tool."}, {"name": "APIs", "description": "The caller's view of the API catalogs: browse the connections this identity may reach, read an operation's parameters and schemas, and copy the gateway call."}, {"name": "API Catalogs", "description": "Administration of the OpenAPI documents behind API connections. Register a spec inline, by URL, or by upload, refresh it, and manage its embedding jobs."}, {"name": "Portal", "description": "Portal surfaces that are not asset content: navigation, search, and the pages the web UI is assembled from."}, {"name": "Portal Assets", "description": "Asset operations served to the portal UI: references, attachments, versions, and the managed resources an asset's content points at."}, {"name": "Feedback", "description": "Review threads on assets and knowledge: comments, activity, worklists, sign-off, and capturing a thread's conclusion as an insight."}, {"name": "Notifications", "description": "Email notification preferences, delivery history, and per-user unsubscribe. Mail-server settings live under Settings."}, {"name": "Settings", "description": "Deployment settings an administrator edits at runtime: the mail server and the review-queue alert thresholds."}, {"name": "Users", "description": "The directory of known people, keyed by email. Administrative counterpart to the single-identity User tag."}, {"name": "Access requests", "description": "A signed-in person asking an item's owner for access to an asset, collection or prompt they cannot open, the owner's answer, and how long a request waits."}, {"name": "External users", "description": "Accounts for people outside the organization under an external persona, signed in by an emailed one-time link, and how long their session and links last."}],"x-tagGroups":[{"name": "User API", "tags": ["User", "Access requests", "Activity", "Applications", "Approvals", "API Keys", "APIs", "Assets", "Collections", "Data Catalog", "Feedback", "Gateway", "Knowledge", "Memory", "Portal", "Portal Assets", "Prompts", "Resources", "Shares", "Tables"]}, {"name": "Admin API", "tags": ["Sites", "API Catalogs", "Audit", "Auth Keys", "Calls", "Catalog", "Config", "Connections", "Endpoints", "External users", "Integrations", "Notifications", "Personas", "Scripts", "Secrets", "Sessions", "Settings", "Storage", "System", "Tools", "Users", "Webhooks"]}]}`
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{

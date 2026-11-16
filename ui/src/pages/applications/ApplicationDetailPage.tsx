@@ -1,6 +1,7 @@
 import { Boxes } from "lucide-react";
 import { useApplication, type Application } from "@/api/portal/hooks/applications";
 import { useApplicationAddresses } from "@/api/portal/hooks/sites";
+import { RoutingCell } from "@/pages/sites/RoutingCell";
 import { PageHeader } from "@/components/patterns/PageHeader";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -81,6 +82,14 @@ function ApplicationFacts({
       {a.connection && <Fact label="Schema" value={`${a.connection} / ${a.schema}`} />}
       {migrations && <Fact label="Migrations" value={String(migrations.applied)} />}
       {addresses.data?.page_origin && <Fact label="Page address" value={addresses.data.page_origin.replace(/^https?:\/\//, "")} />}
+      {addresses.data?.page_origin_routing && (
+        <div className="min-w-0 sm:col-span-2">
+          <dt className="text-xs text-muted-foreground">Page address routing</dt>
+          <dd>
+            <RoutingCell routing={addresses.data.page_origin_routing} />
+          </dd>
+        </div>
+      )}
       {(addresses.data?.domains.length ?? 0) > 0 && <Fact label="Domains" value={addresses.data!.domains.join(", ")} />}
     </dl>
   );

@@ -5,7 +5,11 @@ A script's handlers are what start it, besides someone running it (#2441,
 a connection so the script runs for other people's calls on it: a `policy`
 decides whether a call runs, a `transform` changes what it returns, and a
 `watch` runs the script after it ([Tool-call handlers](call-handlers.md), #2436,
-#2634, #2635):
+#2634, #2635). A seventh, `integration`, is the script an administrator
+chooses for an operation in Admin > Settings > Integrations
+([Integrations](integrations.md), #2659): it is listed among the script's
+handlers and held to its function by the save gate, and it is chosen, changed
+and cleared on the settings page, not with the handler commands:
 
 | Kind | Starts the script | The script defines | Settings | Who adds one |
 |---|---|---|---|---|

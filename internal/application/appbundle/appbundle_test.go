@@ -349,7 +349,7 @@ func bundler(w *world) *Bundler {
 		Blobs:          blobs{w}, Lander: lander{w}, Claims: func(context.Context) resource.Claims { return resource.Claims{} },
 		Scripts: sc, Assets: as, AssetVersions: as, Bucket: "portal", Prefix: "p",
 		Handlers:            w.handlerService(),
-		HasSchemaConnection: func(name string) bool { return name == "orders-prod" },
+		HasSchemaConnection: func(_ context.Context, name string) bool { return name == "orders-prod" },
 		SaveGate:            &gate{w: w}, Recordings: recs{w},
 	})
 }

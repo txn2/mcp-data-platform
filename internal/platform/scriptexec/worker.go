@@ -663,7 +663,7 @@ func (w *worker) processRun(ctx context.Context, run *script.Run, s *slot) error
 		// A cancel requested before this claim -- the worker that held the
 		// run stopped before acting on it -- ends the run here, unexecuted.
 		outcome = attempt{result: script.RunResult{
-			Status: script.RunStatusCanceled, Error: cancelledError(run.CancelRequestedBy),
+			Status: script.RunStatusCanceled, Error: runstate.CanceledError(run.CancelRequestedBy),
 		}}
 	default:
 		outcome = w.cfg.runner.execute(ctx, run, sc, v)

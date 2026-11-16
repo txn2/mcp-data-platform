@@ -17,11 +17,11 @@ export type CallHandlerKind = "policy" | "transform" | "watch";
 /** CALL_HANDLER_KINDS are the tool-call kinds, in the order a connection lists them. */
 export const CALL_HANDLER_KINDS: CallHandlerKind[] = ["policy", "transform", "watch"];
 
-/** HandlerKind is a kind of handler. */
+/** HandlerKind is a kind of handler a person adds to a script. */
 export type HandlerKind = "endpoint" | "schedule" | "webhook" | CallHandlerKind;
 
 /** HandlerType is what a list filters and badges by: a kind, or form. */
-export type HandlerType = "endpoint" | "form" | "schedule" | "webhook" | CallHandlerKind;
+export type HandlerType = "endpoint" | "form" | "schedule" | "webhook" | CallHandlerKind | "integration";
 
 /** HANDLER_TYPE_LABELS name each type as the portal shows it. */
 export const HANDLER_TYPE_LABELS: Record<HandlerType, string> = {
@@ -32,6 +32,7 @@ export const HANDLER_TYPE_LABELS: Record<HandlerType, string> = {
   policy: "Policy",
   transform: "Transform",
   watch: "Watch",
+  integration: "Integration",
 };
 
 /** isCallHandlerKind reports whether a kind is a tool-call handler's. */
@@ -42,7 +43,8 @@ export function isCallHandlerKind(kind: string): kind is CallHandlerKind {
 /** HandlerDetail is one handler as its kind describes it. */
 export interface HandlerDetail extends Record<string, unknown> {
   handler: string;
-  kind: HandlerKind;
+  /** integration is an operation's script, chosen in Admin > Settings > Integrations (#2659), never added here. */
+  kind: HandlerKind | "integration";
   type: HandlerType;
   /** name is the script's name. */
   name: string;
@@ -71,7 +73,7 @@ export interface ScriptHandlers {
 /** HandlerRow is one handler as Admin > Handlers lists it. */
 export interface HandlerRow {
   id: string;
-  kind: HandlerKind;
+  kind: HandlerKind | "integration";
   type: HandlerType;
   script_id: string;
   script_name: string;

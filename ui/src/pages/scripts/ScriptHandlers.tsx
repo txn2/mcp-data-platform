@@ -270,7 +270,7 @@ function HandlerItem({
       {open && (
         <div className="space-y-4 border-t px-3 py-3">
           <HandlerPanel scriptId={scriptId} contract={contract} handler={handler} />
-          <DeleteHandler handler={handler} />
+          {handler.kind !== "integration" && <DeleteHandler handler={handler} />}
         </div>
       )}
     </li>
@@ -280,15 +280,32 @@ function HandlerItem({
 // handlerTarget is what a handler answers to, in words.
 export function handlerTarget(h: HandlerDetail): string {
   if (isCallHandlerKind(h.kind)) return `${String(h.connection ?? "")} · ${operationsText(h as CallHandlerDetail)}`;
-  switch (h.kind) {
-    case "endpoint":
-      return `/endpoints/${String(h.endpoint ?? "")}${String(h.path ?? "")}`;
-    case "schedule":
-      return scheduleHeadline(scheduleOf(h)).replace(/^(Runs|Paused): /, "");
-    case "webhook":
-      return `Each event of ${String(h.event_source ?? "")}`;
-  }
-  return "";
+  return TARGETS[h.kind]?.(h) ?? "";
+}
+
+// TARGETS is what each other kind answers to.
+const TARGETS: Partial<Record<HandlerDetail["kind"], (h: HandlerDetail) => string>> = {
+  endpoint: (h) => `/endpoints/${String(h.endpoint ?? "")}${String(h.path ?? "")}`,
+  schedule: (h) => scheduleHeadline(scheduleOf(h)).replace(/^(Runs|Paused): /, ""),
+  webhook: (h) => `Each event of ${String(h.event_source ?? "")}`,
+  integration: (h) => INTEGRATION_LABELS[String(h.operation ?? "")] ?? String(h.operation ?? ""),
+};
+
+// INTEGRATION_LABELS name each integration's operation (#2659).
+const INTEGRATION_LABELS: Record<string, string> = { site_routing: "Site routing" };
+
+// IntegrationHandler is an operation's script (#2659): chosen, changed and
+// cleared in Admin > Settings > Integrations, not here.
+function IntegrationHandler() {
+  return (
+    <p className="text-sm text-muted-foreground">
+      An administrator chose this script for the operation. It is changed and cleared in{" "}
+      <a className="text-primary underline-offset-4 hover:underline" href="/portal/admin/settings/integrations">
+        Admin &gt; Settings &gt; Integrations
+      </a>
+      , and a version that stops defining its function is not saved.
+    </p>
+  );
 }
 
 function HandlerPanel({
@@ -311,6 +328,8 @@ function HandlerPanel({
     case "transform":
     case "watch":
       return <CallHandlerPanel handler={handler as CallHandlerDetail} contract={contract} />;
+    case "integration":
+      return <IntegrationHandler />;
   }
 }
 

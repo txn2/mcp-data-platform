@@ -253,12 +253,13 @@ func (w *Worker) drawSite(ctx context.Context, s sitetile.Work) error {
 		return unreadable(err)
 	}
 	png, err := w.render(ctx, page)
-	if errors.Is(err, errTileTooLarge) {
-		w.failSite(ctx, s, err.Error())
+	if why, unfinished := renderOutcome(ctx, err); unfinished != nil {
+		return unfinished
+	} else if why != "" {
+		// A page that did not finish drawing by the deadline is the
+		// release's, recorded on this attempt (#2664).
+		w.failSite(ctx, s, why)
 		return nil
-	}
-	if err != nil {
-		return err
 	}
 	key := sitetile.Key(w.deps.CollectionPrefix, s.SiteID, s.Environment, s.Release)
 	sctx, cancel := context.WithTimeout(ctx, storageTimeout)

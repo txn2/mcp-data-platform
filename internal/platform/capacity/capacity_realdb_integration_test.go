@@ -119,6 +119,46 @@ func TestScan_RealDB(t *testing.T) {
 // past the reclaim age is deleted and reported reclaimed, while a soft-deleted
 // asset's object, an object a version row names, an orphan younger than the
 // reclaim age and a tile beside a referenced resource stay.
+// walkThen is a walker that runs during once, before it lists anything: a
+// writer working while the listing runs.
+type walkThen struct {
+	fakeWalker
+	during func()
+}
+
+func (w walkThen) Walk(ctx context.Context, bucket, prefix string, fn func(s3adapter.WalkedObject) error) error {
+	if w.during != nil {
+		w.during()
+	}
+	return w.fakeWalker.Walk(ctx, bucket, prefix, fn)
+}
+
+// TestScan_ARowRemovedDuringTheListing_RealDB pins #2663 on the real schema:
+// a resource version replaced while the listing runs (its row and object
+// removed after the references were read) is not dangling; a row whose object
+// is missing still is.
+func TestScan_ARowRemovedDuringTheListing_RealDB(t *testing.T) {
+	db := testdb.New(t)
+	ctx := context.Background()
+	_, err := db.ExecContext(ctx, `INSERT INTO resources (id, scope, scope_id, path, filename, display_name, description, mime_type, size_bytes, s3_key, uri, uploader_sub, uploader_email)
+		VALUES ('res_replaced', 'global', NULL, 'p', 'f.csv', 'f', '', 'text/csv', 4, 'resources/global/global/res_replaced/f.csv', 'mcp://global/p/f.csv', 'u', 'u@example.com'),
+		       ('res_lost', 'global', NULL, 'q', 'g.csv', 'g', '', 'text/csv', 4, 'resources/global/global/res_lost/g.csv', 'mcp://global/q/g.csv', 'u', 'u@example.com')`)
+	require.NoError(t, err)
+
+	walker := walkThen{
+		fakeWalker: fakeWalker{objects: map[string][]s3adapter.WalkedObject{"r": {}}},
+		during: func() {
+			_, err := db.ExecContext(ctx, `DELETE FROM resources WHERE id = 'res_replaced'`)
+			require.NoError(t, err)
+		},
+	}
+	s := &Scanner{DB: db, Layout: Layout{ResourceBucket: "r"}, Walkers: map[string]Walker{"r": walker}}
+	res, err := s.Scan(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), res.Dangling[observability.StoragePurposeResources],
+		"the row removed during the listing is not dangling; the row whose object is lost is")
+}
+
 func TestReclaim_RealDB(t *testing.T) {
 	db := testdb.New(t)
 	ctx := context.Background()

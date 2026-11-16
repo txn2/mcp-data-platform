@@ -22,10 +22,12 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/txn2/mcp-data-platform/internal/egressguard"
+	"github.com/txn2/mcp-data-platform/internal/headless/headlesstest"
 )
 
-// rendererImage is the renderer the platform documents, pinned by digest.
-const rendererImage = "chromedp/headless-shell@sha256:2d349b544a1ea6b5b5fd7c0fe99215ff662339c57407ee2e8c0a11af93516b04"
+// rendererImage is the renderer the platform documents, pinned by digest in
+// one place.
+const rendererImage = headlesstest.Image
 
 // protectionOff switches off the browser's own private-network protection.
 // With it on, the browser refuses a request to a private address by itself,

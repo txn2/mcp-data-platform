@@ -12,11 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
-
 	"github.com/txn2/mcp-data-platform/internal/contentviewer"
 	"github.com/txn2/mcp-data-platform/internal/headless"
+	"github.com/txn2/mcp-data-platform/internal/headless/headlesstest"
 )
 
 // The tile page is the only place the PDF family is drawn, and the thing that
@@ -34,32 +32,6 @@ import (
 // test-realdb` runs integration-tagged tests by, and a test CI never runs is a
 // test that did not run (test/structure/integration_guard_test.go). These need
 // only testcontainers, which that lane has.
-
-// rendererImage is the renderer the platform documents, pinned by digest, as
-// internal/headless's own integration tests pin it.
-const rendererImage = "chromedp/headless-shell@sha256:2d349b544a1ea6b5b5fd7c0fe99215ff662339c57407ee2e8c0a11af93516b04"
-
-func startRenderer(t *testing.T) string {
-	t.Helper()
-	ctx := context.Background()
-	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        rendererImage,
-			ExposedPorts: []string{"9222/tcp"},
-			WaitingFor:   wait.ForHTTP("/json/version").WithPort("9222/tcp").WithStartupTimeout(60 * time.Second),
-		},
-		Started: true,
-	})
-	if err != nil {
-		t.Fatalf("starting the renderer: %v", err)
-	}
-	t.Cleanup(func() { _ = c.Terminate(context.Background()) })
-	endpoint, err := c.PortEndpoint(ctx, "9222/tcp", "http")
-	if err != nil {
-		t.Fatalf("renderer endpoint: %v", err)
-	}
-	return endpoint
-}
 
 // pdfWorker is a worker wired with just enough to build a tile page: the
 // embedded tile entry and stylesheet, and the viewer's chunks as the routes
@@ -89,7 +61,7 @@ func TestPDFTileIsDrawnInTheRenderer_RealDB(t *testing.T) {
 	if contentviewer.TileEntryURL() == "" {
 		t.Skip("no viewer bundle embedded; run make content-viewer-embed")
 	}
-	r := headless.New(startRenderer(t), nil)
+	r := headless.New(headlesstest.Start(t), nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
@@ -118,7 +90,7 @@ func TestPDFTileRefusesADocumentItCannotRead_RealDB(t *testing.T) {
 	if contentviewer.TileEntryURL() == "" {
 		t.Skip("no viewer bundle embedded; run make content-viewer-embed")
 	}
-	r := headless.New(startRenderer(t), nil)
+	r := headless.New(headlesstest.Start(t), nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 

@@ -13,6 +13,8 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/integration"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/approval"
@@ -61,6 +63,12 @@ type Endpoints struct {
 	// Sites is the static sites and pages feature (#2517, #2518), nil where
 	// it cannot run.
 	Sites *sitewire.Runtime
+	// Integrations binds operations to scripts (#2659), nil where they
+	// cannot run.
+	Integrations *integration.Service
+	// IntegrationRuns runs the integrations' passes, started and stopped with
+	// the endpoints.
+	IntegrationRuns *integration.Runtime
 	// Handler is the HTTP surface, set when its routes are mounted; an
 	// application's page origin answers through it.
 	Handler *ephttp.Handler
@@ -167,7 +175,11 @@ func libraries(scripts *scriptstore.Store, sources *scriptsrc.Reader) func(conte
 // Start runs what runs in the background: the refusal counts' flush loop.
 // Nil-safe.
 func (e *Endpoints) Start(ctx context.Context) error {
-	if e == nil || e.Refusals == nil {
+	if e == nil {
+		return nil
+	}
+	_ = e.IntegrationRuns.Start(ctx)
+	if e.Refusals == nil {
 		return nil
 	}
 	return e.Refusals.Start(ctx) //nolint:wrapcheck // never fails
@@ -175,7 +187,11 @@ func (e *Endpoints) Start(ctx context.Context) error {
 
 // Stop ends it, adding what is still counted. Nil-safe.
 func (e *Endpoints) Stop(ctx context.Context) error {
-	if e == nil || e.Refusals == nil {
+	if e == nil {
+		return nil
+	}
+	_ = e.IntegrationRuns.Stop(ctx)
+	if e.Refusals == nil {
 		return nil
 	}
 	return e.Refusals.Stop(ctx) //nolint:wrapcheck // never fails

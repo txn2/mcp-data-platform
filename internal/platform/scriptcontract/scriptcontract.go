@@ -727,10 +727,10 @@ FORMS
   src="mcp:form:contact"></iframe>; the form is handed the page's query.
 
 LIBRARIES
-  A library is a script with neither main() nor handle(): pure code other scripts load, so the
+  A library defines no main(), handle(), form_spec() or route(): code other scripts load, so the
   pagination, date windows and table shaping many scripts share are written
-  once. Create it with manage_script create like any script; with no main()
-  and no handle() it is saved as a library. It is held to the same gates (format, lint,
+  once. Create it with manage_script create like any script; with none of
+  those functions it is saved as a library. It is held to the same gates (format, lint,
   tests, coverage) and its tests call its functions directly:
       def last_week(day):
           """The seven days before day, as {"from": ..., "to": ...}."""

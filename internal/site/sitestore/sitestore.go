@@ -150,7 +150,9 @@ func (s *Store) environments(ctx context.Context, siteID string) ([]site.Environ
 		       (SELECT COUNT(*) FROM (`+windowOf+`) w
 		          JOIN site_releases r ON r.site_id = e.site_id AND r.number = w.to_release AND r.pruned_at IS NULL),
 		       COALESCE((SELECT array_agg(d.hostname ORDER BY d.hostname) FROM site_domains d
-		                  WHERE d.site_id = e.site_id AND d.environment = e.name AND d.public), '{}')
+		                  WHERE d.site_id = e.site_id AND d.environment = e.name AND d.public), '{}'),
+		       COALESCE((SELECT t.failure FROM site_tiles t
+		                  WHERE t.site_id = e.site_id AND t.environment = e.name AND t.drawn_release = e.release_number), '')
 		  FROM site_environments e WHERE e.site_id = $1 ORDER BY e.position, e.name`, siteID, s.keepDefault())
 	if err != nil {
 		return nil, fmt.Errorf("list environments: %w", err)
@@ -164,7 +166,7 @@ func (s *Store) environments(ctx context.Context, siteID string) ([]site.Environ
 		var backAt, changedAt sql.NullTime
 		if err := rows.Scan(&e.Name, &e.Release, &e.RequiresApproval, &e.InternalView, &e.UpdatedBy, &e.UpdatedAt,
 			&keep, &e.Status, &e.StatusMessage, &backAt, &e.RedirectTo, &e.RedirectKeepPath,
-			&e.StatusChangedBy, &changedAt, &e.AgentsMayPromote, &e.Kept, pq.Array(&e.PublicDomains)); err != nil {
+			&e.StatusChangedBy, &changedAt, &e.AgentsMayPromote, &e.Kept, pq.Array(&e.PublicDomains), &e.TileFailure); err != nil {
 			return nil, fmt.Errorf("read environment: %w", err)
 		}
 		e.BackAt, e.StatusChangedAt = timePtr(backAt), timePtr(changedAt)

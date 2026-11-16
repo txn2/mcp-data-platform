@@ -59,12 +59,8 @@ func (w *Worker) drawVariants(ctx context.Context, t target, variants []string) 
 			return stored, why, nil
 		}
 		png, err := w.render(ctx, w.tilePage(src))
-		if retry, why := outcome(err); retry || why != "" {
-			if retry {
-				return stored, "", err
-			}
-			recordDocumentFailure(ctx)
-			return stored, why, nil
+		if why, unfinished := renderOutcome(ctx, err); why != "" || unfinished != nil {
+			return stored, why, unfinished
 		}
 		key := t.keyFor(v)
 		sctx, cancel := context.WithTimeout(ctx, storageTimeout)
@@ -330,10 +326,8 @@ var errNoMemberTile = errors.New("none of the member tiles its mosaic is compose
 // did not finish.
 func (w *Worker) storeMosaic(ctx context.Context, id, variant string, tiles [][]byte) (reason string, unfinished error) {
 	png, err := w.render(ctx, mosaicPage(tiles))
-	if retry, why := outcome(err); retry {
-		return "", err
-	} else if why != "" {
-		return why, nil
+	if why, unfinished := renderOutcome(ctx, err); why != "" || unfinished != nil {
+		return why, unfinished
 	}
 	key := portaldomain.CollectionThumbnailKey(w.deps.CollectionPrefix, id, variant)
 	sctx, cancel := context.WithTimeout(ctx, storageTimeout)

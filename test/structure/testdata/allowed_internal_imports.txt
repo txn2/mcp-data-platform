@@ -74,6 +74,11 @@ internal/admin/graphqlapi -> pkg/toolkits/graphql
 internal/admin/insightobs -> internal/tableavail
 internal/admin/insightobs -> pkg/query
 internal/admin/insightobs -> pkg/toolkits/knowledge
+internal/admin/integrationapi -> internal/httpjson
+internal/admin/integrationapi -> internal/logsan
+internal/admin/integrationapi -> internal/platform/integration
+internal/admin/integrationapi -> pkg/audit
+internal/admin/integrationapi -> pkg/middleware
 internal/admin/mapsapi -> internal/httpjson
 internal/admin/mapsapi -> internal/logsan
 internal/admin/mapsapi -> internal/maps
@@ -172,6 +177,7 @@ internal/application/appbundle -> pkg/toolkit
 internal/application/appbundle -> pkg/toolkits/postgres
 internal/application/appdiagram -> internal/application
 internal/application/appdiagram -> internal/platform/scriptflow
+internal/application/appdiagram -> internal/platform/scriptflow/sqlread
 internal/application/appdiagram -> internal/platform/scriptlib
 internal/application/appdiagram -> internal/webhook/whsource
 internal/application/appdiagram -> pkg/script
@@ -202,6 +208,7 @@ internal/application/appsvc -> internal/application/appschema
 internal/application/appsvc -> internal/logsan
 internal/application/appsvc -> internal/platform/scriptevents
 internal/application/appsvc -> internal/platform/scriptflow
+internal/application/appsvc -> internal/platform/scriptflow/sqlread
 internal/application/appsvc -> internal/portal/portaldomain
 internal/application/appsvc -> pkg/script
 internal/application/apptool -> internal/application
@@ -217,6 +224,7 @@ internal/application/appwire -> internal/application/appstore
 internal/application/appwire -> internal/application/appsvc
 internal/application/appwire -> internal/application/apptool
 internal/application/appwire -> internal/endpoint/epstore
+internal/application/appwire -> internal/pglex
 internal/application/appwire -> internal/platform/migrationstore
 internal/application/appwire -> internal/platform/scriptevents
 internal/application/appwire -> internal/platform/scripthandler
@@ -357,6 +365,7 @@ internal/endpoint/epwire -> internal/endpoint/eprefusal
 internal/endpoint/epwire -> internal/endpoint/eprun
 internal/endpoint/epwire -> internal/endpoint/epstore
 internal/endpoint/epwire -> internal/platform/callrun
+internal/endpoint/epwire -> internal/platform/integration
 internal/endpoint/epwire -> internal/platform/scriptlib
 internal/endpoint/epwire -> internal/platform/scriptres
 internal/endpoint/epwire -> internal/platform/scriptrun
@@ -404,6 +413,7 @@ internal/httpserver -> internal/httpserver/generalfeedbackwire
 internal/httpserver -> internal/httpserver/health
 internal/httpserver -> internal/httpserver/httpauth
 internal/httpserver -> internal/httpserver/instanceheader
+internal/httpserver -> internal/httpserver/integrationwire
 internal/httpserver -> internal/httpserver/mapwire
 internal/httpserver -> internal/httpserver/mentionhttp
 internal/httpserver -> internal/httpserver/notifywire
@@ -685,6 +695,10 @@ internal/httpserver/httpauth -> pkg/admin
 internal/httpserver/httpauth -> pkg/auth
 internal/httpserver/httpauth -> pkg/middleware
 internal/httpserver/httpauth -> pkg/persona
+internal/httpserver/integrationwire -> internal/admin/integrationapi
+internal/httpserver/integrationwire -> internal/platform/integration
+internal/httpserver/integrationwire -> pkg/admin
+internal/httpserver/integrationwire -> pkg/platform
 internal/httpserver/maphttp -> internal/httpjson
 internal/httpserver/maphttp -> internal/logsan
 internal/httpserver/maphttp -> internal/maps
@@ -1248,6 +1262,19 @@ internal/platform/indexqueue -> pkg/toolkits/apigateway/catalog
 internal/platform/indexqueue -> pkg/toolkits/apigateway/catalogindex
 internal/platform/indexqueue -> pkg/toolkits/graphql
 internal/platform/indexqueue -> pkg/toolkits/tools/toolsindex
+internal/platform/integration -> internal/advisorylock
+internal/platform/integration -> internal/approval
+internal/platform/integration -> internal/bgloop
+internal/platform/integration -> internal/logsan
+internal/platform/integration -> internal/pglisten
+internal/platform/integration -> internal/platform/scriptdialect
+internal/platform/integration -> internal/platform/scriptrun
+internal/platform/integration -> internal/platform/scriptstore
+internal/platform/integration -> internal/platform/starlarkconv
+internal/platform/integration -> internal/runstate
+internal/platform/integration -> internal/untrusted
+internal/platform/integration -> pkg/script
+internal/platform/integration -> pkg/session
 internal/platform/knowledgebuiltin -> internal/logsan
 internal/platform/knowledgebuiltin -> internal/maps
 internal/platform/knowledgebuiltin -> internal/platform/scriptexamples
@@ -1540,6 +1567,7 @@ internal/platform/scriptexec -> internal/notification/notifychannel
 internal/platform/scriptexec -> internal/notification/notifyprefs
 internal/platform/scriptexec -> internal/notification/notifyqueue
 internal/platform/scriptexec -> internal/pglisten
+internal/platform/scriptexec -> internal/platform/integration
 internal/platform/scriptexec -> internal/platform/scriptadmit
 internal/platform/scriptexec -> internal/platform/scriptalert
 internal/platform/scriptexec -> internal/platform/scriptguard
@@ -1572,15 +1600,16 @@ internal/platform/scriptexec -> pkg/toolkit
 internal/platform/scriptfail -> internal/platform/scriptguard
 internal/platform/scriptfail -> internal/platform/scriptsession
 internal/platform/scriptflow -> internal/platform/scriptdialect
+internal/platform/scriptflow -> internal/platform/scriptflow/sqlread
 internal/platform/scriptflow -> internal/platform/scriptflow/stmtlookup
 internal/platform/scriptflow -> internal/platform/scriptlib
 internal/platform/scriptflow -> internal/platform/scriptrun
 internal/platform/scriptflow -> internal/scriptconst
-internal/platform/scriptflow -> internal/sqltables
 internal/platform/scriptflow/flowcompare -> internal/platform/scriptflow
 internal/platform/scriptflow/flowrun -> internal/platform/scriptflow
 internal/platform/scriptflow/flowrun -> internal/scriptcallsite
 internal/platform/scriptflow/flowrun -> pkg/script
+internal/platform/scriptflow/sqlread -> internal/sqltables
 internal/platform/scriptfmt -> internal/platform/scriptdialect
 internal/platform/scriptgrant -> pkg/script
 internal/platform/scriptguard -> internal/runstate
@@ -1591,6 +1620,7 @@ internal/platform/scripthandler -> internal/endpoint/epcmd
 internal/platform/scripthandler -> internal/endpoint/epform
 internal/platform/scripthandler -> internal/logsan
 internal/platform/scripthandler -> internal/platform/callhandler
+internal/platform/scripthandler -> internal/platform/integration
 internal/platform/scripthandler -> internal/platform/scriptevents
 internal/platform/scripthandler -> internal/platform/scriptevents/sourcerule
 internal/platform/scripthandler -> internal/platform/scriptsave
@@ -1796,6 +1826,7 @@ internal/platform/scriptwiring -> internal/logsan
 internal/platform/scriptwiring -> internal/platform/callhandler
 internal/platform/scriptwiring -> internal/platform/callrun
 internal/platform/scriptwiring -> internal/platform/catalogstore
+internal/platform/scriptwiring -> internal/platform/integration
 internal/platform/scriptwiring -> internal/platform/resourcewrite
 internal/platform/scriptwiring -> internal/platform/scriptadmit
 internal/platform/scriptwiring -> internal/platform/scriptbgdraft
@@ -1813,7 +1844,9 @@ internal/platform/scriptwiring -> internal/platform/scriptstore
 internal/platform/scriptwiring -> internal/platform/sqllineage
 internal/platform/scriptwiring -> internal/scripttoken
 internal/platform/scriptwiring -> internal/secretstore
+internal/platform/scriptwiring -> internal/site
 internal/platform/scriptwiring -> internal/site/siteconfig
+internal/platform/scriptwiring -> internal/site/siterouting
 internal/platform/scriptwiring -> internal/site/sitesvc
 internal/platform/scriptwiring -> internal/site/sitetool
 internal/platform/scriptwiring -> internal/site/sitewire
@@ -1946,6 +1979,7 @@ internal/platform/toolkitcfg -> internal/secretref
 internal/platform/toolkitcfg -> pkg/platform/fieldcrypt
 internal/platform/toolkitwire -> internal/application
 internal/platform/toolkitwire -> internal/application/apprunrole
+internal/platform/toolkitwire -> internal/platform/connrecords
 internal/platform/toolkitwire -> internal/platform/migrationstore
 internal/platform/toolkitwire -> internal/platform/scriptrefs
 internal/platform/toolkitwire -> internal/platform/scriptsession
@@ -2140,6 +2174,10 @@ internal/site/siteprune -> internal/site/siteconfig
 internal/site/siteprune -> internal/site/sitestore
 internal/site/siteprune -> internal/site/sitesvc
 internal/site/siteprune -> pkg/portal/s3adapter
+internal/site/siterouting -> internal/application
+internal/site/siterouting -> internal/logsan
+internal/site/siterouting -> internal/platform/integration
+internal/site/siterouting -> internal/site
 internal/site/sitestatus -> internal/site
 internal/site/sitestatus -> internal/untrusted
 internal/site/sitestore -> internal/site
@@ -2163,6 +2201,7 @@ internal/site/sitetool -> internal/logsan
 internal/site/sitetool -> internal/site
 internal/site/sitetool -> internal/site/sitecrawl
 internal/site/sitetool -> internal/site/siteenv
+internal/site/sitetool -> internal/site/siterouting
 internal/site/sitetool -> internal/site/sitesvc
 internal/site/sitetool -> internal/site/sitetraffic
 internal/site/sitetool -> internal/wirejson
@@ -2188,6 +2227,7 @@ internal/site/sitewire -> internal/site/siteconfig
 internal/site/sitewire -> internal/site/sitecrawl
 internal/site/sitewire -> internal/site/sitegw
 internal/site/sitewire -> internal/site/siteprune
+internal/site/sitewire -> internal/site/siterouting
 internal/site/sitewire -> internal/site/sitestore
 internal/site/sitewire -> internal/site/sitesvc
 internal/site/sitewire -> internal/site/sitetile
@@ -2914,6 +2954,7 @@ pkg/toolkits/postgres -> internal/advisorylock
 pkg/toolkits/postgres -> internal/apigwtls
 pkg/toolkits/postgres -> internal/bgloop
 pkg/toolkits/postgres -> internal/cfgmap
+pkg/toolkits/postgres -> internal/conncatchup
 pkg/toolkits/postgres -> internal/connprobe
 pkg/toolkits/postgres -> internal/connstate
 pkg/toolkits/postgres -> internal/logsan

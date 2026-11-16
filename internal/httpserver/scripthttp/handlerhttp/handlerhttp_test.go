@@ -179,7 +179,7 @@ func TestList_AScriptsHandlersAndWhatAddingOneOffers(t *testing.T) {
 	assert.InDelta(t, scripthandler.MaxPerKind, empty["max_per_kind"], 0)
 	assert.Equal(t, []any{"form-daily"}, empty["sources"], "the owner is offered their own form's source")
 	offers, _ := empty["add"].([]any)
-	require.Len(t, offers, len(scripthandler.Kinds()))
+	require.Len(t, offers, len(scripthandler.Kinds())-1, "every kind but integration, which is chosen in Settings")
 	endpointOffer, _ := offers[0].(map[string]any)
 	assert.Equal(t, false, endpointOffer["allowed"])
 	assert.Contains(t, empty, "endpoint", "what adding an endpoint offers")

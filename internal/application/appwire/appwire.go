@@ -193,10 +193,12 @@ func Live(reg *registry.Registry) *postgreskit.Toolkit {
 	return nil
 }
 
-func hasConnection(reg *registry.Registry) func(name string) bool {
-	return func(name string) bool {
+// hasConnection reports whether name is an application database connection,
+// one another replica saved a moment ago included (#2662).
+func hasConnection(reg *registry.Registry) func(ctx context.Context, name string) bool {
+	return func(ctx context.Context, name string) bool {
 		pg := Live(reg)
-		return pg != nil && pg.HasConnection(name)
+		return pg != nil && pg.ServesConnection(ctx, name)
 	}
 }
 

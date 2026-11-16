@@ -12,6 +12,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/bgloop"
+	"github.com/txn2/mcp-data-platform/internal/platform/integration"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptincident"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
@@ -141,6 +142,10 @@ func (r *runner) execute(ctx context.Context, run *script.Run, sc *script.Script
 	opts.Event = run.Event
 	// The call a watch run was queued for (#2635).
 	opts.Call = run.Call
+	finish, err := integration.Prepare(run.Trigger, &opts) // an integration's run calls its operation's function (#2659)
+	if err != nil {
+		return *terminal(err.Error(), runstate.CausePlatform)
+	}
 	opts.Caller = caller
 	opts.Tokens = r.tokens.Bind(scripttoken.Binding{ScriptID: sc.ID}, v.AuthorRoles)
 	opts.Destinations = r.destinations
@@ -177,11 +182,12 @@ func (r *runner) execute(ctx context.Context, run *script.Run, sc *script.Script
 		reads.Record(ctx, sc.ID, sc.OwnerEmail, result.Exports)
 	}
 	outcome := attemptFrom(result, runErr)
+	finish(&outcome.result)
 	// A run stopped on request ends canceled, not failed. One that reported
 	// success as the request landed finished, and the request decided nothing.
 	if rep.canceled && outcome.result.Status != script.RunStatusSucceeded {
 		outcome.result.Status = script.RunStatusCanceled
-		outcome.result.Error = cancelledError(rep.by)
+		outcome.result.Error = runstate.CanceledError(rep.by)
 	}
 	r.recordAudit(ctx, run, sc, v, outcome.result)
 	return outcome
@@ -202,14 +208,6 @@ func (r *runner) record(opts *scriptrun.Options) *scriptrec.Recorder {
 	opts.OnCall = rec.OnCall
 	opts.Exporter = rec.Exporter(opts.Exporter)
 	return rec
-}
-
-// cancelledError is the error a canceled run records.
-func cancelledError(by string) string {
-	if by == "" {
-		return "canceled on request"
-	}
-	return "canceled by " + by
 }
 
 // reporter writes one running run's progress and log to its row every

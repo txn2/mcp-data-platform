@@ -11,6 +11,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/connrecords"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
@@ -51,7 +52,7 @@ func TestPostgresGuardNeedsAPlatformDatabase(t *testing.T) {
 	t.Cleanup(func() { _ = pg.Close() })
 	// No database: nothing to protect, nothing installed, and a save is not
 	// asked to reach its database.
-	PostgresGuard([]registry.Toolkit{pg}, nil, nil)
+	PostgresGuard([]registry.Toolkit{pg}, nil, nil, nil)
 	if err := pg.ValidateConnection("c", map[string]any{"host": "127.0.0.1", "port": 9, "database": "d", "user": "u", "sslmode": "disable"}); err != nil {
 		t.Fatalf("validate without a guard: %v", err)
 	}
@@ -61,8 +62,27 @@ func TestPostgresGuardNeedsAPlatformDatabase(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	assert.Empty(t, pg.Tools(), "no store, no manage_schema")
-	PostgresGuard([]registry.Toolkit{&recording{}, pg}, db, nil)
+	PostgresGuard([]registry.Toolkit{&recording{}, pg}, db, nil, nil)
 	assert.Equal(t, []string{postgreskit.SchemaToolName}, pg.Tools(), "the store is installed with the guard (#2404)")
+	assert.False(t, scriptsessionServes(pg, "shop"), "no connection store installed")
+
+	PostgresGuard([]registry.Toolkit{pg}, db, nil, func(string, error) connrecords.Reader { return savedOne{"shop"} })
+	assert.True(t, scriptsessionServes(pg, "shop"), "a connection another replica saved is served once the store is installed (#2662)")
+}
+
+// savedOne is a connection store holding one appdb connection.
+type savedOne struct{ name string }
+
+func (s savedOne) GetConnection(_ context.Context, name string) (map[string]any, error) {
+	if name != s.name {
+		return nil, postgreskit.ErrConnectionNotFound
+	}
+	return map[string]any{"host": "127.0.0.1", "port": 9, "database": "d", "user": "u", "sslmode": "disable"}, nil
+}
+
+// scriptsessionServes is the session runner's question about a connection.
+func scriptsessionServes(pg *postgreskit.Toolkit, name string) bool {
+	return appdbRunner{Toolkit: pg}.ServesConnection(context.Background(), name)
 }
 
 // The session runner hands the toolkit's transaction back as the session's
@@ -70,12 +90,12 @@ func TestPostgresGuardNeedsAPlatformDatabase(t *testing.T) {
 func TestAppDBRunnerBegin(t *testing.T) {
 	pg := postgreskit.NewMulti(postgreskit.MultiConfig{DefaultName: "x"})
 	t.Cleanup(func() { _ = pg.Close() })
-	_, err := appdbRunner{pg}.Begin(context.Background(), postgreskit.TxOptions{Connection: "nope"})
+	_, err := appdbRunner{Toolkit: pg}.Begin(context.Background(), postgreskit.TxOptions{Connection: "nope"})
 	var refused *postgreskit.RefusedError
 	require.ErrorAs(t, err, &refused)
 	assert.Equal(t, postgreskit.CodeUnknownConnection, refused.Code)
 
-	_, err = appdbRunner{pg}.OpenCursor(context.Background(), postgreskit.Statement{Connection: "nope", SQL: "SELECT 1"}, 10)
+	_, err = appdbRunner{Toolkit: pg}.OpenCursor(context.Background(), postgreskit.Statement{Connection: "nope", SQL: "SELECT 1"}, 10)
 	require.ErrorAs(t, err, &refused, "a cursor on an unknown connection is refused as the toolkit refuses it")
 	_, err = appdbTx{&postgreskit.Tx{}}.OpenCursor(context.Background(), postgreskit.Statement{}, 10)
 	require.ErrorAs(t, err, &refused, "an empty statement is refused before the transaction is touched")
@@ -168,4 +188,38 @@ func TestAppDB_ATestDatabaseNeedsTheTestServerToo(t *testing.T) {
 	ctx := middleware.WithPreAuthenticatedUser(context.Background(), &middleware.UserInfo{Roles: []string{"dp_builder"}})
 	err := scriptsession.NewTestDatabases(ctx).Open("shop", nil)
 	assert.ErrorContains(t, err, `"scratch" is not allowed for this run`)
+}
+
+// holding is a toolkit of another kind serving one connection.
+type holding struct {
+	recording
+	name string
+}
+
+func (h *holding) HasConnection(name string) bool { return name == h.name }
+
+// countingStore counts the reads a catch-up makes.
+type countingStore struct{ reads int }
+
+func (s *countingStore) GetConnection(context.Context, string) (map[string]any, error) {
+	s.reads++
+	return nil, postgreskit.ErrConnectionNotFound
+}
+
+// TestAppDBRunner_AnotherKindsNameReadsNoStore pins #2662's hot path: a
+// script's platform.query on a connection another kind serves is not an
+// application database and costs no connection store read; a name no
+// toolkit holds is read once.
+func TestAppDBRunner_AnotherKindsNameReadsNoStore(t *testing.T) {
+	pg := postgreskit.NewMulti(postgreskit.MultiConfig{DefaultName: "x"})
+	t.Cleanup(func() { _ = pg.Close() })
+	store := &countingStore{}
+	pg.SetConnectionStore(store)
+	trino := &holding{name: "lake"}
+	r := appdbRunner{Toolkit: pg, others: func() []registry.Toolkit { return []registry.Toolkit{pg, trino} }}
+
+	assert.False(t, r.ServesConnection(context.Background(), "lake"))
+	assert.Zero(t, store.reads, "a Trino connection's name is answered without the store")
+	assert.False(t, r.ServesConnection(context.Background(), "nowhere"))
+	assert.Equal(t, 1, store.reads, "a name no toolkit holds is read from the store")
 }

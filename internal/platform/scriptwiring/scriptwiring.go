@@ -149,6 +149,9 @@ func Wire(deps Deps) *scriptexec.Handle {
 	// Tool-call handlers (#2436, #2634, #2635): policies, transforms and
 	// watches an administrator binds to a connection's calls.
 	callHandlers := wireCallHandlers(deps, endpoints, layer)
+	// Integrations (#2659): an operation's script, chosen by an
+	// administrator, called when its items change and on a timer.
+	wireIntegrations(deps, endpoints, sites)
 	// Applications (#2411): scripts, assets, sources and a schema released
 	// together, over the same stores.
 	appDeps := applicationDeps(deps, endpoints, layer.SaveGate(), sites)

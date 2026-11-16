@@ -133,6 +133,13 @@ TAG_DESCRIPTIONS = {
         "Each secret names the connections it may be sent through and, optionally, the "
         "personas that may use it. Values are write-only."
     ),
+    "Integrations": (
+        "Operations only a deployment's environment knows how to do, handed to a script "
+        "an administrator chooses: Site routing first, which hands the script every "
+        "hostname the platform serves for sites and applications. List each operation "
+        "with its script, its last run and each item's status, list the scripts that "
+        "define its function, choose or clear its script, and retry it now."
+    ),
     "Catalog": (
         "The platform catalog's scan of every connection: how often it runs, the catalogs, "
         "schemas and operations each connection keeps out of the catalog, each connection's "
@@ -253,6 +260,7 @@ TAG_GROUPS = [
             "Connections",
             "Endpoints",
             "External users",
+            "Integrations",
             "Notifications",
             "Personas",
             "Scripts",

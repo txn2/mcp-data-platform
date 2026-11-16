@@ -342,6 +342,14 @@ every caller by omission. `connection` is the name calls use, the same name
 - `watch` queues one run of `main()` after each matched call that succeeded,
   reading the call as `run.call` (None in a draft or a test).
 
+One more kind, `integration`, is the script an administrator chooses for an
+operation only the deployment knows how to do, in Admin > Settings >
+Integrations: Site routing calls `route(req)` with `reason`, `added`, `removed`
+and `hosts` and expects a dict keyed by hostname of `{"status": "ready" |
+"failed", "message": "..."}`. It shows among the script's handlers and a save
+that removes `route(req)` is refused, but it is chosen and cleared on that page,
+not with `handler_set`.
+
 These run the version an administrator approved with that administrator's roles:
 your save of such a script waits for an administrator, and the approved version
 keeps running meanwhile. Their runs are administrators' only. `handler_test`

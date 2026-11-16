@@ -17,10 +17,12 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/application"
 	"github.com/txn2/mcp-data-platform/internal/approval"
+	"github.com/txn2/mcp-data-platform/internal/platform/integration"
 	"github.com/txn2/mcp-data-platform/internal/site"
 	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
 	"github.com/txn2/mcp-data-platform/internal/site/sitecrawl"
 	"github.com/txn2/mcp-data-platform/internal/site/siteenv"
+	"github.com/txn2/mcp-data-platform/internal/site/siterouting"
 	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -1450,4 +1452,43 @@ func TestSetEnvironment_KeepReleasesInEveryForm(t *testing.T) {
 	require.NotNil(t, qa)
 	require.NotNil(t, qa.KeepReleases)
 	assert.Equal(t, 3, *qa.KeepReleases)
+}
+
+// routingFake is the integrations' store with a Site routing script chosen
+// and no host answered: every hostname reads pending.
+type routingFake struct{ integration.Bindings }
+
+func (routingFake) Binding(context.Context, string) (*integration.Binding, error) {
+	return &integration.Binding{Operation: integration.OpSiteRouting}, nil
+}
+
+func (routingFake) ItemsByKey(context.Context, string, []string) (map[string]integration.StoredItem, error) {
+	return map[string]integration.StoredItem{}, nil
+}
+
+// TestRouting_2659 pins #2659's criteria 1 and 3 on manage_site: with no
+// script chosen add_domain and get carry no routing; with one chosen the
+// domain just added reads pending, and get and domains carry each status.
+func TestRouting_2659(t *testing.T) {
+	f := newFixture()
+	createSite(t, f)
+	added := call(t, f, admin(), Input{Command: CmdAddDomain, Hostname: testHost, Site: siteName, Environment: "prod"})
+	assert.NotContains(t, added, "routing")
+	got := call(t, f, admin(), Input{Command: CmdGet, Site: siteName})
+	assert.NotContains(t, got, "pages_routing")
+
+	f.tool.Routing = &siterouting.Lookup{Service: &integration.Service{Store: routingFake{}}, Addressing: f.tool.Service.Addressing}
+	added = call(t, f, admin(), Input{Command: CmdAddDomain, Hostname: "two." + testHost, Site: siteName, Environment: "prod"})
+	routing, ok := added["routing"].(map[string]any)
+	require.True(t, ok, "%v", added)
+	assert.Equal(t, "pending", routing["status"])
+	got = call(t, f, admin(), Input{Command: CmdGet, Site: siteName})
+	assert.Contains(t, got, "pages_routing")
+	domains, _ := got["domains"].([]any)
+	require.NotEmpty(t, domains)
+	assert.Contains(t, domains[0], "routing")
+	all := call(t, f, admin(), Input{Command: CmdDomains})
+	list, _ := all["domains"].([]any)
+	require.NotEmpty(t, list)
+	assert.Contains(t, list[0], "routing")
 }

@@ -23,6 +23,25 @@ func TestFilledTables(t *testing.T) {
 	assert.Empty(t, filledTables("CREATE TABLE t (id int)"))
 }
 
+// TestCreatedTables pins #2665: every table the migrations leave created in
+// the schema, under its last name, a dropped one gone, one created in another
+// schema left out, and a CREATE TABLE inside a comment or a string no table.
+func TestCreatedTables(t *testing.T) {
+	got := createdTables(`-- CREATE TABLE in_a_comment (x int);
+CREATE TABLE products (sku text);
+CREATE TABLE IF NOT EXISTS shop.orders (id int);
+create unlogged table "Scratch" (id int);
+CREATE TABLE other.elsewhere (id int);
+/* leading */ CREATE TABLE old_name (id int);
+ALTER TABLE old_name RENAME TO photos;
+CREATE TABLE gone (id int);
+DROP TABLE IF EXISTS gone, shop.nothing CASCADE;
+INSERT INTO products VALUES ('CREATE TABLE in_a_string (x int)');
+CREATE TABLE products (sku text);`, "shop")
+	assert.Equal(t, []string{"products", "orders", "Scratch", "photos"}, got)
+	assert.Empty(t, createdTables("", "shop"))
+}
+
 type versions struct{ v *portaldomain.AssetVersion }
 
 func (versions) ListByAsset(context.Context, string, int, int) ([]portaldomain.AssetVersion, int, error) {
@@ -67,10 +86,10 @@ func TestAssetContentAndDeps(t *testing.T) {
 	assert.Nil(t, deps.AssetContent, "no asset store, no content")
 	mock.ExpectQuery("FROM appdb_migrations").WillReturnRows(sqlmock.NewRows([]string{
 		"connection", "schema_name", "version", "name", "up_sql", "down_sql", "transactional", "checksum", "author", "created_at", "updated_at",
-	}).AddRow("orders", "shop", 1, "m", "INSERT INTO products VALUES (1)", "", true, "c", "a", time.Now(), time.Now()))
-	assert.Equal(t, []string{"products"}, deps.SchemaWrites(ctx, "orders", "shop"))
+	}).AddRow("orders", "shop", 1, "m", "CREATE TABLE products (sku text); INSERT INTO products VALUES (1)", "", true, "c", "a", time.Now(), time.Now()))
+	assert.Equal(t, appdiagram.SchemaTables{Created: []string{"products"}, Filled: []string{"products"}}, deps.SchemaTables(ctx, "orders", "shop"))
 	mock.ExpectQuery("FROM appdb_migrations").WillReturnError(errors.New("down"))
-	assert.Nil(t, deps.SchemaWrites(ctx, "orders", "shop"))
+	assert.Equal(t, appdiagram.SchemaTables{}, deps.SchemaTables(ctx, "orders", "shop"))
 
 	// Every endpoint a script holds is on its card (#2441).
 	cols := []string{

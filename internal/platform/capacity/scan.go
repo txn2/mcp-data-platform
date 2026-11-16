@@ -163,7 +163,15 @@ func (s *Scanner) Scan(ctx context.Context) (ScanResult, error) {
 			return res, err
 		}
 	}
-	countDangling(refs, found, res.Dangling)
+	missing := missingRefs(refs, found)
+	if err := s.keepReferenced(ctx, missing); err != nil {
+		return res, err
+	}
+	for bucket, keys := range missing {
+		for _, key := range keys {
+			res.Dangling[refs[bucket].keys[key]]++
+		}
+	}
 	res.Duration = s.clock().Sub(start)
 	return res, nil
 }
@@ -237,18 +245,78 @@ func (st walkState) count(bucket, purpose string, o s3adapter.WalkedObject) {
 	}
 }
 
-// countDangling counts, per purpose, the referenced keys a listing did not
-// find. A bucket this replica could not list says nothing about its rows.
-func countDangling(refs map[string]bucketRefs, found map[string]map[string]bool, dangling map[string]int64) {
+// missingRefs is, per bucket, the referenced keys a listing did not find,
+// each of a platform purpose. A bucket this replica could not list says
+// nothing about its rows.
+func missingRefs(refs map[string]bucketRefs, found map[string]map[string]bool) map[string][]string {
+	out := map[string][]string{}
 	for bucket, byKey := range refs {
 		if found[bucket] == nil {
 			continue
 		}
 		for key, purpose := range byKey.keys {
 			if !found[bucket][key] && purpose != "" {
-				dangling[purpose]++
+				out[bucket] = append(out[bucket], key)
 			}
 		}
+	}
+	return out
+}
+
+// keepReferenced narrows missing to the keys a row still references once the
+// listing has finished (#2663). The references were read before the listing
+// began, so a row removed together with its object while the listing ran
+// (a refresh replacing a version, a purge) is in that read and absent from
+// the listing; it is not dangling, and one query per source tells it apart
+// from a row whose object is gone.
+func (s *Scanner) keepReferenced(ctx context.Context, missing map[string][]string) error {
+	for bucket, keys := range missing {
+		still := map[string]bool{}
+		for _, src := range s.refSources() {
+			if src.bucket != bucket {
+				continue
+			}
+			if err := s.stillReferenced(ctx, src, keys, still); err != nil {
+				return err
+			}
+		}
+		missing[bucket] = slices.DeleteFunc(keys, func(k string) bool { return !still[k] })
+	}
+	return nil
+}
+
+// stillReferenced adds to still each of keys a row of src references now.
+func (s *Scanner) stillReferenced(ctx context.Context, src refSource, keys []string, still map[string]bool) error {
+	rows, err := s.DB.QueryContext(ctx, stillReferencedQuery(src.query), src.bucket, pq.Array(keys))
+	if err != nil {
+		return fmt.Errorf("re-reading object references: %w", err)
+	}
+	if err := scanRows(rows, func(r *sql.Rows) error {
+		var key string
+		if err := r.Scan(&key); err != nil {
+			return err //nolint:wrapcheck // wrapped below
+		}
+		still[key] = true
+		return nil
+	}); err != nil {
+		return fmt.Errorf("re-reading object references: %w", err)
+	}
+	return nil
+}
+
+// stillReferencedQuery is a references query narrowed to the keys in $2.
+func stillReferencedQuery(refs string) string {
+	return "SELECT DISTINCT ref FROM (" + refs + ") AS refs(ref) WHERE ref = ANY($2::text[])"
+}
+
+// refSource is one query reading the keys the rows of a bucket reference.
+type refSource struct{ bucket, query string }
+
+// refSources is every references query, by the bucket it reads.
+func (s *Scanner) refSources() []refSource {
+	return []refSource{
+		{s.Layout.PortalBucket, portalRefsQuery},
+		{s.Layout.ResourceBucket, resourceRefsQuery},
 	}
 }
 
@@ -293,10 +361,7 @@ func (b bucketRefs) ownsTile(key string) bool {
 // still a reference (its object is no orphan), never counted as dangling.
 func (s *Scanner) loadRefs(ctx context.Context) (map[string]bucketRefs, error) {
 	out := map[string]bucketRefs{}
-	for _, src := range []struct{ bucket, query string }{
-		{s.Layout.PortalBucket, portalRefsQuery},
-		{s.Layout.ResourceBucket, resourceRefsQuery},
-	} {
+	for _, src := range s.refSources() {
 		if src.bucket == "" || s.Walkers[src.bucket] == nil {
 			continue
 		}

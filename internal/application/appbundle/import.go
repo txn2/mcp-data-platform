@@ -221,7 +221,7 @@ func (im *importer) mapped(name string) string {
 // leaves im.app nil when there is none yet. It writes nothing.
 func (im *importer) locate(ctx context.Context, bundle *Bundle) error {
 	conn, schema := im.schemaOf(bundle)
-	if bundle.Schema != nil && (im.HasSchemaConnection == nil || !im.HasSchemaConnection(conn)) {
+	if bundle.Schema != nil && (im.HasSchemaConnection == nil || !im.HasSchemaConnection(ctx, conn)) {
 		return refused("nothing was imported: %q is not an application database connection here", conn)
 	}
 	a, err := im.Service.Store.GetByName(ctx, bundle.Application.Name)

@@ -34,7 +34,7 @@ func libraryShop(t *testing.T) (*Service, *fakeScripts) {
 			return nil, nil
 		},
 		AssetContent: func(context.Context, string, int) string { return `fetch("/endpoints/x")` },
-		SchemaWrites: func(context.Context, string, string) []string { return nil },
+		SchemaTables: func(context.Context, string, string) appdiagram.SchemaTables { return appdiagram.SchemaTables{} },
 	}
 	svc.Schedules = fakeSchedules{scriptA: {{CronSpec: "0 6 * * *", Timezone: "UTC"}, {CronSpec: "0 18 * * *", Timezone: "UTC"}}}
 	svc.Webhooks = fakeWebhooks{byScript: map[string][]scriptevents.Handler{scriptA: {{Source: "orders-hook", Enabled: true}, {Source: "esp", Enabled: true}}}}

@@ -25,6 +25,7 @@ type fake struct {
 	hidden    map[string]bool
 	content   map[string]string
 	filled    []string
+	created   []string
 	appdb     map[string]bool
 }
 
@@ -58,9 +59,11 @@ func (f *fake) Asset(_ context.Context, id string) (name, identity string, ok bo
 
 func (f *fake) AssetContent(_ context.Context, id string, _ int) string { return f.content[id] }
 
-func (f *fake) SchemaWrites(context.Context, string, string) []string { return f.filled }
+func (f *fake) SchemaTables(context.Context, string, string) SchemaTables {
+	return SchemaTables{Created: f.created, Filled: f.filled}
+}
 
-func (f *fake) IsAppDB(c string) bool { return f.appdb[c] }
+func (f *fake) IsAppDB(_ context.Context, c string) bool { return f.appdb[c] }
 
 const (
 	intake  = "11111111-0000-0000-0000-000000000001"
@@ -196,6 +199,28 @@ func TestBuild_EveryLinkOfTheShop(t *testing.T) {
 	assert.False(t, d.Findings[0].Blocks)
 	f.filled = []string{"products"}
 	assert.Empty(t, Build(context.Background(), f, in).Findings, "a table a migration fills is written by the schema")
+}
+
+// TestBuild_EveryTableTheMigrationsCreate pins #2665: a table the schema's
+// migrations create is drawn in the schema's group whether or not a script
+// names it, once, and a table a script names keeps its node.
+func TestBuild_EveryTableTheMigrationsCreate(t *testing.T) {
+	f, in := shop()
+	f.filled = []string{"products"}
+	f.created = []string{"products", "audit_trail"}
+	d := Build(context.Background(), f, in)
+	unused := node(d, "table:orders/shop.audit_trail")
+	require.NotNil(t, unused, "a table nothing uses is drawn")
+	assert.Equal(t, GroupSchema, unused.Group)
+	assert.Equal(t, "audit_trail", unused.Label)
+	count := 0
+	for _, n := range d.Nodes {
+		if n.ID == "table:orders/shop.products" {
+			count++
+		}
+	}
+	assert.Equal(t, 1, count, "a created table a script also names is one node")
+	assert.Empty(t, d.Findings)
 }
 
 // TestBuild_Findings: a library loaded at a version other than the one drawn
