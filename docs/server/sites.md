@@ -772,8 +772,39 @@ A domain on an environment that requires approval can be removed only by an
 administrator, since moving it to another environment would publish to it
 unapproved.
 
+### Primary and redirecting domains
+
+Most public websites answer at two hostnames and want one of them to win:
+`example.com` serves and `www.example.com` sends its visitors there, or the other
+way around (#2687). One domain of an environment can be its **primary**, the
+canonical hostname. Every other domain of that environment either **serves** the
+release (the default, and every domain added before this) or **redirects**: the
+gateway answers every request with a permanent redirect to the primary, path and
+query kept, `301 Moved Permanently` for `GET` and `HEAD` and `308 Permanent
+Redirect` for any other method, with `Cache-Control: public, max-age=3600`. A
+redirect domain reads no release and serves nothing. It answers anyone when the
+primary is public; when the primary is private it asks for the sign-in, as the
+primary would, before it redirects. Either direction works with no special case
+for `www.`: whichever domain is primary wins.
+
+`add_domain` and `set_domain` take `primary: true` and `mode: serve|redirect`,
+and the site page's Domains tab shows each domain's role, with **Make primary**,
+**Redirect to primary** and **Serve here**. Making a domain primary takes the mark
+from the previous primary, which keeps serving; a primary always serves. A domain
+cannot redirect on an environment with no primary, and a primary that other
+domains redirect to cannot be removed or given up until another domain is primary
+or those domains serve. A change takes effect at once on every replica, and
+promote and rollback leave it alone: it belongs to the environment's domains, not
+to a release. The environment's address, and the site's production address, is
+its primary; a redirect domain is never an address. The temporary,
+environment-wide redirect is a different thing: [Offline and
+redirecting](#offline-and-redirecting) answers `302` with `no-store`.
+
 `GET /api/v1/admin/sites/domains` lists every site address (each main address and
-each `<site>--<env>`) and every domain, for the system administrator's ingress rules.
+each `<site>--<env>`) and every domain, with each domain's `primary`, `mode` and,
+for a redirect domain, `redirects_to`, for the system administrator's ingress rules.
+A redirect domain needs the same ingress and certificate as any other hostname;
+the gateway answers the redirect.
 A `<site>--<env>` no certificate can be issued for (a two-character site's, #2611)
 is left out.
 
@@ -789,9 +820,9 @@ is left out.
 | `promote`, `rollback` | Move an environment's pointer; `promote` takes the release of the environment before `to` |
 | `grant` | `email` or `persona`, `level` (`view`; `manage` is for a person, site-wide), and `environments` the view grant opens (none is every private environment) |
 | `revoke` | `email` or `persona` |
-| `add_domain`, `set_domain`, `remove_domain`, `domains` | Domains. `add_domain` with `public` opens the domain to anyone; `set_domain` with `hostname` and `public` changes it later. `after` places an environment `add_domain` creates, and `requires_approval` applies to the environment whether it creates it or it exists |
+| `add_domain`, `set_domain`, `remove_domain`, `domains` | Domains. `add_domain` with `public` opens the domain to anyone; `set_domain` with `hostname` and `public` changes it later. `primary: true` makes a domain its environment's primary and `mode: redirect` answers it with a permanent redirect to the primary, on either command; `remove_domain` refuses a primary others redirect to. `after` places an environment `add_domain` creates, and `requires_approval` applies to the environment whether it creates it or it exists |
 | `crawl` | Copies an existing site into `dev` |
-| `get`, `list`, `releases`, `deployments` | Read; `get` answers the environments in their order, each environment's `addresses` and `pages_addresses`, the site's `production_address` (the portal list's), the site's `domains` with each one's `public`, and `traffic`, the last 24 hours for the site and per environment. `list` takes `query` (a part of a name, description, owner or domain hostname), `limit` (at most 200) and `offset`, answering `total` and each site's `production_addresses` (#2658) |
+| `get`, `list`, `releases`, `deployments` | Read; `get` answers the environments in their order, each environment's `addresses` and `pages_addresses`, the site's `production_address` (the portal list's), the site's `domains` with each one's `public`, `primary`, `mode` and `redirects_to`, and `traffic`, the last 24 hours for the site and per environment. `list` takes `query` (a part of a name, description, owner or domain hostname), `limit` (at most 200) and `offset`, answering `total` and each site's `production_addresses` (#2658) |
 
 `default`, the old name of `dev`, is read as `dev` wherever an environment is named
 for one minor release, and the answer carries a `note` saying so. A reference
@@ -923,6 +954,15 @@ manage_site command=promote site=cool-site to=prod                             #
 
 `cool-site.<pages_domain>` and `cool-site--prod.<pages_domain>` still ask for a
 sign-in; only `cool-site.example.com` answers anyone.
+
+## Upgrading to v1.164.0 (migration 000258)
+
+Migration 000258 adds a primary mark and a mode to every domain: every existing
+domain serves and none is primary, so nothing answers differently until someone
+marks a primary. The Site routing integration's item for a site's domain gains
+`primary`, `mode` and, for a redirect domain, `redirects_to`; a routing script
+needs no change, since a redirect domain is routed to the platform like any other
+hostname and the gateway answers the redirect.
 
 ## Upgrading to v1.162.0 (migrations 000249 and 000250)
 

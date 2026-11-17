@@ -221,6 +221,24 @@ func (m *memStore) SetDomainPublic(_ context.Context, hostname string, public bo
 	return nil
 }
 
+func (m *memStore) SetDomainRole(_ context.Context, hostname string, primary bool, mode string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	d, ok := m.domains[hostname]
+	if !ok || d.SiteID == "" {
+		return site.ErrNoDomain
+	}
+	if primary {
+		for _, o := range m.domains {
+			if o.SiteID == d.SiteID && o.Environment == d.Environment {
+				o.Primary = false
+			}
+		}
+	}
+	d.Primary, d.Mode = primary, mode
+	return nil
+}
+
 func (m *memStore) SetMainEnvironment(_ context.Context, siteID, env string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

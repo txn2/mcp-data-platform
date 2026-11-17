@@ -593,10 +593,10 @@ func (a *portalAPI) addDomain(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	d, err := a.ops().AddDomain(r.Context(), c.actor, sitesvc.DomainRequest{
+	d, err := a.ops().AddDomainWithRole(r.Context(), c.actor, sitesvc.DomainRequest{
 		Hostname: in.Hostname, Site: r.PathValue(paramSite), Environment: in.Environment, RequiresApproval: in.RequiresApproval,
 		Public: in.Public, Reason: in.Reason, Place: placeOf(in.After),
-	})
+	}, siteenv.DomainRole{Primary: in.Primary, Mode: in.Mode})
 	a.record(r.Context(), c, sitetool.CmdAddDomain, map[string]any{paramSite: r.PathValue(paramSite), "hostname": in.Hostname}, err)
 	if err != nil {
 		fail(w, r, err)
@@ -607,8 +607,8 @@ func (a *portalAPI) addDomain(w http.ResponseWriter, r *http.Request) {
 
 // setDomainAccess handles PUT /api/v1/portal/sites/{site}/domains/{hostname}.
 //
-// @Summary      Make a domain public or private
-// @Description  Public opens this one domain to anyone (#2619); every address of the environment on the pages domain keeps asking for a sign-in. Making it public is the owner's or an administrator's, and where the environment requires approval someone who is not an administrator files a request in Approvals and asks again once it is approved. Anyone who manages the site makes a domain private.
+// @Summary      Change a domain's access or role
+// @Description  Public opens this one domain to anyone (#2619); every address of the environment on the pages domain keeps asking for a sign-in. Making it public is the owner's or an administrator's, and where the environment requires approval someone who is not an administrator files a request in Approvals and asks again once it is approved. Anyone who manages the site makes a domain private. Primary makes the domain its environment's canonical hostname and mode redirect answers it with a permanent redirect to that primary, path and query kept (#2687); a redirect needs a primary, a primary never redirects, and a primary others redirect to is not given up. Each field left out is left alone.
 // @Tags         Sites
 // @Accept       json
 // @Produce      json
@@ -635,9 +635,11 @@ func (a *portalAPI) setDomainAccess(w http.ResponseWriter, r *http.Request) {
 	err := a.belongs(r.Context(), r.PathValue(paramSite), host)
 	var out *siteenv.DomainResult
 	if err == nil {
-		out, err = a.ops().SetDomainAccess(r.Context(), c.actor, host, in.Public, in.Reason)
+		out, err = a.ops().SetDomain(r.Context(), c.actor, host, siteenv.DomainChange{
+			Public: in.Public, Reason: in.Reason, Role: siteenv.DomainRole{Primary: in.Primary, Mode: in.Mode},
+		})
 	}
-	a.record(r.Context(), c, sitetool.CmdSetDomain, map[string]any{paramSite: r.PathValue(paramSite), "hostname": host, "public": in.Public}, err)
+	a.record(r.Context(), c, sitetool.CmdSetDomain, map[string]any{paramSite: r.PathValue(paramSite), "hostname": host, "public": in.Public, "primary": in.Primary, "mode": in.Mode}, err)
 	if err != nil {
 		fail(w, r, err)
 		return
@@ -656,7 +658,7 @@ func placeOf(after string) *site.Place {
 // removeDomain handles DELETE /api/v1/portal/sites/{site}/domains/{hostname}.
 //
 // @Summary      Remove a domain
-// @Description  Stops routing a hostname. The environment and its release do not change.
+// @Description  Stops routing a hostname. The environment and its release do not change. A primary that other domains redirect to is refused (#2687).
 // @Tags         Sites
 // @Param        site      path  string  true  "Site name or id"
 // @Param        hostname  path  string  true  "Hostname"
@@ -674,7 +676,7 @@ func (a *portalAPI) removeDomain(w http.ResponseWriter, r *http.Request) {
 	host := r.PathValue("hostname")
 	err := a.belongs(r.Context(), r.PathValue(paramSite), host)
 	if err == nil {
-		err = a.svc().RemoveDomain(r.Context(), c.actor, host)
+		err = a.ops().RemoveDomain(r.Context(), c.actor, host)
 	}
 	a.record(r.Context(), c, sitetool.CmdRemoveDomain, map[string]any{paramSite: r.PathValue(paramSite), "hostname": host}, err)
 	if err != nil {

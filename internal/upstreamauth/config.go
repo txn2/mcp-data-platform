@@ -337,8 +337,8 @@ type Config struct {
 type OAuth2Config struct {
 	// Grant is the OAuth flow, populated by Parse from the canonical
 	// oauth_grant (or derived from a legacy auth_mode). One of
-	// connoauth.GrantClientCredentials, connoauth.GrantAuthorizationCode
-	// or connoauth.GrantJWTBearer. The authenticator and
+	// connoauth.GrantClientCredentials, connoauth.GrantAuthorizationCode,
+	// connoauth.GrantJWTBearer or connoauth.GrantPassword. The authenticator and
 	// validation dispatch on this rather than on the auth_mode string.
 	Grant string
 	// TokenURL is the upstream's token endpoint. Required.
@@ -348,6 +348,12 @@ type OAuth2Config struct {
 	// ClientSecret is the platform's registered client secret.
 	// Required. Encrypted at rest via the platform's FieldEncryptor.
 	ClientSecret string
+	// Username and Password are the API user the password grant
+	// (connoauth.GrantPassword) posts to TokenURL. Password is encrypted at
+	// rest, write-only and redacted on read, like ClientSecret; either may
+	// name a stored secret, read for each password request.
+	Username string
+	Password string
 	// Scopes is an optional list of OAuth scopes to request.
 	Scopes []string
 	// ScopePlacement is where the jwt_bearer grant carries Scopes: the
@@ -452,6 +458,9 @@ func Parse(kind, errPrefix, endpointURL string, cfg map[string]any) (Config, err
 	case c.AuthMode == AuthModeOAuth && c.OAuth2.Grant == connoauth.GrantJWTBearer:
 		c.SignedJWT = parseSignedJWT(SignedJWTAlgRS256, c.OAuth2.TokenURL, cfg)
 		c.OAuth2.ScopePlacement = cfgmap.StringDefault(cfg, cfgKeyOAuthScopePlacement, ScopePlacementParam)
+	case c.AuthMode == AuthModeOAuth && c.OAuth2.Grant == connoauth.GrantPassword:
+		c.OAuth2.Username = cfgmap.String(cfg, cfgKeyOAuthUsername)
+		c.OAuth2.Password = cfgmap.String(cfg, cfgKeyOAuthPassword)
 	case c.AuthMode == AuthModeHMAC:
 		c.HMAC = parseHMAC(cfg)
 	case c.AuthMode == AuthModeSessionLogin:
@@ -565,6 +574,8 @@ func (c Config) validateOAuthAuth() error {
 		return c.validateOAuth2AuthCode()
 	case connoauth.GrantJWTBearer:
 		return c.validateOAuth2JWTBearer()
+	case connoauth.GrantPassword:
+		return c.validateOAuth2Password()
 	default:
 		return c.validateOAuth2()
 	}
@@ -819,6 +830,10 @@ const (
 	// cfgKeyOAuthTokenLifetime is how long a token whose response states no
 	// expires_in is reused (#2218).
 	cfgKeyOAuthTokenLifetime = "oauth_token_lifetime" // #nosec G101 -- map key, not a credential
+	// cfgKeyOAuthUsername and cfgKeyOAuthPassword are the API user the
+	// password grant posts to the token endpoint (#2689).
+	cfgKeyOAuthUsername = "oauth_username"
+	cfgKeyOAuthPassword = "oauth_password" // #nosec G101 -- map key, not a credential
 )
 
 // The scope placements a jwt_bearer connection may name.

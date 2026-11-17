@@ -258,6 +258,9 @@ type Store interface {
 	// SetDomainPublic makes a site's domain answer anyone, or only those who
 	// sign in (#2619).
 	SetDomainPublic(ctx context.Context, hostname string, public bool) error
+	// SetDomainRole makes a site's domain its environment's primary or not and
+	// sets its mode (#2687), taking the mark from the previous primary.
+	SetDomainRole(ctx context.Context, hostname string, primary bool, mode string) error
 	// RecordRelease writes a release and its files, numbering it next. With a
 	// move it also points the environment at the new release, in the one
 	// transaction, so a move that loses to another leaves no release behind.

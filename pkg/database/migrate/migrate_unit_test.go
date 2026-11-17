@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	migrateTestFileCount    = 514
+	migrateTestFileCount    = 516
 	migrateTestSuccess      = "success"
 	migrateTestFactoryError = "factory error"
 )
@@ -155,6 +155,8 @@ func TestMigrationsEmbedded(t *testing.T) {
 		"000256_folder_write_grants.down.sql",
 		"000257_linked_site_parts.up.sql",
 		"000257_linked_site_parts.down.sql",
+		"000258_site_domain_primary.up.sql",
+		"000258_site_domain_primary.down.sql",
 	}
 
 	fileNames := make(map[string]bool)

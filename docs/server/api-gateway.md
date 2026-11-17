@@ -383,7 +383,7 @@ Nothing about a connection is derived per replica, so there is nothing to reconc
 | `bearer` | `Authorization: Bearer <credential>` |
 | `api_key` | `<api_key_header>: <credential>` (header) or `?<api_key_param>=<credential>` (query) |
 | `basic` | `Authorization: Basic base64(username:password)` per RFC 7617. For legacy APIs (Jenkins, on-prem Jira / Confluence Server / DC, internal apps) that never moved to bearer or OAuth. `password` may be empty for the `token:` pattern some APIs use. |
-| `oauth` | OAuth 2.1. The grant is set separately in `oauth_grant` (`client_credentials`, `authorization_code` or `jwt_bearer`). `client_credentials` fetches a token at `oauth_token_url` and applies `Authorization: Bearer ...`; `authorization_code` adds a one-time browser sign-in with a persisted (encrypted) refresh token and silent refresh; `jwt_bearer` signs a short-lived assertion with a registered key and exchanges it at `oauth_token_url` (RFC 7523), described [below](#oauth-jwt-bearer-grant-rfc-7523). |
+| `oauth` | OAuth 2.1. The grant is set separately in `oauth_grant` (`client_credentials`, `authorization_code`, `jwt_bearer` or `password`). `client_credentials` fetches a token at `oauth_token_url` and applies `Authorization: Bearer ...`; `authorization_code` adds a one-time browser sign-in with a persisted (encrypted) refresh token and silent refresh; `jwt_bearer` signs a short-lived assertion with a registered key and exchanges it at `oauth_token_url` (RFC 7523), described [below](#oauth-jwt-bearer-grant-rfc-7523); `password` posts an API user's username and password for an upstream that offers no other grant, described [below](#oauth-password-grant-legacy-upstreams). |
 | `signed_jwt` | `Authorization: Bearer <jwt the platform minted>`. For upstreams that issue an identifier and a signing key and expect the client to mint its own short-lived assertion — Sage X3 connected applications, Snowflake key-pair authentication, Apple App Store Connect and APNs, and internal services built the same way. There is no token endpoint and nothing is exchanged. See [Signed JWT upstreams](signed-jwt-auth.md). |
 | `hmac` | `<hmac_signature_header>: <prefix><HMAC of the request>`, with the timestamp and delivery id headers the scheme signs. For webhook receivers that verify the sender by an HMAC of the body: Standard Webhooks, GitHub, Stripe, and the platform's own [inbound webhook sources](webhooks.md). The credential is the signing secret. Described [below](#hmac-signing). |
 | `session_login` | `<session_token_header>: <session_token_prefix><token>`, where the token is the one a sign-in with a stored credential returned. For upstreams that exchange a personal access token, an API key or a password for a short-lived session: Tableau, MicroStrategy, Veeva Vault. Described [below](#session-sign-in). |
@@ -393,7 +393,7 @@ The OAuth config keys (`oauth_grant`, `oauth_token_url`, `oauth_authorization_ur
 
 The OAuth 2.1 authorization-code grant completes via the platform's shared `/api/v1/admin/oauth/callback` endpoint, the same path the MCP gateway uses. Register that exact callback URL with the upstream IdP.
 
-An access token from `client_credentials` or `jwt_bearer` is cached in memory per replica and obtained again when it expires. `expires_in` is RECOMMENDED rather than required by RFC 6749 section 5.1, and a token with no expiry would otherwise be presented for the life of the process, so a response that omits it is treated as valid for `oauth_token_lifetime` (a duration string or seconds, default 15 minutes, #2218): an upstream that ends the session behind the token costs at most that long, and a connection nobody calls costs no token requests at all. An `expires_in` the upstream does send is always honored, however long or short.
+An access token from `client_credentials`, `jwt_bearer` or `password` is cached in memory per replica and obtained again when it expires. `expires_in` is RECOMMENDED rather than required by RFC 6749 section 5.1, and a token with no expiry would otherwise be presented for the life of the process, so a response that omits it is treated as valid for `oauth_token_lifetime` (a duration string or seconds, default 15 minutes, #2218): an upstream that ends the session behind the token costs at most that long, and a connection nobody calls costs no token requests at all. An `expires_in` the upstream does send is always honored, however long or short.
 
 The `signed_jwt` config keys (`jwt_algorithm`, `jwt_client_secret`, `jwt_private_key_pem`, `jwt_key_id`, `jwt_issuer`, `jwt_subject`, `jwt_audience`, `jwt_token_lifetime`, `jwt_issued_at_skew`) are likewise shared with every HTTP-based kind. The secret and the private key are encrypted at rest and returned as `[REDACTED]`. [Signed JWT upstreams](signed-jwt-auth.md) documents them with worked examples.
 
@@ -587,6 +587,35 @@ The platform POSTs `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer` and 
 The save is refused, naming the key, when `oauth_token_url` is missing, `jwt_issuer` and `jwt_subject` are both empty (one identifies the client; `sub` is omitted when `jwt_subject` is unset, which is what Google means by a service account acting as itself), `oauth_scope_placement` is not `param`, `claim` or `both`, the key material does not match `jwt_algorithm` or is not a usable key, `oauth_client_secret` is set without `oauth_client_id`, or the lifetime and skew rules of `signed_jwt` are broken. `jwt_token_lifetime` is the assertion's lifetime, not the access token's; providers commonly refuse one longer than a few minutes.
 
 When the token endpoint refuses the assertion with `invalid_grant`, `invalid_client`, `unauthorized_client` or `invalid_scope`, the call fails with the upstream's code and `error_description`, for example `oauth jwt_bearer: the upstream token endpoint rejected the signed assertion: invalid_grant: user hasn't approved this consumer`, and the connection's alert is raised: the [connection alert recipients](notifications.md#connection-revocation-alerts), when the operator has named any, are emailed at once, because nobody signed in to authorize the connection. The usual causes are a key or an integration user the upstream has not approved, or clock skew, all fixed at the upstream. Nothing needs reconnecting: the next call signs and exchanges a new assertion, and the first exchange the upstream accepts clears the alert. Any other failure (a network error, a 5xx, another error code) raises no alert and is reported without the upstream's response body, as it is for `client_credentials`.
+
+### OAuth password grant (legacy upstreams)
+
+`oauth_grant: password` is the OAuth 2.0 resource owner password credentials grant (RFC 6749 section 4.3), for an upstream that issues tokens no other way: the platform posts a dedicated API user's username and password, with its own client credentials when the upstream asks for them, and gets back an access token and usually a refresh token. OAuth 2.1 and the OAuth security best current practice remove this grant, and the platform only speaks it as a client: use it when the upstream leaves no choice, and prefer `client_credentials` or `jwt_bearer` wherever the upstream offers them. It is available on the HTTP-based kinds (`api`, `graphql`); an `mcp` connection saved with it is refused.
+
+```json
+"config": {
+  "base_url": "https://crm.example.com/api",
+  "auth_mode": "oauth",
+  "oauth_grant": "password",
+  "oauth_token_url": "https://crm.example.com/oauth/token",
+  "oauth_username": "api-integration",
+  "oauth_password": "{{secret:crm-api-password}}",
+  "oauth_client_id": "platform",
+  "oauth_client_secret": "{{secret:crm-client-secret}}",
+  "oauth_scope": "read:accounts"
+}
+```
+
+| Key | |
+|---|---|
+| `oauth_token_url` | Required. The form is posted here with `grant_type=password`, `username`, `password`, and `scope` when `oauth_scope` is set. |
+| `oauth_username` | Required. The API user. May name a stored secret (`{{secret:<name>}}`). |
+| `oauth_password` | Required. Encrypted at rest, write-only, read back as `[REDACTED]` (sending that keeps the stored value), redacted in the config export, and never written to an audit row, a log or an error. May name a stored secret, read for each password request, so a rotated password is used from the next one on. |
+| `oauth_client_id`, `oauth_client_secret` | Optional; a secret needs an id. Sent as `oauth_endpoint_auth_style` says (HTTP Basic by default); with no secret the id is a form parameter. |
+
+The token is cached in memory per replica until it expires. It is then renewed with the refresh token the last response carried; when the upstream refuses the refresh token (any 4xx), or the response carried none, the password is posted again. A refresh that fails any other way (a network error, a 5xx) fails the call and keeps the refresh token for the next one. Nothing about the token is stored: each replica obtains its own from the connection's credentials, so no token row exists to protect.
+
+Save or Test connection obtains a token. A refusal (`invalid_grant`, `invalid_client`, `unauthorized_client` or `invalid_scope`) fails the test and every call with the upstream's code and `error_description`, the password and client secret removed from it, for example `oauth password: the upstream token endpoint refused the username and password: invalid_grant: Invalid user credentials`, and records the connection's state as `auth_failed` (`mcp_platform_connection_state`). Any other failure is reported without the upstream's response body. A passing test names the user the token was issued for.
 
 ### Google service accounts
 

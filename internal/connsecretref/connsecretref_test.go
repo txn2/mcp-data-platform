@@ -21,6 +21,7 @@ func TestAllowed(t *testing.T) {
 	cc := map[string]any{"auth_mode": "oauth", "oauth_grant": "client_credentials"}
 	ac := map[string]any{"auth_mode": "oauth", "oauth_grant": "authorization_code"}
 	legacy := map[string]any{"auth_mode": "oauth2_client_credentials"}
+	pw := map[string]any{"auth_mode": "oauth", "oauth_grant": "password"}
 	cases := []struct {
 		kind string
 		cfg  map[string]any
@@ -40,6 +41,13 @@ func TestAllowed(t *testing.T) {
 		{"api", legacy, "oauth_client_id", true},
 		{"api", ac, "oauth_client_secret", false},
 		{"api", map[string]any{"auth_mode": "bearer"}, "oauth_client_secret", false},
+		{"api", pw, "oauth_password", true},
+		{"graphql", pw, "oauth_username", true},
+		{"api", pw, "oauth_client_secret", true},
+		{"api", pw, "oauth_password.x", false},
+		{"api", cc, "oauth_password", false},
+		{"mcp", pw, "oauth_password", false},
+		{"mcp", pw, "oauth_client_secret", false},
 		{"mcp", nil, "credential", true},
 		{"mcp", cc, "oauth_client_secret", true},
 		{"mcp", nil, "static_headers.X", false},
@@ -62,6 +70,7 @@ func TestAllowed(t *testing.T) {
 		assert.Equal(t, tc.want, Allowed(tc.kind, tc.cfg, tc.path), "%s %s", tc.kind, tc.path)
 	}
 	assert.Contains(t, Fields("api"), "static_headers")
+	assert.Contains(t, Fields("api"), "oauth_username and oauth_password")
 	assert.Contains(t, Fields("mcp"), "credential, and oauth_client_id")
 	assert.Equal(t, "password", Fields("trino"))
 	assert.Equal(t, "password and the values of persona_role_passwords", Fields("appdb"))

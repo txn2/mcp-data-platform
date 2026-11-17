@@ -93,13 +93,23 @@ func (c *collector) add(origin string, entry map[string]any) {
 }
 
 // domainEntry is a domain's entry: the site environment or application it
-// serves, and whether it answers anyone.
+// serves, and whether it answers anyone. A site's domain also carries its mode
+// and whether it is the environment's primary (#2687): a redirect domain is
+// routed to the platform like any other hostname, and the gateway answers the
+// redirect, so a routing script needs no behavior of its own for it.
 func domainEntry(d site.Domain) map[string]any {
 	entry := map[string]any{fieldKind: KindDomain, fieldPublic: d.Public}
 	if d.Application != "" {
 		entry["application"] = d.Application
-	} else {
-		entry["site"], entry["environment"] = d.Site, d.Environment
+		return entry
+	}
+	entry["site"], entry["environment"] = d.Site, d.Environment
+	entry["primary"], entry["mode"] = d.Primary, d.Mode
+	if d.Mode == "" {
+		entry["mode"] = site.DomainServe
+	}
+	if d.RedirectsTo != "" {
+		entry["redirects_to"] = d.RedirectsTo
 	}
 	return entry
 }

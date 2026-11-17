@@ -57,10 +57,18 @@ export interface SiteDomain {
   application?: string;
   /** Answers anyone at this hostname (#2619); a domain is private unless set public. */
   public: boolean;
+  /** The environment's canonical domain (#2687); the redirect domains send visitors here. */
+  primary?: boolean;
+  /** serve (the release is served here) or redirect (a permanent redirect to the primary). */
+  mode?: DomainMode;
+  /** The primary a redirect domain sends visitors to. */
+  redirects_to?: string;
   created_by: string;
   created_at: string;
   routing?: Routing; // the routing script's status (#2659); absent when no script is chosen
 }
+
+export type DomainMode = "serve" | "redirect";
 
 /** What adding a domain or changing its access did: done, or waiting on Approvals. */
 export interface DomainResult extends SiteDomain {
@@ -477,40 +485,9 @@ export interface DomainBody {
   reason?: string;
   /** Where an environment the domain creates goes (#2617). */
   after?: string;
-}
-
-export function useAddSiteDomain(site: string) {
-  const invalidate = useInvalidate();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (b: DomainBody) => apiFetch<DomainResult>(`${one(site)}/domains`, json("POST", b)),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["approvals"] });
-      return invalidate();
-    },
-  });
-}
-
-/** Makes one domain public or private (#2619). */
-export function useSetDomainAccess(site: string) {
-  const invalidate = useInvalidate();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ hostname, ...b }: { hostname: string; public: boolean; reason?: string }) =>
-      apiFetch<DomainResult>(`${one(site)}/domains/${encodeURIComponent(hostname)}`, json("PUT", b)),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["approvals"] });
-      return invalidate();
-    },
-  });
-}
-
-export function useRemoveSiteDomain(site: string) {
-  const invalidate = useInvalidate();
-  return useMutation({
-    mutationFn: (hostname: string) => noContent(`${one(site)}/domains/${encodeURIComponent(hostname)}`, "DELETE"),
-    onSuccess: invalidate,
-  });
+  /** Adds it as its environment's primary, or set to redirect to the primary (#2687). */
+  primary?: boolean;
+  mode?: DomainMode;
 }
 
 export interface GrantBody {
@@ -595,4 +572,5 @@ export function useSetMainEnvironment(site: string) {
 /** Where an application answers: its page origin and the domains mapped to it. */
 
 export * from "./siteOps";
+export * from "./siteDomains";
 export * from "./siteRouting";

@@ -711,9 +711,9 @@ func (s *Store) Deployments(ctx context.Context, siteID, environment string, lim
 // AddDomain records a hostname, which routes at once.
 func (s *Store) AddDomain(ctx context.Context, d *site.Domain) error {
 	err := s.db.QueryRowContext(ctx, `
-		INSERT INTO site_domains (hostname, site_id, environment, application_id, created_by, public)
-		VALUES ($1, NULLIF($2, ''), $3, NULLIF($4, ''), $5, $6) RETURNING created_at`,
-		d.Hostname, d.SiteID, d.Environment, d.ApplicationID, d.CreatedBy, d.Public).Scan(&d.CreatedAt)
+		INSERT INTO site_domains (hostname, site_id, environment, application_id, created_by, public, is_primary, mode)
+		VALUES ($1, NULLIF($2, ''), $3, NULLIF($4, ''), $5, $6, $7, COALESCE(NULLIF($8, ''), 'serve')) RETURNING created_at`,
+		d.Hostname, d.SiteID, d.Environment, d.ApplicationID, d.CreatedBy, d.Public, d.Primary, d.Mode).Scan(&d.CreatedAt)
 	if isUnique(err) {
 		return site.ErrDomainTaken
 	}
@@ -725,15 +725,19 @@ func (s *Store) AddDomain(ctx context.Context, d *site.Domain) error {
 
 const domainSelect = `
 	SELECT d.hostname, COALESCE(d.site_id, ''), COALESCE(s.name, ''), d.environment, COALESCE(d.application_id, ''),
-	       COALESCE(a.name, ''), d.created_by, d.created_at, d.public, d.access_changed_at
+	       COALESCE(a.name, ''), d.created_by, d.created_at, d.public, d.access_changed_at, d.is_primary, d.mode,
+	       COALESCE(p.hostname, ''), COALESCE(p.public, FALSE)
 	  FROM site_domains d
 	  LEFT JOIN sites s ON s.id = d.site_id
-	  LEFT JOIN applications a ON a.id = d.application_id`
+	  LEFT JOIN applications a ON a.id = d.application_id
+	  LEFT JOIN site_domains p ON d.mode = 'redirect' AND p.site_id = d.site_id AND p.environment = d.environment AND p.is_primary`
 
 func scanDomain(row interface{ Scan(...any) error }) (*site.Domain, error) {
 	d := &site.Domain{}
+	var primaryPublic bool
 	err := row.Scan(&d.Hostname, &d.SiteID, &d.Site, &d.Environment, &d.ApplicationID, &d.Application, &d.CreatedBy, &d.CreatedAt,
-		&d.Public, &d.AccessChangedAt)
+		&d.Public, &d.AccessChangedAt, &d.Primary, &d.Mode, &d.RedirectsTo, &primaryPublic)
+	d.SetPrimaryAccess(primaryPublic)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, site.ErrNoDomain
 	}
@@ -791,6 +795,42 @@ func (s *Store) SetDomainPublic(ctx context.Context, hostname string, public boo
 	return oneRow(res, site.ErrNoDomain)
 }
 
+// errSetDomainRole is how a failure to set a domain's role is stated.
+const errSetDomainRole = "set domain role: %w"
+
+// SetDomainRole makes a site's domain its environment's primary or not, and
+// sets whether it serves or redirects (#2687), in one transaction: a new
+// primary takes the mark from the environment's previous one.
+func (s *Store) SetDomainRole(ctx context.Context, hostname string, primary bool, mode string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf(errSetDomainRole, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if primary {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE site_domains o SET is_primary = FALSE
+			  FROM site_domains d
+			 WHERE d.hostname = $1 AND o.site_id = d.site_id AND o.environment = d.environment
+			   AND o.hostname <> d.hostname AND o.is_primary`, hostname); err != nil {
+			return fmt.Errorf(errSetDomainRole, err)
+		}
+	}
+	res, err := tx.ExecContext(ctx, `
+		UPDATE site_domains SET is_primary = $2, mode = $3 WHERE hostname = $1 AND site_id IS NOT NULL`,
+		hostname, primary, mode)
+	if err != nil {
+		return fmt.Errorf(errSetDomainRole, err)
+	}
+	if err := oneRow(res, site.ErrNoDomain); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf(errSetDomainRole, err)
+	}
+	return nil
+}
+
 // RemoveDomain deletes a mapping.
 func (s *Store) RemoveDomain(ctx context.Context, hostname string) error {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM site_domains WHERE hostname = $1`, hostname)
@@ -817,6 +857,9 @@ func (s *Store) RouteHost(ctx context.Context, hostname string) (*site.Route, er
 	}
 	if d.ApplicationID != "" {
 		return &site.Route{Application: d.Application, Hostname: d.Hostname}, nil
+	}
+	if d.Mode == site.DomainRedirect && d.RedirectsTo != "" {
+		return d.RedirectRoute(), nil
 	}
 	r, err := s.routeOf(ctx, routeSelect+` WHERE s.id = $2 AND e.name = $3`, !d.Public, d.SiteID, d.Environment)
 	if err != nil {

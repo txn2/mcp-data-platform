@@ -244,36 +244,9 @@ const (
 )
 
 // OAuth2Config describes the OAuth parameters used when AuthMode is
-// the canonical oauth mode. Mirrors the API gateway's, because both
-// are projections of the same shared seam.
-type OAuth2Config struct {
-	// Grant is the OAuth flow: client_credentials, authorization_code
-	// or jwt_bearer.
-	Grant string
-	// TokenURL is the upstream's token endpoint.
-	TokenURL string
-	// ClientID is the platform's registered client id.
-	ClientID string
-	// ClientSecret is the platform's registered client secret,
-	// encrypted at rest.
-	ClientSecret string
-	// Scopes is an optional list of scopes to request.
-	Scopes []string
-	// ScopePlacement is where the jwt_bearer grant carries Scopes: param
-	// (the default), claim (in the signed assertion, which Google reads)
-	// or both (#2061).
-	ScopePlacement string
-	// EndpointAuthStyle is "header" (default) or "params".
-	EndpointAuthStyle string
-	// AuthorizationURL is the upstream's authorization endpoint,
-	// required for the authorization_code grant.
-	AuthorizationURL string
-	// Prompt is an optional OIDC prompt parameter.
-	Prompt string
-	// UnstatedTokenLifetime is how long a token whose response states no
-	// expires_in is reused (oauth_token_lifetime, #2218).
-	UnstatedTokenLifetime time.Duration
-}
+// the canonical oauth mode. It is internal/upstreamauth's own type, as the
+// API gateway's is, so the two kinds cannot drift apart (#2689).
+type OAuth2Config = upstreamauth.OAuth2Config
 
 // MultiConfig holds parsed per-connection configs plus the aggregate
 // toolkit's default connection name.

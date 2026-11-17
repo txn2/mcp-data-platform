@@ -57,10 +57,12 @@ func (a Addressing) PagesAddresses(st *Site) map[string]string {
 	return out
 }
 
-// Address is where people reach an environment: a public domain mapped to it
-// first, then any other domain mapped to it, otherwise its address on the
-// pages domain, "" for none (#2658). Domains of one kind are taken in hostname
-// order, so the answer does not move between reads.
+// Address is where people reach an environment: its primary domain first
+// (#2687), then a public domain mapped to it, then any other domain that
+// serves it, otherwise its address on the pages domain, "" for none (#2658). A
+// domain that redirects is never the address, since it only sends people on.
+// Domains of one kind are taken in hostname order, so the answer does not move
+// between reads.
 func (a Addressing) Address(st *Site, environment string, domains []Domain) string {
 	if d, ok := leadingDomain(environment, domains); ok {
 		return a.Origin(d.Hostname)
@@ -88,16 +90,30 @@ func (a Addressing) ProductionAddress(st *Site, domains []Domain) (address strin
 	return a.Address(st, st.MainEnvironment, domains), more
 }
 
-// leadingDomain is the domain an environment is reached at first: its first
-// public domain by hostname, else its first domain by hostname.
+// domainRank orders the domains an environment may be reached at: the
+// primary, then public, then private; a redirect domain is not one.
+func domainRank(d Domain) int {
+	switch {
+	case d.Primary:
+		return 0
+	case d.Public:
+		return 1
+	default:
+		return 2
+	}
+}
+
+// leadingDomain is the domain an environment is reached at first: the best
+// ranked domain that serves it, by hostname among equals.
 func leadingDomain(environment string, domains []Domain) (Domain, bool) {
 	var best Domain
 	found := false
 	for _, d := range domains {
-		if d.Environment != environment {
+		if d.Environment != environment || d.Mode == DomainRedirect {
 			continue
 		}
-		if !found || (d.Public && !best.Public) || (d.Public == best.Public && d.Hostname < best.Hostname) {
+		r, br := domainRank(d), domainRank(best)
+		if !found || r < br || (r == br && d.Hostname < best.Hostname) {
 			best, found = d, true
 		}
 	}

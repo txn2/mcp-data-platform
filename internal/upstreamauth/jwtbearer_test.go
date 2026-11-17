@@ -563,33 +563,6 @@ func TestJWTBearerFailuresThatAreNotRefusals(t *testing.T) {
 	})
 }
 
-func TestIsAssertionRefusal(t *testing.T) {
-	for code, want := range map[string]bool{
-		// invalid_scope is the connection's oauth_scope, which the operator
-		// fixes, and what Google answers a misspelled scope URL with (#2061).
-		"invalid_grant": true, "invalid_client": true, "unauthorized_client": true, "invalid_scope": true,
-		"invalid_request": false, "server_error": false, "": false,
-	} {
-		if got := isAssertionRefusal(code); got != want {
-			t.Errorf("isAssertionRefusal(%q) = %v, want %v", code, got, want)
-		}
-	}
-}
-
-func TestBoundedDescription(t *testing.T) {
-	if got := boundedDescription("  a\tb\r\n\x00c  "); got != "a b c" {
-		t.Errorf("control characters: got %q", got)
-	}
-	long := strings.Repeat("é", maxUpstreamDescriptionRunes+20)
-	got := boundedDescription(long)
-	if want := strings.Repeat("é", maxUpstreamDescriptionRunes) + "..."; got != want {
-		t.Errorf("a long description was cut to %d runes, want %d plus an ellipsis", len([]rune(got)), maxUpstreamDescriptionRunes)
-	}
-	if boundedDescription("") != "" {
-		t.Error("an empty description is not empty")
-	}
-}
-
 // TestJWTBearerRefusalWithoutADescription covers the upstream that sends only
 // the error code.
 func TestJWTBearerRefusalWithoutADescription(t *testing.T) {

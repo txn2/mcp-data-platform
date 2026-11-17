@@ -15999,12 +15999,32 @@ definitions:
       hostname:
         example: www.example.com
         type: string
+      mode:
+        description: |-
+          Mode is DomainServe (the release is served here) or DomainRedirect
+          (every request is answered with a permanent redirect to the primary).
+        enum:
+        - serve
+        - redirect
+        type: string
+      primary:
+        description: |-
+          Primary marks the environment's canonical hostname (#2687): at most one
+          domain of an environment is primary, and the domains that redirect send
+          their visitors to it.
+        type: boolean
       public:
         description: |-
           Public answers anyone at this hostname (#2619): the one way a site
           environment opens to someone who has not signed in. A domain is added
           private unless public is asked for.
         type: boolean
+      redirects_to:
+        description: |-
+          RedirectsTo is the primary hostname a redirect domain sends visitors to,
+          read with the domain, empty for one that serves.
+        example: example.com
+        type: string
       routing:
         allOf:
         - $ref: '#/definitions/site.Routing'
@@ -16396,6 +16416,48 @@ definitions:
         example: answered 404
         type: string
     type: object
+  siteaddr.AddressList:
+    properties:
+      addresses:
+        items:
+          $ref: '#/definitions/siteaddr.DeploymentAddress'
+        type: array
+    type: object
+  siteaddr.DeploymentAddress:
+    properties:
+      application:
+        type: string
+      created_at:
+        type: string
+      created_by:
+        type: string
+      environment:
+        example: default
+        type: string
+      hostname:
+        example: marketing.pages.example.net
+        type: string
+      kind:
+        example: site_address
+        type: string
+      mode:
+        enum:
+        - serve
+        - redirect
+        type: string
+      primary:
+        description: |-
+          Primary, Mode and RedirectsTo are a site domain's role (#2687): a
+          redirect domain needs the same ingress as any other, and the gateway
+          answers the redirect. Absent on a pages address and an application's
+          domain.
+        type: boolean
+      redirects_to:
+        type: string
+      site:
+        example: marketing
+        type: string
+    type: object
   siteconfig.Settings:
     properties:
       crawl_max_bytes:
@@ -16468,12 +16530,32 @@ definitions:
       hostname:
         example: www.example.com
         type: string
+      mode:
+        description: |-
+          Mode is DomainServe (the release is served here) or DomainRedirect
+          (every request is answered with a permanent redirect to the primary).
+        enum:
+        - serve
+        - redirect
+        type: string
+      primary:
+        description: |-
+          Primary marks the environment's canonical hostname (#2687): at most one
+          domain of an environment is primary, and the domains that redirect send
+          their visitors to it.
+        type: boolean
       public:
         description: |-
           Public answers anyone at this hostname (#2619): the one way a site
           environment opens to someone who has not signed in. A domain is added
           private unless public is asked for.
         type: boolean
+      redirects_to:
+        description: |-
+          RedirectsTo is the primary hostname a redirect domain sends visitors to,
+          read with the domain, empty for one that serves.
+        example: example.com
+        type: string
       routing:
         allOf:
         - $ref: '#/definitions/site.Routing'
@@ -16531,13 +16613,6 @@ definitions:
           type: string
         type: array
     type: object
-  sitehttp.AddressList:
-    properties:
-      addresses:
-        items:
-          $ref: '#/definitions/sitehttp.DeploymentAddress'
-        type: array
-    type: object
   sitehttp.AdminDomainBody:
     properties:
       application:
@@ -16591,27 +16666,6 @@ definitions:
         example: https://www.example.com
         type: string
     type: object
-  sitehttp.DeploymentAddress:
-    properties:
-      application:
-        type: string
-      created_at:
-        type: string
-      created_by:
-        type: string
-      environment:
-        example: default
-        type: string
-      hostname:
-        example: marketing.pages.example.net
-        type: string
-      kind:
-        example: site_address
-        type: string
-      site:
-        example: marketing
-        type: string
-    type: object
   sitehttp.DeploymentList:
     properties:
       deployments:
@@ -16621,7 +16675,18 @@ definitions:
     type: object
   sitehttp.DomainAccessBody:
     properties:
+      mode:
+        enum:
+        - serve
+        - redirect
+        type: string
+      primary:
+        description: |-
+          Primary and Mode set the domain's place among its environment's domains
+          (#2687); absent leaves each alone.
+        type: boolean
       public:
+        description: Public opens or closes the domain; absent leaves its access alone.
         type: boolean
       reason:
         description: Reason goes with a request to make it public.
@@ -16637,6 +16702,16 @@ definitions:
       hostname:
         example: www.example.com
         type: string
+      mode:
+        enum:
+        - serve
+        - redirect
+        type: string
+      primary:
+        description: |-
+          Primary makes the domain its environment's primary, and Mode serve
+          (the default) or redirect, a permanent redirect to the primary (#2687).
+        type: boolean
       public:
         description: |-
           Public opens the domain to anyone (#2619): the owner's or an
@@ -17633,12 +17708,32 @@ definitions:
       hostname:
         example: www.example.com
         type: string
+      mode:
+        description: |-
+          Mode is DomainServe (the release is served here) or DomainRedirect
+          (every request is answered with a permanent redirect to the primary).
+        enum:
+        - serve
+        - redirect
+        type: string
+      primary:
+        description: |-
+          Primary marks the environment's canonical hostname (#2687): at most one
+          domain of an environment is primary, and the domains that redirect send
+          their visitors to it.
+        type: boolean
       public:
         description: |-
           Public answers anyone at this hostname (#2619): the one way a site
           environment opens to someone who has not signed in. A domain is added
           private unless public is asked for.
         type: boolean
+      redirects_to:
+        description: |-
+          RedirectsTo is the primary hostname a redirect domain sends visitors to,
+          read with the domain, empty for one that serves.
+        example: example.com
+        type: string
       routing:
         allOf:
         - $ref: '#/definitions/site.Routing'
@@ -28429,7 +28524,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/sitehttp.AddressList'
+            $ref: '#/definitions/siteaddr.AddressList'
         "401":
           description: Unauthorized
           schema:
@@ -28487,7 +28582,8 @@ paths:
       - Sites
   /admin/sites/domains/{hostname}:
     delete:
-      description: Stops routing a hostname.
+      description: Stops routing a hostname. A primary that other domains redirect
+        to is refused (#2687).
       parameters:
       - description: Hostname
         in: path
@@ -39871,7 +39967,7 @@ paths:
   /portal/sites/{site}/domains/{hostname}:
     delete:
       description: Stops routing a hostname. The environment and its release do not
-        change.
+        change. A primary that other domains redirect to is refused (#2687).
       parameters:
       - description: Site name or id
         in: path
@@ -39908,7 +40004,11 @@ paths:
         public is the owner's or an administrator's, and where the environment requires
         approval someone who is not an administrator files a request in Approvals
         and asks again once it is approved. Anyone who manages the site makes a domain
-        private.
+        private. Primary makes the domain its environment's canonical hostname and
+        mode redirect answers it with a permanent redirect to that primary, path and
+        query kept (#2687); a redirect needs a primary, a primary never redirects,
+        and a primary others redirect to is not given up. Each field left out is left
+        alone.
       parameters:
       - description: Site name or id
         in: path
@@ -39948,7 +40048,7 @@ paths:
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
-      summary: Make a domain public or private
+      summary: Change a domain's access or role
       tags:
       - Sites
   /portal/sites/{site}/environments/{name}:

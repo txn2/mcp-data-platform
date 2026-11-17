@@ -119,8 +119,10 @@ auth mode reveals it:
 - **Grant type** (`oauth_grant`) — `client_credentials` (machine-to-machine),
   `authorization_code + PKCE` (browser sign-in), or, on the `api` and `graphql`
   kinds, `jwt_bearer` (a signed assertion exchanged for an access token, RFC
-  7523). The grant is its own field, not part of the mode name, which is why one
-  mode serves every flow. The `mcp` kind does not offer `jwt_bearer`.
+  7523) and `password (username and password, legacy)` (#2689, for an upstream
+  that offers no other grant). The grant is its own field, not part of the mode
+  name, which is why one mode serves every flow. The `mcp` kind offers neither
+  `jwt_bearer` nor `password`.
 - **Authorization URL** (`oauth_authorization_url`) — appears only for
   `authorization_code`, with the **Connect** button beneath it.
 - **Token URL** (`oauth_token_url`) — the endpoint the platform POSTs the grant to.
@@ -129,6 +131,12 @@ auth mode reveals it:
   `[REDACTED]` keeps the stored value; pasting a new one rotates it. Optional
   under `jwt_bearer`, for an upstream that also authenticates the client on the
   token request.
+- **Username** and **Password** (`oauth_username`, `oauth_password`) — `password`
+  only: the upstream's API user. The password is write-only like the client
+  secret; either may name a stored secret. Client ID and Client Secret are
+  optional under this grant. Test connection obtains a token and says which user
+  it was issued for, or shows the upstream's refusal (`invalid_grant: Invalid
+  user credentials`). See [OAuth password grant](../server/api-gateway.md#oauth-password-grant-legacy-upstreams).
 - **Scope** (`oauth_scope`) — one space-delimited string, the OAuth 2.0 wire form.
 - **Endpoint auth style** (`oauth_endpoint_auth_style`) — `header` (the OAuth 2.1
   default) or `params`, which some identity providers require. Shown for the

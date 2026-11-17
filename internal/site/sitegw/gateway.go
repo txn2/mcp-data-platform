@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"path"
 	"slices"
 	"strings"
@@ -256,6 +257,10 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, host string) {
 		}
 		viewer = &v
 	}
+	if route.PrimaryHost != "" {
+		redirectToPrimary(w, r, route.PrimaryHost, g.deps.Secure || r.TLS != nil)
+		return
+	}
 	if g.serveStatus(w, r, route) {
 		return
 	}
@@ -263,6 +268,32 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, host string) {
 		return
 	}
 	g.serveSite(w, r, route)
+}
+
+// primaryRedirectMaxAge is how long a browser may hold a redirect domain's
+// answer (#2687): long enough to be a permanent alias, short enough that a
+// change of primary reaches visitors within the hour.
+const primaryRedirectMaxAge = "public, max-age=3600"
+
+// redirectToPrimary answers a redirect domain: a permanent redirect to the
+// environment's primary, path and query kept, 301 for GET and HEAD and 308
+// for any other method so a client resends its body. The host is the stored
+// primary's alone; nothing in the request chooses it. The scheme is https
+// where the origins answer over it, as every deployment's do, and http on a
+// development stack that answers in the clear.
+func redirectToPrimary(w http.ResponseWriter, r *http.Request, primary string, secure bool) {
+	scheme := schemeHTTP
+	if secure {
+		scheme = schemeHTTPS
+	}
+	target := url.URL{Scheme: scheme, Host: primary, Path: r.URL.Path, RawPath: r.URL.RawPath, RawQuery: r.URL.RawQuery}
+	code := http.StatusMovedPermanently
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		code = http.StatusPermanentRedirect
+	}
+	w.Header().Set("Cache-Control", primaryRedirectMaxAge)
+	w.Header().Set("Location", target.String())
+	w.WriteHeader(code)
 }
 
 // hdrHSTS is the header that keeps a browser on https.

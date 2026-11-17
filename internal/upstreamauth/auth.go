@@ -2,12 +2,10 @@ package upstreamauth
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -15,12 +13,11 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
 
-	"github.com/txn2/mcp-data-platform/internal/apigwtls"
-	"github.com/txn2/mcp-data-platform/internal/outbound"
 	"github.com/txn2/mcp-data-platform/internal/secretref"
 	"github.com/txn2/mcp-data-platform/internal/selfcall"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth/sessionlogin"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth/tokenexpiry"
+	"github.com/txn2/mcp-data-platform/internal/upstreamauth/tokengrant"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
@@ -64,6 +61,8 @@ func NewAuthenticator(c Config) (Authenticator, error) {
 			return newOAuth2AuthorizationCodeAuth(c), nil
 		case connoauth.GrantJWTBearer:
 			return newJWTBearerAuth(c)
+		case connoauth.GrantPassword:
+			return newPasswordAuth(c)
 		default:
 			return newOAuth2ClientCredentialsAuth(c, time.Now), nil
 		}
@@ -311,49 +310,11 @@ type oauth2ClientCredentialsAuth struct {
 	src oauth2.TokenSource
 }
 
-// oauth2TokenFetchTimeout caps how long a single token-endpoint
-// request can take. Without this the default Go http.Client has no
-// timeout and an unreachable IdP would hang every Apply call until
-// the OS-level dial timeout fires (minutes). 30 seconds matches
-// the order of magnitude of the upstream call_timeout while
-// staying generous for IdPs with slow first-token issuance.
-const oauth2TokenFetchTimeout = 30 * time.Second
-
-// newTokenExchangeClient builds the http.Client used for the
-// client_credentials token acquire. The initial authorization_code
-// exchange and the refresh path use the same-named helper in
-// pkg/connoauth/source.go via the unified Source; this one is only
-// reached by newOAuth2ClientCredentialsAuth.
-//
-// The CheckRedirect hook refuses 3xx so a misconfigured or
-// compromised IdP cannot redirect the form body (which carries
-// client_secret) to an attacker URL.
-//
-// When cfg.TLSCABundlePEM is set, the bundle is appended to the
-// system root pool and the resulting tls.Config is attached to a
-// dedicated Transport. Public CAs remain trusted; the bundle never
-// substitutes for the system roots. Client mTLS material is
-// intentionally NOT plumbed here: presenting a client cert to the
-// IdP is a deliberate decision that should not piggy-back on the
-// upstream cert.
-//
-// The token request is built by the oauth2 library, out of this
-// package's sight, so the platform's User-Agent is applied by the
-// transport: an IdP behind the same firewall as the upstream would
-// otherwise refuse Go's default (#1679).
+// newTokenExchangeClient is the client every token request of this
+// connection is sent through: bounded, on the outbound chain, honoring the
+// connection's CA bundle (tokengrant.NewClient).
 func newTokenExchangeClient(cfg Config) *http.Client {
-	opts := outbound.Options{Kind: outbound.KindOAuth, Connection: cfg.ConnectionName, Timeout: oauth2TokenFetchTimeout}
-	if cfg.TLSCABundlePEM != "" {
-		if pool, err := apigwtls.RootPool(cfg.TLSCABundlePEM); err == nil {
-			opts.Base = &http.Transport{
-				TLSClientConfig: &tls.Config{
-					MinVersion: tls.VersionTLS12,
-					RootCAs:    pool,
-				},
-			}
-		}
-	}
-	return outbound.NewClient(opts)
+	return tokengrant.NewClient(cfg.ConnectionName, cfg.TLSCABundlePEM)
 }
 
 // newOAuth2ClientCredentialsAuth builds the client_credentials authenticator.
@@ -413,36 +374,11 @@ func (a oauth2ClientCredentialsAuth) Apply(req *http.Request) error {
 	return nil
 }
 
-// tokenFetchError sanitizes errors from oauth2.TokenSource.Token().
-// The library's *oauth2.RetrieveError includes the IdP response
-// body, which can contain sensitive material (e.g., a refresh
-// token from a partial grant exchange). It also includes the
-// token URL — if the operator embedded credentials in the URL
-// (e.g., https://user:secret@idp.example/token), those would
-// leak. We rebuild the message keeping only the non-sensitive
-// pieces.
+// tokenFetchError states a failed token request in the kind's voice, scrubbed
+// of the IdP's response body and any credential in the token URL
+// (tokengrant.Scrub).
 func tokenFetchError(cfg Config, err error) error {
-	var re *oauth2.RetrieveError
-	if errors.As(err, &re) {
-		return cfg.errf("oauth2 token fetch failed: status=%d", re.Response.StatusCode)
-	}
-	var ue *url.Error
-	if errors.As(err, &ue) {
-		parsed, perr := url.Parse(ue.URL)
-		if perr != nil {
-			return cfg.errf("oauth2 token fetch %s: %w", ue.Op, ue.Err)
-		}
-		parsed.RawQuery = ""
-		parsed.User = nil
-		return cfg.errf("oauth2 token fetch %s %q: %w", ue.Op, parsed.String(), ue.Err)
-	}
-	// Fallback: redact anything that looks URL-shaped just in case
-	// a future library version wraps in a different error type.
-	msg := err.Error()
-	if strings.Contains(msg, "://") {
-		return cfg.err("oauth2 token fetch failed (details redacted)")
-	}
-	return cfg.errf("oauth2 token fetch failed: %s", msg)
+	return cfg.errf("%w", tokengrant.Scrub(err))
 }
 
 // ErrNeedsReauth is the structured error a kind's invoke tool surfaces

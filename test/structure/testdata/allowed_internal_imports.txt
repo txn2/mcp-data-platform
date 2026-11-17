@@ -886,12 +886,12 @@ internal/httpserver/sitehttp -> internal/endpoint/epbinding
 internal/httpserver/sitehttp -> internal/endpoint/epform
 internal/httpserver/sitehttp -> internal/httpjson
 internal/httpserver/sitehttp -> internal/logsan
-internal/httpserver/sitehttp -> internal/namesort
 internal/httpserver/sitehttp -> internal/platform/notifydelivery
 internal/httpserver/sitehttp -> internal/platform/scriptstore
 internal/httpserver/sitehttp -> internal/platform/settingsjson
 internal/httpserver/sitehttp -> internal/selfcall
 internal/httpserver/sitehttp -> internal/site
+internal/httpserver/sitehttp -> internal/site/siteaddr
 internal/httpserver/sitehttp -> internal/site/siteconfig
 internal/httpserver/sitehttp -> internal/site/sitecrawl
 internal/httpserver/sitehttp -> internal/site/siteenv
@@ -2151,6 +2151,8 @@ internal/server -> internal/buildinfo
 internal/server -> internal/platform/knowledgebuiltin
 internal/server -> pkg/platform
 internal/shutdown -> internal/inprocess
+internal/site/siteaddr -> internal/namesort
+internal/site/siteaddr -> internal/site
 internal/site/siteconfig -> internal/site
 internal/site/sitecontract -> internal/site
 internal/site/sitecrawl -> internal/egressguard
@@ -2269,6 +2271,7 @@ internal/ui -> internal/contentenc
 internal/upstreamauth -> internal/apigwtls
 internal/upstreamauth -> internal/cfgmap
 internal/upstreamauth -> internal/connlimit
+internal/upstreamauth -> internal/connstate
 internal/upstreamauth -> internal/hmacsig
 internal/upstreamauth -> internal/membudget
 internal/upstreamauth -> internal/outbound
@@ -2277,6 +2280,7 @@ internal/upstreamauth -> internal/selfcall
 internal/upstreamauth -> internal/upstreamauth/googlekey
 internal/upstreamauth -> internal/upstreamauth/sessionlogin
 internal/upstreamauth -> internal/upstreamauth/tokenexpiry
+internal/upstreamauth -> internal/upstreamauth/tokengrant
 internal/upstreamauth -> pkg/authevents
 internal/upstreamauth -> pkg/connoauth
 internal/upstreamauth -> pkg/mcpcontext
@@ -2284,6 +2288,8 @@ internal/upstreamauth/googlekey -> internal/cfgmap
 internal/upstreamauth/sessionlogin -> internal/cfgmap
 internal/upstreamauth/sessionlogin -> internal/secretref
 internal/upstreamauth/sessionlogin -> internal/useragent
+internal/upstreamauth/tokengrant -> internal/apigwtls
+internal/upstreamauth/tokengrant -> internal/outbound
 internal/upstreamcall -> internal/outbound
 internal/upstreamcall -> internal/upstreamauth
 internal/useragent -> internal/buildinfo

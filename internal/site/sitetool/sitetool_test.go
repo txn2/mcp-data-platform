@@ -180,6 +180,24 @@ func (m *memStore) SetDomainPublic(_ context.Context, hostname string, public bo
 	return nil
 }
 
+func (m *memStore) SetDomainRole(_ context.Context, hostname string, primary bool, mode string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	d, ok := m.domains[hostname]
+	if !ok || d.SiteID == "" {
+		return site.ErrNoDomain
+	}
+	if primary {
+		for _, o := range m.domains {
+			if o.SiteID == d.SiteID && o.Environment == d.Environment {
+				o.Primary = false
+			}
+		}
+	}
+	d.Primary, d.Mode = primary, mode
+	return nil
+}
+
 func (m *memStore) SetMainEnvironment(_ context.Context, siteID, env string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1245,7 +1263,7 @@ func TestDomainAccess(t *testing.T) {
 
 	got := call(t, f, admin(), Input{Command: CmdSetDomain, Hostname: "www.example.org", Public: &no})
 	assert.Equal(t, false, got["public"])
-	assert.Contains(t, refusal(t, f, admin(), Input{Command: CmdSetDomain, Hostname: "www.example.org"}), "say public true or false")
+	assert.Contains(t, refusal(t, f, admin(), Input{Command: CmdSetDomain, Hostname: "www.example.org"}), "say public, primary or mode")
 
 	call(t, f, admin(), Input{Command: CmdSetDomain, Hostname: "beta.example.org", Public: &yes})
 	view := call(t, f, admin(), Input{Command: CmdGet, Site: siteName})
@@ -1491,4 +1509,36 @@ func TestRouting_2659(t *testing.T) {
 	list, _ := all["domains"].([]any)
 	require.NotEmpty(t, list)
 	assert.Contains(t, list[0], "routing")
+}
+
+// TestDomainRole pins #2687 through manage_site: primary and mode on
+// add_domain and set_domain, get showing each domain's mode, and
+// remove_domain refusing a primary a redirect depends on.
+func TestDomainRole(t *testing.T) {
+	f := newFixture()
+	createSite(t, f)
+	letAgentsMove(f, "prod")
+	yes := true
+	added := call(t, f, admin(), Input{Command: CmdAddDomain, Site: siteName, Environment: "prod", Hostname: "example.org", Primary: &yes})
+	assert.Equal(t, true, added["primary"])
+	added = call(t, f, admin(), Input{Command: CmdAddDomain, Site: siteName, Environment: "prod", Hostname: "www.example.org", Mode: "redirect"})
+	assert.Equal(t, "redirect", added["mode"])
+	assert.Contains(t, refusal(t, f, admin(), Input{Command: CmdRemoveDomain, Hostname: "example.org"}), "before removing it")
+
+	got := call(t, f, admin(), Input{Command: CmdSetDomain, Hostname: "www.example.org", Primary: &yes})
+	assert.Equal(t, true, got["primary"])
+	assert.Equal(t, "serve", got["mode"])
+	got = call(t, f, admin(), Input{Command: CmdSetDomain, Hostname: "example.org", Mode: "redirect", Public: &yes})
+	assert.Equal(t, "redirect", got["mode"])
+	assert.Equal(t, true, got["public"])
+
+	view := call(t, f, admin(), Input{Command: CmdGet, Site: siteName})
+	domains, _ := view["domains"].([]any)
+	modes := map[string]any{}
+	for _, d := range domains {
+		m, _ := d.(map[string]any)
+		host, _ := m["hostname"].(string)
+		modes[host] = m["mode"]
+	}
+	assert.Equal(t, map[string]any{"example.org": "redirect", "www.example.org": "serve"}, modes)
 }

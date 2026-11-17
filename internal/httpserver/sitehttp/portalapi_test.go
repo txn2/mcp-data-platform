@@ -1016,9 +1016,9 @@ func TestApplicationAddresses_AnswersWhereItIs(t *testing.T) {
 	}).AddRow("app_1", "shop", "", "jane@example.com", "", "", 0, "jane@example.com", now, now, 0, "", nil, 0))
 	mock.ExpectQuery("SELECT kind, part_id").WillReturnRows(sqlmock.NewRows([]string{"kind", "part_id", "added_by", "added_at", "release_mode"}))
 	mock.ExpectQuery("ORDER BY d.hostname").WillReturnRows(sqlmock.NewRows([]string{
-		"hostname", "site_id", "name", "environment", "application_id", "application", "created_by", "created_at", "public", "access_changed_at",
-	}).AddRow("shop.client.example", "", "", "", "app_1", "shop", "a", now, false, now).
-		AddRow("www.client.example", "site_1", "marketing", "prod", "", "", "a", now, true, now))
+		"hostname", "site_id", "name", "environment", "application_id", "application", "created_by", "created_at", "public", "access_changed_at", "is_primary", "mode", "redirects_to", "primary_public",
+	}).AddRow("shop.client.example", "", "", "", "app_1", "shop", "a", now, false, now, false, "serve", "", false).
+		AddRow("www.client.example", "site_1", "marketing", "prod", "", "", "a", now, true, now, false, "serve", "", false))
 
 	got := decodeBody[ApplicationAddresses](t, f.statusIs(t, 200, route{http.MethodGet, "/api/v1/portal/application-addresses/shop", nil}, userOwner))
 	assert.Equal(t, "https://shop.pages.example.net", got.PageOrigin)

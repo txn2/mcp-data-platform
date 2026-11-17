@@ -10,13 +10,13 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
 
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth/googlekey"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth/tokenexpiry"
+	"github.com/txn2/mcp-data-platform/internal/upstreamauth/tokengrant"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 )
@@ -27,10 +27,6 @@ const JWTBearerGrantType = "urn:ietf:params:oauth:grant-type:jwt-bearer" // #nos
 
 // jwtBearerMode names this grant in the errors the authenticator returns.
 const jwtBearerMode = "oauth jwt_bearer" // #nosec G101 -- mode name, not a credential
-
-// maxUpstreamDescriptionRunes bounds how much of an upstream's
-// error_description the platform repeats in a tool error and an alert.
-const maxUpstreamDescriptionRunes = 300
 
 // ErrAssertionRejected is the error a kind's tool surfaces when the
 // upstream token endpoint refused a jwt_bearer connection's signed
@@ -263,7 +259,7 @@ func (a *jwtBearerAuth) fetchError(ctx context.Context, err error) error {
 		return minted.err
 	}
 	var re *oauth2.RetrieveError
-	if !errors.As(err, &re) || !isAssertionRefusal(re.ErrorCode) {
+	if !errors.As(err, &re) || !tokengrant.IsRefusal(re.ErrorCode) {
 		scrubbed := tokenFetchError(a.cfg, err)
 		// Google answers an assertion whose scope claim names no access
 		// scope with a 200 that carries no access token (#2061).
@@ -272,7 +268,7 @@ func (a *jwtBearerAuth) fetchError(ctx context.Context, err error) error {
 		}
 		return scrubbed
 	}
-	description := boundedDescription(re.ErrorDescription)
+	description := tokengrant.Description(re.ErrorDescription)
 	if a.cfg.Google.Set {
 		if hint := googlekey.TokenHint(re.ErrorCode, description); hint != "" {
 			description = strings.TrimSuffix(cmp.Or(description, re.ErrorCode), ".") + ". " + hint
@@ -298,42 +294,6 @@ func (a *jwtBearerAuth) fetchError(ctx context.Context, err error) error {
 // is one row for the connection.
 func (a *jwtBearerAuth) accepted(ctx context.Context) {
 	a.writer().AssertionAccepted(ctx, a.cfg.Kind, a.cfg.ConnectionName)
-}
-
-// isAssertionRefusal reports whether an RFC 6749 section 5.2 error code
-// is a refusal an operator fixes at the upstream: the assertion or its
-// user is not accepted (invalid_grant), the client is not recognized
-// (invalid_client), the client may not use this grant
-// (unauthorized_client), or a scope it names is not one the endpoint
-// issues (invalid_scope, which Google answers a misspelled scope URL
-// with). Other codes describe a malformed request, which
-// is the platform's fault rather than the connection's.
-func isAssertionRefusal(code string) bool {
-	switch code {
-	case "invalid_grant", "invalid_client", "unauthorized_client", "invalid_scope":
-		return true
-	default:
-		return false
-	}
-}
-
-// boundedDescription makes an upstream's error_description safe to repeat
-// in a tool error and an email: control characters become spaces, runs
-// of whitespace collapse, and the text is cut at
-// maxUpstreamDescriptionRunes.
-func boundedDescription(raw string) string {
-	cleaned := strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
-			return ' '
-		}
-		return r
-	}, raw)
-	fields := strings.Fields(cleaned)
-	out := strings.Join(fields, " ")
-	if runes := []rune(out); len(runes) > maxUpstreamDescriptionRunes {
-		out = string(runes[:maxUpstreamDescriptionRunes]) + "..."
-	}
-	return out
 }
 
 // assertionMintError carries a failure to sign the assertion through the

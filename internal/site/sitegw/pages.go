@@ -61,6 +61,7 @@ const (
 	queryHost       = "host"
 	appTTL          = 500 * time.Millisecond
 	schemeHTTPS     = "https"
+	schemeHTTP      = "http"
 	noStore         = "no-store"
 )
 

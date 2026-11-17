@@ -5,16 +5,16 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"slices"
 	"strings"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
-	"github.com/txn2/mcp-data-platform/internal/namesort"
 	"github.com/txn2/mcp-data-platform/internal/platform/settingsjson"
 	"github.com/txn2/mcp-data-platform/internal/site"
+	"github.com/txn2/mcp-data-platform/internal/site/siteaddr"
 	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
+	"github.com/txn2/mcp-data-platform/internal/site/siteenv"
 	"github.com/txn2/mcp-data-platform/internal/site/siteprune"
 	"github.com/txn2/mcp-data-platform/internal/site/sitestore"
 	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
@@ -50,37 +50,13 @@ func (a *adminAPI) actor(r *http.Request) sitesvc.Actor {
 	return sitesvc.Actor{Email: a.author(r), Admin: true}
 }
 
-// AddressKind says what an address on the deployment is.
-const (
-	addressSite   = "site_address"
-	addressDomain = "domain"
-	addressApp    = "application"
-)
-
-// DeploymentAddress is one hostname the deployment answers on for a site or an
-// application. Each needs an ingress rule, added by a system administrator.
-type DeploymentAddress struct {
-	Hostname    string `json:"hostname" example:"marketing.pages.example.net"`
-	Kind        string `json:"kind" example:"site_address"`
-	Site        string `json:"site,omitempty" example:"marketing"`
-	Environment string `json:"environment,omitempty" example:"default"`
-	Application string `json:"application,omitempty"`
-	CreatedBy   string `json:"created_by"`
-	CreatedAt   string `json:"created_at"`
-}
-
-// AddressList is every site address and domain on the deployment.
-type AddressList struct {
-	Addresses []DeploymentAddress `json:"addresses"`
-}
-
 // domains handles GET /api/v1/admin/sites/domains.
 //
 // @Summary      Every site address and domain
 // @Description  Each hostname the deployment answers on for a site or an application: a site's own address and every domain added. A system administrator adds an ingress rule for each.
 // @Tags         Sites
 // @Produce      json
-// @Success      200  {object}  AddressList
+// @Success      200  {object}  siteaddr.AddressList
 // @Failure      401  {object}  httpjson.ProblemDetail
 // @Failure      403  {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
@@ -97,30 +73,7 @@ func (a *adminAPI) domains(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	out := make([]DeploymentAddress, 0, len(domains))
-	for i := range domains {
-		out = append(out, addressOf(&domains[i]))
-	}
-	if pages := a.rt.Live.Get().PagesDomain; pages != "" {
-		for i := range sites {
-			out = append(out, pagesAddresses(&sites[i], pages)...)
-		}
-	}
-	slices.SortFunc(out, func(x, y DeploymentAddress) int { return namesort.Compare(x.Hostname, y.Hostname) })
-	writeJSON(w, http.StatusOK, AddressList{Addresses: out})
-}
-
-const timeLayout = "2006-01-02T15:04:05Z"
-
-func addressOf(d *site.Domain) DeploymentAddress {
-	kind := addressDomain
-	if d.Application != "" {
-		kind = addressApp
-	}
-	return DeploymentAddress{
-		Hostname: d.Hostname, Kind: kind, Site: d.Site, Environment: d.Environment, Application: d.Application,
-		CreatedBy: d.CreatedBy, CreatedAt: d.CreatedAt.UTC().Format(timeLayout),
-	}
+	writeJSON(w, http.StatusOK, siteaddr.List(domains, sites, a.rt.Live.Get().PagesDomain))
 }
 
 // AdminDomainBody maps a hostname to a site environment or an application.
@@ -169,7 +122,7 @@ func (a *adminAPI) addDomain(w http.ResponseWriter, r *http.Request) {
 // removeDomain handles DELETE /api/v1/admin/sites/domains/{hostname}.
 //
 // @Summary      Remove a hostname
-// @Description  Stops routing a hostname.
+// @Description  Stops routing a hostname. A primary that other domains redirect to is refused (#2687).
 // @Tags         Sites
 // @Param        hostname  path  string  true  "Hostname"
 // @Success      204
@@ -179,7 +132,7 @@ func (a *adminAPI) addDomain(w http.ResponseWriter, r *http.Request) {
 // @Security     BearerAuth
 // @Router       /admin/sites/domains/{hostname} [delete]
 func (a *adminAPI) removeDomain(w http.ResponseWriter, r *http.Request) {
-	if err := a.rt.Service.RemoveDomain(r.Context(), a.actor(r), r.PathValue("hostname")); err != nil {
+	if err := siteenv.New(a.rt.Service).RemoveDomain(r.Context(), a.actor(r), r.PathValue("hostname")); err != nil {
 		fail(w, r, err)
 		return
 	}
@@ -217,7 +170,7 @@ func (a *adminAPI) settings(w http.ResponseWriter, r *http.Request) {
 	default:
 		// The values in force: a section saved before a setting existed (the
 		// release limit, #2602) reads as the file's value for it.
-		out = SiteSettings{Settings: a.rt.Config.With(stored.Value).Settings(), UpdatedBy: stored.UpdatedBy, UpdatedAt: stored.UpdatedAt.UTC().Format(timeLayout)}
+		out = SiteSettings{Settings: a.rt.Config.With(stored.Value).Settings(), UpdatedBy: stored.UpdatedBy, UpdatedAt: stored.UpdatedAt.UTC().Format(siteaddr.TimeLayout)}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -248,30 +201,6 @@ func (a *adminAPI) saveSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.settings(w, r)
-}
-
-// pagesAddresses is a site's addresses on the pages domain: the main address
-// and every environment's <site>--<env>, leaving out a <site>--<env> no
-// certificate can be issued for, which an ingress rule would only fail on
-// (#2611).
-func pagesAddresses(st *site.Site, pages string) []DeploymentAddress {
-	at := st.CreatedAt.UTC().Format(timeLayout)
-	out := make([]DeploymentAddress, 0, len(st.Environments))
-	if st.MainEnvironment != "" {
-		out = append(out, DeploymentAddress{
-			Hostname: st.Name + "." + pages, Kind: addressSite, Site: st.Name, Environment: st.MainEnvironment, CreatedBy: st.CreatedBy, CreatedAt: at,
-		})
-	}
-	for _, e := range st.Environments {
-		label := site.EnvLabel(st.Name, e.Name)
-		if site.ReservedLabel(label) {
-			continue
-		}
-		out = append(out, DeploymentAddress{
-			Hostname: label + "." + pages, Kind: addressSite, Site: st.Name, Environment: e.Name, CreatedBy: st.CreatedBy, CreatedAt: at,
-		})
-	}
-	return out
 }
 
 // recentSweeps is how many sweeps the retention view lists.

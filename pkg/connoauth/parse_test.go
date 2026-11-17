@@ -284,7 +284,7 @@ func TestParseConfig_UnknownGrantNamesEveryGrant(t *testing.T) {
 	if !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("err=%v want errors.Is ErrInvalidConfig", err)
 	}
-	const want = `unknown oauth_grant "jwt-bearer" (want authorization_code, client_credentials or jwt_bearer)`
+	const want = `unknown oauth_grant "jwt-bearer" (want authorization_code, client_credentials, jwt_bearer or password)`
 	if !strings.Contains(err.Error(), want) {
 		t.Errorf("err=%q want it to contain %q", err, want)
 	}

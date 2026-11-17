@@ -42,6 +42,8 @@ const DERIVED_KEYS = [
   "oauth_token_url",
   "oauth_client_id",
   "oauth_client_secret",
+  "oauth_username",
+  "oauth_password",
   "oauth_scope_placement",
   "jwt_algorithm",
   "jwt_private_key_pem",

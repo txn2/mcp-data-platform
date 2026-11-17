@@ -192,3 +192,19 @@ func TestLookup(t *testing.T) {
 	assert.Nil(t, got[0].Routing)
 	assert.Nil(t, pages)
 }
+
+// TestDomainEntry_CarriesTheRole pins #2687: a site's domain says whether it
+// is the primary and whether it serves or redirects, and to where; an
+// application's domain carries neither.
+func TestDomainEntry_CarriesTheRole(t *testing.T) {
+	served := domainEntry(site.Domain{Hostname: "example.com", Site: "m", Environment: "prod", Primary: true})
+	assert.Equal(t, true, served["primary"])
+	assert.Equal(t, site.DomainServe, served["mode"], "a domain from before #2687 serves")
+	assert.NotContains(t, served, "redirects_to")
+	redirect := domainEntry(site.Domain{Hostname: "www.example.com", Site: "m", Environment: "prod", Mode: site.DomainRedirect, RedirectsTo: "example.com"})
+	assert.Equal(t, site.DomainRedirect, redirect["mode"])
+	assert.Equal(t, "example.com", redirect["redirects_to"])
+	app := domainEntry(site.Domain{Hostname: "shop.example.com", Application: "shop"})
+	assert.NotContains(t, app, "mode")
+	assert.NotContains(t, app, "primary")
+}

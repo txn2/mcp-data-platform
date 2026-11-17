@@ -614,18 +614,17 @@ address with the answer in the header the solver names.
 ## 9. The shop's own hostnames
 
 An administrator adds `www.store.example` to the site's `prod` as a public
-domain (`manage_site add_domain hostname=www.store.example site=store-web
-environment=prod public=true`). The apex hostname is a second site holding only
-a redirect map: `manage_site create name=store-apex`, publish one file,
-`_redirects`,
-
-```text
-/* https://www.store.example/:splat 301
-```
-
-and add `store.example` to its `prod` as a public domain. Every path keeps its
-rest and its query string (`store.example/products/tee?ref=ad` arrives at
-`www.store.example/products/tee?ref=ad`).
+domain and its primary (`manage_site add_domain hostname=www.store.example
+site=store-web environment=prod public=true primary=true`), then the apex
+hostname beside it as a redirect (`manage_site add_domain hostname=store.example
+site=store-web environment=prod public=true mode=redirect`). The platform's
+gateway answers every request to `store.example` with a permanent redirect
+(301; 308 for a method other than GET and HEAD) to `www.store.example`, path
+and query kept (`store.example/products/tee?ref=ad` arrives at
+`www.store.example/products/tee?ref=ad`). Either hostname can be the primary:
+`set_domain hostname=store.example primary=true`, then `set_domain
+hostname=www.store.example mode=redirect`, turns it around, with no release.
+Promote and rollback leave it alone.
 
 An application served by its page endpoints rather than by a site takes a
 hostname of its own the same way, `manage_site add_domain

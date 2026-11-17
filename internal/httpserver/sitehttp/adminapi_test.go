@@ -20,6 +20,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/application"
 	"github.com/txn2/mcp-data-platform/internal/platform/settingsjson"
 	"github.com/txn2/mcp-data-platform/internal/site"
+	"github.com/txn2/mcp-data-platform/internal/site/siteaddr"
 	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
 	"github.com/txn2/mcp-data-platform/internal/site/sitestore"
 	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
@@ -32,7 +33,7 @@ const (
 )
 
 var (
-	adminDomainCols = []string{"hostname", "site_id", "name", "environment", "application_id", "application", "created_by", "created_at", "public", "access_changed_at"}
+	adminDomainCols = []string{"hostname", "site_id", "name", "environment", "application_id", "application", "created_by", "created_at", "public", "access_changed_at", "is_primary", "mode", "redirects_to", "primary_public"}
 	adminSiteCols   = []string{"id", "name", "description", "owner_email", "main_environment", "created_by", "created_at", "updated_at"}
 	adminEnvCols    = []string{"name", "release_number", "requires_approval", "internal_view", "updated_by", "updated_at", "keep_releases", "status", "status_message", "back_at", "redirect_to", "redirect_keep_path", "status_changed_by", "status_changed_at", "agents_may_promote", "kept", "public_domains", "tile_failure"}
 	stamp           = time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
@@ -106,17 +107,17 @@ func (f *adminFixture) expectSavedSettings(s siteconfig.Settings) {
 func TestAdmin_Domains(t *testing.T) {
 	f := newAdmin(t)
 	f.expectDomains(
-		[]driver.Value{"zzz.client.example", siteID, siteName, "prod", "", "", "a", stamp, true, stamp},
-		[]driver.Value{"shop.client.example", "", "", "", "app_shop", "shop", "b", stamp, false, stamp},
+		[]driver.Value{"zzz.client.example", siteID, siteName, "prod", "", "", "a", stamp, true, stamp, false, "redirect", "www.client.example", true},
+		[]driver.Value{"shop.client.example", "", "", "", "app_shop", "shop", "b", stamp, false, stamp, false, "serve", "", false},
 	)
 	f.expectSites("alpha")
 
 	rec := f.do(t, http.MethodGet, adminDomains, "")
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	got := decodeBody[AddressList](t, rec)
+	got := decodeBody[siteaddr.AddressList](t, rec)
 	require.Len(t, got.Addresses, 4)
 
-	byHost := map[string]DeploymentAddress{}
+	byHost := map[string]siteaddr.DeploymentAddress{}
 	hosts := make([]string, 0, 4)
 	for _, a := range got.Addresses {
 		byHost[a.Hostname], hosts = a, append(hosts, a.Hostname)
@@ -124,12 +125,16 @@ func TestAdmin_Domains(t *testing.T) {
 	assert.Equal(t, []string{"alpha--dev.pages.example.net", "alpha.pages.example.net", "shop.client.example", "zzz.client.example"}, hosts,
 		"in hostname order: the main address and every environment's own")
 	assert.Equal(t, site.EnvDev, byHost["alpha--dev.pages.example.net"].Environment)
-	assert.Equal(t, addressSite, byHost["alpha.pages.example.net"].Kind)
+	assert.Equal(t, siteaddr.KindSite, byHost["alpha.pages.example.net"].Kind)
 	assert.Equal(t, site.EnvDev, byHost["alpha.pages.example.net"].Environment)
 	assert.Equal(t, "creator@example.com", byHost["alpha.pages.example.net"].CreatedBy)
-	assert.Equal(t, stamp.Format(timeLayout), byHost["alpha.pages.example.net"].CreatedAt)
-	assert.Equal(t, addressApp, byHost["shop.client.example"].Kind)
-	assert.Equal(t, addressDomain, byHost["zzz.client.example"].Kind)
+	assert.Equal(t, stamp.Format(siteaddr.TimeLayout), byHost["alpha.pages.example.net"].CreatedAt)
+	assert.Equal(t, siteaddr.KindApplication, byHost["shop.client.example"].Kind)
+	assert.Equal(t, siteaddr.KindDomain, byHost["zzz.client.example"].Kind)
+	assert.Equal(t, "redirect", byHost["zzz.client.example"].Mode, "a site domain's role (#2687)")
+	assert.Equal(t, "www.client.example", byHost["zzz.client.example"].RedirectsTo)
+	assert.Empty(t, byHost["shop.client.example"].Mode, "an application's domain has no role")
+	assert.Empty(t, byHost["alpha.pages.example.net"].Mode, "a pages address has no role")
 	assert.NoError(t, f.mock.ExpectationsWereMet())
 }
 
@@ -141,17 +146,6 @@ func TestAdmin_DomainsWithNoPagesDomain(t *testing.T) {
 	rec := f.do(t, http.MethodGet, adminDomains, "")
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, `{"addresses":[]}`, strings.TrimSpace(rec.Body.String()), "no pages domain, no own address")
-}
-
-// TestPagesAddresses_LeavesOutAReservedLabel pins #2611: a two-character
-// site's <site>--<env> is not offered for an ingress rule, since no
-// certificate can be issued for it; its main address is.
-func TestPagesAddresses_LeavesOutAReservedLabel(t *testing.T) {
-	st := &site.Site{Name: "ab", MainEnvironment: site.EnvDev, Environments: []site.Environment{{Name: site.EnvDev}, {Name: "prod"}}}
-	got := pagesAddresses(st, "pages.example.net")
-	require.Len(t, got, 1)
-	assert.Equal(t, "ab.pages.example.net", got[0].Hostname)
-	assert.Len(t, pagesAddresses(&site.Site{Name: "abc", Environments: st.Environments}, "pages.example.net"), 2)
 }
 
 func TestAdmin_DomainsThatCannotBeRead(t *testing.T) {
@@ -225,7 +219,7 @@ func TestAdmin_Settings(t *testing.T) {
 		assert.Equal(t, "saved.example.net", got.PagesDomain)
 		assert.Equal(t, 3, got.MaxFiles)
 		assert.Equal(t, adminEmail, got.UpdatedBy)
-		assert.Equal(t, stamp.Format(timeLayout), got.UpdatedAt)
+		assert.Equal(t, stamp.Format(siteaddr.TimeLayout), got.UpdatedAt)
 	})
 	t.Run("a read that fails says nothing of why", func(t *testing.T) {
 		f := newAdmin(t)
