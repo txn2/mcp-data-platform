@@ -13,6 +13,8 @@ import { toPayload } from "./usePersonaEditor";
 vi.mock("@/api/admin/hooks", () => ({
   usePersonas: () => ({ data: { personas: [{ name: "marketing", display_name: "Marketing", roles: [] }] } }),
 }));
+const { personaGrants } = vi.hoisted(() => ({ personaGrants: { data: [] as unknown[] } }));
+vi.mock("@/api/resources/folderGrants", () => ({ usePersonaFolderGrants: () => personaGrants }));
 vi.mock("@/components/MarkdownEditor", () => ({
   MarkdownEditor: ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
     <textarea aria-label="text" value={value} onChange={(e) => onChange(e.target.value)} />
@@ -138,6 +140,19 @@ describe("instructions", () => {
 });
 
 describe("portal access", () => {
+  it("lists the Global folders the persona writes, and says when its level overrides them (#2684)", () => {
+    personaGrants.data = [{ id: "g1", folder: "reports", persona: "finance", created_by: "admin@example.com", created_at: "", inherited: false }];
+    const { unmount } = render(
+      <PortalAccessSection draft={draft({ name: "finance" })} onUpdate={vi.fn()} report={report()} isReadOnly={false} />,
+    );
+    expect(screen.getByTestId("persona-global-writes").textContent).toContain("reports");
+    unmount();
+    const shared = draft({ name: "finance", portal: { ...resolvePortal(), resources: "shared", uploads: false } });
+    render(<PortalAccessSection draft={shared} onUpdate={vi.fn()} report={undefined} isReadOnly={false} />);
+    expect(screen.getByTestId("persona-global-writes").textContent).toContain("Not in effect");
+    personaGrants.data = [];
+  });
+
   it("locks what External sets and shows the saved choice", () => {
     const r = report({
       account_type: "external",

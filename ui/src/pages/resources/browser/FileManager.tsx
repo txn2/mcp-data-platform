@@ -65,7 +65,7 @@ export function FileManager(props: FileManagerProps) {
         dialog={fm.dialog}
         root={fm.root}
         path={fm.path}
-        folders={fm.data.folders}
+        folders={fm.grantOnly ? fm.data.folders.filter((f) => fm.granted(fm.root, f.path)) : fm.data.folders}
         admin={fm.admin}
         personaNames={fm.personaNames}
         actions={fm.actions}
@@ -123,6 +123,14 @@ function Main({ fm }: { fm: FM }) {
   const files = (e: React.DragEvent) => e.dataTransfer.types.includes("Files") && fm.canWrite;
   return (
     <section className="relative flex min-h-0 min-w-0 flex-col">
+      {fm.grantOnly && fm.granted(fm.root, fm.path) && (
+        <div className="flex items-center gap-2 border-b px-3 py-1.5 text-xs" data-testid="grant-marker">
+          <span className="rounded-full border border-emerald-600/60 bg-emerald-500/10 px-2 py-0.5 font-medium text-emerald-700 dark:text-emerald-300">
+            You can edit
+          </span>
+          <span className="text-muted-foreground">An administrator lets you write this folder and everything inside it.</span>
+        </div>
+      )}
       <SelectionBar
         count={fm.selection.keys.length}
         canAct={fm.canAct}

@@ -62,6 +62,11 @@ func (s *Service) Promote(ctx context.Context, actor Actor, req PromoteRequest) 
 	if err != nil {
 		return nil, err
 	}
+	if s.CheckPromote != nil {
+		if err := s.CheckPromote(ctx, st, target.Name, rel); err != nil {
+			return nil, refusedBy(err)
+		}
+	}
 	out := &Promoted{Environment: target.Name, Release: rel.Number, Status: StatusPromoted, DecidedBy: actor.DecidedBy}
 	if target.RequiresApproval {
 		waiting, err := s.approvedOrRequest(ctx, actor, approval.SubmitRelease{

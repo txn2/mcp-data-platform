@@ -69,7 +69,7 @@ export function ReleaseControls({ detail }: { detail: ApplicationDetail }) {
           <AlertDescription>{failure}</AlertDescription>
         </Alert>
       )}
-      {open === "release" && <ReleaseDialog app={app.id} onClose={() => setOpen(null)} />}
+      {open === "release" && <ReleaseDialog app={app.id} detail={detail} onClose={() => setOpen(null)} />}
       {open === "rollback" && (
         <RollbackDialog app={app.id} detail={detail} onClose={() => setOpen(null)} />
       )}
@@ -86,26 +86,61 @@ export function blockingProblems(detail: ApplicationDetail): string[] {
   return detail.problems.filter((p) => !advice.has(p));
 }
 
-function ReleaseDialog({ app, onClose }: { app: string; onClose: () => void }) {
+function ReleaseDialog({ app, detail, onClose }: { app: string; detail: ApplicationDetail; onClose: () => void }) {
   const release = useReleaseApplication(app);
   const [note, setNote] = useState("");
   const [failure, setFailure] = useState<string | null>(null);
+  const [moving, setMoving] = useState<string[]>([]);
+  const [force, setForce] = useState(false);
+  const parts = detail.site_parts ?? [];
+  // A refusal over the contract can be overridden by the administrator
+  // releasing, which the release records (#2679).
+  const contractRefusal = failure !== null && failure.includes("contract");
   const submit = () => {
     setFailure(null);
     release.mutate(
-      { note: note.trim() || undefined },
+      { note: note.trim() || undefined, move_sites: moving, force: contractRefusal && force },
       {
         onSuccess: onClose,
         onError: (e) => setFailure(errorText(e, "The application could not be released")),
       },
     );
   };
+  const toggle = (id: string) => setMoving((m) => (m.includes(id) ? m.filter((x) => x !== id) : [...m, id]));
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Release</DialogTitle>
         </DialogHeader>
+        {parts.length > 0 && (
+          <div className="space-y-2 text-sm" data-testid="release-site-parts">
+            <p className="font-medium">Site environments this release moves</p>
+            {parts.map((p) =>
+              p.release_mode === "coupled" ? (
+                <div key={p.part_id} className="flex justify-between rounded-md border px-3 py-2">
+                  <span>
+                    {p.part_id} <span className="text-xs text-amber-700 dark:text-amber-300">coupled</span>
+                  </span>
+                  <span className="text-muted-foreground">{p.step && p.step !== p.serves ? `${p.serves} → ${p.step}` : `stays at ${p.serves}`}</span>
+                </div>
+              ) : (
+                <label key={p.part_id} className="flex min-h-11 items-center gap-2 rounded-md border px-3 py-2">
+                  <input type="checkbox" checked={moving.includes(p.part_id)} onChange={() => toggle(p.part_id)} />
+                  <span className="flex-1">
+                    {p.part_id} <span className="text-xs text-blue-700 dark:text-blue-300">linked</span>
+                  </span>
+                  <span className="text-muted-foreground">
+                    {moving.includes(p.part_id) && p.step ? `${p.serves} → ${p.step}` : `stays at ${p.serves}`}
+                  </span>
+                </label>
+              ),
+            )}
+            <p className="text-xs text-muted-foreground">
+              Tick a linked part to move it one step in this release too. A rollback of this release returns only the parts it moved.
+            </p>
+          </div>
+        )}
         <Field id="release-note" label="Note">
           <Textarea id="release-note" rows={3} value={note} onChange={(e) => setNote(e.target.value)} />
         </Field>
@@ -114,11 +149,17 @@ function ReleaseDialog({ app, onClose }: { app: string; onClose: () => void }) {
             <AlertDescription>{failure}</AlertDescription>
           </Alert>
         )}
+        {contractRefusal && (
+          <label className="flex min-h-11 items-center gap-2 text-sm">
+            <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} />
+            Release anyway (administrator, recorded with the release)
+          </label>
+        )}
         <DialogFooter>
           <Button variant="ghost" onClick={onClose} disabled={release.isPending}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={release.isPending}>
+          <Button onClick={submit} disabled={release.isPending || (contractRefusal && !force)}>
             Release
           </Button>
         </DialogFooter>

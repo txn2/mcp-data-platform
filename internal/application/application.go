@@ -81,11 +81,15 @@ type Application struct {
 	SchemaAdoptedVersion int `json:"schema_adopted_version" example:"0"`
 	// CurrentRelease is the number of the release in force, 0 before the
 	// first.
-	CurrentRelease int       `json:"current_release" example:"3"`
-	CreatedBy      string    `json:"created_by" example:"jane@example.com"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
-	Parts          []Part    `json:"parts"`
+	CurrentRelease int `json:"current_release" example:"3"`
+	// ContractVersion is the contract its front ends call (#2679), raised by
+	// hand when a release breaks it; 0 declares none, and every front end is
+	// compatible.
+	ContractVersion int       `json:"contract_version" example:"3"`
+	CreatedBy       string    `json:"created_by" example:"jane@example.com"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	Parts           []Part    `json:"parts"`
 }
 
 // Part is one member of an application.
@@ -95,7 +99,21 @@ type Part struct {
 	ID      string    `json:"id" example:"5b0c..."`
 	AddedBy string    `json:"added_by" example:"jane@example.com"`
 	AddedAt time.Time `json:"added_at"`
+	// ReleaseMode is a site environment part's (#2679): linked, served as a
+	// front end of the application and moved only by promote and rollback,
+	// or coupled, moved one step by every application release and returned
+	// by every rollback. "" for every other kind.
+	ReleaseMode string `json:"release_mode,omitempty" example:"linked"`
 }
+
+// The release modes a site environment part takes (#2679).
+const (
+	ModeLinked  = "linked"
+	ModeCoupled = "coupled"
+)
+
+// ValidMode reports whether mode is a site part's release mode.
+func ValidMode(mode string) bool { return mode == ModeLinked || mode == ModeCoupled }
 
 // Pin is the version a release holds a script or an asset at.
 type Pin struct {
@@ -127,6 +145,9 @@ type Changes struct {
 	// Findings are what the application's diagram found at the release that
 	// did not refuse it (#2540).
 	Findings []string `json:"findings,omitempty"`
+	// Forced is each site part an administrator released over though its
+	// release does not work with the contract (#2679).
+	Forced []string `json:"forced,omitempty"`
 }
 
 // Release is one release row and its pins.
@@ -310,6 +331,8 @@ type Store interface {
 	// released version its parts were held at.
 	Delete(ctx context.Context, id string) error
 	AddPart(ctx context.Context, applicationID string, p Part) error
+	// SetPartMode changes a site environment part's release mode (#2679).
+	SetPartMode(ctx context.Context, applicationID, id, mode string) error
 	// RemovePart removes the part and clears the released version it was
 	// held at.
 	RemovePart(ctx context.Context, applicationID, kind, id string) error

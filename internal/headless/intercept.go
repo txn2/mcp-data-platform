@@ -56,6 +56,8 @@ func (rs *render) answer(m message) {
 	if json.Unmarshal(m.Params, &p) != nil || p.RequestID == "" {
 		return
 	}
+	done := rs.track()
+	defer done()
 	ctx, cancel := context.WithTimeout(context.Background(), publicFetchTimeout+disposeTimeout)
 	defer cancel()
 
@@ -124,10 +126,11 @@ func requestHeader(h map[string]string) http.Header {
 }
 
 // routeResponseHeaders are the headers of a platform route's answer a page is
-// given beside its type: what a ranged read is checked by, and what a read
-// from a sandboxed frame, whose origin is opaque, needs to be allowed at all.
+// given beside its type: where a redirect sends it, what a ranged read is
+// checked by, and what a read from a sandboxed frame, whose origin is opaque,
+// needs to be allowed at all.
 var routeResponseHeaders = []string{
-	"Content-Range", "Accept-Ranges", "ETag", "Cache-Control",
+	"Location", "Content-Range", "Accept-Ranges", "ETag", "Cache-Control",
 	"Access-Control-Allow-Origin", "Access-Control-Allow-Credentials", "Access-Control-Expose-Headers",
 	"Access-Control-Allow-Headers", "Access-Control-Allow-Methods",
 }

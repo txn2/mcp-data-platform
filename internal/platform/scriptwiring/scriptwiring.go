@@ -243,7 +243,7 @@ func applicationDeps(deps Deps, endpoints *epwire.Endpoints, gate *scriptsave.Ga
 		d.Blobs = deps.S3
 	}
 	if sites != nil {
-		d.Sites = sites.Service
+		d.Sites, d.Contracts = sites.Service, sites.Contracts()
 	}
 	return d
 }

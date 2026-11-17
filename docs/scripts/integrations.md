@@ -18,7 +18,10 @@ thing back, a status for each item it handed the script.
 
 - **One script per operation**, chosen in **Admin > Settings > Integrations** or
   with `PUT /api/v1/admin/integrations/{operation}`. The picker lists only scripts
-  whose source defines the operation's function (`route(req)` for Site routing).
+  whose source declares the operation at its top level and defines its function
+  (`INTEGRATION = "site_routing"` and `route(req)` for Site routing). A function
+  named `route` in a script that declares no integration is one of its helpers:
+  it is never offered, never called, and not checked for its parameters (#2683).
   The version that runs is the one approved for handlers, as for every handler
   kind; choosing a script can approve its latest version as you, and it then
   runs with your roles. Choosing, changing, clearing and retrying are audited.
@@ -68,7 +71,10 @@ shown on the run; a script that wants it on record prints it.
 - each application's page origin (`<app>.<pages domain>`);
 - each domain added to a site environment or an application.
 
-**The script defines `route(req)`.** `req` carries:
+**The script declares `INTEGRATION = "site_routing"` and defines `route(req)`.**
+The declaration is what makes `route` the operation's entry. Choosing a script and
+saving the chosen one both require it, and the refusal names the line to add.
+`req` carries:
 
 | Field | Value |
 |---|---|
@@ -85,6 +91,8 @@ not name is ignored. A removed hostname's status is dropped once the run that
 carried the removal ends.
 
 ```python
+INTEGRATION = "site_routing"
+
 def route(req):
     """Hands the ingress every hostname the platform serves, in one call."""
     resp = platform.call("api_invoke_endpoint", {
@@ -150,3 +158,16 @@ absent and the pages show nothing new.
 | `PUT /api/v1/admin/integrations/{operation}` | Choose or change the script and the interval: `{"script_id", "interval_seconds", "approve"}`. Refused, naming the contract, when the version that would run does not define the function |
 | `DELETE /api/v1/admin/integrations/{operation}` | Clear the script and every status |
 | `POST /api/v1/admin/integrations/{operation}/retry` | Run the script now with every item |
+
+## Upgrading to v1.163.0
+
+A script is a Site routing script only when it declares `INTEGRATION =
+"site_routing"` at its top level (#2683). In v1.162.2 any script with a top-level
+`route` taking one parameter was offered in the picker, and a `route` helper with
+any other number of parameters could not be saved. After the upgrade:
+
+- a script that uses `route` as an internal helper saves again and leaves the
+  picker; nothing else about it changes;
+- a script already chosen for Site routing keeps running on its `route(req)`, but
+  its next save is refused until the line `INTEGRATION = "site_routing"` is added
+  at its top level. Add it when you next edit the script.

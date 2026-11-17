@@ -344,11 +344,13 @@ every caller by omission. `connection` is the name calls use, the same name
 
 One more kind, `integration`, is the script an administrator chooses for an
 operation only the deployment knows how to do, in Admin > Settings >
-Integrations: Site routing calls `route(req)` with `reason`, `added`, `removed`
-and `hosts` and expects a dict keyed by hostname of `{"status": "ready" |
-"failed", "message": "..."}`. It shows among the script's handlers and a save
-that removes `route(req)` is refused, but it is chosen and cleared on that page,
-not with `handler_set`.
+Integrations: a script that declares `INTEGRATION = "site_routing"` at its top
+level is a Site routing script, and Site routing calls its `route(req)` with
+`reason`, `added`, `removed` and `hosts` and expects a dict keyed by hostname of
+`{"status": "ready" | "failed", "message": "..."}`. A `route` in a script that
+declares no integration is an ordinary helper. It shows among the script's
+handlers and a save that removes the declaration or `route(req)` is refused, but
+it is chosen and cleared on that page, not with `handler_set`.
 
 These run the version an administrator approved with that administrator's roles:
 your save of such a script waits for an administrator, and the approved version

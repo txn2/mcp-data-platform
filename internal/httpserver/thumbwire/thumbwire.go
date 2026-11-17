@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 
 	"github.com/txn2/mcp-data-platform/internal/contentviewer"
 	"github.com/txn2/mcp-data-platform/internal/egressguard"
@@ -22,6 +23,8 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scripttiles"
 	"github.com/txn2/mcp-data-platform/internal/platform/thumbworker"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
+	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
+	"github.com/txn2/mcp-data-platform/internal/site/sitegw"
 	"github.com/txn2/mcp-data-platform/internal/site/sitetile"
 	"github.com/txn2/mcp-data-platform/internal/site/sitetile/tilepage"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -48,20 +51,38 @@ func Build(p *platform.Platform, routes http.Handler) *thumbworker.Worker {
 	if p == nil {
 		return nil
 	}
-	return assemble(p, routes, contentviewer.TileEntryURL())
+	return assemble(p, routes, contentviewer.TileEntryURL(), sitePage(p))
 }
 
+// tileCacheBytes bounds the memory and the disk the tile page's gateway holds
+// file bytes in: tiles are drawn a few at a time, and the serving layer keeps
+// its own.
+const tileCacheBytes = 32 << 20
+
 // sitePage builds the page a site environment's tile is drawn from, nil on a
-// deployment that serves no sites.
-func sitePage(p source) thumbworker.SitePage {
-	pp, ok := p.(*platform.Platform)
+// deployment that serves no sites. The page is answered by a gateway of its
+// own over the same store, objects and media the serving layer reads, so a
+// tile shows the release as the environment's address serves it (#2681).
+func sitePage(p *platform.Platform) thumbworker.SitePage {
+	e := p.Endpoints()
+	if e == nil || e.Sites == nil || !e.Sites.Serving() {
+		return nil
+	}
+	rt := e.Sites
+	objects, ok := p.PortalS3Client().(sitegw.Objects)
 	if !ok {
 		return nil
 	}
-	if e := pp.Endpoints(); e != nil && e.Sites != nil && e.Sites.Serving() {
-		return tilepage.Release{Store: e.Sites.Store, Objects: e.Sites.Service.Objects, Bucket: e.Sites.Service.Bucket}.Page
+	// A cache of its own, never the serving layer's directory: two caches
+	// evicting in one directory would remove each other's files.
+	cfg := rt.Config
+	cfg.Cache = siteconfig.CacheConfig{MemoryBytes: tileCacheBytes, DiskBytes: tileCacheBytes, Dir: rt.Config.Limits().Cache.Dir + "-tiles"}
+	gw := sitegw.New(sitegw.Deps{Store: rt.Store, Objects: objects, Bucket: p.Config().Portal.S3Bucket, Config: cfg, Live: rt.Live, Media: rt.Media})
+	host := ""
+	if u, err := url.Parse(p.Config().Portal.PublicBaseURL); err == nil {
+		host = u.Hostname()
 	}
-	return nil
+	return tilepage.Release{Store: rt.Store, Server: gw, PlatformHost: host}.Page
 }
 
 // ScriptTiles is the reader a script's tile is served from (#1909): the tile
@@ -106,7 +127,7 @@ func NewRenderer(cfg *platform.Config) (*headless.Renderer, error) {
 }
 
 // assemble is Build over the part of the platform it reads.
-func assemble(p source, routes http.Handler, tileEntry string) *thumbworker.Worker {
+func assemble(p source, routes http.Handler, tileEntry string, page thumbworker.SitePage) *thumbworker.Worker {
 	if !p.Config().Thumbnails.IsEnabled() {
 		return nil
 	}
@@ -142,14 +163,7 @@ func assemble(p source, routes http.Handler, tileEntry string) *thumbworker.Work
 	if collections, ok := p.PortalCollectionStore().(thumbworker.CollectionWork); ok {
 		deps.Collections = collections
 	}
-	if db := p.DB(); db != nil {
-		deps.Scripts = scripttiles.NewPostgres(db)
-		// Each site environment's tile, drawn from the release it serves
-		// (#2658).
-		if page := sitePage(p); page != nil {
-			deps.Sites, deps.SitePage = sitetile.NewStore(db), page
-		}
-	}
+	withDatabase(&deps, p.DB(), page)
 	if resources, ok := p.ResourceStore().(resource.ThumbnailWork); ok && p.ResourceS3Client() != nil {
 		deps.Resources = resources
 		deps.ResourceBlobs = p.ResourceS3Client()
@@ -164,4 +178,17 @@ func assemble(p source, routes http.Handler, tileEntry string) *thumbworker.Work
 	}
 	slog.Info("Thumbnails drawn by the renderer", "renderer_url", cfg.Thumbnails.EffectiveRendererURL(), "concurrency", tuning.Concurrency)
 	return thumbworker.New(tuning, deps)
+}
+
+// withDatabase adds what a database holds work for: each script's tile and,
+// where sites are served, each site environment's tile drawn from the release
+// it serves (#2658).
+func withDatabase(deps *thumbworker.Deps, db *sql.DB, page thumbworker.SitePage) {
+	if db == nil {
+		return
+	}
+	deps.Scripts = scripttiles.NewPostgres(db)
+	if page != nil {
+		deps.Sites, deps.SitePage = sitetile.NewStore(db), page
+	}
 }

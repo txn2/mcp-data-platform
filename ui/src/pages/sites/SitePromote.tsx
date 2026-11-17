@@ -92,6 +92,9 @@ function PromoteSource({ target, prev }: { target: SiteEnvironment; prev?: SiteE
       <p className="text-sm" data-testid="promote-source">
         {prev.name}, release {prev.release}
       </p>
+      <p className="text-xs text-muted-foreground" data-testid="promote-unchanged">
+        No files are sent and nothing is rebuilt: {target.name} will serve release {prev.release} exactly as {prev.name} serves it now.
+      </p>
       <p className="text-xs text-muted-foreground">
         {target.name} takes releases only from {prev.name}, the environment before it.
       </p>

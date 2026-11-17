@@ -559,7 +559,7 @@ func TestIssue2604_APrivateSiteKnowsItsViewerAndRunsItsEndpointsAsThem(t *testin
 	addScriptPart2517(t, admin, app, api)
 	bindEndpoint(t, admin, api, "", map[string]any{"endpoint": api, "methods": []string{"GET"}, "path": "/", "auth_mode": "authenticated", "callers": []string{"*"}})
 	for _, env := range []string{"prod", "open"} {
-		admin.call("manage_application", map[string]any{"command": "add_part", "application": app, "kind": "site", "part_id": s.name + "/" + env})
+		admin.call("manage_application", map[string]any{"command": "add_part", "application": app, "kind": "site", "part_id": s.name + "/" + env, "release_mode": "coupled"})
 	}
 
 	cookie := signIn2604(t, s.host("prod"), emailKCAnalyst, passKCAnalyst)

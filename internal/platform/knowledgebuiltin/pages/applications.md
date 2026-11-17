@@ -443,10 +443,10 @@ reads the same list from `/endpoints/shop/products`.
    the pending migrations and the role its scripts log in as), and anything
    a release would refuse (`problems`).
 4. `release` (an administrator) applies the pending migrations and pins each
-   script's and asset's newest version, and each site environment at the
-   release the environment before it serves (dev at the site's newest), so a
-   release moves a site one step as promoting it would. A migration that fails
-   refuses the release and changes nothing.
+   script's and asset's newest version, and moves each coupled site
+   environment, and each linked one `move_sites` names, to the release the
+   environment before it serves (dev at the site's newest), as promoting it
+   would. A migration that fails refuses the release and changes nothing.
 
 From then on the endpoints, the forms, the schedules, the events and
 `run_script` run the pinned script versions, and the portal serves the pinned
@@ -477,3 +477,22 @@ carries one.
 An endpoint with `response_mode: "page"` is a working browser page on the
 application's own origin, and a static site's environment can be a part of the
 application: mcp:knowledge_page:platform-pages-and-sites.
+
+A site part is **linked** (the default) or **coupled** (`release_mode` on
+`add_part`, changed with `set_part`). Both call the application's
+`/endpoints/<name>` on the site's own address with its cookies and viewer. A
+linked part moves only by `manage_site promote` and `rollback`, unless a
+release names it in `move_sites`, and a rollback returns it only when the
+rolled-back release moved it; a coupled part moves one step with every release
+and returns with every rollback. Make a front end coupled when it must ship
+with every backend change; leave it linked when it has its own cadence, as one
+of several storefronts would.
+
+When a release breaks what front ends call, raise the application's contract
+(`update contract_version=<n>`, or `contract` on `release`). A site release
+declares the range it works with in an `_application` file at its root,
+`{"application": "shop", "contract": ">=2 <4"}`. A release whose contract a site
+part's release excludes is refused naming it (`force`, an administrator's, is
+recorded), and `manage_site promote` refuses a release that excludes the
+contract. Ship a breaking change in order: front ends that accept both
+contracts, then the backend with the new one.

@@ -219,7 +219,7 @@ func (f *fakeSource) Items(context.Context) ([]Item, error) { return f.items, f.
 
 func host(h string) Item { return Item{Key: h, Entry: map[string]any{"hostname": h, "kind": "domain"}} }
 
-const routeSource = "def route(req):\n    return {}\n"
+const routeSource = "INTEGRATION = \"site_routing\"\n\ndef route(req):\n    return {}\n"
 
 // world is the service under test and the fakes it reads and writes.
 type world struct {

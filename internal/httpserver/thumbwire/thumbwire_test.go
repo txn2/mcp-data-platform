@@ -174,7 +174,7 @@ func TestBuild_AsksEveryStoreThroughTheConfiguredRenderer(t *testing.T) {
 	}
 	src.cfg.Thumbnails.RendererURL = answeringRenderer(t)
 
-	w := assemble(src, http.NewServeMux(), tileEntry)
+	w := assemble(src, http.NewServeMux(), tileEntry, nil)
 	if w == nil {
 		t.Fatal("a platform with every store must get a worker")
 	}
@@ -208,7 +208,7 @@ func TestBuild_ResourcesNeedTheirStoreAndTheirStorage(t *testing.T) {
 			c := newClaims()
 			src.assets, src.assetBlobs = workingAssets{c: c}, blobs{}
 			src.cfg.Thumbnails.RendererURL = answeringRenderer(t)
-			w := assemble(src, http.NewServeMux(), tileEntry)
+			w := assemble(src, http.NewServeMux(), tileEntry, nil)
 			if w == nil {
 				t.Fatal("assets alone are still drawn")
 			}
@@ -243,12 +243,12 @@ func TestBuild_NoWorkerWithoutSomethingToDraw(t *testing.T) {
 		"no asset storage":                {assets: workingAssets{c: newClaims()}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if w := assemble(src, http.NewServeMux(), tileEntry); w != nil {
+			if w := assemble(src, http.NewServeMux(), tileEntry, nil); w != nil {
 				t.Fatal("expected no worker")
 			}
 		})
 	}
-	if assemble(&fakeSource{assets: workingAssets{c: newClaims()}, assetBlobs: blobs{}}, http.NewServeMux(), "") != nil {
+	if assemble(&fakeSource{assets: workingAssets{c: newClaims()}, assetBlobs: blobs{}}, http.NewServeMux(), "", nil) != nil {
 		t.Fatal("a build without a tile page must get no worker")
 	}
 	if Build(nil, http.NewServeMux()) != nil {

@@ -113,6 +113,7 @@ func Register(mux *http.ServeMux, wrap func(http.Handler) http.Handler, cfg Conf
 	mux.Handle("POST "+Prefix+"/{app}/parts", wrap(http.HandlerFunc(h.addPart)))
 	mux.Handle("GET "+Prefix+"/{app}/candidates", wrap(http.HandlerFunc(h.candidates)))
 	mux.Handle("DELETE "+Prefix+"/{app}/parts/{kind}/{id}", wrap(http.HandlerFunc(h.removePart)))
+	mux.Handle("PATCH "+Prefix+"/{app}/parts/site/{id}", wrap(http.HandlerFunc(h.setPartMode)))
 	mux.Handle("POST "+Prefix+"/{app}/release", wrap(http.HandlerFunc(h.release)))
 	mux.Handle("POST "+Prefix+"/{app}/rollback", wrap(http.HandlerFunc(h.rollback)))
 	mux.Handle("GET "+Prefix+"/{app}/export", wrap(http.HandlerFunc(h.export)))
@@ -287,6 +288,9 @@ type listResponse struct {
 }
 
 // createRequest, updateRequest, partRequest, releaseRequest and
+// keyPartID is the audit parameter naming a part.
+const keyPartID = "part_id"
+
 // rollbackRequest are the documented forms of request.
 type (
 	createRequest struct {
@@ -298,13 +302,29 @@ type (
 	updateRequest struct {
 		Description string `json:"description"`
 		OwnerEmail  string `json:"owner_email"`
+		// ContractVersion sets the contract the application declares
+		// (#2679); omitted leaves it.
+		ContractVersion *int `json:"contract_version,omitempty" example:"3"`
 	}
 	partRequest struct {
 		Kind string `json:"kind" example:"script"`
 		ID   string `json:"id" example:"5b0c2f3e-0000-0000-0000-000000000000"`
+		// ReleaseMode is a site part's, linked (the default) or coupled
+		// (#2679).
+		ReleaseMode string `json:"release_mode,omitempty" example:"linked"`
+	}
+	partModeRequest struct {
+		ReleaseMode string `json:"release_mode" example:"coupled"`
 	}
 	releaseRequest struct {
 		Note string `json:"note"`
+		// MoveSites are site parts this release moves besides the coupled
+		// ones (#2679).
+		MoveSites []string `json:"move_sites,omitempty" example:"store-web/prod"`
+		// Contract is the contract version the release declares.
+		Contract *int `json:"contract,omitempty" example:"4"`
+		// Force releases over a site part that does not accept the contract.
+		Force bool `json:"force,omitempty"`
 	}
 	rollbackRequest struct {
 		ToRelease int `json:"to_release" example:"2"`
@@ -411,7 +431,10 @@ func (h *handler) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a, err := h.cfg.Service.Update(r.Context(), actor, r.PathValue(pathApp), req.Description, req.OwnerEmail)
-	h.record(r, actor, apptool.CmdUpdate, map[string]any{keyApplication: r.PathValue(pathApp)}, err)
+	if err == nil && req.ContractVersion != nil {
+		a, err = h.cfg.Service.SetContract(r.Context(), actor, r.PathValue(pathApp), *req.ContractVersion)
+	}
+	h.record(r, actor, apptool.CmdUpdate, map[string]any{keyApplication: r.PathValue(pathApp), "contract_version": req.ContractVersion}, err)
 	h.answer(w, a, err)
 }
 
@@ -467,8 +490,39 @@ func (h *handler) addPart(w http.ResponseWriter, r *http.Request) {
 	if !ok || !ok2 {
 		return
 	}
-	a, err := h.cfg.Service.AddPart(r.Context(), actor, r.PathValue(pathApp), req.Kind, req.ID)
-	h.record(r, actor, apptool.CmdAddPart, map[string]any{keyApplication: r.PathValue(pathApp), "kind": req.Kind, "part_id": req.ID}, err)
+	a, err := h.cfg.Service.AddPartMode(r.Context(), actor, r.PathValue(pathApp), application.Part{Kind: req.Kind, ID: req.ID, ReleaseMode: req.ReleaseMode})
+	h.record(r, actor, apptool.CmdAddPart, map[string]any{keyApplication: r.PathValue(pathApp), "kind": req.Kind, keyPartID: req.ID, "release_mode": req.ReleaseMode}, err)
+	h.answer(w, a, err)
+}
+
+// setPartMode changes a site part's release mode.
+//
+// @Summary      Set a site part's release mode
+// @Description  Linked serves the site environment as a front end of the application and leaves it to the site's own promote and rollback; coupled also moves it one step with every release and returns it with every rollback (#2679). Moves nothing now. For the owner and administrators.
+// @Accept       json
+// @Param        app   path  string           true  "Application name or id"
+// @Param        id    path  string           true  "The site part, \"<site>/<environment>\" escaped"
+// @Param        body  body  partModeRequest  true  "The mode"
+// @Success      200  {object}  application.Application
+// @Tags         Applications
+// @Produce      json
+// @Failure      401  {object}  httpjson.ProblemDetail
+// @Failure      403  {object}  httpjson.ProblemDetail
+// @Failure      404  {object}  httpjson.ProblemDetail
+// @Failure      422  {object}  httpjson.ProblemDetail
+// @Failure      500  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/applications/{app}/parts/site/{id} [patch]
+func (h *handler) setPartMode(w http.ResponseWriter, r *http.Request) {
+	actor, ok := h.actor(w, r)
+	req, ok2 := decode[partModeRequest](w, r)
+	if !ok || !ok2 {
+		return
+	}
+	id := r.PathValue("id")
+	a, err := h.cfg.Service.SetPartMode(r.Context(), actor, r.PathValue(pathApp), id, req.ReleaseMode)
+	h.record(r, actor, apptool.CmdSetPart, map[string]any{keyApplication: r.PathValue(pathApp), keyPartID: id, "release_mode": req.ReleaseMode}, err)
 	h.answer(w, a, err)
 }
 
@@ -498,14 +552,14 @@ func (h *handler) removePart(w http.ResponseWriter, r *http.Request) {
 	}
 	kind, id := r.PathValue("kind"), r.PathValue("id")
 	a, err := h.cfg.Service.RemovePart(r.Context(), actor, r.PathValue(pathApp), kind, id)
-	h.record(r, actor, apptool.CmdRemovePart, map[string]any{keyApplication: r.PathValue(pathApp), "kind": kind, "part_id": id}, err)
+	h.record(r, actor, apptool.CmdRemovePart, map[string]any{keyApplication: r.PathValue(pathApp), "kind": kind, keyPartID: id}, err)
 	h.answer(w, a, err)
 }
 
 // release releases an application.
 //
 // @Summary      Release an application
-// @Description  Applies the pending migrations and pins each script's and asset's newest version; from then on endpoints, schedules, events and runs execute the pinned script version and the portal serves the pinned asset version. A part that cannot be pinned or a migration that fails refuses the release and changes nothing. For administrators.
+// @Description  Applies the pending migrations and pins each script's and asset's newest version; from then on endpoints, schedules, events and runs execute the pinned script version and the portal serves the pinned asset version. A coupled site part moves one step; a linked one only when move_sites names it. A release whose contract a site part's release does not accept is refused naming it unless force is set, which the release records (#2679). A part that cannot be pinned or a migration that fails refuses the release and changes nothing. For administrators.
 // @Accept       json
 // @Param        app   path  string          true   "Application name or id"
 // @Param        body  body  releaseRequest  false  "A note on the release"
@@ -527,8 +581,12 @@ func (h *handler) release(w http.ResponseWriter, r *http.Request) {
 	if !ok || !ok2 {
 		return
 	}
-	rel, err := h.cfg.Service.Release(r.Context(), actor, r.PathValue(pathApp), req.Note)
-	h.record(r, actor, apptool.CmdRelease, map[string]any{keyApplication: r.PathValue(pathApp)}, err)
+	rel, err := h.cfg.Service.ReleaseWith(r.Context(), actor, r.PathValue(pathApp), appsvc.ReleaseOptions{
+		Note: req.Note, MoveSites: req.MoveSites, Contract: req.Contract, Force: req.Force,
+	})
+	h.record(r, actor, apptool.CmdRelease, map[string]any{
+		keyApplication: r.PathValue(pathApp), "move_sites": req.MoveSites, "contract": req.Contract, "force": req.Force,
+	}, err)
 	h.answer(w, rel, err)
 }
 

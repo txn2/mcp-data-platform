@@ -33,7 +33,7 @@ func DescribeFolder(ctx context.Context, deps Deps, claims *Claims, f NewFolder,
 	if len(description) > MaxDescriptionLen {
 		return &invalidPathError{msg: fmt.Sprintf("description exceeds %d characters", MaxDescriptionLen)}
 	}
-	if !CanWriteScope(*claims, f.Library.Scope, f.Library.ScopeID) {
+	if !claims.CanWriteFolder(f.Library.Scope, f.Library.ScopeID, f.Path) {
 		return ErrMoveForbidden
 	}
 	if err := describer.DescribeFolder(ctx, f.Library, f.Path, description); err != nil {

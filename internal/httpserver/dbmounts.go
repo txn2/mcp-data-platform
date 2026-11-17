@@ -528,7 +528,7 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform, notify *notifyd
 	external := externalfiles.New(externalfiles.NewStore(p.DB()), p.PersonaRegistry().GetForRoles)
 	claims := shares.Bind(external.Bind(extractClaims))
 	handler := resource.NewHandler(deps, claims, nil)
-	shares.Register(mux)
+	shares.Register(mux, func() func(http.Handler) http.Handler { return buildAdminAuth(p) })
 	external.Register(mux)
 	mux.Handle("/api/v1/resources/", handler)
 	mux.Handle("/api/v1/resources", handler)
@@ -564,7 +564,7 @@ func resourceClaimsExtractor(p *platform.Platform) func(*http.Request) (*resourc
 		if err != nil {
 			return nil, err
 		}
-		return resourcelevel.Apply(claims, pr, r.Method)
+		return resourcelevel.Apply(r.Context(), claims, pr, r.Method)
 	}
 }
 

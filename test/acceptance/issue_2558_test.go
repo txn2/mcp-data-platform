@@ -208,7 +208,7 @@ func (s *store2558) storefront(t *testing.T) {
 	}
 	agentsMayPromote2643(t, s.web, "prod") // about serving, not who decides (#2643)
 	s.admin.call("manage_site", map[string]any{"command": "add_domain", "hostname": s.webHost, "site": s.web, "environment": "prod", "public": true})
-	s.admin.call("manage_application", map[string]any{"command": "add_part", "application": s.app, "kind": "site", "part_id": s.web + "/prod"})
+	s.admin.call("manage_application", map[string]any{"command": "add_part", "application": s.app, "kind": "site", "part_id": s.web + "/prod", "release_mode": "coupled"})
 }
 
 // connect saves the mail connection pointing at base.

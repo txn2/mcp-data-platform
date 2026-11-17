@@ -183,7 +183,7 @@ func (g *Gate) Check(ctx context.Context, req Request) Result {
 	if res.Refusal = g.checkHandlers(ctx, req, source); res.Refusal != "" {
 		return res
 	}
-	if res.Refusal = checkLibraryReach(req, source); res.Refusal != "" {
+	if res.Refusal = checkLibraryReach(ctx, req, source); res.Refusal != "" {
 		return res
 	}
 	if res.Refusal = g.checkLibraries(ctx, req, source); res.Refusal != "" {

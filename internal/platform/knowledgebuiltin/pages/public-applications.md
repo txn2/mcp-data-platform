@@ -34,8 +34,11 @@ path, the query, the body, the cookies) is the visitor's to forge, so the
 handler checks each value's shape and reads prices and totals from its own
 tables, never from the request.
 
-Serving a `public` endpoint to people who are not signed in takes a version an
-administrator approved (`manage_approval`), so ask for the approval early.
+Binding any endpoint is an administrator's action. A plain `public` endpoint,
+such as `store-api` here, serves the version its binding or the application's
+release pins, with no approval. Only a `public` or bot-checked *form* serves
+people who are not signed in its administrator-approved version
+(`manage_approval`), so a form needs that approval before it opens to them.
 
 ## 1. The schema
 
@@ -284,8 +287,10 @@ published into `dev` and promoted. It can be plain pages, a site rendered from
 `_layouts` at publish, or, as here, a single-page application: one shell page
 and a script that renders each route from the API. Its `prod` environment is a
 part of the application (`manage_application add_part kind=site
-part_id=store-web/prod`), which is what lets its pages call
-`/endpoints/store-api/...` on the site's own address.
+part_id=store-web/prod release_mode=coupled`), which is what lets its pages call
+`/endpoints/store-api/...` on the site's own address. Coupled makes every
+release ship it; a part added without `release_mode` is linked and moves only by
+`manage_site promote`.
 
 `index.html` is the shell every route answers with:
 
@@ -660,11 +665,13 @@ as it is, so a secret is never compressed beside text a visitor can choose.
 ## 12. The release
 
 Add the parts (the schema, `store-api`, `store-signin`, `store-mail`,
-`store-paid`, the two webhook sources, and `store-web/prod`) and `release`, as
-on mcp:knowledge_page:platform-applications. The endpoints, events and
-schedule then run the pinned versions, the release moves `store-web`'s `prod`
-to the release its `dev` serves, and a change is tested and released as a
-whole.
+`store-paid`, the two webhook sources, and `store-web/prod` with
+`release_mode=coupled`) and `release`, as on
+mcp:knowledge_page:platform-applications. The endpoints, events and schedule
+then run the pinned versions, the release moves `store-web`'s `prod` to the
+release the environment before it serves (its `dev` here), and a change is
+tested and released as a whole. Add a `stage` between `dev` and `prod` and a
+release ships what was promoted to `stage`, not the working copy in `dev`.
 
 ## 13. Running the shop
 

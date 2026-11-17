@@ -27,19 +27,23 @@ func newMock(t *testing.T) (*Store, sqlmock.Sqlmock) {
 
 var appCols = []string{
 	"id", "name", "description", "owner_email", "connection", "schema_name", "current_release",
-	"created_by", "created_at", "updated_at", "schema_adopted_version", "schema_added_by", "schema_added_at",
+	"created_by", "created_at", "updated_at", "schema_adopted_version", "schema_added_by", "schema_added_at", "contract_version",
 }
 
 // appRow is application app_1, shop, at release current.
 func appRow(current int) *sqlmock.Rows {
 	return sqlmock.NewRows(appCols).AddRow("app_1", "shop", "", "jane@example.com", "orders", "shop", current, "jane@example.com", now, now,
-		2, "jane@example.com", now)
+		2, "jane@example.com", now, 0)
 }
 
 func partRows(parts ...[2]string) *sqlmock.Rows {
-	rows := sqlmock.NewRows([]string{"kind", "part_id", "added_by", "added_at"})
+	rows := sqlmock.NewRows([]string{"kind", "part_id", "added_by", "added_at", "release_mode"})
 	for _, p := range parts {
-		rows.AddRow(p[0], p[1], "jane@example.com", now)
+		mode := ""
+		if p[0] == "site" {
+			mode = "coupled"
+		}
+		rows.AddRow(p[0], p[1], "jane@example.com", now, mode)
 	}
 	return rows
 }
@@ -91,8 +95,8 @@ func TestGetAndList(t *testing.T) {
 	require.ErrorContains(t, err, "parts")
 
 	mock.ExpectQuery("FROM applications ORDER BY name").WillReturnRows(appRow(0))
-	mock.ExpectQuery("WHERE application_id = ANY").WillReturnRows(sqlmock.NewRows([]string{"application_id", "kind", "part_id", "added_by", "added_at"}).
-		AddRow("app_1", "script", "s1", "jane@example.com", now).AddRow("app_1", "asset", "a1", "jane@example.com", now))
+	mock.ExpectQuery("WHERE application_id = ANY").WillReturnRows(sqlmock.NewRows([]string{"application_id", "kind", "part_id", "added_by", "added_at", "release_mode"}).
+		AddRow("app_1", "script", "s1", "jane@example.com", now, "").AddRow("app_1", "asset", "a1", "jane@example.com", now, ""))
 	list, err := s.List(ctx)
 	require.NoError(t, err)
 	require.Len(t, list, 1)

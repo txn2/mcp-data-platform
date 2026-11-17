@@ -24,7 +24,7 @@ func TestStore_RealDB(t *testing.T) {
 	db := testdb.New(t)
 	ctx := context.Background()
 	scripts := scriptstore.New(db)
-	sc := &script.Script{Name: "ingress-routes", Source: "def route(req):\n    return {}\n", OwnerEmail: "ops@example.com", Enabled: true}
+	sc := &script.Script{Name: "ingress-routes", Source: "INTEGRATION = \"site_routing\"\n\ndef route(req):\n    return {}\n", OwnerEmail: "ops@example.com", Enabled: true}
 	require.NoError(t, scripts.Create(ctx, sc, script.Author{Email: "ops@example.com", Roles: []string{"admin"}}))
 	v, err := scripts.GetVersion(ctx, sc.ID, sc.Version)
 	require.NoError(t, err)

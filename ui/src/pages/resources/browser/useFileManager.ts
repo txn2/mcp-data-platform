@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from "react";
 import { useExternalFolders, usePeople } from "@/api/resources/hooks";
+import { useMyFolderGrants } from "@/api/resources/folderGrants";
 import type { ViewMode } from "@/components/listView";
 import { useAuthStore, type UserProfile } from "@/stores/auth";
 import type { Resource } from "@/api/resources/types";
 import {
   canWriteScope,
+  isPlatformAdmin,
   EXTERNAL_PREFIX,
   externalFilesLevel,
   externalRoot,
@@ -14,7 +16,7 @@ import {
 } from "../scopes";
 import { fromDrop } from "../bulk/collect";
 import type { SourceFile } from "../bulk/plan";
-import { parentPath } from "../parts/tree";
+import { isUnder, parentPath } from "../parts/tree";
 import type { FmDialog } from "./FmDialogs";
 import type { NameEdit, RowHandlers } from "./Listing";
 import { freshFolderName, type Entry } from "./model";
@@ -141,13 +143,27 @@ function useCore({ admin, user, personaNames, basePath, location, onNavigate }: 
     (r: ResourceRoot) => !r.shared && (canWriteScope(user, r.target) || (!!r.external && externalLevel === "manage")),
     [user, externalLevel],
   );
-  const canWrite = writable(root);
+  // A write grant on a Global folder writes it and everything beneath it
+  // (#2684); the grant's own folder is written from the folder holding it.
+  const grants = useMyFolderGrants(!!user && !isPlatformAdmin(user));
+  const granted = useCallback(
+    (r: ResourceRoot, p: string) => r.key === "global" && (grants.data ?? []).some((f) => isUnder(p, f)),
+    [grants.data],
+  );
+  const canWrite = writable(root) || granted(root, path);
+  // A grantee who writes only by grant moves into the folders their grants
+  // cover, and nowhere else in Global.
+  const grantOnly = !writable(root) && root.key === "global";
   const picked = useMemo(() => data.entries.filter((e) => selection.has(e.key)), [data.entries, selection]);
   // A search hit is acted on as a file of its own library (#2293).
   const canAct =
     picked.length === 0
       ? canWrite
-      : picked.every((e) => ownFile(e, user) || (e.kind === "file" ? writable(rootOf(e.resource)) : canWrite));
+      : picked.every(
+          (e) =>
+            ownFile(e, user) ||
+            (e.kind === "file" ? writable(rootOf(e.resource)) || granted(rootOf(e.resource), e.resource.path) : canWrite),
+        );
   // A move names a folder of the library in view, so it carries only that
   // library's files.
   const canMove = canAct && picked.every((e) => e.kind !== "file" || rootOf(e.resource).key === root.key);
@@ -232,6 +248,8 @@ function useCore({ admin, user, personaNames, basePath, location, onNavigate }: 
     canWrite,
     canAct,
     canMove,
+    granted,
+    grantOnly,
     rootOf,
     picked,
     openEntry,
@@ -368,11 +386,17 @@ function spaceItems(fm: ReturnType<typeof useFileManager>): MenuItem[] {
   ];
 }
 
-/** The items only one row has: a file's URI, a folder's description (#2111). */
+/** The items only one row has: a file's URI, a folder's description (#2111), a Global folder's Permissions (#2684). */
 function singleItems(fm: ReturnType<typeof useFileManager>, first: Entry): MenuItem[] {
   if (first.kind === "file") return [{ id: "copy", label: "Copy URI", run: () => fm.copyURI(first.resource) }];
-  if (!fm.canWrite) return [];
-  return [{ id: "describe", label: "Describe...", run: () => fm.setDialog({ kind: "describe", folder: first.path }) }];
+  const items: MenuItem[] = [];
+  if (fm.canWrite || fm.granted(fm.root, first.path)) {
+    items.push({ id: "describe", label: "Describe...", run: () => fm.setDialog({ kind: "describe", folder: first.path }) });
+  }
+  if (fm.root.key === "global" && isPlatformAdmin(fm.user)) {
+    items.push({ id: "permissions", label: "Permissions...", run: () => fm.setDialog({ kind: "permissions", folder: first.path }) });
+  }
+  return items;
 }
 
 /** The context menu's items for a row, or for empty space. */

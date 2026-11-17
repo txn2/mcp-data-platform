@@ -25,12 +25,11 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/textpatch"
 )
 
-// redirectsFile is the release file read as the redirect map, not served.
-const redirectsFile = "_redirects"
-
-// headersFile is the release file read as the headers each path carries, not
-// served (#2557).
-const headersFile = "_headers"
+// redirectsFile and headersFile are data files (site.IsDataFile).
+const (
+	redirectsFile = site.RedirectsFile
+	headersFile   = site.HeadersFile
+)
 
 // Publishing's bounds.
 const (
@@ -153,12 +152,13 @@ func Digest(files []site.File) string {
 // built is a publish's files read and checked, before any is stored.
 type built struct {
 	// inputs is what has to be written, kept what comes from the base as it is.
-	inputs    []InputFile
-	kept      []site.File
-	removed   []string
-	redirects []site.Redirect
-	headers   []site.HeaderRule
-	total     int64
+	inputs  []InputFile
+	kept    []site.File
+	removed []string
+	// data is what the release's data files declare: the redirect map, the
+	// headers and the application contract (site.IsDataFile).
+	data  site.Release
+	total int64
 }
 
 // basis is the release a publish starts from: the one it overlays, or the one
@@ -227,9 +227,9 @@ func (s *Service) basisOf(ctx context.Context, st *site.Site, env *site.Environm
 // prepare checks a publish's files against the limits and pulls out the
 // redirect map. An overlay starts from the base's files and redirects.
 func (s *Service) prepare(req PublishRequest, base *basis) (*built, error) {
-	b := &built{redirects: []site.Redirect{}, headers: []site.HeaderRule{}}
+	b := &built{data: site.Release{Redirects: []site.Redirect{}, Headers: []site.HeaderRule{}}}
 	if req.Base != 0 {
-		b.redirects, b.headers = base.release.Redirects, base.release.Headers
+		b.data.Redirects, b.data.Headers, b.data.Contract = base.release.Redirects, base.release.Headers, base.release.Contract
 	}
 	seen := make(map[string]bool, len(req.Files))
 	limits := s.cfg().Limits()
@@ -280,8 +280,7 @@ func (b *built) overlay(base *basis, remove []string, seen map[string]bool) erro
 }
 
 // takeRemovals checks the paths a publish removes from its base and records
-// them; deleting the _redirects file empties the map, and deleting the
-// _headers file its rules, neither of which is a file.
+// them; deleting a data file declares nothing in it.
 func (b *built) takeRemovals(base *basis, remove []string, seen map[string]bool) (map[string]bool, error) {
 	gone := make(map[string]bool, len(remove))
 	for _, p := range remove {
@@ -292,12 +291,8 @@ func (b *built) takeRemovals(base *basis, remove []string, seen map[string]bool)
 		if seen[name] {
 			return nil, refused("file %q is both sent and deleted", name)
 		}
-		if name == redirectsFile {
-			b.redirects = []site.Redirect{}
-			continue
-		}
-		if name == headersFile {
-			b.headers = []site.HeaderRule{}
+		if site.IsDataFile(name) {
+			_ = b.data.SetDataFile(name, "") // declaring nothing does not fail
 			continue
 		}
 		if _, ok := base.byPath[name]; !ok {
@@ -312,11 +307,10 @@ func (b *built) takeRemovals(base *basis, remove []string, seen map[string]bool)
 
 // unchanged reports an overlay that would make a release identical to its base.
 func (b *built) unchanged(base *basis) bool {
-	return base.release != nil && len(b.inputs) == 0 && len(b.removed) == 0 && slices.Equal(b.redirects, base.release.Redirects) &&
-		site.RenderHeaders(b.headers) == site.RenderHeaders(base.release.Headers)
+	return base.release != nil && len(b.inputs) == 0 && len(b.removed) == 0 && b.data.SameData(base.release)
 }
 
-// add takes one file into the release, or the redirect map when it is that.
+// add takes one file into the release, or a data file's declaration.
 func (b *built) add(f InputFile, seen map[string]bool, limits siteconfig.Config) error {
 	name, err := CleanPath(f.Path)
 	if err != nil {
@@ -326,14 +320,8 @@ func (b *built) add(f InputFile, seen map[string]bool, limits siteconfig.Config)
 		return refused("file %q appears twice", name)
 	}
 	seen[name] = true
-	if name == redirectsFile {
-		if b.redirects, err = site.ParseRedirects(string(f.Body)); err != nil {
-			return refusedBy(err)
-		}
-		return nil
-	}
-	if name == headersFile {
-		if b.headers, err = site.ParseHeaders(string(f.Body)); err != nil {
+	if site.IsDataFile(name) {
+		if err := b.data.SetDataFile(name, string(f.Body)); err != nil {
 			return refusedBy(err)
 		}
 		return nil
@@ -580,7 +568,7 @@ func (s *Service) record(ctx context.Context, actor Actor, p publication) (*site
 	}
 	rel := &site.Release{
 		ID: sitestore.NewReleaseID(), SiteID: p.st.ID, Source: p.req.Source, Note: p.req.Note, Base: p.req.Base, Rendered: trees.rendered,
-		FileCount: len(trees.output), TotalBytes: totalSize(trees.output), ManifestSHA256: Digest(trees.output), Redirects: p.built.redirects, Headers: p.built.headers,
+		FileCount: len(trees.output), TotalBytes: totalSize(trees.output), ManifestSHA256: Digest(trees.output), Redirects: p.built.data.Redirects, Headers: p.built.data.Headers, Contract: p.built.data.Contract,
 		CreatedBy: actor.Email, RenderIndex: trees.index,
 	}
 	trees.fill(rel, p.base, p.req.Base != 0)

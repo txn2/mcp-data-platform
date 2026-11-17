@@ -43,7 +43,7 @@ func TestNilSharesDoNothing(t *testing.T) {
 	got, err := s.Bind(base)(nil)
 	require.NoError(t, err)
 	assert.Nil(t, got.Shared)
-	s.Register(http.NewServeMux())
+	s.Register(http.NewServeMux(), nil)
 }
 
 type noShares struct{ resourceshare.Shares }
@@ -65,7 +65,7 @@ func TestBindCarriesTheLookup(t *testing.T) {
 	assert.Equal(t, "editor", got.Shared("r1"))
 	assert.NotNil(t, s.deps.Claims)
 	mux := http.NewServeMux()
-	s.Register(mux)
+	s.Register(mux, nil)
 
 	failing := s.Bind(func(*http.Request) (*resource.Claims, error) { return nil, errors.New("signed out") })
 	_, err = failing(req)

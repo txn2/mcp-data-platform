@@ -10341,6 +10341,155 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/resources/folder-grants": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns who can write the Global folder: the grants on it, and the grants on every folder above it marked inherited, with the sites that serve the folder as media; or, with persona, the grants that persona holds. Administrators only (#2684).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "List the write grants on a Global folder",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "The Global folder, such as reports/q3",
+                        "name": "folder",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "In place of folder: the grants a persona holds, for its editor",
+                        "name": "persona",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/foldergrant.GrantList"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Grants a person (by address) or a persona write on a Global folder and everything beneath it: upload, new folders, new versions, rename, move inside what they can write, delete and share. The granted folder itself stays an administrator's to rename, move or delete. A person or persona that is external is refused, since an external persona never sees Global. Audited (#2684).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Grant write on a Global folder",
+                "parameters": [
+                    {
+                        "description": "The folder and the person or persona",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/foldergrant.AddInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/foldergrant.Grant"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/resources/folder-grants/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Ends the grant: the person or persona's next write under the folder is refused, on every replica. Audited (#2684).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Remove a write grant on a Global folder",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "The grant",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/foldergrant.Grant"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/resources/index": {
             "get": {
                 "security": [
@@ -15529,6 +15678,92 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/applications/{app}/parts/site/{id}": {
+            "patch": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Linked serves the site environment as a front end of the application and leaves it to the site's own promote and rollback; coupled also moves it one step with every release and returns it with every rollback (#2679). Moves nothing now. For the owner and administrators.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Applications"
+                ],
+                "summary": "Set a site part's release mode",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Application name or id",
+                        "name": "app",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "The site part, \\",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The mode",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/apphttp.partModeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/application.Application"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/applications/{app}/parts/{kind}/{id}": {
             "delete": {
                 "security": [
@@ -15626,7 +15861,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Applies the pending migrations and pins each script's and asset's newest version; from then on endpoints, schedules, events and runs execute the pinned script version and the portal serves the pinned asset version. A part that cannot be pinned or a migration that fails refuses the release and changes nothing. For administrators.",
+                "description": "Applies the pending migrations and pins each script's and asset's newest version; from then on endpoints, schedules, events and runs execute the pinned script version and the portal serves the pinned asset version. A coupled site part moves one step; a linked one only when move_sites names it. A release whose contract a site part's release does not accept is refused naming it unless force is set, which the release records (#2679). A part that cannot be pinned or a migration that fails refuses the release and changes nothing. For administrators.",
                 "consumes": [
                     "application/json"
                 ],
@@ -32357,6 +32592,43 @@ const docTemplate = `{
                 }
             }
         },
+        "/resources/folder-grants/mine": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the Global folders a write grant lets the caller write (#2684), [] for none. Names no other grantee.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "List the Global folders you can write",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/resource.myGrants"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/resources/folders": {
             "post": {
                 "security": [
@@ -39061,6 +39333,13 @@ const docTemplate = `{
                             "$ref": "#/definitions/appsvc.SchemaView"
                         }
                     ]
+                },
+                "site_parts": {
+                    "description": "SiteParts is each site part's mode, what it serves, where a release\nwould move it and whether it works with the contract (#2679).",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/appsvc.SitePartView"
+                    }
                 }
             }
         },
@@ -39092,6 +39371,15 @@ const docTemplate = `{
                 }
             }
         },
+        "apphttp.partModeRequest": {
+            "type": "object",
+            "properties": {
+                "release_mode": {
+                    "type": "string",
+                    "example": "coupled"
+                }
+            }
+        },
         "apphttp.partRequest": {
             "type": "object",
             "properties": {
@@ -39102,12 +39390,36 @@ const docTemplate = `{
                 "kind": {
                     "type": "string",
                     "example": "script"
+                },
+                "release_mode": {
+                    "description": "ReleaseMode is a site part's, linked (the default) or coupled\n(#2679).",
+                    "type": "string",
+                    "example": "linked"
                 }
             }
         },
         "apphttp.releaseRequest": {
             "type": "object",
             "properties": {
+                "contract": {
+                    "description": "Contract is the contract version the release declares.",
+                    "type": "integer",
+                    "example": 4
+                },
+                "force": {
+                    "description": "Force releases over a site part that does not accept the contract.",
+                    "type": "boolean"
+                },
+                "move_sites": {
+                    "description": "MoveSites are site parts this release moves besides the coupled\nones (#2679).",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "store-web/prod"
+                    ]
+                },
                 "note": {
                     "type": "string"
                 }
@@ -39125,6 +39437,11 @@ const docTemplate = `{
         "apphttp.updateRequest": {
             "type": "object",
             "properties": {
+                "contract_version": {
+                    "description": "ContractVersion sets the contract the application declares\n(#2679); omitted leaves it.",
+                    "type": "integer",
+                    "example": 3
+                },
                 "description": {
                     "type": "string"
                 },
@@ -39140,6 +39457,11 @@ const docTemplate = `{
                     "description": "Connection and Schema are the application database schema whose\nmigrations a release applies. Empty for an application with none.",
                     "type": "string",
                     "example": "orders"
+                },
+                "contract_version": {
+                    "description": "ContractVersion is the contract its front ends call (#2679), raised by\nhand when a release breaks it; 0 declares none, and every front end is\ncompatible.",
+                    "type": "integer",
+                    "example": 3
                 },
                 "created_at": {
                     "type": "string"
@@ -39206,6 +39528,13 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "forced": {
+                    "description": "Forced is each site part an administrator released over though its\nrelease does not work with the contract (#2679).",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "migrations_kept": {
                     "description": "MigrationsKept says why a rollback left migrations applied: a\nmigration between the two releases has no down migration.",
                     "type": "string"
@@ -39242,6 +39571,11 @@ const docTemplate = `{
                 "kind": {
                     "type": "string",
                     "example": "script"
+                },
+                "release_mode": {
+                    "description": "ReleaseMode is a site environment part's (#2679): linked, served as a\nfront end of the application and moved only by promote and rollback,\nor coupled, moved one step by every application release and returned\nby every rollback. \"\" for every other kind.",
+                    "type": "string",
+                    "example": "linked"
                 }
             }
         },
@@ -39775,6 +40109,38 @@ const docTemplate = `{
                 "write_role": {
                     "type": "string",
                     "example": "shop_write"
+                }
+            }
+        },
+        "appsvc.SitePartView": {
+            "type": "object",
+            "properties": {
+                "compatible": {
+                    "description": "Compatible is whether that release works with the application's\ncontract.",
+                    "type": "boolean"
+                },
+                "contract": {
+                    "description": "Contract is the range the release it serves declares for this\napplication, \"\" for none.",
+                    "type": "string",
+                    "example": "\u003e=2 \u003c4"
+                },
+                "part_id": {
+                    "type": "string",
+                    "example": "store-web/prod"
+                },
+                "release_mode": {
+                    "type": "string",
+                    "example": "linked"
+                },
+                "serves": {
+                    "description": "Serves is the release the environment serves now, 0 for none.",
+                    "type": "integer",
+                    "example": 22
+                },
+                "step": {
+                    "description": "Step is the release a release moving it would point it at, 0 for none.",
+                    "type": "integer",
+                    "example": 24
                 }
             }
         },
@@ -44161,6 +44527,80 @@ const docTemplate = `{
                 },
                 "tool": {
                     "type": "string"
+                }
+            }
+        },
+        "foldergrant.AddInput": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "folder": {
+                    "type": "string",
+                    "example": "reports"
+                },
+                "persona": {
+                    "type": "string",
+                    "example": "finance"
+                }
+            }
+        },
+        "foldergrant.Grant": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string",
+                    "example": "admin@example.com"
+                },
+                "email": {
+                    "description": "Email is the person it is for, \"\" for a persona grant.",
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "folder": {
+                    "description": "Folder is the Global folder the grant is on.",
+                    "type": "string",
+                    "example": "reports"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "fg_9c1e"
+                },
+                "inherited": {
+                    "description": "Inherited is a grant on a folder above the one asked about, which\ncovers it too.",
+                    "type": "boolean"
+                },
+                "persona": {
+                    "description": "Persona is the persona it is for, \"\" for a person's grant.",
+                    "type": "string",
+                    "example": "finance"
+                }
+            }
+        },
+        "foldergrant.GrantList": {
+            "type": "object",
+            "properties": {
+                "folder": {
+                    "type": "string",
+                    "example": "reports"
+                },
+                "grants": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/foldergrant.Grant"
+                    }
+                },
+                "sites": {
+                    "description": "Sites are the sites serving the folder, or one above it, as media: a\ngrantee's write changes what they serve.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -50563,6 +51003,20 @@ const docTemplate = `{
                 }
             }
         },
+        "resource.myGrants": {
+            "type": "object",
+            "properties": {
+                "folders": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "reports"
+                    ]
+                }
+            }
+        },
         "resource.peopleResponse": {
             "type": "object",
             "properties": {
@@ -54274,6 +54728,17 @@ const docTemplate = `{
                 }
             }
         },
+        "site.Contract": {
+            "type": "object",
+            "properties": {
+                "application": {
+                    "type": "string"
+                },
+                "contract": {
+                    "type": "string"
+                }
+            }
+        },
         "site.Deployment": {
             "type": "object",
             "properties": {
@@ -54649,6 +55114,14 @@ const docTemplate = `{
                     "description": "Base is the number of the release this one was derived from, 0 for a\nrelease built from a complete file set.",
                     "type": "integer",
                     "example": 41
+                },
+                "contract": {
+                    "description": "Contract is what the release's _application file declared (#2679),\nnil for none: the application it is a front end of and the contract\nversions it works with.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/site.Contract"
+                        }
+                    ]
                 },
                 "created_at": {
                     "type": "string"
@@ -55421,6 +55894,14 @@ const docTemplate = `{
                     "type": "integer",
                     "example": 41
                 },
+                "contract": {
+                    "description": "Contract is what the release's _application file declared (#2679),\nnil for none: the application it is a front end of and the contract\nversions it works with.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/site.Contract"
+                        }
+                    ]
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -55516,6 +55997,14 @@ const docTemplate = `{
                     "description": "Base is the number of the release this one was derived from, 0 for a\nrelease built from a complete file set.",
                     "type": "integer",
                     "example": 41
+                },
+                "contract": {
+                    "description": "Contract is what the release's _application file declared (#2679),\nnil for none: the application it is a front end of and the contract\nversions it works with.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/site.Contract"
+                        }
+                    ]
                 },
                 "created_at": {
                     "type": "string"

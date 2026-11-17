@@ -43,7 +43,7 @@ func New(db *sql.DB) *Store { return &Store{db: db} }
 func NewID() string { return "app_" + uuid.NewString() }
 
 const columns = `id, name, description, owner_email, connection, schema_name, current_release,
-	created_by, created_at, updated_at, schema_adopted_version, schema_added_by, schema_added_at`
+	created_by, created_at, updated_at, schema_adopted_version, schema_added_by, schema_added_at, contract_version`
 
 type rowScanner interface {
 	Scan(dest ...any) error
@@ -61,7 +61,7 @@ func scan(r rowScanner) (scanned, error) {
 	var addedBy string
 	var addedAt sql.NullTime
 	if err := r.Scan(&a.ID, &a.Name, &a.Description, &a.OwnerEmail, &a.Connection, &a.Schema,
-		&a.CurrentRelease, &a.CreatedBy, &a.CreatedAt, &a.UpdatedAt, &a.SchemaAdoptedVersion, &addedBy, &addedAt); err != nil {
+		&a.CurrentRelease, &a.CreatedBy, &a.CreatedAt, &a.UpdatedAt, &a.SchemaAdoptedVersion, &addedBy, &addedAt, &a.ContractVersion); err != nil {
 		return scanned{}, err //nolint:wrapcheck // each caller says what it was reading
 	}
 	out := scanned{app: a}
@@ -152,7 +152,7 @@ func (s *Store) one(ctx context.Context, query string, args ...any) (*applicatio
 
 func (s *Store) parts(ctx context.Context, id string) ([]application.Part, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT kind, part_id, added_by, added_at FROM application_parts
+		SELECT kind, part_id, added_by, added_at, release_mode FROM application_parts
 		 WHERE application_id = $1 ORDER BY kind, added_at, part_id`, id)
 	if err != nil {
 		return nil, fmt.Errorf(errReadParts, err)
@@ -161,7 +161,7 @@ func (s *Store) parts(ctx context.Context, id string) ([]application.Part, error
 	out := []application.Part{}
 	for rows.Next() {
 		var p application.Part
-		if err := rows.Scan(&p.Kind, &p.ID, &p.AddedBy, &p.AddedAt); err != nil {
+		if err := rows.Scan(&p.Kind, &p.ID, &p.AddedBy, &p.AddedAt, &p.ReleaseMode); err != nil {
 			return nil, fmt.Errorf("read application part: %w", err)
 		}
 		out = append(out, p)
@@ -215,7 +215,7 @@ func (s *Store) listParts(ctx context.Context, apps []application.Application) e
 		ids[i], at[a.ID] = a.ID, i
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT application_id, kind, part_id, added_by, added_at FROM application_parts
+		SELECT application_id, kind, part_id, added_by, added_at, release_mode FROM application_parts
 		 WHERE application_id = ANY($1) ORDER BY kind, added_at, part_id`, pq.Array(ids))
 	if err != nil {
 		return fmt.Errorf("list application parts: %w", err)
@@ -224,7 +224,7 @@ func (s *Store) listParts(ctx context.Context, apps []application.Application) e
 	for rows.Next() {
 		var id string
 		var p application.Part
-		if err := rows.Scan(&id, &p.Kind, &p.ID, &p.AddedBy, &p.AddedAt); err != nil {
+		if err := rows.Scan(&id, &p.Kind, &p.ID, &p.AddedBy, &p.AddedAt, &p.ReleaseMode); err != nil {
 			return fmt.Errorf("list application part: %w", err)
 		}
 		if i, ok := at[id]; ok {
@@ -240,8 +240,8 @@ func (s *Store) listParts(ctx context.Context, apps []application.Application) e
 // Update writes the description and owner.
 func (s *Store) Update(ctx context.Context, a *application.Application) error {
 	res, err := s.db.ExecContext(ctx, `
-		UPDATE applications SET description = $2, owner_email = $3, updated_at = NOW() WHERE id = $1`,
-		a.ID, a.Description, a.OwnerEmail)
+		UPDATE applications SET description = $2, owner_email = $3, contract_version = $4, updated_at = NOW() WHERE id = $1`,
+		a.ID, a.Description, a.OwnerEmail, a.ContractVersion)
 	if err != nil {
 		return fmt.Errorf("update application: %w", err)
 	}
@@ -344,9 +344,12 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 
 // AddPart adds a part. A part another application holds is ErrPartTaken.
 func (s *Store) AddPart(ctx context.Context, applicationID string, p application.Part) error {
+	if p.Kind == application.KindSite && p.ReleaseMode == "" {
+		p.ReleaseMode = application.ModeLinked // a new site part is linked (#2679)
+	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO application_parts (application_id, kind, part_id, added_by) VALUES ($1, $2, $3, $4)`,
-		applicationID, p.Kind, p.ID, p.AddedBy)
+		INSERT INTO application_parts (application_id, kind, part_id, added_by, release_mode) VALUES ($1, $2, $3, $4, $5)`,
+		applicationID, p.Kind, p.ID, p.AddedBy, p.ReleaseMode)
 	if violated(err) == partConstraint {
 		return application.ErrPartTaken
 	}
@@ -354,6 +357,17 @@ func (s *Store) AddPart(ctx context.Context, applicationID string, p application
 		return fmt.Errorf("add application part: %w", err)
 	}
 	return nil
+}
+
+// SetPartMode changes a site environment part's release mode (#2679).
+func (s *Store) SetPartMode(ctx context.Context, applicationID, id, mode string) error {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE application_parts SET release_mode = $3 WHERE application_id = $1 AND kind = 'site' AND part_id = $2`,
+		applicationID, id, mode)
+	if err != nil {
+		return fmt.Errorf("set application part mode: %w", err)
+	}
+	return affected(res)
 }
 
 // RemovePart removes a part and clears the released version it was held at.

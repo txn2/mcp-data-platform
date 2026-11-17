@@ -1,6 +1,7 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { EffectiveAccess } from "@/api/admin/types";
 import { resolvePortal, type ResolvedPortal } from "@/lib/portalAccess";
+import { usePersonaFolderGrants } from "@/api/resources/folderGrants";
 import { EditorSection } from "./sections";
 import type { PersonaDraft } from "./types";
 
@@ -152,6 +153,7 @@ export function PortalAccessSection({
         {draft.external && (
           <UploadsRow on={draft.portal.uploads} onChange={(uploads) => ctx.set({ uploads })} disabled={ctx.disabled} />
         )}
+        {!draft.external && <GlobalWritesRow persona={draft.name} blocked={blocksUploads(ctx.effective)} />}
       </fieldset>
     </EditorSection>
   );
@@ -296,5 +298,38 @@ function UploadsRow({ on, onChange, disabled }: { on: boolean; onChange: (v: boo
         </span>
       </span>
     </label>
+  );
+}
+
+/** blocksUploads reports whether a persona's Resources level allows no write at all (#2684). */
+function blocksUploads(p: ResolvedPortal): boolean {
+  return p.resources === "none" || (p.resources === "shared" && !p.uploads);
+}
+
+// GlobalWritesRow lists the Global folders this persona writes through a
+// grant (#2684); they are changed from the folder's Permissions. A level that
+// allows no upload is a ceiling no grant overrides, and the row says so.
+function GlobalWritesRow({ persona, blocked }: { persona: string; blocked: boolean }) {
+  const { data } = usePersonaFolderGrants(persona);
+  if (!data || data.length === 0) return null;
+  return (
+    <div className="grid gap-2 pt-2 text-sm sm:grid-cols-[12rem_1fr]" data-testid="persona-global-writes">
+      <span className="text-muted-foreground">Writes in Global</span>
+      <div className="space-y-1">
+        {data.map((g) => (
+          <div key={g.id} className="flex gap-2">
+            <span className="font-mono">{g.folder}</span>
+            <span className="text-xs text-muted-foreground">granted by {g.created_by}</span>
+          </div>
+        ))}
+        {blocked ? (
+          <p className="text-xs text-amber-700 dark:text-amber-300">
+            Not in effect: this persona's Resources level does not allow uploads, which no grant overrides.
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground">Change these from the folder's Permissions in Resources, under Global.</p>
+        )}
+      </div>
+    </div>
   );
 }

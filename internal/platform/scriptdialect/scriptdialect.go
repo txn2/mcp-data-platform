@@ -97,9 +97,63 @@ func EntryPoint(file *syntax.File) *syntax.DefStmt {
 const HandlerName = "handle"
 
 // RouteName is the function the Site routing integration calls with its
-// request (#2659): a script defining it is run by the platform, so it is a
-// script and not a library, as one defining handle(req) is.
+// request (#2659). It is an entry only in a script that declares the
+// integration (#2683): route was a free helper name in every script written
+// before, so the name alone makes nothing an integration's.
 const RouteName = "route"
+
+// IntegrationName is the top-level constant a script declares the
+// integration it serves with (#2683): INTEGRATION = "site_routing".
+const IntegrationName = "INTEGRATION"
+
+// SiteRouting is the Site routing integration's name, the value a script
+// declares it with.
+const SiteRouting = "site_routing"
+
+// Integrations is each integration a script may declare, and the function
+// it calls.
+//
+//nolint:gochecknoglobals // a read-only registry.
+var Integrations = map[string]string{SiteRouting: RouteName}
+
+// DeclaredIntegration is the integration file declares with a top-level
+// INTEGRATION = "<name>" string, "" for none. The last binding counts, as
+// it does when the module runs.
+func DeclaredIntegration(file *syntax.File) string {
+	if file == nil {
+		return ""
+	}
+	declared := ""
+	for _, s := range file.Stmts {
+		a, ok := s.(*syntax.AssignStmt)
+		if !ok || a.Op != syntax.EQ {
+			continue
+		}
+		id, ok := a.LHS.(*syntax.Ident)
+		if !ok || id.Name != IntegrationName {
+			continue
+		}
+		declared = ""
+		if lit, ok := a.RHS.(*syntax.Literal); ok && lit.Token == syntax.STRING {
+			declared, _ = lit.Value.(string)
+		}
+	}
+	return declared
+}
+
+// IsEntry reports whether file's top-level function name is one the
+// platform calls: main(), an endpoint's handle(), a form's form_spec() and
+// form_submit() always, and an integration's function only in a script
+// declaring that integration (#2683). A script defining one is a script,
+// not a library.
+func IsEntry(file *syntax.File, name string) bool {
+	switch name {
+	case EntryPointName, HandlerName, FormSpecName, FormSubmitName:
+		return true
+	}
+	fn, ok := Integrations[DeclaredIntegration(file)]
+	return ok && fn == name
+}
 
 // FormSpecName and FormSubmitName are the functions a form endpoint's
 // requests call instead (#2176): the spec on a GET, and the checked

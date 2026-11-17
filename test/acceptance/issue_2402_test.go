@@ -283,6 +283,8 @@ func TestIssue2402_AnEndpointHolds200RequestsASecondWithTheCacheOn(t *testing.T)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	failures := 0
+	// What each failed request got, so a failure says what it was (#2682).
+	var failed []string
 	tick := time.NewTicker(time.Second / rate)
 	defer tick.Stop()
 	for range rate * seconds {
@@ -294,25 +296,33 @@ func TestIssue2402_AnEndpointHolds200RequestsASecondWithTheCacheOn(t *testing.T)
 			req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, admin.base+"/endpoints/"+ep+"/", http.NoBody) // #nosec G704 -- the platform under test
 			req.Header = header.Clone()
 			res, err := hc.Do(req)
+			var head []byte
 			if res != nil {
 				// Read to the end, or the connection is not reused and every
 				// measured request pays for a new one (#2544).
+				head, _ = io.ReadAll(io.LimitReader(res.Body, 200))
 				_, _ = io.Copy(io.Discard, res.Body)
 				_ = res.Body.Close()
 			}
 			took := time.Since(start)
 			mu.Lock()
 			defer mu.Unlock()
-			if err != nil || res.StatusCode != http.StatusOK {
+			switch {
+			case err != nil:
 				failures++
-			} else {
+				failed = append(failed, fmt.Sprintf("after %s: %v", took.Round(time.Millisecond), err))
+			case res.StatusCode != http.StatusOK:
+				failures++
+				failed = append(failed, fmt.Sprintf("after %s: %d from replica %q: %q", took.Round(time.Millisecond), res.StatusCode,
+					res.Header.Get("X-Platform-Instance"), head))
+			default:
 				latencies = append(latencies, took)
 			}
 		}()
 	}
 	wg.Wait()
 	if failures > 0 {
-		t.Errorf("%d of %d requests failed", failures, rate*seconds)
+		t.Errorf("%d of %d requests failed: %s", failures, rate*seconds, strings.Join(failed[:min(len(failed), 10)], "; "))
 	}
 	slices.Sort(latencies)
 	p99 := latencies[len(latencies)*99/100]
@@ -332,6 +342,12 @@ func TestIssue2402_AnEndpointHolds200RequestsASecondWithTheCacheOn(t *testing.T)
 	hits := metricSeries(after, "appdb_statement_cache_total", labels("hit")) - metricSeries(before, "appdb_statement_cache_total", labels("hit"))
 	misses := metricSeries(after, "appdb_statement_cache_total", labels("miss")) - metricSeries(before, "appdb_statement_cache_total", labels("miss"))
 	t.Logf("statement cache: %.0f hits, %.0f misses", hits, misses)
+	for _, class := range []string{"4xx", "5xx"} {
+		byClass := map[string]string{"endpoint": ep, "status_class": class}
+		if n := metricSeries(after, "endpoint_requests_total", byClass) - metricSeries(before, "endpoint_requests_total", byClass); n > 0 {
+			t.Logf("the platform answered %.0f of the measured requests %s", n, class)
+		}
+	}
 	if hits+misses < float64(len(latencies)*5) || hits/(hits+misses) < 0.9 {
 		t.Errorf("the statement cache's hit rate is %.0f/%.0f; a warm cache answers nearly every statement", hits, hits+misses)
 	}

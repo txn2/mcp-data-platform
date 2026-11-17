@@ -30,6 +30,7 @@ const (
 	CmdDelete     = "delete"
 	CmdAddPart    = "add_part"
 	CmdRemovePart = "remove_part"
+	CmdSetPart    = "set_part"
 	CmdRelease    = "release"
 	CmdRollback   = "rollback"
 	CmdReleases   = "releases"
@@ -39,7 +40,7 @@ const (
 
 // Commands is every command, in the order the schema lists them.
 var Commands = []string{
-	CmdCreate, CmdGet, CmdList, CmdUpdate, CmdDelete, CmdAddPart, CmdRemovePart,
+	CmdCreate, CmdGet, CmdList, CmdUpdate, CmdDelete, CmdAddPart, CmdRemovePart, CmdSetPart,
 	CmdRelease, CmdRollback, CmdReleases, CmdExport, CmdImport,
 }
 
@@ -65,6 +66,16 @@ type Input struct {
 	// Map names, for each connection and secret the bundle names, the one on
 	// this deployment it becomes.
 	Map map[string]string `json:"map,omitempty"`
+	// ReleaseMode is a site part's: linked or coupled (#2679).
+	ReleaseMode string `json:"release_mode,omitempty"`
+	// ContractVersion is what update sets the application's contract to.
+	ContractVersion *int `json:"contract_version,omitempty"`
+	// Contract is the contract version a release declares.
+	Contract *int `json:"contract,omitempty"`
+	// MoveSites are the site parts a release moves besides the coupled ones.
+	MoveSites []string `json:"move_sites,omitempty"`
+	// Force releases over a site part that does not accept the contract.
+	Force bool `json:"force,omitempty"`
 }
 
 // Bundles exports and imports applications; nil on a deployment that cannot.
@@ -114,7 +125,15 @@ const description = "Applications: one record naming what a system built on the 
 	"export writes a release as a bundle (a managed resource) carrying no secret value, credential, data row or " +
 	"run history, and names the connections and secrets it uses; import reads a bundle, maps each name to one on " +
 	"this deployment (map), and creates or releases the application. Read the application-building knowledge " +
-	"page (fetch mcp:knowledge_page:platform-applications) before building one."
+	"page (fetch mcp:knowledge_page:platform-applications) before building one. " +
+	"SITE PARTS (#2679): a site environment part (kind site, part_id \"<site>/<environment>\") is linked or coupled (release_mode). " +
+	"Both get the application's /endpoints/, cookies and viewer on the site's own address. A linked part moves only by manage_site " +
+	"promote and rollback; a release moves it only when move_sites names it, and a rollback returns it only when the rolled-back " +
+	"release moved it. A coupled part moves one step with every release and returns with every rollback. New parts are linked. " +
+	"CONTRACT: the application declares contract_version (update, or contract on release), raised when a release breaks what its " +
+	"front ends call; a site release's _application file declares the range it works with ({\"application\": \"store\", " +
+	"\"contract\": \">=2 <4\"}). A release whose contract a site part's release excludes is refused naming it unless force is set " +
+	"(administrator, recorded), and manage_site promote refuses a release that excludes the application's contract."
 
 // JSON Schema words the input schema is written in.
 const (
@@ -138,11 +157,25 @@ func schema() map[string]any {
 			"schema":      str("create: the schema whose migrations a release applies (with connection). Same as add_part kind schema afterwards."),
 			"owner_email": str("update: move the application to another owner (administrators)."),
 			"kind":        map[string]any{keyType: typString, "enum": application.Kinds, keyDesc: "add_part, remove_part: the kind of part."},
-			"part_id":     str("add_part, remove_part: the script's id, the asset's id, the webhook source's name, or for kind schema \"<connection>/<schema>\" (the schema alone when you reach one application database connection)."),
+			"part_id":     str("add_part, remove_part, set_part: the script's id, the asset's id, the webhook source's name, or for kind schema \"<connection>/<schema>\" (the schema alone when you reach one application database connection)."),
 			"note":        str("release: what the release is for."),
-			"to_release":  num("rollback: the release whose pins to restore; the one before the current release when omitted."),
-			"release":     num("export: the release to export; the current release when omitted."),
-			"bundle":      str("import: the managed resource holding the bundle, by id or mcp:// URI."),
+			"release_mode": map[string]any{
+				keyType: typString, "enum": []string{application.ModeLinked, application.ModeCoupled},
+				keyDesc: "add_part (kind site, default linked) and set_part: linked serves the site environment as a front end of the application " +
+					"(its /endpoints/, cookies and viewer) and leaves it to the site's own promote and rollback; coupled also moves it one step " +
+					"with every release and returns it with every rollback. Parts added before v1.163.0 are coupled.",
+			},
+			"contract_version": num("update: the contract version the application declares, a whole number raised by hand when a release breaks what " +
+				"its front ends call; 0 declares none."),
+			"contract": num("release: the contract version this release declares, saved once the release is recorded."),
+			"move_sites": map[string]any{
+				keyType: "array", "items": map[string]any{keyType: typString},
+				keyDesc: "release: site parts (\"<site>/<environment>\") to move one step in this release, linked or not; a rollback of the release returns them.",
+			},
+			"force":      map[string]any{keyType: "boolean", keyDesc: "release: release over a site part whose release does not accept the contract (administrator); the release records each one."},
+			"to_release": num("rollback: the release whose pins to restore; the one before the current release when omitted."),
+			"release":    num("export: the release to export; the current release when omitted."),
+			"bundle":     str("import: the managed resource holding the bundle, by id or mcp:// URI."),
 			"map": map[string]any{
 				keyType: "object", "additionalProperties": map[string]any{keyType: typString},
 				keyDesc: "import: for each connection and secret name the bundle names, the name on this deployment it becomes.",
@@ -201,7 +234,11 @@ func (t *Tool) handlers() map[string]handler {
 			return listResult(s.Store.List(ctx))
 		},
 		CmdUpdate: func(ctx context.Context, actor application.Actor, in Input) (any, error) {
-			return s.Update(ctx, actor, in.Application, in.Description, in.OwnerEmail) //nolint:wrapcheck // the caller's message
+			a, err := s.Update(ctx, actor, in.Application, in.Description, in.OwnerEmail)
+			if err != nil || in.ContractVersion == nil {
+				return a, err //nolint:wrapcheck // the caller's message
+			}
+			return s.SetContract(ctx, actor, in.Application, *in.ContractVersion) //nolint:wrapcheck // the caller's message
 		},
 		CmdDelete: func(ctx context.Context, actor application.Actor, in Input) (any, error) {
 			if err := s.Delete(ctx, actor, in.Application); err != nil {
@@ -210,13 +247,18 @@ func (t *Tool) handlers() map[string]handler {
 			return map[string]any{"deleted": in.Application}, nil
 		},
 		CmdAddPart: func(ctx context.Context, actor application.Actor, in Input) (any, error) {
-			return s.AddPart(ctx, actor, in.Application, in.Kind, in.PartID) //nolint:wrapcheck // the caller's message
+			return s.AddPartMode(ctx, actor, in.Application, application.Part{Kind: in.Kind, ID: in.PartID, ReleaseMode: in.ReleaseMode}) //nolint:wrapcheck // the caller's message
 		},
 		CmdRemovePart: func(ctx context.Context, actor application.Actor, in Input) (any, error) {
 			return s.RemovePart(ctx, actor, in.Application, in.Kind, in.PartID) //nolint:wrapcheck // the caller's message
 		},
+		CmdSetPart: func(ctx context.Context, actor application.Actor, in Input) (any, error) {
+			return s.SetPartMode(ctx, actor, in.Application, in.PartID, in.ReleaseMode) //nolint:wrapcheck // the caller's message
+		},
 		CmdRelease: func(ctx context.Context, actor application.Actor, in Input) (any, error) {
-			return s.Release(ctx, actor, in.Application, in.Note) //nolint:wrapcheck // the caller's message
+			return s.ReleaseWith(ctx, actor, in.Application, appsvc.ReleaseOptions{ //nolint:wrapcheck // the caller's message
+				Note: in.Note, MoveSites: in.MoveSites, Contract: in.Contract, Force: in.Force,
+			})
 		},
 		CmdRollback: func(ctx context.Context, actor application.Actor, in Input) (any, error) {
 			return s.Rollback(ctx, actor, in.Application, in.ToRelease) //nolint:wrapcheck // the caller's message

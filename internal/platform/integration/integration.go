@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"go.starlark.net/starlark"
+	"go.starlark.net/syntax"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdialect"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
@@ -36,7 +37,7 @@ import (
 const (
 	// OpSiteRouting is every hostname the platform serves for sites and
 	// applications, handed to a script that routes them (#2659).
-	OpSiteRouting = "site_routing"
+	OpSiteRouting = scriptdialect.SiteRouting
 )
 
 // Spec is one operation's contract.
@@ -93,32 +94,52 @@ func Contracts() string {
 	return strings.Join(out, " or ")
 }
 
-// Check refuses a source that could serve no operation: it defines none of
-// the operations' functions. It is the handler kind's check, which the save
-// gate asks of every script an operation is bound to.
+// Check refuses a source that could serve no operation: it declares none, or
+// does not define the function of the one it declares. It is the handler
+// kind's check, which the save gate asks of every script an operation is
+// bound to.
 func Check(source string) error {
 	file, err := scriptdialect.Options.Parse("script", source, 0)
 	if err != nil {
 		return fmt.Errorf("the source does not parse: %w", err)
 	}
-	for _, s := range specs {
-		if scriptdialect.DefOf(file, s.Function, 1) != nil {
-			return nil
-		}
+	if s, ok := SpecOf(scriptdialect.DeclaredIntegration(file)); ok {
+		return s.check(file)
 	}
-	return fmt.Errorf("an integration calls %s, and the source defines no top-level function of that name taking 1 parameter", Contracts())
+	return fmt.Errorf("an integration's script declares which integration it serves at its top level, as %s = %q, and defines its function (%s); this source declares none",
+		scriptdialect.IntegrationName, OpSiteRouting, Contracts())
 }
 
-// CheckFor refuses a source that could not serve the operation.
+// CheckFor refuses a source that could not serve the operation: it does not
+// declare it (#2683), or does not define its function taking the request. A
+// function of that name in a script that does not declare the operation is
+// one of its helpers, never the operation's entry.
 func (s Spec) CheckFor(source string) error {
 	file, err := scriptdialect.Options.Parse("script", source, 0)
 	if err != nil {
 		return fmt.Errorf("the source does not parse: %w", err)
 	}
+	return s.check(file)
+}
+
+func (s Spec) check(file *syntax.File) error {
+	if scriptdialect.DeclaredIntegration(file) != s.Name {
+		return fmt.Errorf("the %s integration calls a script that declares it at its top level: add %s = %q, then define %s",
+			strings.ToLower(s.Label), scriptdialect.IntegrationName, s.Name, s.Contract())
+	}
 	if scriptdialect.DefOf(file, s.Function, 1) == nil {
 		return fmt.Errorf("the %s integration calls %s, and the source defines no top-level %s taking 1 parameter", strings.ToLower(s.Label), s.Contract(), s.Function)
 	}
 	return nil
+}
+
+// Serves reports whether source defines the operation's function taking the
+// request, declared or not. A run of a script already bound is started on
+// this alone, so a binding made before #2683 asked for the declaration keeps
+// running; choosing a script and saving a bound one ask CheckFor.
+func (s Spec) Serves(source string) bool {
+	file, err := scriptdialect.Options.Parse("script", source, 0)
+	return err == nil && scriptdialect.DefOf(file, s.Function, 1) != nil
 }
 
 // Item is one thing an operation hands the script: its key and the entry the

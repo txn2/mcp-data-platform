@@ -129,6 +129,16 @@ func (w *world) AddPart(_ context.Context, id string, p application.Part) error 
 	return nil
 }
 
+func (w *world) SetPartMode(_ context.Context, id, part, mode string) error {
+	for i := range w.apps[id].Parts {
+		if w.apps[id].Parts[i].ID == part {
+			w.apps[id].Parts[i].ReleaseMode = mode
+			return nil
+		}
+	}
+	return application.ErrNotFound
+}
+
 func (*world) Owning(context.Context, string, string) (*application.Application, error) {
 	return nil, application.ErrNotFound
 }

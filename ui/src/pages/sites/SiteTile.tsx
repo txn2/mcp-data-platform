@@ -22,6 +22,18 @@ export function tilePlaceholder(site: Pick<Site, "pages_addresses">, env: SiteEn
   return null;
 }
 
+/**
+ * listTileEnvironment is the environment a site's row in the list is drawn
+ * from: the one the main address serves, or, while that one has no release,
+ * the furthest environment along that has one, so a site whose prod has not
+ * been promoted to yet shows its dev rather than "No release yet" (#2681).
+ */
+export function listTileEnvironment(site: Pick<Site, "main_environment" | "environments">): SiteEnvironment | undefined {
+  const main = site.environments.find((e) => e.name === site.main_environment);
+  if (main && main.release > 0) return main;
+  return [...site.environments].reverse().find((e) => e.release > 0) ?? main;
+}
+
 const BOXES = {
   row: "h-11 w-16 rounded-md",
   phone: "h-[50px] w-[72px] rounded-md",

@@ -537,7 +537,7 @@ func TestIssue2602_PinnedAndPendingReleasesAreKept(t *testing.T) {
 	t.Cleanup(func() {
 		_, _, _ = connectAs(t, keyAdmin2604).callRaw("manage_application", map[string]any{"command": "delete", "application": app})
 	})
-	admin.call("manage_application", map[string]any{"command": "add_part", "application": app, "kind": "site", "part_id": s.name + "/stage"})
+	admin.call("manage_application", map[string]any{"command": "add_part", "application": app, "kind": "site", "part_id": s.name + "/stage", "release_mode": "coupled"})
 	admin.call("manage_application", map[string]any{"command": "release", "application": app, "note": "pins stage at 3"})
 
 	// stage moves to 4, then 5, which the owner asks to promote to prod, and
@@ -590,7 +590,7 @@ func TestIssue2602_WhatKeepsAReleaseIsTheManagersToKnow(t *testing.T) {
 	t.Cleanup(func() {
 		_, _, _ = connectAs(t, keyAdmin2604).callRaw("manage_application", map[string]any{"command": "delete", "application": app})
 	})
-	admin.call("manage_application", map[string]any{"command": "add_part", "application": app, "kind": "site", "part_id": s.name + "/" + hidden})
+	admin.call("manage_application", map[string]any{"command": "add_part", "application": app, "kind": "site", "part_id": s.name + "/" + hidden, "release_mode": "coupled"})
 	admin.call("manage_application", map[string]any{"command": "release", "application": app, "note": "pins the private environment"})
 
 	status, got := s.rest(t, keyOwner2604, http.MethodGet, "/releases", nil)

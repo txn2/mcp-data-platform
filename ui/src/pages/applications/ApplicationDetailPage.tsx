@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuthStore } from "@/stores/auth";
 import { ApplicationParts } from "./ApplicationParts";
 import { ApplicationReleases } from "./ApplicationReleases";
+import { ApplicationSiteParts } from "./ApplicationSiteParts";
 
 // ApplicationDetailPage is one application (#2411): who owns it, the release
 // in force, its parts with the versions that release pins, and its releases.
@@ -59,6 +60,7 @@ export function ApplicationDetailPage({ app, onNavigate, onBack }: Props) {
       />
       <ApplicationFacts application={a} migrations={data.migrations} />
       <ApplicationParts detail={data} canEdit={canEdit} isAdmin={isAdmin} onNavigate={onNavigate} />
+      <ApplicationSiteParts detail={data} canEdit={canEdit} />
       <ApplicationReleases detail={data} isAdmin={isAdmin} />
     </div>
   );

@@ -83,6 +83,9 @@ type Service struct {
 	// Sites reads a site part and points its environment at a release
 	// (#2518); nil adds no site.
 	Sites Sites
+	// Contracts reads what a site part serves and the contract a release
+	// declares (#2679); nil checks no contract.
+	Contracts ContractSites
 }
 
 // Webhooks reads webhook handlers (scriptevents.PostgresStore).
@@ -228,21 +231,27 @@ func (s *Service) editable(ctx context.Context, actor application.Actor, ref str
 	return a, nil
 }
 
-// AddPart adds a part the actor owns.
+// AddPart adds a part the actor owns; a site part is linked.
 func (s *Service) AddPart(ctx context.Context, actor application.Actor, ref, kind, id string) (*application.Application, error) {
+	return s.AddPartMode(ctx, actor, ref, application.Part{Kind: kind, ID: id})
+}
+
+// AddPartMode adds a part the actor owns, a site part with the release mode
+// asked for, linked when none is (#2679).
+func (s *Service) AddPartMode(ctx context.Context, actor application.Actor, ref string, p application.Part) (*application.Application, error) {
+	kind, id := p.Kind, p.ID
 	a, err := s.editable(ctx, actor, ref)
 	if err != nil {
 		return nil, err
 	}
-	if !application.ValidKind(kind) {
-		return nil, refused("kind %q: one of script, asset, source, schema, site", kind)
+	mode, err := partMode(kind, p.ReleaseMode)
+	if err != nil {
+		return nil, err
 	}
 	if kind == application.KindSchema {
 		return s.addSchema(ctx, actor, a, id)
 	}
-	if name, env, ok := application.ParseSitePartID(id); ok && kind == application.KindSite && env == "default" {
-		id = name + "/dev" // the old name of dev (#2604), read as dev for one release
-	}
+	id = currentSitePart(kind, id)
 	if err := s.mayAdd(ctx, actor, kind, id); err != nil {
 		return nil, err
 	}
@@ -251,7 +260,7 @@ func (s *Service) AddPart(ctx context.Context, actor application.Actor, ref, kin
 			return nil, err
 		}
 	}
-	if err := s.Store.AddPart(ctx, a.ID, application.Part{Kind: kind, ID: id, AddedBy: actor.Email}); err != nil {
+	if err := s.Store.AddPart(ctx, a.ID, application.Part{Kind: kind, ID: id, AddedBy: actor.Email, ReleaseMode: mode}); err != nil {
 		if errors.Is(err, application.ErrPartTaken) {
 			return nil, s.taken(ctx, kind, id)
 		}
@@ -431,6 +440,9 @@ type Status struct {
 	// Findings are the diagram's findings, each saying whether a release
 	// refuses it.
 	Findings []appdiagram.Finding `json:"findings"`
+	// SiteParts is each site part's mode, what it serves, where a release
+	// would move it and whether it works with the contract (#2679).
+	SiteParts []SitePartView `json:"site_parts"`
 }
 
 // StatusOf reads where an application stands.
@@ -445,13 +457,13 @@ func (s *Service) StatusOf(ctx context.Context, ref string) (*Status, error) {
 			return nil, err //nolint:wrapcheck // the store's errors are read by identity
 		}
 	}
-	pins, problems := s.newestPins(ctx, a)
+	pins, problems := s.newestPins(ctx, a, nil)
 	st.Problems = problems
 	var prev []application.Pin
 	if st.Current != nil {
 		prev = st.Current.Pins
 	}
-	st.Pending = application.Diff(prev, pins)
+	st.Pending = application.Diff(withoutSites(prev, unmoved(a, nil)), pins)
 	if a.Schema != "" && s.Schema != nil {
 		if m, err := s.Schema.State(ctx, a.Connection, a.Schema); err == nil {
 			st.Migrations = m
@@ -465,14 +477,19 @@ func (s *Service) StatusOf(ctx context.Context, ref string) (*Status, error) {
 		st.Findings = []appdiagram.Finding{}
 	}
 	st.Problems = append(st.Problems, appdiagram.Problems(&appdiagram.Diagram{Findings: st.Findings})...)
+	st.SiteParts = s.sitePartViews(ctx, a)
 	return st, nil
 }
 
-// newestPins pins each script and asset part at its newest version, naming
-// the parts that cannot be pinned.
-func (s *Service) newestPins(ctx context.Context, a *application.Application) (pins []application.Pin, problems []string) {
+// newestPins pins each part a release moves at its newest version, naming
+// the parts that cannot be pinned: a linked site part only when named moves
+// it (#2679).
+func (s *Service) newestPins(ctx context.Context, a *application.Application, named map[string]bool) (pins []application.Pin, problems []string) {
 	pins, problems = []application.Pin{}, []string{}
 	for _, p := range a.Parts {
+		if !moves(p, named) {
+			continue
+		}
 		pin, problem := s.newestPin(ctx, p)
 		if problem != "" {
 			problems = append(problems, problem)
@@ -546,6 +563,12 @@ func (s *Service) Release(ctx context.Context, actor application.Actor, ref, not
 // ReleaseAs is Release recorded as action: an import's release is recorded
 // as one.
 func (s *Service) ReleaseAs(ctx context.Context, actor application.Actor, ref, note, action string) (*application.Release, error) {
+	return s.makeRelease(ctx, actor, ref, ReleaseOptions{Note: note, Action: action})
+}
+
+// makeRelease is ReleaseAs with the site parts it moves and the contract it
+// declares (#2679).
+func (s *Service) makeRelease(ctx context.Context, actor application.Actor, ref string, o ReleaseOptions) (*application.Release, error) {
 	if !actor.Admin {
 		return nil, errNeedsAdmin
 	}
@@ -553,10 +576,11 @@ func (s *Service) ReleaseAs(ctx context.Context, actor application.Actor, ref, n
 	if err != nil {
 		return nil, err
 	}
-	pins, problems := s.newestPins(ctx, a)
-	if len(problems) > 0 {
-		return nil, refused("nothing was released: %s", strings.Join(problems, "; "))
+	plan, err := s.releasePins(ctx, a, o)
+	if err != nil {
+		return nil, err
 	}
+	named, pins := plan.named, plan.pins
 	// A part loading one of the application's libraries at a version other
 	// than the one this release pins is refused; the other findings are
 	// recorded on the release (#2540).
@@ -568,27 +592,51 @@ func (s *Service) ReleaseAs(ctx context.Context, actor application.Actor, ref, n
 	if err != nil {
 		return nil, err
 	}
-	rel := application.Release{Action: action, Note: note, CreatedBy: actor.Email, Pins: pins}
+	rel := application.Release{Action: o.Action, Note: o.Note, CreatedBy: actor.Email, Pins: pins}
+	rel.Changes.Forced = plan.forced
 	rel.MigrationVersion = prev.MigrationVersion
 	rel.Changes.Applied = []int{}
-	if a.Schema != "" {
-		applied, err := s.Schema.Release(ctx, a.Connection, a.Schema, actorName(actor, a))
-		if err != nil {
-			return nil, fmt.Errorf("nothing was released: %w", err)
-		}
-		rel.Changes.Applied, rel.MigrationVersion = applied.Versions, applied.Head
-		s.grantRunRole(ctx, a)
+	if err := s.releaseSchema(ctx, actor, a, &rel); err != nil {
+		return nil, err
 	}
-	rel.Changes.Parts = application.Diff(prev.Pins, pins)
+	rel.Changes.Parts = application.Diff(withoutSites(prev.Pins, unmoved(a, named)), pins)
+	s.servedBefore(ctx, rel.Changes.Parts)
 	rel.Changes.Findings = appdiagram.Problems(&appdiagram.Diagram{Findings: found})
 	recorded, err := s.Store.Record(ctx, a.ID, application.Recorded{Release: rel, After: a.CurrentRelease})
 	if err != nil {
 		return nil, err //nolint:wrapcheck // read by identity
 	}
-	if err := s.applySitePins(ctx, actor, pins); err != nil {
+	if err := s.afterRecord(ctx, actor, a, o.Contract != nil, pins); err != nil {
 		return nil, err
 	}
 	return recorded, nil
+}
+
+// afterRecord finishes a recorded release: the contract it declared becomes
+// the application's (#2679), and each site part it moves is pointed at its
+// pin.
+func (s *Service) afterRecord(ctx context.Context, actor application.Actor, a *application.Application, contract bool, pins []application.Pin) error {
+	if contract {
+		if err := s.Store.Update(ctx, a); err != nil {
+			return fmt.Errorf("the release was recorded, but its contract %d was not saved: %w", a.ContractVersion, err)
+		}
+	}
+	return s.applySitePins(ctx, actor, pins)
+}
+
+// releaseSchema applies the application's pending migrations for a release,
+// recording what it applied; an application with no schema applies none.
+func (s *Service) releaseSchema(ctx context.Context, actor application.Actor, a *application.Application, rel *application.Release) error {
+	if a.Schema == "" {
+		return nil
+	}
+	applied, err := s.Schema.Release(ctx, a.Connection, a.Schema, actorName(actor, a))
+	if err != nil {
+		return fmt.Errorf("nothing was released: %w", err)
+	}
+	rel.Changes.Applied, rel.MigrationVersion = applied.Versions, applied.Head
+	s.grantRunRole(ctx, a)
+	return nil
 }
 
 // current is the application's current release, an empty one before the
@@ -648,7 +696,7 @@ func (s *Service) Rollback(ctx context.Context, actor application.Actor, ref str
 	if err != nil {
 		return nil, err //nolint:wrapcheck // read by identity
 	}
-	if err := s.applySitePins(ctx, actor, target.Pins); err != nil {
+	if err := s.applySitePins(ctx, actor, rollbackSitePins(a, prev, target)); err != nil {
 		return nil, err
 	}
 	return recorded, nil

@@ -169,7 +169,7 @@ func TestCheckRefusesWithoutWriting(t *testing.T) {
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, resourcewrite.ErrRefused)
-	assert.Contains(t, err.Error(), "global scope")
+	assert.Contains(t, err.Error(), "global folder")
 	_, _, listErr := lf.store.List(context.Background(), resource.Filter{})
 	require.NoError(t, listErr)
 	assert.Empty(t, lf.blobs.objects, "a refused destination stores nothing")

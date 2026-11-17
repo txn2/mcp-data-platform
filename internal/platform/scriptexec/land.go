@@ -49,7 +49,8 @@ func (w *outputWriter) writeResource(
 
 	// The library the script named (#2080), resolved and checked against the
 	// run's identity by the lander as manage_resource's create is: a library
-	// the run may not write is refused there, before anything is written.
+	// the run may not write is refused there, before anything is written. The
+	// author's folder grants count, read for this write (#2684).
 	landing, err := w.deps.Lander.Land(ctx, toolkit.ResourceDestination{
 		Scope: req.Library.Scope, ScopeID: req.Library.ScopeID,
 		Path: path, Filename: filename,
@@ -58,7 +59,7 @@ func (w *outputWriter) writeResource(
 		Tags:          []string{"script", w.script.Name},
 		ChangeSummary: w.changeSummary(""),
 		Index:         req.Index,
-	}, bytes.NewReader(data), identity.ContentType, w.claims)
+	}, bytes.NewReader(data), identity.ContentType, w.claims.WithFolderGrants(ctx))
 	if err != nil {
 		return nil, script.RunOutput{}, fmt.Errorf("writing output %q to the library: %w", req.Name, err)
 	}

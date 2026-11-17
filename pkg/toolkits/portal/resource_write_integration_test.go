@@ -403,7 +403,7 @@ func TestAgentIsRefusedAScopeItMayNotWrite(t *testing.T) {
 
 	require.True(t, isErr)
 	message, _ := out["error"].(string)
-	assert.Contains(t, message, "global scope")
+	assert.Contains(t, message, "global folder")
 	assert.NotContains(t, message, "policy.md", "the refusal names the scope, not the file")
 	assert.Empty(t, sys.announced, "a refused create announces nothing")
 }

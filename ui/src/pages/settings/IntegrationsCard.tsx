@@ -106,6 +106,12 @@ function LastRunFailed({ op }: { op: IntegrationOverview }) {
 function UnboundFacts({ op }: { op: IntegrationOverview }) {
   return (
     <dl className="grid grid-cols-[10rem_1fr] gap-x-4 gap-y-2 text-sm">
+      <dt className="text-muted-foreground">Script declares</dt>
+      <dd>
+        <code className="font-mono" data-testid="integration-declaration">
+          INTEGRATION = &quot;{op.operation}&quot;
+        </code>
+      </dd>
       <dt className="text-muted-foreground">Script defines</dt>
       <dd>
         <code className="font-mono">{op.function}(req)</code>
@@ -217,7 +223,7 @@ function Actions({ op, failed, onPick }: { op: IntegrationOverview; failed: bool
     return (
       <div className="space-y-3 border-t pt-4">
         <p className="text-sm text-muted-foreground">
-          {op.function}(req) receives the reason (change or timer), the entries added and removed since its last run, and every entry under {op.items_field}. It returns a dict keyed by {op.key_field}, each value {"{"}&quot;status&quot;: &quot;ready&quot; or &quot;failed&quot;, &quot;message&quot;: &quot;…&quot;{"}"}.
+          A script declares INTEGRATION = &quot;{op.operation}&quot; at its top level and defines {op.function}(req), which receives the reason (change or timer), the entries added and removed since its last run, and every entry under {op.items_field}. It returns a dict keyed by {op.key_field}, each value {"{"}&quot;status&quot;: &quot;ready&quot; or &quot;failed&quot;, &quot;message&quot;: &quot;…&quot;{"}"}.
         </p>
         <Button onClick={onPick}>Choose script</Button>
       </div>
@@ -329,9 +335,11 @@ function errorText(e: unknown): string {
 function NoScripts({ op }: { op: IntegrationOverview }) {
   return (
     <div className="space-y-2 rounded-md border border-dashed p-5" data-testid="integration-no-scripts">
-      <p className="font-medium">No script defines {op.function}(req)</p>
+      <p className="font-medium">
+        No script declares INTEGRATION = &quot;{op.operation}&quot; and defines {op.function}(req)
+      </p>
       <p className="text-sm text-muted-foreground">
-        A {op.label.toLowerCase()} script defines a top-level <code className="font-mono">{op.function}(req)</code>. It is handed every item the platform has and the ones added and removed since it last ran, and returns ready or failed with a message for each.
+        A {op.label.toLowerCase()} script declares <code className="font-mono">INTEGRATION = &quot;{op.operation}&quot;</code> and defines a top-level <code className="font-mono">{op.function}(req)</code>. It is handed every item the platform has and the ones added and removed since it last ran, and returns ready or failed with a message for each.
       </p>
       <a className="text-sm text-primary underline-offset-4 hover:underline" href="/portal/automations">
         New automation

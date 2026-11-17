@@ -16,11 +16,29 @@ import { apiFetch, apiFetchRaw, ApiError } from "../client";
  */
 export type ApplicationPartKind = "script" | "asset" | "source" | "schema" | "site";
 
+/** A site part's release mode (#2679). */
+export type ApplicationReleaseMode = "linked" | "coupled";
+
 export interface ApplicationPart {
   kind: ApplicationPartKind;
   id: string;
   added_by: string;
   added_at: string;
+  /** A site part's: linked (moved only by the site) or coupled (moved by every release). */
+  release_mode?: ApplicationReleaseMode;
+}
+
+/** One site part as the Parts card and the release dialog read it (#2679). */
+export interface ApplicationSitePart {
+  part_id: string;
+  release_mode: ApplicationReleaseMode;
+  /** The release the environment serves, 0 for none. */
+  serves: number;
+  /** The release a release moving it points it at, 0 for none. */
+  step: number;
+  /** The range that release declares for this application, "" for none. */
+  contract: string;
+  compatible: boolean;
 }
 
 export interface Application {
@@ -34,6 +52,8 @@ export interface Application {
   schema_adopted_version: number;
   /** The release in force, 0 before the first one. */
   current_release: number;
+  /** The contract version its front ends call (#2679); 0 declares none. */
+  contract_version?: number;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -60,6 +80,8 @@ export interface ApplicationChanges {
   applied: number[];
   reverted: number[];
   migrations_kept?: string;
+  /** Site parts an administrator released over though they excluded the contract (#2679). */
+  forced?: string[];
 }
 
 export type ApplicationReleaseAction = "release" | "rollback" | "import";
@@ -171,6 +193,8 @@ export interface ApplicationDetail {
    */
   findings: ApplicationFinding[];
   releases: ApplicationRelease[];
+  /** Each site part's mode, served and step release and compatibility (#2679). */
+  site_parts?: ApplicationSitePart[];
 }
 
 /** The kinds of thing an application diagram draws (#2540). */
@@ -385,7 +409,7 @@ function useApplicationWrite<I, O>(fn: (input: I) => Promise<O>) {
 }
 
 export function useUpdateApplication(app: string) {
-  return useApplicationWrite((input: { description: string; owner_email?: string }) =>
+  return useApplicationWrite((input: { description: string; owner_email?: string; contract_version?: number }) =>
     apiFetch<Application>(appPath(app), { method: "PATCH", body: JSON.stringify(input) }),
   );
 }
@@ -453,11 +477,34 @@ export function useRemoveApplicationPart(app: string) {
   );
 }
 
+/** The options a release takes (#2679). */
+export interface ApplicationReleaseInput {
+  note?: string;
+  /** Site parts this release moves besides the coupled ones. */
+  move_sites?: string[];
+  /** Release over a site part that excludes the contract; recorded. */
+  force?: boolean;
+}
+
 export function useReleaseApplication(app: string) {
-  return useApplicationWrite((input: { note?: string }) =>
+  return useApplicationWrite((input: ApplicationReleaseInput) =>
     apiFetch<ApplicationRelease>(`${appPath(app)}/release`, {
       method: "POST",
-      body: JSON.stringify(input.note ? { note: input.note } : {}),
+      body: JSON.stringify({
+        ...(input.note ? { note: input.note } : {}),
+        ...(input.move_sites?.length ? { move_sites: input.move_sites } : {}),
+        ...(input.force ? { force: true } : {}),
+      }),
+    }),
+  );
+}
+
+/** useSetSitePartMode makes a site part linked or coupled (#2679). */
+export function useSetSitePartMode(app: string) {
+  return useApplicationWrite((input: { id: string; release_mode: ApplicationReleaseMode }) =>
+    apiFetch<Application>(`${appPath(app)}/parts/site/${encodeURIComponent(input.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ release_mode: input.release_mode }),
     }),
   );
 }

@@ -3,7 +3,11 @@
 package tilepage
 
 import (
+	"bytes"
 	"context"
+	"image/png"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -24,20 +28,16 @@ var pixel = []byte{
 	0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
 }
 
-// releasePage is a release holding index and one image, drawn as a site tile.
+// releasePage is a release holding index and two images, drawn as a site
+// tile through the fake gateway.
 func releasePage(t *testing.T, index string) headless.Page {
 	t.Helper()
-	files := map[string]site.File{
-		"index.html": {Path: "index.html", ContentType: "text/html"},
-		"in.png":     {Path: "in.png", ContentType: "image/png"},
-		"below.png":  {Path: "below.png", ContentType: "image/png"},
-	}
-	page, err := pageOf(context.Background(), files, func(_ context.Context, f site.File) ([]byte, error) {
-		if f.Path == "index.html" {
-			return []byte(index), nil
-		}
-		return pixel, nil
-	})
+	g := &gateway{paths: map[string]answer{
+		"/":          {status: http.StatusOK, ctype: "text/html", body: index},
+		"/in.png":    {status: http.StatusOK, ctype: "image/png", body: string(pixel)},
+		"/below.png": {status: http.StatusOK, ctype: "image/png", body: string(pixel)},
+	}}
+	page, err := Release{Store: releases{}, Server: g}.Page(context.Background(), "s1", 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,5 +72,62 @@ func TestSiteTileWaitsOnlyForTheFrame_RealDB(t *testing.T) {
 				t.Fatal("an empty tile")
 			}
 		})
+	}
+}
+
+// slowGateway answers /data.json after a pause, as an upstream would.
+type slowGateway struct {
+	*gateway
+	pause time.Duration
+}
+
+func (g slowGateway) Tile(w http.ResponseWriter, r *http.Request, route *site.Route) {
+	if r.URL.Path == "/data.json" {
+		time.Sleep(g.pause)
+	}
+	g.gateway.Tile(w, r, route)
+}
+
+// TestSiteTileDrawsAnAppThatFetchesAfterLoad_RealDB pins #2681 in the pinned
+// renderer: a module application loaded from a public host (a CDN) that
+// fetches its data from its own origin after the load event and paints from
+// it is captured painted, not blank. Before, the CDN was refused and the
+// capture was taken at the load event.
+func TestSiteTileDrawsAnAppThatFetchesAfterLoad_RealDB(t *testing.T) {
+	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		_, _ = w.Write([]byte(`export async function paint(){
+  const r = await fetch("/data.json");
+  const d = await r.json();
+  document.body.style.background = d.color;
+}`))
+	}))
+	defer cdn.Close()
+	g := slowGateway{gateway: &gateway{paths: map[string]answer{
+		"/": {status: http.StatusOK, ctype: "text/html", body: `<!doctype html><html><body style="margin:0;background:#fff;height:100vh">
+<script type="module">import { paint } from "` + cdn.URL + `/app.js"; paint();</script></body></html>`},
+		"/data.json": {status: http.StatusOK, ctype: "application/json", body: `{"color":"rgb(255, 0, 0)"}`},
+	}}, pause: 300 * time.Millisecond}
+	page, err := Release{Store: releases{}, Server: g}.Page(context.Background(), "s1", 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page.RequireSubresources = false
+	r := headless.New(headlesstest.Start(t), cdn.Client())
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	shot, err := r.Render(ctx, page)
+	if err != nil {
+		t.Fatalf("drawing the tile: %v", err)
+	}
+	img, err := png.Decode(bytes.NewReader(shot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := img.Bounds()
+	cr, cg, cb, _ := img.At(b.Dx()/2, b.Dy()/2).RGBA()
+	if cr>>8 < 200 || cg>>8 > 60 || cb>>8 > 60 {
+		t.Fatalf("the tile's centre is rgb(%d,%d,%d); the application painted it red after fetching its data", cr>>8, cg>>8, cb>>8)
 	}
 }

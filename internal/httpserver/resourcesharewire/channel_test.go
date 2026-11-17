@@ -79,7 +79,7 @@ func channelFixture(sharing bool) (*fakeStore, *fakePoster, *http.ServeMux) {
 	}
 	s := &Shares{svc: resourceshare.New(*d), caller: d.Caller, deps: d, channels: post, portalURL: "https://platform.example.com/"}
 	mux := http.NewServeMux()
-	s.Register(mux)
+	s.Register(mux, nil)
 	return store, post, mux
 }
 

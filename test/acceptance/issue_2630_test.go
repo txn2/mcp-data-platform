@@ -168,7 +168,7 @@ func TestIssue2630_AnApplicationPartFollowsTheRename(t *testing.T) {
 	t.Cleanup(func() {
 		_, _, _ = connectAs(t, keyAdmin2604).callRaw("manage_application", map[string]any{"command": "delete", "application": app})
 	})
-	admin.call("manage_application", map[string]any{"command": "add_part", "application": app, "kind": "site", "part_id": s.name + "/uat"})
+	admin.call("manage_application", map[string]any{"command": "add_part", "application": app, "kind": "site", "part_id": s.name + "/uat", "release_mode": "coupled"})
 	if status, got := s.rest(t, s.key, http.MethodDelete, "/environments/uat", nil); status != http.StatusUnprocessableEntity || !strings.Contains(asString(got["detail"]), "part of an application") {
 		t.Errorf("removing a part: %d %v", status, got["_raw"])
 	}

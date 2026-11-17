@@ -897,7 +897,7 @@ on how a guess matches the token.
 | 405 | The endpoint does not answer the method (`Allow` lists the ones it does) |
 | 413 | The body is past `max_body_bytes`; the script does not run |
 | 429 | Past `rate_limit`, the caller's `caller_rate_limit` or the address's `ip_rate_limit`, with `Retry-After` |
-| 503 | The script is disabled, deprecated or superseded; the handler held more than `max_memory_bytes`; the replica is already running 32 handlers (with `Retry-After`); or the bot check could not be made |
+| 503 | The script is disabled, deprecated or superseded; the handler held more than `max_memory_bytes`; the replica was running 32 handlers and none finished within a second of the request arriving (with `Retry-After`; a request past 32 waits up to a second for one, #2682); or the bot check could not be made |
 | 504 | The handler ran past `timeout_seconds` |
 | 500 | The handler failed, or returned something that is not a response |
 

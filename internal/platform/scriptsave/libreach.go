@@ -2,6 +2,7 @@ package scriptsave
 
 import (
 	"cmp"
+	"context"
 	"fmt"
 	"strings"
 
@@ -16,17 +17,26 @@ import (
 // run's own write makes, made before there is a run: the resource rule
 // (resource.CanWriteScope) against the saver's persona and roles. A run whose
 // author has since lost the authority is refused again when it writes.
-func checkLibraryReach(req Request, source string) string {
+//
+// The global library takes a saver who holds a write grant on one of its
+// folders (#2684): the folder a run writes is its key, known only when it
+// writes, so the write is checked against the grant then.
+func checkLibraryReach(ctx context.Context, req Request, source string) string {
 	report := scriptrun.Validate(source)
-	claims := callerClaims(req.Caller)
+	claims := callerClaims(req.Caller).WithFolderGrants(ctx)
 	var refused []string
 	for _, lib := range report.ResourceLibraries {
 		if lib.Own() {
 			continue
 		}
-		if !resource.CanWriteScope(claims, resource.Scope(lib.Scope), lib.ScopeID) {
-			refused = append(refused, lib.Label())
+		scope := resource.Scope(lib.Scope)
+		if resource.CanWriteScope(claims, scope, lib.ScopeID) {
+			continue
 		}
+		if scope == resource.ScopeGlobal && len(claims.GrantedFolders()) > 0 {
+			continue
+		}
+		refused = append(refused, lib.Label())
 	}
 	if len(refused) == 0 {
 		return ""

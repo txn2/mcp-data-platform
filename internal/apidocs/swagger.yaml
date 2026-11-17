@@ -3524,6 +3524,13 @@ definitions:
         description: |-
           Schema is the schema part (#2539): its migration version, the one the
           current release recorded, and its run role; nil for none.
+      site_parts:
+        description: |-
+          SiteParts is each site part's mode, what it serves, where a release
+          would move it and whether it works with the contract (#2679).
+        items:
+          $ref: '#/definitions/appsvc.SitePartView'
+        type: array
     type: object
   apphttp.importRequest:
     properties:
@@ -3543,6 +3550,12 @@ definitions:
       total:
         type: integer
     type: object
+  apphttp.partModeRequest:
+    properties:
+      release_mode:
+        example: coupled
+        type: string
+    type: object
   apphttp.partRequest:
     properties:
       id:
@@ -3551,9 +3564,31 @@ definitions:
       kind:
         example: script
         type: string
+      release_mode:
+        description: |-
+          ReleaseMode is a site part's, linked (the default) or coupled
+          (#2679).
+        example: linked
+        type: string
     type: object
   apphttp.releaseRequest:
     properties:
+      contract:
+        description: Contract is the contract version the release declares.
+        example: 4
+        type: integer
+      force:
+        description: Force releases over a site part that does not accept the contract.
+        type: boolean
+      move_sites:
+        description: |-
+          MoveSites are site parts this release moves besides the coupled
+          ones (#2679).
+        example:
+        - store-web/prod
+        items:
+          type: string
+        type: array
       note:
         type: string
     type: object
@@ -3565,6 +3600,12 @@ definitions:
     type: object
   apphttp.updateRequest:
     properties:
+      contract_version:
+        description: |-
+          ContractVersion sets the contract the application declares
+          (#2679); omitted leaves it.
+        example: 3
+        type: integer
       description:
         type: string
       owner_email:
@@ -3578,6 +3619,13 @@ definitions:
           migrations a release applies. Empty for an application with none.
         example: orders
         type: string
+      contract_version:
+        description: |-
+          ContractVersion is the contract its front ends call (#2679), raised by
+          hand when a release breaks it; 0 declares none, and every front end is
+          compatible.
+        example: 3
+        type: integer
       created_at:
         type: string
       created_by:
@@ -3634,6 +3682,13 @@ definitions:
         items:
           type: string
         type: array
+      forced:
+        description: |-
+          Forced is each site part an administrator released over though its
+          release does not work with the contract (#2679).
+        items:
+          type: string
+        type: array
       migrations_kept:
         description: |-
           MigrationsKept says why a rollback left migrations applied: a
@@ -3662,6 +3717,14 @@ definitions:
         type: string
       kind:
         example: script
+        type: string
+      release_mode:
+        description: |-
+          ReleaseMode is a site environment part's (#2679): linked, served as a
+          front end of the application and moved only by promote and rollback,
+          or coupled, moved one step by every application release and returned
+          by every rollback. "" for every other kind.
+        example: linked
         type: string
     type: object
   application.Pin:
@@ -4067,6 +4130,35 @@ definitions:
       write_role:
         example: shop_write
         type: string
+    type: object
+  appsvc.SitePartView:
+    properties:
+      compatible:
+        description: |-
+          Compatible is whether that release works with the application's
+          contract.
+        type: boolean
+      contract:
+        description: |-
+          Contract is the range the release it serves declares for this
+          application, "" for none.
+        example: '>=2 <4'
+        type: string
+      part_id:
+        example: store-web/prod
+        type: string
+      release_mode:
+        example: linked
+        type: string
+      serves:
+        description: Serves is the release the environment serves now, 0 for none.
+        example: 22
+        type: integer
+      step:
+        description: Step is the release a release moving it would point it at, 0
+          for none.
+        example: 24
+        type: integer
     type: object
   assetrefapi.audience:
     properties:
@@ -7562,6 +7654,63 @@ definitions:
         type: boolean
       tool:
         type: string
+    type: object
+  foldergrant.AddInput:
+    properties:
+      email:
+        example: jane@example.com
+        type: string
+      folder:
+        example: reports
+        type: string
+      persona:
+        example: finance
+        type: string
+    type: object
+  foldergrant.Grant:
+    properties:
+      created_at:
+        type: string
+      created_by:
+        example: admin@example.com
+        type: string
+      email:
+        description: Email is the person it is for, "" for a persona grant.
+        example: jane@example.com
+        type: string
+      folder:
+        description: Folder is the Global folder the grant is on.
+        example: reports
+        type: string
+      id:
+        example: fg_9c1e
+        type: string
+      inherited:
+        description: |-
+          Inherited is a grant on a folder above the one asked about, which
+          covers it too.
+        type: boolean
+      persona:
+        description: Persona is the persona it is for, "" for a person's grant.
+        example: finance
+        type: string
+    type: object
+  foldergrant.GrantList:
+    properties:
+      folder:
+        example: reports
+        type: string
+      grants:
+        items:
+          $ref: '#/definitions/foldergrant.Grant'
+        type: array
+      sites:
+        description: |-
+          Sites are the sites serving the folder, or one above it, as media: a
+          grantee's write changes what they serve.
+        items:
+          type: string
+        type: array
     type: object
   gateway.ConnectionStatus:
     properties:
@@ -12610,6 +12759,15 @@ definitions:
         example: 42
         type: integer
     type: object
+  resource.myGrants:
+    properties:
+      folders:
+        example:
+        - reports
+        items:
+          type: string
+        type: array
+    type: object
   resource.peopleResponse:
     properties:
       people:
@@ -15785,6 +15943,13 @@ definitions:
         example: editor
         type: string
     type: object
+  site.Contract:
+    properties:
+      application:
+        type: string
+      contract:
+        type: string
+    type: object
   site.Deployment:
     properties:
       action:
@@ -16096,6 +16261,13 @@ definitions:
           release built from a complete file set.
         example: 41
         type: integer
+      contract:
+        allOf:
+        - $ref: '#/definitions/site.Contract'
+        description: |-
+          Contract is what the release's _application file declared (#2679),
+          nil for none: the application it is a front end of and the contract
+          versions it works with.
       created_at:
         type: string
       created_by:
@@ -16691,6 +16863,13 @@ definitions:
           release built from a complete file set.
         example: 41
         type: integer
+      contract:
+        allOf:
+        - $ref: '#/definitions/site.Contract'
+        description: |-
+          Contract is what the release's _application file declared (#2679),
+          nil for none: the application it is a front end of and the contract
+          versions it works with.
       created_at:
         type: string
       created_by:
@@ -16768,6 +16947,13 @@ definitions:
           release built from a complete file set.
         example: 41
         type: integer
+      contract:
+        allOf:
+        - $ref: '#/definitions/site.Contract'
+        description: |-
+          Contract is what the release's _application file declared (#2679),
+          nil for none: the application it is a front end of and the contract
+          versions it works with.
       created_at:
         type: string
       created_by:
@@ -26784,6 +26970,106 @@ paths:
       summary: List prompts attaching a resource
       tags:
       - Resources
+  /admin/resources/folder-grants:
+    get:
+      description: 'Returns who can write the Global folder: the grants on it, and
+        the grants on every folder above it marked inherited, with the sites that
+        serve the folder as media; or, with persona, the grants that persona holds.
+        Administrators only (#2684).'
+      parameters:
+      - description: The Global folder, such as reports/q3
+        in: query
+        name: folder
+        type: string
+      - description: 'In place of folder: the grants a persona holds, for its editor'
+        in: query
+        name: persona
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/foldergrant.GrantList'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List the write grants on a Global folder
+      tags:
+      - Resources
+    post:
+      consumes:
+      - application/json
+      description: 'Grants a person (by address) or a persona write on a Global folder
+        and everything beneath it: upload, new folders, new versions, rename, move
+        inside what they can write, delete and share. The granted folder itself stays
+        an administrator''s to rename, move or delete. A person or persona that is
+        external is refused, since an external persona never sees Global. Audited
+        (#2684).'
+      parameters:
+      - description: The folder and the person or persona
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/foldergrant.AddInput'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/foldergrant.Grant'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Grant write on a Global folder
+      tags:
+      - Resources
+  /admin/resources/folder-grants/{id}:
+    delete:
+      description: 'Ends the grant: the person or persona''s next write under the
+        folder is refused, on every replica. Audited (#2684).'
+      parameters:
+      - description: The grant
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/foldergrant.Grant'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Remove a write grant on a Global folder
+      tags:
+      - Resources
   /admin/resources/index:
     get:
       description: Returns how many managed resources search indexes in full (metadata
@@ -30259,6 +30545,64 @@ paths:
       summary: Remove a part from an application
       tags:
       - Applications
+  /portal/applications/{app}/parts/site/{id}:
+    patch:
+      consumes:
+      - application/json
+      description: Linked serves the site environment as a front end of the application
+        and leaves it to the site's own promote and rollback; coupled also moves it
+        one step with every release and returns it with every rollback (#2679). Moves
+        nothing now. For the owner and administrators.
+      parameters:
+      - description: Application name or id
+        in: path
+        name: app
+        required: true
+        type: string
+      - description: The site part, \
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: The mode
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/apphttp.partModeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/application.Application'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Set a site part's release mode
+      tags:
+      - Applications
   /portal/applications/{app}/release:
     post:
       consumes:
@@ -30266,8 +30610,11 @@ paths:
       description: Applies the pending migrations and pins each script's and asset's
         newest version; from then on endpoints, schedules, events and runs execute
         the pinned script version and the portal serves the pinned asset version.
-        A part that cannot be pinned or a migration that fails refuses the release
-        and changes nothing. For administrators.
+        A coupled site part moves one step; a linked one only when move_sites names
+        it. A release whose contract a site part's release does not accept is refused
+        naming it unless force is set, which the release records (#2679). A part that
+        cannot be pinned or a migration that fails refuses the release and changes
+        nothing. For administrators.
       parameters:
       - description: Application name or id
         in: path
@@ -42524,6 +42871,29 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: List a library's facets
+      tags:
+      - Resources
+  /resources/folder-grants/mine:
+    get:
+      description: Returns the Global folders a write grant lets the caller write
+        (#2684), [] for none. Names no other grantee.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/resource.myGrants'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List the Global folders you can write
       tags:
       - Resources
   /resources/folders:

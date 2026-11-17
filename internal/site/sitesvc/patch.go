@@ -188,7 +188,7 @@ func (s *Service) textIfPresent(ctx context.Context, siteID string, rel *site.Re
 		return "", false, err
 	}
 	index := pathIndex(files)
-	if _, ok := index[name]; !ok && name != redirectsFile && name != headersFile {
+	if _, ok := index[name]; !ok && !site.IsDataFile(name) {
 		return "", false, nil
 	}
 	body, _, err = s.textOf(ctx, siteID, rel, index, name)

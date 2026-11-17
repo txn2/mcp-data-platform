@@ -61,6 +61,9 @@ type Service struct {
 	Live      *siteconfig.Live
 	Apps      Applications
 	Approvals Approvals
+	// CheckPromote refuses a promotion of a release into an environment the
+	// release cannot serve (sitecontract.Check, #2679); nil refuses none.
+	CheckPromote func(ctx context.Context, st *site.Site, env string, rel *site.Release) error
 	// External reports whether the person at an address is external; nil is
 	// no one.
 	External func(ctx context.Context, email string) bool

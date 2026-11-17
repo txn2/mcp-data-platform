@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/grantsource"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
@@ -65,9 +66,11 @@ type memWriter struct {
 	replaced []string
 	existing *resource.Resource
 	body     []byte
+	claims   resource.Claims
 }
 
-func (w *memWriter) Create(_ context.Context, in resource.NewResource, _ resource.Claims) (*resource.Resource, error) {
+func (w *memWriter) Create(_ context.Context, in resource.NewResource, claims resource.Claims) (*resource.Resource, error) {
+	w.claims = claims
 	b, err := io.ReadAll(in.Content)
 	if err != nil {
 		return nil, fmt.Errorf("reading: %w", err)
@@ -273,4 +276,40 @@ func TestMountFrom(t *testing.T) {
 	mux.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodPut,
 		strings.TrimPrefix(issued.URL, "https://platform.example.com"), bytes.NewReader(zipBytes(20))))
 	assert.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+}
+
+// grants answers a fixed set of granted folders.
+type grants struct{ folders []string }
+
+func (g *grants) WritableFolders(context.Context, grantsource.Grantee) ([]string, error) {
+	return g.folders, nil
+}
+
+// TestUpload_ReadsTheGrantAtTheUpload pins #2684 on an upload link: a link a
+// grantee issued for a Global folder they can write is written under the
+// grants read when the file arrives, so the upload lands, and a grant revoked
+// in between refuses it.
+func TestUpload_ReadsTheGrantAtTheUpload(t *testing.T) {
+	src := &grants{folders: []string{"reports"}}
+	grantsource.Install(src)
+	t.Cleanup(func() { grantsource.Install(nil) })
+	f := newService()
+	in := IssueRequest{Scope: resource.ScopeGlobal, Path: "reports/q3", Filename: "site.zip", ContentType: "application/zip", MaxBytes: 100}
+	issued, err := f.svc.Issue(context.Background(), in, person.WithFolderGrants(context.Background()), "u-1")
+	require.NoError(t, err, "a grantee may issue a link for a folder they can write")
+	stored := f.store.links
+	for _, l := range stored {
+		l.Claims = resource.Claims{Sub: l.Claims.Sub, Email: l.Claims.Email, Personas: l.Claims.Personas}
+	}
+	body := zipBytes(40)
+	_, err = f.svc.Upload(context.Background(), tokenOf(t, issued.URL), bytes.NewReader(body), int64(len(body)))
+	require.NoError(t, err)
+	assert.True(t, f.w.claims.CanWriteFolder(resource.ScopeGlobal, "", "reports/q3"), "the upload is written under the grant read at the upload")
+
+	again, err := f.svc.Issue(context.Background(), in, person.WithFolderGrants(context.Background()), "u-1")
+	require.NoError(t, err)
+	src.folders = nil
+	_, err = f.svc.Upload(context.Background(), tokenOf(t, again.URL), bytes.NewReader(body), int64(len(body)))
+	require.NoError(t, err)
+	assert.False(t, f.w.claims.CanWriteFolder(resource.ScopeGlobal, "", "reports/q3"), "a grant revoked before the upload no longer covers it")
 }

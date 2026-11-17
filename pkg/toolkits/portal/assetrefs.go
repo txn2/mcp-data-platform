@@ -240,12 +240,13 @@ func (t *Toolkit) refAuthor(ctx context.Context) assetrefs.Author {
 // address (#1419), and both are passed: the address is what makes the run the
 // author for the rules that turn on "is this you?", since the run's own
 // principal owns no file and is in nobody's library. A script therefore
-// declares, creates and replaces exactly what its author could (#1487).
+// declares, creates and replaces exactly what its author could (#1487), the
+// Global folders a write grant gives its author included (#2684).
 func refClaims(ctx context.Context) resource.Claims {
 	pc := middleware.GetPlatformContext(ctx)
 	if pc == nil {
 		return resource.Claims{}
 	}
 	return resource.BuildClaims(pc.UserID, pc.UserEmail, pc.PersonaName, pc.Roles, pc.IsAdmin).
-		ActingFor(pc.OnBehalfOfEmail, pc.OnBehalfOfSub)
+		ActingFor(pc.OnBehalfOfEmail, pc.OnBehalfOfSub).WithFolderGrants(ctx)
 }

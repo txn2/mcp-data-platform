@@ -11,6 +11,30 @@ People run sites from the portal's **Sites** section and agents through
 `manage_site`. Both act through one service, so they cannot disagree about who
 may do what.
 
+## Publish, promote and roll back
+
+Two buttons sit on every environment card, and they do different things:
+
+- **Publish** turns files into a new release and puts it in `dev`. It is the
+  only way a release is made.
+- **Promote** makes no new release. No files are sent and nothing is rebuilt:
+  the next environment serves, unchanged, the release the environment before it
+  serves, so what reaches `prod` is exactly what was checked in `dev` and
+  `stage`.
+- **Roll back** returns an environment to a release it served before.
+
+With `manage_site`, a change reaches `prod` on a site with a `stage` in three
+calls:
+
+```json
+{"command": "publish", "site": "marketing", "files": [{"path": "index.html", "content": "<h1>Spring</h1>"}]}
+{"command": "promote", "site": "marketing", "to": "stage"}
+{"command": "promote", "site": "marketing", "to": "prod"}
+```
+
+The publish makes release N in `dev`; each promote moves that same release N
+one environment along.
+
 ## Agents work in dev, people use what was promoted
 
 `dev` is a site's working copy. Every publish, patch and in-place edit lands
@@ -305,9 +329,13 @@ portal, the API and `manage_site`. Nothing is promoted to `dev`, which takes eve
 publish and edit directly. Rollback is unchanged: an environment returns to a
 release it served before.
 
-**Applications.** An application release pins each site environment part at what
-the environment before it serves, and `dev`, which has nothing before it, at the
-site's newest release. Pins are read before any environment moves, so an
+**Applications.** An application release moves each coupled site environment part,
+and each linked part it names in `move_sites` (#2679), to what the environment before
+it serves, and `dev`, which has nothing before it, to the site's newest release. A
+linked part is otherwise moved only by promote and rollback here. A promotion into an
+environment that is a part of an application is refused when the release's
+`_application` file declares a contract range that excludes the application's
+contract version (see [Applications](applications.md#the-compatibility-contract)). Pins are read before any environment moves, so an
 application holding both `stage` and `prod` moves each one step in one release, as
 promoting each would. Application rollback is unchanged.
 
