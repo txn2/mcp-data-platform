@@ -33,6 +33,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/callrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/capacity"
 	scriptstore "github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
+	"github.com/txn2/mcp-data-platform/internal/portal/foldergrant"
 	portalstore "github.com/txn2/mcp-data-platform/internal/portal/portalstore"
 	"github.com/txn2/mcp-data-platform/internal/portal/reachstore"
 	"github.com/txn2/mcp-data-platform/internal/sqlgate"
@@ -110,7 +111,8 @@ type source struct {
 // "joining" it.
 var sampleSources = map[string]source{
 	"github.com/txn2/mcp-data-platform/pkg/audit/postgres":            {auditpg.SQLSamples, 1},
-	"github.com/txn2/mcp-data-platform/pkg/resource":                  {resource.SQLSamples, 19},
+	"github.com/txn2/mcp-data-platform/pkg/resource":                  {resource.SQLSamples, 22},
+	"github.com/txn2/mcp-data-platform/internal/portal/foldergrant":   {foldergrant.SQLSamples, 3},
 	"github.com/txn2/mcp-data-platform/internal/portal/portalstore":   {portalstore.SQLSamples, 7},
 	"github.com/txn2/mcp-data-platform/internal/portal/reachstore":    {reachstore.SQLSamples, 3},
 	"github.com/txn2/mcp-data-platform/internal/sqlrank":              {sqlrank.SQLSamples, 0},

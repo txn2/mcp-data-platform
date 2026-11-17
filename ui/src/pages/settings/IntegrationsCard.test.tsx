@@ -66,6 +66,7 @@ describe("Integrations settings (#2659)", () => {
     expect(screen.getByText("Site routing")).toBeInTheDocument();
     expect(screen.getByText("No script")).toBeInTheDocument();
     expect(screen.getByText("route(req)")).toBeInTheDocument();
+    expect(screen.getByTestId("integration-declaration")).toHaveTextContent('INTEGRATION = "site_routing"');
     expect(screen.getByText("23")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Choose script" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /docs/i })).toBeNull();
@@ -95,7 +96,7 @@ describe("Integrations settings (#2659)", () => {
     serve([op()], []);
     render(<IntegrationsCard isReadOnly={false} />);
     fireEvent.click(screen.getByRole("button", { name: "Choose script" }));
-    expect(screen.getByTestId("integration-no-scripts")).toHaveTextContent("No script defines route(req)");
+    expect(screen.getByTestId("integration-no-scripts")).toHaveTextContent('No script declares INTEGRATION = "site_routing" and defines route(req)');
     expect(screen.queryByRole("button", { name: "Use this script" })).toBeNull();
     expect(screen.getByRole("link", { name: "New automation" })).toBeInTheDocument();
   });

@@ -388,10 +388,10 @@ func writeRelease(ctx context.Context, tx *sql.Tx, r *site.Release, redirects, h
 	}
 	err := tx.QueryRowContext(ctx, `
 		INSERT INTO site_releases (id, site_id, number, source, note, file_count, total_bytes, manifest_sha256, redirects, created_by,
-		                           base_number, manifest_parent, manifest_depth, rendered, headers)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULLIF($12, ''), $13, $14, $15) RETURNING created_at`,
+		                           base_number, manifest_parent, manifest_depth, rendered, headers, contract)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULLIF($12, ''), $13, $14, $15, $16) RETURNING created_at`,
 		r.ID, r.SiteID, r.Number, r.Source, r.Note, r.FileCount, r.TotalBytes, r.ManifestSHA256, redirects, r.CreatedBy,
-		r.Base, r.ManifestParent, r.ManifestDepth, r.Rendered, headers,
+		r.Base, r.ManifestParent, r.ManifestDepth, r.Rendered, headers, contractText(r.Contract),
 	).Scan(&r.CreatedAt)
 	if isUnique(err) {
 		return site.ErrStale
@@ -453,14 +453,23 @@ func insertRows(ctx context.Context, tx *sql.Tx, releaseID string, rows *fileRow
 	return nil
 }
 
-const releaseColumns = `id, site_id, number, source, note, file_count, total_bytes, manifest_sha256, redirects, created_by, created_at, base_number, COALESCE(manifest_parent, ''), manifest_depth, rendered, pruned_at, headers`
+const releaseColumns = `id, site_id, number, source, note, file_count, total_bytes, manifest_sha256, redirects, created_by, created_at, base_number, COALESCE(manifest_parent, ''), manifest_depth, rendered, pruned_at, headers, contract`
+
+// contractText is a release's contract as stored, "" for none (#2679).
+func contractText(c *site.Contract) string {
+	if c == nil {
+		return ""
+	}
+	return c.Render()
+}
 
 func scanRelease(row interface{ Scan(...any) error }) (*site.Release, error) {
 	r := &site.Release{}
 	var redirects, headers []byte
 	var pruned sql.NullTime
+	var contract string
 	err := row.Scan(&r.ID, &r.SiteID, &r.Number, &r.Source, &r.Note, &r.FileCount, &r.TotalBytes, &r.ManifestSHA256,
-		&redirects, &r.CreatedBy, &r.CreatedAt, &r.Base, &r.ManifestParent, &r.ManifestDepth, &r.Rendered, &pruned, &headers)
+		&redirects, &r.CreatedBy, &r.CreatedAt, &r.Base, &r.ManifestParent, &r.ManifestDepth, &r.Rendered, &pruned, &headers, &contract)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, site.ErrNoRelease
 	}
@@ -478,6 +487,9 @@ func scanRelease(row interface{ Scan(...any) error }) (*site.Release, error) {
 	r.Headers = []site.HeaderRule{}
 	if err := json.Unmarshal(headers, &r.Headers); err != nil {
 		return nil, fmt.Errorf("decode headers: %w", err)
+	}
+	if r.Contract, err = site.ParseContract(contract); err != nil {
+		return nil, fmt.Errorf("decode contract: %w", err)
 	}
 	return r, nil
 }

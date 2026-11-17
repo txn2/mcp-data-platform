@@ -11,6 +11,7 @@ import (
 	"net/http"
 
 	"github.com/txn2/mcp-data-platform/internal/httpserver/channelhttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/foldergrantwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/personashare"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/tablesource"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
@@ -34,6 +35,7 @@ type Shares struct {
 	// tool; nil mounts no channel route.
 	channels  poster
 	portalURL string
+	platform  *platform.Platform
 }
 
 // New assembles the service for p, telling recipients through notify.
@@ -53,7 +55,7 @@ func New(p *platform.Platform, notify *notifydelivery.Handle) *Shares {
 			bridge.NotifyShare(ctx, share, portal.ShareEvent{Kind: notification.KindResource, ItemID: id, ItemTitle: title, Message: message})
 		}
 	}
-	s := &Shares{svc: resourceshare.New(*d), caller: d.Caller, deps: d, portalURL: p.Config().Portal.PublicBaseURL}
+	s := &Shares{svc: resourceshare.New(*d), caller: d.Caller, deps: d, portalURL: p.Config().Portal.PublicBaseURL, platform: p}
 	if server := p.MCPServer(); server != nil {
 		s.channels = &channelhttp.API{Server: server}
 	}
@@ -79,13 +81,15 @@ func (s *Shares) Bind(base resource.ClaimsExtractor) resource.ClaimsExtractor {
 	return bound
 }
 
-// Register mounts the share routes on mux, and the channel route when the
-// deployment can post.
-func (s *Shares) Register(mux *http.ServeMux) {
+// Register mounts the share routes on mux, the channel route when the
+// deployment can post, and write grants on Global folders, which are folder
+// shares (#2684), behind adminAuth.
+func (s *Shares) Register(mux *http.ServeMux, adminAuth func() func(http.Handler) http.Handler) {
 	if s == nil {
 		return
 	}
 	s.svc.Register(mux)
+	foldergrantwire.Mount(mux, s.platform, adminAuth)
 	if s.channels != nil {
 		mux.HandleFunc(channelPath, s.postToChannel)
 	}

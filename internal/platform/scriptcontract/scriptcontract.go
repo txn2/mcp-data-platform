@@ -727,7 +727,7 @@ FORMS
   src="mcp:form:contact"></iframe>; the form is handed the page's query.
 
 LIBRARIES
-  A library defines no main(), handle(), form_spec() or route(): code other scripts load, so the
+  A library defines no main(), handle(), form_spec() or declared route(): code other scripts load, so the
   pagination, date windows and table shaping many scripts share are written
   once. Create it with manage_script create like any script; with none of
   those functions it is saved as a library. It is held to the same gates (format, lint,

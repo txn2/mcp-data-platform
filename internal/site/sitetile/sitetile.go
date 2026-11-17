@@ -15,8 +15,15 @@ import (
 	"time"
 )
 
-// Renderer is the generation of site tiles; raising it redraws every one.
-const Renderer = 1
+// Renderer is the generation of site tiles; raising it redraws every one,
+// the ones that failed under the older generation included (#2681). Raise it
+// whenever the tile page, what it serves or what it waits for changes.
+//
+//  1. #2658: the release's files alone.
+//  2. #2681: the release as its address serves it (redirects, rewrites,
+//     media, 404 page), public files fetched, the same site's hostnames
+//     served in process, and a quiet network waited for.
+const Renderer = 2
 
 // Work is one environment owed a tile.
 type Work struct {
@@ -53,8 +60,8 @@ func NewStore(db *sql.DB) *Store {
 
 // Claim leases up to limit environments owed a tile: one serving a release,
 // online, whose tile is of another release or an older renderer, and not
-// leased by another worker. A release that failed maxAttempts times is left
-// until it changes.
+// leased by another worker. A release that failed maxAttempts times under
+// this renderer is left until it changes or the renderer does (#2681).
 func (s *Store) Claim(ctx context.Context, renderer int, lease time.Duration, limit, maxAttempts int) ([]Work, error) {
 	rows, err := s.DB.QueryContext(ctx, `
 		WITH due AS (
@@ -64,14 +71,16 @@ func (s *Store) Claim(ctx context.Context, renderer int, lease time.Duration, li
 		   WHERE e.release_number IS NOT NULL AND e.status = 'online'
 		     AND (t.site_id IS NULL OR t.drawn_release IS DISTINCT FROM e.release_number OR t.renderer < $1)
 		     AND (t.lease_until IS NULL OR t.lease_until < now())
-		     AND (t.attempt_release IS DISTINCT FROM e.release_number OR t.attempts < $4)
+		     AND (t.attempt_release IS DISTINCT FROM e.release_number OR t.attempt_renderer < $1 OR t.attempts < $4)
 		   ORDER BY e.updated_at
 		   LIMIT $3)
-		INSERT INTO site_tiles (site_id, environment, attempt_release, attempts, lease_until)
-		SELECT site_id, name, release_number, 1, now() + make_interval(secs => $2) FROM due
+		INSERT INTO site_tiles (site_id, environment, attempt_release, attempt_renderer, attempts, lease_until)
+		SELECT site_id, name, release_number, $1, 1, now() + make_interval(secs => $2) FROM due
 		ON CONFLICT (site_id, environment) DO UPDATE SET
-		   attempts = CASE WHEN site_tiles.attempt_release = EXCLUDED.attempt_release THEN site_tiles.attempts + 1 ELSE 1 END,
+		   attempts = CASE WHEN site_tiles.attempt_release = EXCLUDED.attempt_release AND site_tiles.attempt_renderer = EXCLUDED.attempt_renderer
+		                   THEN site_tiles.attempts + 1 ELSE 1 END,
 		   attempt_release = EXCLUDED.attempt_release,
+		   attempt_renderer = EXCLUDED.attempt_renderer,
 		   lease_until = EXCLUDED.lease_until
 		 WHERE site_tiles.lease_until IS NULL OR site_tiles.lease_until < now()
 		RETURNING site_id, environment, attempt_release, attempts`,

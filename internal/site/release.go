@@ -1,6 +1,7 @@
 package site
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -63,9 +64,13 @@ type Release struct {
 	ManifestSHA256 string     `json:"manifest_sha256"`
 	Redirects      []Redirect `json:"redirects"`
 	// Headers is what the release's _headers file declared (#2557).
-	Headers   []HeaderRule `json:"headers"`
-	CreatedBy string       `json:"created_by"`
-	CreatedAt time.Time    `json:"created_at"`
+	Headers []HeaderRule `json:"headers"`
+	// Contract is what the release's _application file declared (#2679),
+	// nil for none: the application it is a front end of and the contract
+	// versions it works with.
+	Contract  *Contract `json:"contract,omitempty"`
+	CreatedBy string    `json:"created_by"`
+	CreatedAt time.Time `json:"created_at"`
 	// Base is the number of the release this one was derived from, 0 for a
 	// release built from a complete file set.
 	Base int `json:"base,omitempty" example:"41"`
@@ -258,4 +263,193 @@ func previousRelease(env *Environment, served []int, gone map[int]bool) (int, er
 		return 0, fmt.Errorf("environment %q has served no earlier release it still keeps", env.Name)
 	}
 	return before, nil
+}
+
+// Contract is what a site release's _application file declares (#2679): the
+// application it is a front end of, and the range of that application's
+// contract versions it works with, written as space-separated clauses
+// (">=2 <4", "=3", "2"). A release with no _application file, or one naming no
+// range, works with every contract.
+type Contract struct {
+	Application string `json:"application"`
+	Range       string `json:"contract"`
+}
+
+// ApplicationFile is the release file a contract is declared in. It is read
+// at publish and kept on the release, not served.
+const ApplicationFile = "_application"
+
+// maxContractBytes bounds the _application file.
+const maxContractBytes = 4 << 10
+
+// clause is one bound of a range.
+type clause struct {
+	op string
+	n  int
+}
+
+// ParseContract reads an _application file: a JSON object with application
+// and contract (a range). An empty file declares nothing.
+func ParseContract(text string) (*Contract, error) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil, nil //nolint:nilnil // an empty file declares nothing
+	}
+	if len(text) > maxContractBytes {
+		return nil, fmt.Errorf("the _application file is %d bytes, more than %d", len(text), maxContractBytes)
+	}
+	dec := json.NewDecoder(strings.NewReader(text))
+	dec.DisallowUnknownFields()
+	var c Contract
+	if err := dec.Decode(&c); err != nil {
+		return nil, fmt.Errorf(`the _application file must be a JSON object such as {"application": "store", "contract": ">=2 <4"}: %w`, err)
+	}
+	c.Application, c.Range = strings.TrimSpace(c.Application), strings.Join(strings.Fields(c.Range), " ")
+	if c.Application == "" {
+		return nil, errors.New("the _application file names no application")
+	}
+	if _, err := parseRange(c.Range); err != nil {
+		return nil, fmt.Errorf("the _application file: %w", err)
+	}
+	return &c, nil
+}
+
+// Render writes the contract back as the _application file it was read from.
+func (c *Contract) Render() string {
+	if c == nil {
+		return ""
+	}
+	var b strings.Builder
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(c)
+	return b.String()
+}
+
+// Accepts reports whether the release works with the application's contract
+// version v. An application that declares none (0), and a release that names
+// no range, are compatible with everything.
+func (c *Contract) Accepts(v int) bool {
+	if c == nil || c.Range == "" || v == 0 {
+		return true
+	}
+	clauses, err := parseRange(c.Range)
+	if err != nil {
+		return false
+	}
+	for _, cl := range clauses {
+		if !cl.holds(v) {
+			return false
+		}
+	}
+	return true
+}
+
+// For reports whether the contract is about the named application: a release
+// declaring another application's contract says nothing about this one.
+func (c *Contract) For(application string) bool {
+	return c != nil && strings.EqualFold(c.Application, application)
+}
+
+func (cl clause) holds(v int) bool {
+	switch cl.op {
+	case ">=":
+		return v >= cl.n
+	case ">":
+		return v > cl.n
+	case "<=":
+		return v <= cl.n
+	case "<":
+		return v < cl.n
+	default:
+		return v == cl.n
+	}
+}
+
+// errRange is a range clause that is not an operator and a whole number.
+var errRange = errors.New(`a contract range is clauses of an operator (>=, >, <=, <, =) and a whole number, such as ">=2 <4"`)
+
+// parseRange reads a range's clauses; "" is no bound.
+func parseRange(r string) ([]clause, error) {
+	out := []clause{}
+	for f := range strings.FieldsSeq(r) {
+		op := ""
+		for _, p := range []string{">=", "<=", ">", "<", "="} {
+			if strings.HasPrefix(f, p) {
+				op = p
+				break
+			}
+		}
+		n, err := strconv.Atoi(strings.TrimPrefix(f, op))
+		if err != nil || n < 0 {
+			return nil, errRange
+		}
+		out = append(out, clause{op: op, n: n})
+	}
+	return out, nil
+}
+
+// Data files are the release files a publish reads into the release rather
+// than serving: the redirect map (_redirects), the headers each path carries
+// (_headers, #2557) and the application contract (_application, #2679). Each
+// reads back as the text it became, so it is edited like any file.
+const (
+	RedirectsFile = "_redirects"
+	HeadersFile   = "_headers"
+)
+
+// dataFileType is what a data file reads back as.
+const dataFileType = "text/plain; charset=utf-8"
+
+// IsDataFile reports whether a release path is one of its data files.
+func IsDataFile(name string) bool {
+	return name == RedirectsFile || name == HeadersFile || name == ApplicationFile
+}
+
+// DataFile is the text a release's data file reads back as and its type;
+// present is false when the release declares nothing in it.
+func (r *Release) DataFile(name string) (text, contentType string, present bool) {
+	switch name {
+	case RedirectsFile:
+		return RenderRedirects(r.Redirects), dataFileType, len(r.Redirects) > 0
+	case HeadersFile:
+		return RenderHeaders(r.Headers), dataFileType, len(r.Headers) > 0
+	case ApplicationFile:
+		return r.Contract.Render(), "application/json", r.Contract != nil
+	}
+	return "", "", false
+}
+
+// SetDataFile reads a data file's text into the release; "" declares
+// nothing, which is what deleting the file does.
+func (r *Release) SetDataFile(name, text string) error {
+	var err error
+	switch name {
+	case RedirectsFile:
+		r.Redirects = []Redirect{}
+		if text != "" {
+			r.Redirects, err = ParseRedirects(text)
+		}
+	case HeadersFile:
+		r.Headers = []HeaderRule{}
+		if text != "" {
+			r.Headers, err = ParseHeaders(text)
+		}
+	case ApplicationFile:
+		r.Contract, err = ParseContract(text)
+	}
+	return err
+}
+
+// SameData reports whether two releases declare the same data files.
+func (r *Release) SameData(o *Release) bool {
+	for _, name := range []string{RedirectsFile, HeadersFile, ApplicationFile} {
+		a, _, _ := r.DataFile(name)
+		b, _, _ := o.DataFile(name)
+		if a != b {
+			return false
+		}
+	}
+	return true
 }

@@ -200,17 +200,37 @@ func TestCheck_AHandlerWithoutMainIsNotALibrary(t *testing.T) {
 	assert.NotContains(t, rules(res), RuleEntryPoint)
 }
 
-// A Site routing script, route(req) and no main(), is run by the platform and
-// is not a library: it may name platform (#2659). route with other parameters
-// is refused naming its contract.
+// declared is the line a Site routing script declares its integration with.
+const declared = "INTEGRATION = \"site_routing\"\n\n"
+
+// A Site routing script, INTEGRATION = "site_routing", route(req) and no
+// main(), is run by the platform and is not a library: it may name platform
+// (#2659, #2683). Its route with other parameters is refused naming its
+// contract.
 func TestCheck_ARouteWithoutMainIsNotALibrary(t *testing.T) {
-	res := Check("def route(req):\n    \"\"\"Routes.\"\"\"\n    return {\"a\": platform.query(\"SELECT 1\")}\n")
+	res := Check(declared + "def route(req):\n    \"\"\"Routes.\"\"\"\n    return {\"a\": platform.query(\"SELECT 1\")}\n")
 	assert.NotContains(t, rules(res), RuleLibraryEffect)
 	assert.NotContains(t, rules(res), RuleEntryPoint)
-	unused := Check("def route(req):\n    \"\"\"Routes nothing.\"\"\"\n    return {}\n")
+	unused := Check(declared + "def route(req):\n    \"\"\"Routes nothing.\"\"\"\n    return {}\n")
 	assert.NotContains(t, rules(unused), RuleUnusedParameter, "the platform passes req whether route reads it or not")
-	bad := Check("def route(req, extra):\n    \"\"\"Routes.\"\"\"\n    return {}\n")
+	bad := Check(declared + "def route(req, extra):\n    \"\"\"Routes.\"\"\"\n    return {}\n")
 	assert.Contains(t, rules(bad), RuleEntryPoint)
+}
+
+// A helper named route in a script declaring no integration is a helper
+// (#2683): a script with main() and route(a, b) saves, and its route is not
+// checked for the request's parameter.
+func TestCheck_ARouteHelperIsAHelper(t *testing.T) {
+	res := Check("def main():\n    \"\"\"Runs.\"\"\"\n    print(route(1, 2))\n\ndef route(a, b):\n    \"\"\"Adds.\"\"\"\n    return a + b\n")
+	assert.NotContains(t, rules(res), RuleEntryPoint)
+}
+
+// A declaration names an integration the platform has, and its function.
+func TestCheck_AnIntegrationDeclarationIsChecked(t *testing.T) {
+	unknown := Check("INTEGRATION = \"dns\"\n\ndef main():\n    \"\"\"Runs.\"\"\"\n    print(1)\n")
+	assert.Contains(t, rules(unknown), RuleEntryPoint)
+	missing := Check(declared + "def main():\n    \"\"\"Runs.\"\"\"\n    print(1)\n")
+	assert.Contains(t, rules(missing), RuleEntryPoint)
 }
 
 // A form script, form_spec(req) and form_submit(req, values) and no main(),

@@ -55,10 +55,17 @@ const SourceEndpoint = "endpoint"
 const maxCached = 1024
 
 // MaxConcurrent is how many requests a replica runs handlers for at once,
-// across every endpoint. A request past it is answered 503 at once rather
-// than held: a burst inside every endpoint's rate limit could otherwise hold
-// as many executions as it sends, each with its own memory budget.
+// across every endpoint: a burst inside every endpoint's rate limit could
+// otherwise hold as many executions as it sends, each with its own memory
+// budget. A request past it waits up to SlotWait for a handler to finish,
+// holding no execution while it waits, and is answered 503 with Retry-After
+// only when none does (#2682): a stall of a few hundred milliseconds under a
+// steady load put more than 32 requests in flight at once, and the requests
+// past them were refused though a slot came free a moment later.
 const MaxConcurrent = 32
+
+// SlotWait is how long a request waits for a free handler slot by default.
+const SlotWait = time.Second
 
 // maxErrorLen bounds the error a failed request is kept with.
 const maxErrorLen = 8 << 10
@@ -101,6 +108,9 @@ type Runner struct {
 	// Now is the clock a form's token is signed and checked by; nil is
 	// time.Now.
 	Now func() time.Time
+	// SlotWait is how long a request past MaxConcurrent waits for a slot;
+	// zero is the package's SlotWait.
+	SlotWait time.Duration
 
 	mu    sync.Mutex
 	cache map[string]*Target
@@ -252,20 +262,43 @@ func (r *Runner) loadPublic(ctx context.Context, t, held *Target) error {
 	return nil
 }
 
+// takeSlot takes one of the replica's handler slots, waiting up to SlotWait
+// for one to come free, and reports whether it got one. The caller gives it
+// back.
+func (r *Runner) takeSlot(ctx context.Context) bool {
+	r.slotsOnce.Do(func() { r.slots = make(chan struct{}, MaxConcurrent) })
+	select {
+	case r.slots <- struct{}{}:
+		return true
+	default:
+	}
+	wait := r.SlotWait
+	if wait <= 0 {
+		wait = SlotWait
+	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case r.slots <- struct{}{}:
+		return true
+	case <-timer.C:
+		return false
+	case <-ctx.Done():
+		return false
+	}
+}
+
 // Serve runs t's handler for req and returns its response. It never fails:
 // a request the script could not answer is answered with the status that
 // says why, and recorded.
 func (r *Runner) Serve(ctx context.Context, t *Target, req Request) Response {
-	r.slotsOnce.Do(func() { r.slots = make(chan struct{}, MaxConcurrent) })
-	select {
-	case r.slots <- struct{}{}:
-		defer func() { <-r.slots }()
-	default:
+	if !r.takeSlot(ctx) {
 		resp := errorResponse(http.StatusServiceUnavailable, "the platform is running as many endpoint requests as it takes; send it again")
 		resp.Header.Set("Retry-After", "1")
 		r.Metrics.RecordEndpointRequest(ctx, t.Binding.Name, observability.HTTPStatusClass(resp.Status), 0)
 		return resp
 	}
+	defer func() { <-r.slots }()
 	started := time.Now()
 	run := t.For(req.Caller)
 	if run == nil {

@@ -196,6 +196,10 @@ const description = "Static sites served by the platform. AGENTS WORK IN dev, PE
 	"person reviews it, and promote moves the exact release to an environment people use (stage, prod). Those environments " +
 	"are read-only: they move only by promote and rollback, with approval where required, and publish, patch or an edit " +
 	"aimed at one is refused. Never try to change prod directly. " +
+	"PUBLISH MAKES A RELEASE, PROMOTE MOVES ONE: publish turns files into a new release in dev and is the only way a release is " +
+	"made; promote makes no new release and sends no files, it moves the release the previous environment serves to the next " +
+	"one unchanged, so what reaches prod is exactly what was checked in dev and stage; rollback returns an environment to a " +
+	"release it served before. Explain it to a person in those words. " +
 	"ENVIRONMENTS: a new site has dev and prod. dev is always first and prod always last; set_environment places a new " +
 	"environment between them with after, naming the environment it follows (dev, or one between; never prod; when there " +
 	"is only one place it goes there), and moves one later the same way. PROMOTION GOES ONE STEP: an environment takes a release only from the environment immediately before it, and " +

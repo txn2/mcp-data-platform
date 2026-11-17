@@ -193,7 +193,7 @@ func (s *Service) Issue(ctx context.Context, in IssueRequest, claims resource.Cl
 // check refuses a link that could not be issued as asked.
 func (s *Service) check(in IssueRequest, claims resource.Claims) error {
 	switch {
-	case !resource.CanWriteScope(claims, in.Scope, in.ScopeID):
+	case !claims.CanWriteFolder(in.Scope, in.ScopeID, in.Path):
 		return fmt.Errorf("you cannot write to that library, so no upload link is issued for it: %w", ErrRefused)
 	case in.MaxBytes <= 0:
 		return fmt.Errorf("size_bytes is required: the most the file may be, in bytes: %w", ErrRefused)
@@ -250,6 +250,9 @@ func (s *Service) Upload(ctx context.Context, token string, body io.Reader, decl
 // write files body at l's address: its next version when l says replace and a
 // file is there, a new file otherwise.
 func (s *Service) write(ctx context.Context, l *link, body io.Reader, declared int64) (*resource.Resource, error) {
+	// The grants are read now, when the file arrives: a grant revoked since
+	// the link was issued no longer covers it (#2684).
+	l.Claims = l.Claims.WithFolderGrants(ctx)
 	if declared > l.MaxBytes {
 		return nil, ErrTooLarge
 	}

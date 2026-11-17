@@ -58,6 +58,11 @@ type Claims struct {
 	// share reaches the resource as CanAccessResource, an editor share as
 	// CanEditResource; neither moves or deletes it.
 	Shared func(resourceID string) string
+	// folderWrite reports whether a write grant on a Global folder covers a
+	// path (#2684), and grantedFolders lists those folders; nil is none.
+	// WithFolderGrants sets them.
+	folderWrite    func(path string) bool
+	grantedFolders func() []string
 }
 
 // personaAdminInfix is the role substring that marks a persona-admin grant.
@@ -167,8 +172,11 @@ func CanWriteScope(c Claims, scope Scope, scopeID string) bool {
 //
 // Global stays admin-only through CanWriteScope, and so does another person's
 // library.
-func canMoveToLibrary(c Claims, scope Scope, scopeID string) bool {
-	if CanWriteScope(c, scope, scopeID) {
+//
+// A Global folder a write grant covers takes it too (#2684): path is the
+// folder it lands in.
+func canMoveToLibrary(c Claims, scope Scope, scopeID, path string) bool {
+	if c.CanWriteFolder(scope, scopeID, path) {
 		return true
 	}
 	return scope == ScopePersona && scopeID != "" && slices.Contains(c.Personas, scopeID)
@@ -181,11 +189,14 @@ func canMoveToLibrary(c Claims, scope Scope, scopeID string) bool {
 // "The recorded uploader" is uploadedByCaller, and it is one rule for the person
 // and for anything acting for them, which is what keeps the two from diverging
 // in either direction (#1419, #1576). See it for what each half is for.
+//
+// A write grant covering the resource's folder is that authority in one
+// subtree of Global (#2684).
 func CanModifyResource(c Claims, r *Resource) bool {
 	if uploadedByCaller(c, r) {
 		return true
 	}
-	return CanWriteScope(c, r.Scope, r.ScopeID)
+	return c.CanWriteFolder(r.Scope, r.ScopeID, r.Path)
 }
 
 // CanAccessResource checks whether the caller may see a specific resource at

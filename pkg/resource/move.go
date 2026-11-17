@@ -169,9 +169,17 @@ func checkRelocation(claims *Claims, res *Resource, to Destination, configured s
 		return scheme, "", nil
 	}
 	// Only a change of library needs authority over a library. A person who may
-	// modify the resource may file it anywhere inside the one it is already in.
-	if res.Scope != to.Scope || res.ScopeID != to.ScopeID {
-		if !canMoveToLibrary(*claims, to.Scope, to.ScopeID) {
+	// modify the resource may file it anywhere inside the one it is already in,
+	// except that a person whose say in Global is a folder grant files it only
+	// where a grant reaches (#2684): the source folder being theirs does not
+	// make every Global folder theirs.
+	switch {
+	case res.Scope != to.Scope || res.ScopeID != to.ScopeID:
+		if !canMoveToLibrary(*claims, to.Scope, to.ScopeID, to.Path) {
+			return "", "", ErrMoveForbidden
+		}
+	case to.Scope == ScopeGlobal && !CanWriteScope(*claims, to.Scope, to.ScopeID):
+		if !granted(*claims, to.Scope, to.Path) {
 			return "", "", ErrMoveForbidden
 		}
 	}

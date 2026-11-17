@@ -36,13 +36,17 @@ type storedClaims struct {
 	Roles           []string `json:"roles"`
 	IsAdmin         bool     `json:"is_admin"`
 	AdminOfPersonas []string `json:"admin_of_personas"`
+	// NoGlobal keeps a person of an external persona out of Global at the
+	// write as at the issue; folder grants are read again when the file
+	// arrives (#2684).
+	NoGlobal bool `json:"no_global,omitempty"`
 }
 
 // insert implements Store.
 func (s *PostgresStore) insert(ctx context.Context, l link, tokenSHA256 string) error {
 	claims, err := json.Marshal(storedClaims{
 		Sub: l.Claims.Sub, Email: l.Claims.Email, Personas: l.Claims.Personas, Roles: l.Claims.Roles,
-		IsAdmin: l.Claims.IsAdmin, AdminOfPersonas: l.Claims.AdminOfPersonas,
+		IsAdmin: l.Claims.IsAdmin, AdminOfPersonas: l.Claims.AdminOfPersonas, NoGlobal: l.Claims.NoGlobal,
 	})
 	if err != nil {
 		return fmt.Errorf("keeping an upload link: %w", err)
@@ -92,6 +96,7 @@ func (s *PostgresStore) claim(ctx context.Context, tokenSHA256 string, now time.
 	l.Scope, l.Tags = resource.Scope(scope), []string(tags)
 	l.Claims = resource.Claims{
 		Sub: c.Sub, Email: c.Email, Personas: c.Personas, Roles: c.Roles, IsAdmin: c.IsAdmin, AdminOfPersonas: c.AdminOfPersonas,
+		NoGlobal: c.NoGlobal,
 	}
 	return &l, nil
 }

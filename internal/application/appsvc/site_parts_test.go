@@ -202,7 +202,7 @@ func TestNewestPin_ASite(t *testing.T) {
 func TestRelease_PointsEachSitePartAtThePinnedRelease(t *testing.T) {
 	svc, store, sites := siteFixture(t)
 	ctx := context.Background()
-	_, err := svc.AddPart(ctx, jane, "shop", application.KindSite, sitePart)
+	_, err := svc.AddPartMode(ctx, jane, "shop", application.Part{Kind: application.KindSite, ID: sitePart, ReleaseMode: application.ModeCoupled})
 	require.NoError(t, err)
 	_, err = svc.AddPart(ctx, jane, "shop", application.KindScript, scriptA)
 	require.NoError(t, err)
@@ -217,7 +217,7 @@ func TestRelease_PointsEachSitePartAtThePinnedRelease(t *testing.T) {
 func TestRelease_ASiteWithNoReleaseRefusesTheRelease(t *testing.T) {
 	svc, store, sites := siteFixture(t)
 	ctx := context.Background()
-	_, err := svc.AddPart(ctx, jane, "shop", application.KindSite, sitePart)
+	_, err := svc.AddPartMode(ctx, jane, "shop", application.Part{Kind: application.KindSite, ID: sitePart, ReleaseMode: application.ModeCoupled})
 	require.NoError(t, err)
 	sites.latest = 0
 
@@ -233,7 +233,7 @@ func TestRelease_ASiteWithNoReleaseRefusesTheRelease(t *testing.T) {
 func TestRelease_APinThatCannotBeAppliedIsReported(t *testing.T) {
 	svc, _, sites := siteFixture(t)
 	ctx := context.Background()
-	_, err := svc.AddPart(ctx, jane, "shop", application.KindSite, sitePart)
+	_, err := svc.AddPartMode(ctx, jane, "shop", application.Part{Kind: application.KindSite, ID: sitePart, ReleaseMode: application.ModeCoupled})
 	require.NoError(t, err)
 	boom := errors.New("another move got there first")
 	sites.failPin = boom
@@ -246,7 +246,7 @@ func TestRelease_APinThatCannotBeAppliedIsReported(t *testing.T) {
 func TestRollback_PointsTheSitePartBack(t *testing.T) {
 	svc, _, sites := siteFixture(t)
 	ctx := context.Background()
-	_, err := svc.AddPart(ctx, jane, "shop", application.KindSite, sitePart)
+	_, err := svc.AddPartMode(ctx, jane, "shop", application.Part{Kind: application.KindSite, ID: sitePart, ReleaseMode: application.ModeCoupled})
 	require.NoError(t, err)
 	_, err = svc.Release(ctx, admin, "shop", "")
 	require.NoError(t, err)
@@ -265,7 +265,7 @@ func TestRollback_PointsTheSitePartBack(t *testing.T) {
 func TestRollback_ARemovedSiteReleaseRefusesIt(t *testing.T) {
 	svc, store, sites := siteFixture(t)
 	ctx := context.Background()
-	_, err := svc.AddPart(ctx, jane, "shop", application.KindSite, sitePart)
+	_, err := svc.AddPartMode(ctx, jane, "shop", application.Part{Kind: application.KindSite, ID: sitePart, ReleaseMode: application.ModeCoupled})
 	require.NoError(t, err)
 	_, err = svc.Release(ctx, admin, "shop", "")
 	require.NoError(t, err)
@@ -288,7 +288,7 @@ func TestRollback_ARemovedSiteReleaseRefusesIt(t *testing.T) {
 func TestRollback_APinThatCannotBeAppliedIsReported(t *testing.T) {
 	svc, _, sites := siteFixture(t)
 	ctx := context.Background()
-	_, err := svc.AddPart(ctx, jane, "shop", application.KindSite, sitePart)
+	_, err := svc.AddPartMode(ctx, jane, "shop", application.Part{Kind: application.KindSite, ID: sitePart, ReleaseMode: application.ModeCoupled})
 	require.NoError(t, err)
 	_, err = svc.Release(ctx, admin, "shop", "")
 	require.NoError(t, err)
@@ -457,9 +457,9 @@ func TestRelease_PinsEachSitePartOneStep(t *testing.T) {
 	svc, _, sites := siteFixture(t)
 	ctx := context.Background()
 	sites.step = map[string]int{"stage": 3, "prod": 2}
-	_, err := svc.AddPart(ctx, jane, "shop", application.KindSite, "marketing/stage")
+	_, err := svc.AddPartMode(ctx, jane, "shop", application.Part{Kind: application.KindSite, ID: "marketing/stage", ReleaseMode: application.ModeCoupled})
 	require.NoError(t, err)
-	_, err = svc.AddPart(ctx, jane, "shop", application.KindSite, sitePart)
+	_, err = svc.AddPartMode(ctx, jane, "shop", application.Part{Kind: application.KindSite, ID: sitePart, ReleaseMode: application.ModeCoupled})
 	require.NoError(t, err)
 	_, err = svc.Release(ctx, admin, "shop", "")
 	require.NoError(t, err)

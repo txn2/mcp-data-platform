@@ -315,7 +315,7 @@ var actionTools = map[string]actionRule{
 	// releases an application.
 	"manage_application": {arg: "command", reads: set(
 		"get", "list", "releases",
-	), writes: set("create", "update", "delete", "add_part", "remove_part", "release", "rollback", "export", "import")},
+	), writes: set("create", "update", "delete", "add_part", "remove_part", "set_part", "release", "rollback", "export", "import")},
 	// manage_site (#2518): publish writes a release, promote and rollback
 	// move what an environment serves, crawl publishes a copied site, and
 	// set_domain changes who a domain answers (#2619).

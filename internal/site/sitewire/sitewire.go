@@ -19,6 +19,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/application"
 	"github.com/txn2/mcp-data-platform/internal/application/appstore"
 	"github.com/txn2/mcp-data-platform/internal/approval"
 	"github.com/txn2/mcp-data-platform/internal/bucketsource"
@@ -27,6 +28,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
 	"github.com/txn2/mcp-data-platform/internal/platform/settingsjson"
 	"github.com/txn2/mcp-data-platform/internal/site"
+	"github.com/txn2/mcp-data-platform/internal/site/sitecontract"
 	"github.com/txn2/mcp-data-platform/internal/site/sitecrawl"
 	"github.com/txn2/mcp-data-platform/internal/site/sitegw"
 	"github.com/txn2/mcp-data-platform/internal/site/siteprune"
@@ -128,6 +130,12 @@ func (rt *Runtime) Save(ctx context.Context, s siteconfig.Settings, by string) e
 	return rt.Refresh(ctx)
 }
 
+// Contracts reads what a site part serves and the contract a release
+// declares (#2679), for every surface that builds the application service.
+func (rt *Runtime) Contracts() sitecontract.Reader {
+	return sitecontract.Reader{Store: rt.Store, Find: rt.Service.Find}
+}
+
 // Serving reports whether sites run here: the section is on, and there is a
 // bucket to hold releases.
 func (rt *Runtime) Serving() bool {
@@ -156,6 +164,10 @@ func Register(server *mcp.Server, d Deps) (*Runtime, error) {
 	}
 	if d.Objects != nil && d.Config.IsEnabled() {
 		svc.Objects = d.Objects
+	}
+	parts := partContract(apps)
+	svc.CheckPromote = func(ctx context.Context, st *site.Site, env string, rel *site.Release) error {
+		return sitecontract.Check(ctx, parts, st.Name, env, rel)
 	}
 	if d.Approvals != nil {
 		svc.Approvals = d.Approvals
@@ -388,4 +400,16 @@ func (s sources) Folder(ctx context.Context, scope, scopeID, folder string) ([]s
 		files = append(files, sitesvc.InputFile{Path: f.Path, Body: body})
 	}
 	return files, nil
+}
+
+// partContract is the application a site environment is a part of and the
+// contract version it declares (#2679), read from the application store.
+func partContract(apps *appstore.Store) sitecontract.Parts {
+	return func(ctx context.Context, siteName, environment string) (string, int, bool) {
+		a, err := apps.Owning(ctx, application.KindSite, application.SitePartID(siteName, environment))
+		if err != nil || a == nil {
+			return "", 0, false
+		}
+		return a.Name, a.ContractVersion, true
+	}
 }

@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/indexpolicy"
@@ -122,8 +123,8 @@ func New(d Deps) *Writer {
 func (w *Writer) Create(
 	ctx context.Context, in resource.NewResource, claims resource.Claims,
 ) (*resource.Resource, error) {
-	if !resource.CanWriteScope(claims, in.Scope, in.ScopeID) {
-		return nil, fmt.Errorf("you cannot write to %s: %w", ScopePhrase(in.Scope, in.ScopeID), ErrRefused)
+	if !claims.CanWriteFolder(in.Scope, in.ScopeID, in.Path) {
+		return nil, fmt.Errorf("you cannot write to %s: %w", FolderPhrase(claims, in.Scope, in.ScopeID, in.Path), ErrRefused)
 	}
 	res, err := resource.CreateResource(ctx, w.deps, &claims, in)
 	if err != nil {
@@ -239,6 +240,32 @@ func (w *Writer) notify(res *resource.Resource) {
 	if w.registered != nil {
 		w.registered(res)
 	}
+}
+
+// FolderPhrase is ScopePhrase for a write into one folder: a Global folder
+// names the folders a write grant lets the caller write, or says there are
+// none (#2684).
+func FolderPhrase(claims resource.Claims, scope resource.Scope, scopeID, path string) string {
+	if scope != resource.ScopeGlobal {
+		return ScopePhrase(scope, scopeID)
+	}
+	where := fmt.Sprintf("the global folder %q", path)
+	if path == "" {
+		where = "the top of the global library"
+	}
+	if folders := claims.GrantedFolders(); len(folders) > 0 {
+		return fmt.Sprintf("%s: in Global you can write only under %s", where, quoteJoin(folders))
+	}
+	return where + ", which takes administrators and the people an administrator granted write on a folder; you hold no such grant"
+}
+
+// quoteJoin is the folders quoted and joined for a sentence.
+func quoteJoin(folders []string) string {
+	q := make([]string, len(folders))
+	for i, f := range folders {
+		q[i] = strconv.Quote(f)
+	}
+	return strings.Join(q, ", ")
 }
 
 // ScopePhrase names a scope the way a refusal has to name it: the thing the

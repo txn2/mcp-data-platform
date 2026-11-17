@@ -98,6 +98,15 @@ func MoveFolder(ctx context.Context, deps Deps, claims *Claims, move FolderRenam
 	if !CanSeeLibrary(*claims, lib) {
 		return nil, ErrMoveForbidden
 	}
+	// The folder itself moves out of the folder holding it and into another:
+	// the caller must be able to file into both (#2684). That keeps a folder
+	// grant's own folder where an administrator put it, holds a grantee's move
+	// inside what they can write, and stops an empty stored folder being
+	// renamed by anyone who can see its library.
+	if !canMoveToLibrary(*claims, lib.Scope, lib.ScopeID, parentFolder(from)) ||
+		!canMoveToLibrary(*claims, lib.Scope, lib.ScopeID, parentFolder(to)) {
+		return nil, ErrMoveForbidden
+	}
 	found, err := listFolder(ctx, deps, lib, from)
 	if err != nil {
 		return nil, err
@@ -336,7 +345,8 @@ type NewFolder struct {
 }
 
 // CreateFolder records an empty folder (#1872). The caller must be able to add
-// files to the library, which is what a folder is for.
+// to the folder it is made in, which is what a folder is for: the library, or
+// in Global a folder a write grant covers (#2684).
 func CreateFolder(ctx context.Context, deps Deps, claims *Claims, f NewFolder) error {
 	if deps.Folders == nil {
 		return ErrFoldersUnsupported
@@ -344,7 +354,7 @@ func CreateFolder(ctx context.Context, deps Deps, claims *Claims, f NewFolder) e
 	if err := validateFolderTarget(f.Library, f.Path); err != nil {
 		return err
 	}
-	if !CanWriteScope(*claims, f.Library.Scope, f.Library.ScopeID) {
+	if !claims.CanWriteFolder(f.Library.Scope, f.Library.ScopeID, parentFolder(f.Path)) {
 		return ErrMoveForbidden
 	}
 	if err := deps.Folders.CreateFolder(ctx, f.Library, f.Path, PersonAddress(*claims)); err != nil {
@@ -355,7 +365,9 @@ func CreateFolder(ctx context.Context, deps Deps, claims *Claims, f NewFolder) e
 
 // DeleteFolder removes an empty folder and the empty folders beneath it
 // (#1872). A folder holding files is refused: each file is deleted through the
-// route that removes its stored object and its versions first.
+// route that removes its stored object and its versions first. The caller
+// must be able to write the folder holding it, so a folder grant's own folder
+// is deleted by an administrator only (#2684).
 func DeleteFolder(ctx context.Context, deps Deps, claims *Claims, f NewFolder) error {
 	if deps.Folders == nil {
 		return ErrFoldersUnsupported
@@ -363,7 +375,7 @@ func DeleteFolder(ctx context.Context, deps Deps, claims *Claims, f NewFolder) e
 	if err := validateFolderTarget(f.Library, f.Path); err != nil {
 		return err
 	}
-	if !CanWriteScope(*claims, f.Library.Scope, f.Library.ScopeID) {
+	if !claims.CanWriteFolder(f.Library.Scope, f.Library.ScopeID, parentFolder(f.Path)) {
 		return ErrMoveForbidden
 	}
 	if err := deps.Folders.DeleteFolder(ctx, f.Library, f.Path); err != nil {

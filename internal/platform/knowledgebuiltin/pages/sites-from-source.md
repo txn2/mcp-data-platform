@@ -94,7 +94,9 @@ and one PUT from the shell. One archive holds up to
 `max_total_bytes` uncompressed (4 GiB by default); split a larger media set over
 several archives, or load it from a bucket prefix. Uploading an archive is bounded
 by `resources.managed.max_upload_bytes`, which an administrator raises for a large
-media archive.
+media archive. Writing into a Global folder takes an administrator, or a person an
+administrator granted write on that folder or one above it (Permissions on the
+folder in Resources).
 
 ## 5. Redirects and dynamic features
 

@@ -14,9 +14,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/textpatch"
 )
 
-// redirectsType is what the _redirects file reads as.
-const redirectsType = "text/plain; charset=utf-8"
-
 // maxSearchBytes bounds a file a search across a tree reads: a tree can hold
 // 20,000 files of 64 MiB, and anyone who can open the site can search it. A file
 // past it is counted in files_skipped.
@@ -145,11 +142,9 @@ func filePath(ref site.Ref) (string, error) {
 // textOf is a file of a release as text, the _redirects file rendered from the
 // redirect map it became and the _headers file from its rules.
 func (s *Service) textOf(ctx context.Context, siteID string, rel *site.Release, files map[string]site.File, name string) (body, contentType string, err error) {
-	if name == redirectsFile {
-		return site.RenderRedirects(rel.Redirects), redirectsType, nil
-	}
-	if name == headersFile {
-		return site.RenderHeaders(rel.Headers), redirectsType, nil
+	if site.IsDataFile(name) {
+		text, contentType, _ := rel.DataFile(name)
+		return text, contentType, nil
 	}
 	f, ok := files[name]
 	if !ok {
@@ -224,13 +219,10 @@ func (s *Service) Tree(ctx context.Context, actor Actor, ref site.Ref, offset, l
 // under is the tree's files beneath a folder prefix, the whole tree for "".
 func under(tree *sourceTree, prefix string) []site.File {
 	out := make([]site.File, 0, len(tree.files))
-	if len(tree.rel.Redirects) > 0 && strings.HasPrefix(redirectsFile, prefix) {
-		text := site.RenderRedirects(tree.rel.Redirects)
-		out = append(out, site.File{Path: redirectsFile, ContentType: redirectsType, Size: int64(len(text))})
-	}
-	if len(tree.rel.Headers) > 0 && strings.HasPrefix(headersFile, prefix) {
-		text := site.RenderHeaders(tree.rel.Headers)
-		out = append(out, site.File{Path: headersFile, ContentType: redirectsType, Size: int64(len(text))})
+	for _, name := range []string{redirectsFile, headersFile, site.ApplicationFile} {
+		if text, contentType, present := tree.rel.DataFile(name); present && strings.HasPrefix(name, prefix) {
+			out = append(out, site.File{Path: name, ContentType: contentType, Size: int64(len(text))})
+		}
 	}
 	for _, f := range tree.files {
 		if strings.HasPrefix(f.Path, prefix) {

@@ -7,6 +7,7 @@ import type { SourceFile } from "../bulk/plan";
 import type { ResourceRoot } from "../scopes";
 import { deleteMany, describeFolder, expandPicked, folderDescription, summarize, tagMany, type Picked } from "./actions";
 import { DeleteDialog, DescribeDialog, MoveDialog, TagDialog } from "./ActionDialogs";
+import { PermissionsDialog } from "./PermissionsDialog";
 import type { useActions } from "./useActions";
 
 /** Which dialog the file manager has open, if any. */
@@ -16,6 +17,8 @@ export type FmDialog =
   // The share dialog on a file just uploaded with "Upload and share" (#2258).
   | { kind: "share"; resourceId: string }
   | { kind: "describe"; folder: string }
+  // Who may write a Global folder, for an administrator (#2684).
+  | { kind: "permissions"; folder: string }
   | null;
 
 /** The open dialog: an action over the selection, or an upload. */
@@ -84,6 +87,8 @@ export function FmDialogs({
       );
     case "delete":
       return <Deleting root={root} picked={dialog.picked} actions={actions} onClose={onClose} onDone={onDone} />;
+    case "permissions":
+      return <PermissionsDialog folder={dialog.folder} onClose={onClose} />;
     case "describe":
       return (
         <DescribeDialog

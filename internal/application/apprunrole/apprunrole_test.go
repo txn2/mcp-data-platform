@@ -109,12 +109,14 @@ func TestSessionApplications(t *testing.T) {
 	apps := SessionApplications(db)
 	cols := []string{
 		"id", "name", "description", "owner_email", "connection", "schema_name", "current_release",
-		"created_by", "created_at", "updated_at", "schema_adopted_version", "schema_added_by", "schema_added_at",
+		"created_by", "created_at", "updated_at", "schema_adopted_version", "schema_added_by", "schema_added_at", "contract_version",
 	}
 	app := func() *sqlmock.Rows {
-		return sqlmock.NewRows(cols).AddRow("app_1", "shop", "", "j@x", "orders", "shop", 0, "j@x", time.Now(), time.Now(), 0, "j@x", time.Now())
+		return sqlmock.NewRows(cols).AddRow("app_1", "shop", "", "j@x", "orders", "shop", 0, "j@x", time.Now(), time.Now(), 0, "j@x", time.Now(), 0)
 	}
-	noParts := func() *sqlmock.Rows { return sqlmock.NewRows([]string{"kind", "part_id", "added_by", "added_at"}) }
+	noParts := func() *sqlmock.Rows {
+		return sqlmock.NewRows([]string{"kind", "part_id", "added_by", "added_at", "release_mode"})
+	}
 	ctx := context.Background()
 
 	mock.ExpectQuery("SELECT application_id FROM application_parts").WillReturnRows(sqlmock.NewRows([]string{"application_id"}).AddRow("app_1"))

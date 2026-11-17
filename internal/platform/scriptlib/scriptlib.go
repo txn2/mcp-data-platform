@@ -131,19 +131,13 @@ func Refs(source string) []Ref {
 	return out
 }
 
-// entryNames are the functions the platform calls: a script defining any of
-// them at its top level is not a library.
-var entryNames = []string{
-	scriptdialect.EntryPointName, scriptdialect.HandlerName, scriptdialect.FormSpecName, scriptdialect.FormSubmitName,
-	scriptdialect.RouteName,
-}
-
 // IsLibrary reports whether file is a library: it defines neither main(), an
 // endpoint's handle() (#2172), a form's form_spec() or form_submit() (#2176)
-// nor an integration's route() (#2659) at its top level.
+// nor the function of an integration it declares (#2659, #2683) at its top
+// level.
 func IsLibrary(file *syntax.File) bool {
 	for _, s := range file.Stmts {
-		if d, ok := s.(*syntax.DefStmt); ok && slices.Contains(entryNames, d.Name.Name) {
+		if d, ok := s.(*syntax.DefStmt); ok && scriptdialect.IsEntry(file, d.Name.Name) {
 			return false
 		}
 	}

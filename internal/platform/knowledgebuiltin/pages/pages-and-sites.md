@@ -142,6 +142,13 @@ all of them together.
 
 ## A static site
 
+**Publish makes a release; promote moves one.** `publish` turns files into a new
+release and puts it in `dev`: it is the only way a release is made. `promote` makes
+no new release: no files are sent and nothing is rebuilt, and the next environment
+serves, unchanged, the release the environment before it serves, so what reaches
+`prod` is exactly what was checked in `dev` and `stage`. `rollback` returns an
+environment to a release it served before. Explain it to a person in those words.
+
 **Agents work in dev, people use what was promoted.** `dev` is a site's working
 copy: every publish, patch and in-place edit lands there and nowhere else, and
 nothing people rely on is served from it. Change `dev`, let a person review it, and
@@ -524,8 +531,19 @@ listing them in `allowed_origins`, and a public form may be framed by them.
 ### In an application
 
 `manage_application add_part kind=site part_id="<site>/<environment>"` makes one
-environment a part: a release pins the site's newest release and points that
-environment at it, and a rollback restores it.
+environment a part, which serves the application's `/endpoints/` with its
+cookies and viewer on the site's own address. A part is linked (the default:
+moved only by `promote` and `rollback` here, or by a release naming it in
+`move_sites`) or coupled (`release_mode=coupled`: every release moves it to what
+the environment before it serves, `dev` at the site's newest release, and every
+rollback returns it).
+
+An `_application` file at a release's root declares the application it is a
+front end of and the contract versions it works with,
+`{"application": "store", "contract": ">=2 <4"}`. It is kept on the release, not
+served, and reads back through `manage_asset` like `_redirects`. A promote into an
+environment that is a part of that application is refused when the range
+excludes the application's contract.
 
 The rest of building an application is in mcp:knowledge_page:platform-applications,
 and every built-in page is listed in mcp:knowledge_page:platform-index.

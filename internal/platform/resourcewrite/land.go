@@ -96,7 +96,7 @@ func CallerClaims(ctx context.Context) resource.Claims {
 		return resource.Claims{}
 	}
 	return resource.BuildClaims(pc.UserID, pc.UserEmail, pc.PersonaName, pc.Roles, pc.IsAdmin).
-		ActingFor(pc.OnBehalfOfEmail, pc.OnBehalfOfSub)
+		ActingFor(pc.OnBehalfOfEmail, pc.OnBehalfOfSub).WithFolderGrants(ctx)
 }
 
 // SetTableFollower binds the callback that moves the tables registered over a
@@ -289,8 +289,8 @@ func (l *Lander) plan(ctx context.Context, dest toolkit.ResourceDestination, cla
 		return landing{}, err
 	}
 	if existing == nil {
-		if !resource.CanWriteScope(claims, p.scope, p.scopeID) {
-			return landing{}, fmt.Errorf("you cannot write to %s: %w", ScopePhrase(p.scope, p.scopeID), ErrRefused)
+		if !claims.CanWriteFolder(p.scope, p.scopeID, p.path) {
+			return landing{}, fmt.Errorf("you cannot write to %s: %w", FolderPhrase(claims, p.scope, p.scopeID, p.path), ErrRefused)
 		}
 		return p, nil
 	}

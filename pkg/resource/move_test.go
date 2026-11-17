@@ -107,7 +107,7 @@ func TestCanMoveToLibrary(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := canMoveToLibrary(tc.claims, tc.scope, tc.scopeID); got != tc.want {
+			if got := canMoveToLibrary(tc.claims, tc.scope, tc.scopeID, ""); got != tc.want {
 				t.Errorf("canMoveToLibrary = %v, want %v", got, tc.want)
 			}
 		})
@@ -122,7 +122,7 @@ func TestCanMoveToLibraryDoesNotWidenTheUploadRule(t *testing.T) {
 	if CanWriteScope(member, ScopePersona, "ops") {
 		t.Fatal("CanWriteScope now grants a persona member: the upload rule was widened")
 	}
-	if !canMoveToLibrary(member, ScopePersona, "ops") {
+	if !canMoveToLibrary(member, ScopePersona, "ops", "") {
 		t.Fatal("canMoveToLibrary refuses a persona member")
 	}
 }

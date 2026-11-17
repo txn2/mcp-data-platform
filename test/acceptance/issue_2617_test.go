@@ -242,7 +242,7 @@ func TestIssue2617_AnApplicationReleaseMovesEachSitePartOneStep(t *testing.T) {
 
 	app := app2539(t, admin, admin, "2617")
 	for _, env := range []string{"stage", "prod"} {
-		admin.call("manage_application", map[string]any{"command": "add_part", "application": app, "kind": "site", "part_id": sitePart2613(s.name, env)})
+		admin.call("manage_application", map[string]any{"command": "add_part", "application": app, "kind": "site", "part_id": sitePart2613(s.name, env), "release_mode": "coupled"})
 	}
 	admin.call("manage_application", map[string]any{"command": "release", "application": app, "note": "acceptance 2617"})
 	if got := s.release2617(t, "stage"); got != devNow {

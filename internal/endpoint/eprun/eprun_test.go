@@ -464,10 +464,11 @@ func TestFailedRun(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, failedRun(errors.New("boom")).Status)
 }
 
-// A replica past MaxConcurrent running handlers answers the next at once,
-// with 503 and Retry-After, and runs nothing.
+// A replica past MaxConcurrent running handlers answers the next with 503
+// and Retry-After once its wait for a slot ends, and runs nothing.
 func TestServe_PastTheConcurrencyCapIs503(t *testing.T) {
 	f := newFixture(t, lookupSource)
+	f.runner.SlotWait = time.Millisecond
 	target, err := f.runner.Resolve(context.Background(), "orders")
 	require.NoError(t, err)
 	f.runner.slotsOnce.Do(func() { f.runner.slots = make(chan struct{}, MaxConcurrent) })
@@ -482,6 +483,44 @@ func TestServe_PastTheConcurrencyCapIs503(t *testing.T) {
 	<-f.runner.slots
 	resp = f.runner.Serve(context.Background(), target, Request{Method: "GET", Params: map[string]string{"id": "1"}})
 	assert.Equal(t, http.StatusOK, resp.Status, "a freed slot is taken")
+}
+
+// A request past MaxConcurrent waits for a slot and runs once one comes free
+// within its wait (#2682), and a request whose caller went away while waiting
+// is not run.
+func TestServe_ARequestPastTheCapWaitsForASlot(t *testing.T) {
+	f := newFixture(t, lookupSource)
+	f.runner.SlotWait = time.Hour
+	target, err := f.runner.Resolve(context.Background(), "orders")
+	require.NoError(t, err)
+	f.runner.slotsOnce.Do(func() { f.runner.slots = make(chan struct{}, MaxConcurrent) })
+	for range MaxConcurrent {
+		f.runner.slots <- struct{}{}
+	}
+	done := make(chan Response, 1)
+	go func() {
+		done <- f.runner.Serve(context.Background(), target, Request{Method: "GET", Params: map[string]string{"id": "1"}})
+	}()
+	// The request is waiting while every slot is held; one slot freed lets
+	// it run.
+	select {
+	case <-done:
+		t.Fatal("a request past the cap was answered before a slot came free")
+	default:
+	}
+	<-f.runner.slots
+	resp := <-done
+	assert.Equal(t, http.StatusOK, resp.Status)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for len(f.runner.slots) < MaxConcurrent {
+		f.runner.slots <- struct{}{}
+	}
+	before := len(f.audit.events)
+	resp = f.runner.Serve(ctx, target, Request{Method: "GET"})
+	assert.Equal(t, http.StatusServiceUnavailable, resp.Status, "a caller gone while waiting is not run")
+	assert.Len(t, f.audit.events, before)
 }
 
 // tokenSource mints a token on a request with no ?token and verifies the one

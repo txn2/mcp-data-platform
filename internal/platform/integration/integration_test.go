@@ -21,18 +21,23 @@ func TestSpecs(t *testing.T) {
 }
 
 // TestCheck: the handler kind's check, and one operation's, refuse a source
-// with no function of the contract's name taking one parameter.
+// that does not declare the operation (#2683) or defines no function of the
+// contract's name taking one parameter.
 func TestCheck(t *testing.T) {
-	require.NoError(t, Check("def route(req):\n    return {}\n"))
+	require.NoError(t, Check(routeSource))
 	require.ErrorContains(t, Check("def main():\n    pass\n"), "route(req)")
-	require.ErrorContains(t, Check("def route():\n    pass\n"), "route(req)")
+	require.ErrorContains(t, Check("def route(req):\n    return {}\n"), `INTEGRATION = "site_routing"`,
+		"a route helper in a script declaring nothing serves no integration")
+	require.ErrorContains(t, Check("INTEGRATION = \"site_routing\"\n\ndef route():\n    pass\n"), "route(req)")
 	require.ErrorContains(t, Check("def ("), "does not parse")
 
 	s, _ := SpecOf(OpSiteRouting)
-	require.NoError(t, s.CheckFor("def route(req):\n    return {}\n"))
-	err := s.CheckFor("def main():\n    pass\n")
-	require.ErrorContains(t, err, "the site routing integration calls route(req)")
+	require.NoError(t, s.CheckFor(routeSource))
+	require.ErrorContains(t, s.CheckFor("def main():\n    route(1)\n\ndef route(x):\n    return x\n"), `add INTEGRATION = "site_routing"`)
+	require.ErrorContains(t, s.CheckFor("INTEGRATION = \"site_routing\"\n\ndef main():\n    pass\n"), "the site routing integration calls route(req)")
 	require.ErrorContains(t, s.CheckFor("def ("), "does not parse")
+	assert.True(t, s.Serves("def route(req):\n    return {}\n"), "a run of a script bound before #2683 is started on route(req) alone")
+	assert.False(t, s.Serves("def main():\n    pass\n"))
 }
 
 // TestRequestMap: a request's lists are [], never null, its items under the

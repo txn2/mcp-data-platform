@@ -70,7 +70,7 @@ func (m *memStore) List(context.Context) ([]application.Application, error) {
 }
 
 func (m *memStore) Update(_ context.Context, a *application.Application) error {
-	m.apps[a.ID].Description, m.apps[a.ID].OwnerEmail = a.Description, a.OwnerEmail
+	m.apps[a.ID].Description, m.apps[a.ID].OwnerEmail, m.apps[a.ID].ContractVersion = a.Description, a.OwnerEmail, a.ContractVersion
 	return nil
 }
 
@@ -86,6 +86,16 @@ func (m *memStore) AddPart(_ context.Context, id string, p application.Part) err
 		}
 	}
 	m.apps[id].Parts = append(m.apps[id].Parts, p)
+	return nil
+}
+
+func (m *memStore) SetPartMode(_ context.Context, id, part, mode string) error {
+	a := m.apps[id]
+	i := slices.IndexFunc(a.Parts, func(x application.Part) bool { return x.Kind == application.KindSite && x.ID == part })
+	if i < 0 {
+		return application.ErrNotFound
+	}
+	a.Parts[i].ReleaseMode = mode
 	return nil
 }
 

@@ -41,7 +41,7 @@ func TestASaveIsRefusedALibraryItsAuthorMayNotWrite(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			refusal := checkLibraryReach(Request{Caller: tc.caller}, exportsTo(tc.args))
+			refusal := checkLibraryReach(context.Background(), Request{Caller: tc.caller}, exportsTo(tc.args))
 			if tc.refused == "" {
 				assert.Empty(t, refusal)
 				return
@@ -65,6 +65,6 @@ func TestTheGateRefusesTheLibraryBeforeTheTests(t *testing.T) {
 	assert.Contains(t, res.Refusal, "the global library")
 	assert.Nil(t, res.Tests, "refused before the tests ran")
 
-	refusal := checkLibraryReach(Request{}, exportsTo(`, scope="global"`))
+	refusal := checkLibraryReach(context.Background(), Request{}, exportsTo(`, scope="global"`))
 	assert.Contains(t, refusal, "which the person saving it may not write to")
 }

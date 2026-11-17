@@ -73,9 +73,9 @@ func expectOwningApplication(mock sqlmock.Sqlmock, name string) {
 	now := time.Now()
 	mock.ExpectQuery("SELECT .+ FROM applications WHERE id").WillReturnRows(sqlmock.NewRows([]string{
 		"id", "name", "description", "owner_email", "connection", "schema_name", "current_release",
-		"created_by", "created_at", "updated_at", "schema_adopted_version", "schema_added_by", "schema_added_at",
-	}).AddRow("app_1", name, "", "jane@example.com", "", "", 0, "jane@example.com", now, now, 0, "", nil))
-	mock.ExpectQuery("SELECT kind, part_id").WillReturnRows(sqlmock.NewRows([]string{"kind", "part_id", "added_by", "added_at"}))
+		"created_by", "created_at", "updated_at", "schema_adopted_version", "schema_added_by", "schema_added_at", "contract_version",
+	}).AddRow("app_1", name, "", "jane@example.com", "", "", 0, "jane@example.com", now, now, 0, "", nil, 0))
+	mock.ExpectQuery("SELECT kind, part_id").WillReturnRows(sqlmock.NewRows([]string{"kind", "part_id", "added_by", "added_at", "release_mode"}))
 }
 
 func TestPageAllowed_NoPagesDomain(t *testing.T) {
@@ -563,9 +563,9 @@ func expectApplicationNamed(mock sqlmock.Sqlmock, query, name string) {
 	now := time.Now()
 	mock.ExpectQuery(query).WillReturnRows(sqlmock.NewRows([]string{
 		"id", "name", "description", "owner_email", "connection", "schema_name", "current_release",
-		"created_by", "created_at", "updated_at", "schema_adopted_version", "schema_added_by", "schema_added_at",
-	}).AddRow("app_1", name, "", "jane@example.com", "", "", 0, "jane@example.com", now, now, 0, "", nil))
-	mock.ExpectQuery("SELECT kind, part_id").WillReturnRows(sqlmock.NewRows([]string{"kind", "part_id", "added_by", "added_at"}))
+		"created_by", "created_at", "updated_at", "schema_adopted_version", "schema_added_by", "schema_added_at", "contract_version",
+	}).AddRow("app_1", name, "", "jane@example.com", "", "", 0, "jane@example.com", now, now, 0, "", nil, 0))
+	mock.ExpectQuery("SELECT kind, part_id").WillReturnRows(sqlmock.NewRows([]string{"kind", "part_id", "added_by", "added_at", "release_mode"}))
 }
 
 func TestPageAddress(t *testing.T) {

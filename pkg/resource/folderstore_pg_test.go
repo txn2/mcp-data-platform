@@ -74,10 +74,32 @@ func TestPostgresDeleteFolder(t *testing.T) {
 	t.Run("deleted", func(t *testing.T) {
 		s, mock := folderStorePG(t)
 		mock.ExpectQuery("FROM resources").WillReturnRows(countRow(0))
+		mock.ExpectBegin()
 		mock.ExpectExec("DELETE FROM resource_folders").
 			WithArgs("persona", "ops", "data", "data/%").WillReturnResult(sqlmock.NewResult(0, 3))
+		mock.ExpectCommit()
 		require.NoError(t, s.DeleteFolder(context.Background(), persona, "data"))
 		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+	t.Run("a global folder's write grants go with it (#2684)", func(t *testing.T) {
+		s, mock := folderStorePG(t)
+		mock.ExpectQuery("FROM resources").WillReturnRows(countRow(0))
+		mock.ExpectBegin()
+		mock.ExpectExec("DELETE FROM resource_folders").WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectExec("DELETE FROM portal_shares WHERE folder_path IS NOT NULL").WithArgs("reports").
+			WillReturnResult(sqlmock.NewResult(0, 2))
+		mock.ExpectCommit()
+		require.NoError(t, s.DeleteFolder(context.Background(), ScopeFilter{Scope: ScopeGlobal}, "reports"))
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+	t.Run("the grants delete fails", func(t *testing.T) {
+		s, mock := folderStorePG(t)
+		mock.ExpectQuery("FROM resources").WillReturnRows(countRow(0))
+		mock.ExpectBegin()
+		mock.ExpectExec("DELETE FROM resource_folders").WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectExec("DELETE FROM portal_shares").WillReturnError(errors.New("down"))
+		mock.ExpectRollback()
+		assert.ErrorContains(t, s.DeleteFolder(context.Background(), ScopeFilter{Scope: ScopeGlobal}, "reports"), "write grants")
 	})
 	t.Run("holds files", func(t *testing.T) {
 		s, mock := folderStorePG(t)
@@ -87,7 +109,9 @@ func TestPostgresDeleteFolder(t *testing.T) {
 	t.Run("names nothing", func(t *testing.T) {
 		s, mock := folderStorePG(t)
 		mock.ExpectQuery("FROM resources").WillReturnRows(countRow(0))
+		mock.ExpectBegin()
 		mock.ExpectExec("DELETE FROM resource_folders").WillReturnResult(sqlmock.NewResult(0, 0))
+		mock.ExpectRollback()
 		assert.ErrorIs(t, s.DeleteFolder(context.Background(), persona, "data"), ErrFolderEmpty)
 	})
 	t.Run("the count fails", func(t *testing.T) {
@@ -98,7 +122,9 @@ func TestPostgresDeleteFolder(t *testing.T) {
 	t.Run("the delete fails", func(t *testing.T) {
 		s, mock := folderStorePG(t)
 		mock.ExpectQuery("FROM resources").WillReturnRows(countRow(0))
+		mock.ExpectBegin()
 		mock.ExpectExec("DELETE FROM resource_folders").WillReturnError(errors.New("down"))
+		mock.ExpectRollback()
 		assert.ErrorContains(t, s.DeleteFolder(context.Background(), persona, "data"), "deleting folder")
 	})
 }

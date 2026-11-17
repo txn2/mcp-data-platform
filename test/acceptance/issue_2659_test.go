@@ -47,7 +47,9 @@ const (
 // holding raise2659 makes the run fail with the marker in its error, one
 // holding fail2659 is answered failed with HTML in its message, and a run that
 // adds a name holding slow2659 takes six seconds.
-const routeSource2659 = `def route(req):
+const routeSource2659 = `INTEGRATION = "site_routing"
+
+def route(req):
     """Answers each hostname by what its name asks for (acceptance #2659)."""
     names = lambda hs: [h["hostname"] for h in hs]
     print("REQ " + json.encode({"reason": req["reason"], "added": names(req["added"]), "removed": names(req["removed"]), "hosts": names(req["hosts"])}))

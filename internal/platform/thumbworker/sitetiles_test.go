@@ -48,7 +48,7 @@ func (f *fakeSites) Hold(_ context.Context, siteID, env string, h time.Duration)
 }
 
 func siteRelease(withIndex bool) SitePage {
-	return func(context.Context, string, int) (headless.Page, error) {
+	return func(context.Context, string, int, tilepage.Platform) (headless.Page, error) {
 		if !withIndex {
 			return headless.Page{}, tilepage.ErrNoDocument
 		}
@@ -78,7 +78,7 @@ func TestDrawSite(t *testing.T) {
 	assert.Contains(t, sites.failed["s2/dev"], "no index.html")
 
 	sites.work = []sitetile.Work{{SiteID: "s3", Environment: "qa", Release: 2, Attempts: 1}}
-	w.deps.SitePage = func(context.Context, string, int) (headless.Page, error) {
+	w.deps.SitePage = func(context.Context, string, int, tilepage.Platform) (headless.Page, error) {
 		return headless.Page{}, errors.New("storage down")
 	}
 	w.drawBatch(context.Background(), w.claimSites(context.Background()))

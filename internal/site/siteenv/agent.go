@@ -222,8 +222,8 @@ func (o Ops) promoteDecision(ctx context.Context, actor sitesvc.Actor, req sites
 		return "", nil
 	}
 	rel, err := o.Store.Release(ctx, st.ID, prev.Release)
-	if err != nil || rel.Pruned {
-		return "", nil //nolint:nilerr // the service reports it
+	if err != nil || rel.Pruned || (o.CheckPromote != nil && o.CheckPromote(ctx, st, target.Name, rel) != nil) {
+		return "", nil //nolint:nilerr // the service reports it, a release the contract refuses included (#2679)
 	}
 	return o.decision(ctx, actor, target, o.moveOf(ctx, moving{st: st, env: target, kind: MovePromote, rel: rel, reason: req.Reason}))
 }

@@ -114,7 +114,7 @@ func TestCreateRefusesAScopeTheCallerMayNotWrite(t *testing.T) {
 		claims  resource.Claims
 		names   string
 	}{
-		{"global is administrators only", resource.ScopeGlobal, "", analyst(), "global scope"},
+		{"global is administrators only", resource.ScopeGlobal, "", analyst(), "global folder"},
 		{"a persona needs its administrator", resource.ScopePersona, "finance", analyst(), `"finance" persona scope`},
 		{"another user's scope", resource.ScopeUser, "someone-else", analyst(), "another user's scope"},
 	}

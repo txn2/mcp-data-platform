@@ -81,6 +81,17 @@ func (s *store) AddPart(_ context.Context, id string, p application.Part) error 
 	return nil
 }
 
+func (s *store) SetPartMode(_ context.Context, id, part, mode string) error {
+	a := s.find(id)
+	for i := range a.Parts {
+		if a.Parts[i].ID == part {
+			a.Parts[i].ReleaseMode = mode
+			return nil
+		}
+	}
+	return application.ErrNotFound
+}
+
 func (s *store) RemovePart(_ context.Context, id, _, _ string) error {
 	a := s.find(id)
 	if len(a.Parts) == 0 {

@@ -212,6 +212,7 @@ func (h *Handler) registerRoutesOn(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/resources/folders/description", h.handleFolderDescription)
 	mux.HandleFunc("PUT /api/v1/resources/folders/description", h.handleFolderDescribe)
 	mux.HandleFunc("GET /api/v1/resources/people", h.handlePeople)
+	mux.HandleFunc("GET /api/v1/resources/folder-grants/mine", h.handleMyGrants)
 	mux.HandleFunc("GET /api/v1/resources", h.handleList)
 	mux.HandleFunc("GET /api/v1/resources/{id}", h.handleGet)
 	mux.HandleFunc("GET /api/v1/resources/{id}/content", h.handleGetContent)
@@ -629,7 +630,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if !CanWriteScope(*claims, input.scope, input.scopeID) {
+	if !claims.CanWriteFolder(input.scope, input.scopeID, input.path) {
 		writeError(w, http.StatusForbidden, "insufficient permissions for scope")
 		return
 	}

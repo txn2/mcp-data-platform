@@ -1,6 +1,7 @@
 package resourcelevel
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"testing"
@@ -24,26 +25,26 @@ func TestApplyResourceLevel(t *testing.T) {
 		return &resource.Claims{Sub: "u1", Roles: []string{role}, Personas: []string{role}, AdminOfPersonas: []string{role}, IsAdmin: admin}
 	}
 
-	_, err := Apply(claims("none", false), pr, http.MethodGet)
+	_, err := Apply(context.Background(), claims("none", false), pr, http.MethodGet)
 	assert.True(t, errors.Is(err, resource.ErrForbidden), "none refuses a read")
 
-	got, err := Apply(claims("shared", false), pr, http.MethodGet)
+	got, err := Apply(context.Background(), claims("shared", false), pr, http.MethodGet)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"shared"}, got.Personas, "shared reads the persona folder")
-	_, err = Apply(claims("shared", false), pr, http.MethodPost)
+	_, err = Apply(context.Background(), claims("shared", false), pr, http.MethodPost)
 	assert.True(t, errors.Is(err, resource.ErrForbidden), "shared writes nothing")
 
-	got, err = Apply(claims("own", false), pr, http.MethodPost)
+	got, err = Apply(context.Background(), claims("own", false), pr, http.MethodPost)
 	require.NoError(t, err)
 	assert.Empty(t, got.Personas, "own does not reach a persona folder")
 	assert.Empty(t, got.AdminOfPersonas)
 	assert.Contains(t, resource.VisibleScopes(*got), resource.ScopeFilter{Scope: resource.ScopeUser, ScopeID: "u1"}, "own keeps the caller's folder")
 
-	got, err = Apply(claims("persona", false), pr, http.MethodPost)
+	got, err = Apply(context.Background(), claims("persona", false), pr, http.MethodPost)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"persona"}, got.Personas)
 
-	got, err = Apply(claims("none", true), pr, http.MethodPost)
+	got, err = Apply(context.Background(), claims("none", true), pr, http.MethodPost)
 	require.NoError(t, err, "an administrator is held to none of it")
 	assert.Equal(t, []string{"none"}, got.Personas)
 }
@@ -65,7 +66,7 @@ func TestApplyExternalPersona(t *testing.T) {
 		return &resource.Claims{Sub: "ext:1", Roles: []string{role}, Personas: []string{role}}
 	}
 
-	got, err := Apply(claims("vendor"), pr, http.MethodGet)
+	got, err := Apply(context.Background(), claims("vendor"), pr, http.MethodGet)
 	require.NoError(t, err)
 	assert.True(t, got.NoGlobal)
 	scopes := resource.VisibleScopes(*got)
@@ -74,12 +75,12 @@ func TestApplyExternalPersona(t *testing.T) {
 	assert.NotContains(t, scopes, resource.ScopeFilter{Scope: resource.ScopePersona, ScopeID: "vendor"}, "no persona folder")
 	assert.Empty(t, got.Personas)
 	assert.False(t, resource.CanReadResource(*got, &resource.Resource{Scope: resource.ScopeGlobal}))
-	_, err = Apply(claims("vendor"), pr, http.MethodPost)
+	_, err = Apply(context.Background(), claims("vendor"), pr, http.MethodPost)
 	assert.True(t, errors.Is(err, resource.ErrForbidden), "no uploads setting, no upload")
-	_, err = Apply(claims("closed"), pr, http.MethodPost)
+	_, err = Apply(context.Background(), claims("closed"), pr, http.MethodPost)
 	assert.True(t, errors.Is(err, resource.ErrForbidden), "uploads off, no upload")
 
-	got, err = Apply(claims("agency"), pr, http.MethodPost)
+	got, err = Apply(context.Background(), claims("agency"), pr, http.MethodPost)
 	require.NoError(t, err, "uploads let the person write to their own folder")
 	assert.True(t, got.NoGlobal)
 	assert.False(t, resource.CanWriteScope(*got, resource.ScopePersona, "agency"), "never the persona folder")

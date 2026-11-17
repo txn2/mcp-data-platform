@@ -1012,9 +1012,9 @@ func TestApplicationAddresses_AnswersWhereItIs(t *testing.T) {
 	now := time.Now()
 	mock.ExpectQuery("SELECT .+ FROM applications WHERE name").WillReturnRows(sqlmock.NewRows([]string{
 		"id", "name", "description", "owner_email", "connection", "schema_name", "current_release",
-		"created_by", "created_at", "updated_at", "schema_adopted_version", "schema_added_by", "schema_added_at",
-	}).AddRow("app_1", "shop", "", "jane@example.com", "", "", 0, "jane@example.com", now, now, 0, "", nil))
-	mock.ExpectQuery("SELECT kind, part_id").WillReturnRows(sqlmock.NewRows([]string{"kind", "part_id", "added_by", "added_at"}))
+		"created_by", "created_at", "updated_at", "schema_adopted_version", "schema_added_by", "schema_added_at", "contract_version",
+	}).AddRow("app_1", "shop", "", "jane@example.com", "", "", 0, "jane@example.com", now, now, 0, "", nil, 0))
+	mock.ExpectQuery("SELECT kind, part_id").WillReturnRows(sqlmock.NewRows([]string{"kind", "part_id", "added_by", "added_at", "release_mode"}))
 	mock.ExpectQuery("ORDER BY d.hostname").WillReturnRows(sqlmock.NewRows([]string{
 		"hostname", "site_id", "name", "environment", "application_id", "application", "created_by", "created_at", "public", "access_changed_at",
 	}).AddRow("shop.client.example", "", "", "", "app_1", "shop", "a", now, false, now).

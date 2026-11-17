@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/grantsource"
 )
 
 // ErrFolderExists is returned when a folder is created at a path its library
@@ -173,13 +175,28 @@ func (s *postgresStore) DeleteFolder(ctx context.Context, lib ScopeFilter, path 
 	if held > 0 {
 		return ErrFolderNotEmpty
 	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("beginning folder delete: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
 	query, args := buildDeleteFolders(lib, path)
-	res, err := s.db.ExecContext(ctx, query, args...)
+	res, err := tx.ExecContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("deleting folder: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrFolderEmpty
+	}
+	// A deleted folder's write grants go with it (#2684), the ones on the
+	// folders beneath it too.
+	if lib.Scope == ScopeGlobal {
+		if _, err := tx.ExecContext(ctx, deleteGrantsQuery(), path); err != nil {
+			return fmt.Errorf("deleting the folder's write grants: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("committing folder delete: %w", err)
 	}
 	return nil
 }
@@ -216,6 +233,9 @@ func (s *postgresStore) MoveFolderTree(ctx context.Context, tree FolderRename, m
 	if err := moveStoredFolders(ctx, tx, tree); err != nil {
 		return err
 	}
+	if err := moveFolderGrants(ctx, tx, tree); err != nil {
+		return err
+	}
 	if err := tx.Commit(); err != nil {
 		if isUniqueViolation(err) {
 			return ErrURIConflict
@@ -223,6 +243,32 @@ func (s *postgresStore) MoveFolderTree(ctx context.Context, tree FolderRename, m
 		return fmt.Errorf("committing folder move: %w", err)
 	}
 	s.notifyMoved(ctx, moves)
+	return nil
+}
+
+// moveGrantsQuery rewrites the grants on folder $1 and beneath it to $2.
+func moveGrantsQuery() string {
+	// #nosec G202 -- the predicate is the fixed segment rule; the paths are bound.
+	return `UPDATE portal_shares SET folder_path = $2 || substr(folder_path, length($1) + 1)
+		WHERE folder_path IS NOT NULL AND ` + grantsource.UnderSQL("folder_path", "$1")
+}
+
+// deleteGrantsQuery deletes the grants on folder $1 and beneath it.
+func deleteGrantsQuery() string {
+	// #nosec G202 -- the predicate is the fixed segment rule; the path is bound.
+	return `DELETE FROM portal_shares WHERE folder_path IS NOT NULL AND ` + grantsource.UnderSQL("folder_path", "$1")
+}
+
+// moveFolderGrants gives the write grants on the folder and every folder
+// beneath it the moved path, in the move's transaction (#2684), so a grant
+// never names a path that no longer exists. Only Global folders take grants.
+func moveFolderGrants(ctx context.Context, tx *sql.Tx, tree FolderRename) error {
+	if tree.Library.Scope != ScopeGlobal {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, moveGrantsQuery(), tree.From, tree.To); err != nil {
+		return fmt.Errorf("moving the folder's write grants: %w", err)
+	}
 	return nil
 }
 

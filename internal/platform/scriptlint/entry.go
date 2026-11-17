@@ -1,6 +1,7 @@
 package scriptlint
 
 import (
+	"fmt"
 	"slices"
 
 	"go.starlark.net/syntax"
@@ -20,8 +21,10 @@ var hostNames = []string{"platform", "run"}
 // A script an endpoint calls defines handle(req) (#2172), which takes the
 // request as its one parameter, or a form's form_spec(req) and
 // form_submit(req, values) (#2176), and a Site routing script route(req)
-// (#2659); one that defines any of them and no main() is a script rather than
-// a library, since the platform runs it.
+// (#2659) once it declares INTEGRATION = "site_routing" (#2683); one that
+// defines any of them and no main() is a script rather than a library, since
+// the platform runs it. A route() in a script declaring no integration is a
+// helper like any other, checked for nothing.
 func (l *linter) entryPoint() {
 	var main *syntax.DefStmt
 	called := false
@@ -34,11 +37,12 @@ func (l *linter) entryPoint() {
 			main = d
 			continue
 		}
-		if want, ok := requestHandlers[d.Name.Name]; ok {
+		if want, ok := requestHandlers[d.Name.Name]; ok && scriptdialect.IsEntry(l.file, d.Name.Name) {
 			called = true
 			l.handlerParams(d, want)
 		}
 	}
+	l.integration()
 	switch {
 	case main == nil && called:
 	case main == nil:
@@ -88,6 +92,48 @@ var requestHandlers = map[string]requestHandler{
 		1, "route() must take one parameter, the request",
 		"The Site routing integration calls route(req) with every hostname: `def route(req):`, returning a status for each.",
 	},
+}
+
+// integration holds a script's INTEGRATION declaration to an integration
+// that exists and the function it calls (#2683). A script that declares none
+// is no integration's, whatever it names its functions.
+func (l *linter) integration() {
+	for _, s := range l.file.Stmts {
+		a, ok := s.(*syntax.AssignStmt)
+		if !ok {
+			continue
+		}
+		if id, ok := a.LHS.(*syntax.Ident); !ok || id.Name != scriptdialect.IntegrationName {
+			continue
+		}
+		name := scriptdialect.DeclaredIntegration(l.file)
+		fn, known := scriptdialect.Integrations[name]
+		switch {
+		case !known:
+			l.add(finding{
+				rule: RuleEntryPoint, line: line(a),
+				message: scriptdialect.IntegrationName + " names no integration the platform has",
+				hint:    fmt.Sprintf("Declare the integration this script serves as a string: %s = %q.", scriptdialect.IntegrationName, scriptdialect.SiteRouting),
+			})
+		case !defines(l.file, fn):
+			l.add(finding{
+				rule: RuleEntryPoint, line: line(a),
+				message: fmt.Sprintf("the script declares %s = %q and defines no %s(req)", scriptdialect.IntegrationName, name, fn),
+				hint:    fmt.Sprintf("The %s integration calls %s(req): define `def %s(req):` at the top level.", name, fn, fn),
+			})
+		}
+		return
+	}
+}
+
+// defines reports whether file defines a top-level function of the name.
+func defines(file *syntax.File, name string) bool {
+	for _, s := range file.Stmts {
+		if d, ok := s.(*syntax.DefStmt); ok && d.Name.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // handlerParams refuses a request handler defined with the wrong parameters.

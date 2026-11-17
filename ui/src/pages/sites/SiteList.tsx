@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { useListingLayout, type LayoutWidths, type ListingLayout } from "@/pages/scripts/useListingLayout";
 import { bareAddress, envBadgeText, envTip, initials, orderedEnvironments } from "./siteFormat";
 import { count, ms } from "./SiteTraffic";
-import { SiteTile } from "./SiteTile";
+import { listTileEnvironment, SiteTile } from "./SiteTile";
 
 // The Sites list (#2559, #2612) at the layout the width it HAS fits, the way
 // the Automations listing does (#2601): every row two lines, nothing cut at the
@@ -73,7 +73,7 @@ export function SiteTable({ list, onOpen, query = "" }: { list: SiteListing; onO
           {list.sites.map((s) => (
             <TableRow key={s.id} {...openRowProps(() => onOpen(s.name))} data-testid={`site-row-${s.name}`}>
               <TableCell className="py-2">
-                <SiteTile site={s} env={s.environments.find((e) => e.name === s.main_environment)} size="row" />
+                <SiteTile site={s} env={listTileEnvironment(s)} size="row" />
               </TableCell>
               <TableCell className="py-2.5">
                 <NameLines site={s} />
@@ -112,7 +112,7 @@ function SitePhoneList({ sites, onOpen, query }: { sites: Site[]; onOpen: (site:
         return (
           <li key={s.id}>
             <div {...open} className={cn(open.className, "flex min-w-0 gap-3 px-4 py-3")} data-testid={`site-row-${s.name}`}>
-              <SiteTile site={s} env={s.environments.find((e) => e.name === s.main_environment)} size="phone" />
+              <SiteTile site={s} env={listTileEnvironment(s)} size="phone" />
               <span className="flex min-w-0 flex-1 flex-col gap-1.5">
                 <span className="flex min-w-0 items-center gap-2">
                   <span className="min-w-0 flex-1 truncate text-sm font-semibold">{s.name}</span>

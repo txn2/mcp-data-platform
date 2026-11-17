@@ -6,7 +6,7 @@ import { resetSitesMock } from "@/mocks/handlers/sites";
 import { renderWithQuery, signIn, type SentRequest } from "@/test/applicationHarness";
 import { SiteDetailPage } from "./SiteDetailPage";
 import { envNameProblem } from "./envName";
-import { SiteTile, tilePlaceholder } from "./SiteTile";
+import { listTileEnvironment, SiteTile, tilePlaceholder } from "./SiteTile";
 import type { SiteEnvironment } from "@/api/portal/hooks/sites";
 
 // The Environments and Access tabs of #2604, #2617 and #2619: dev is the
@@ -49,7 +49,7 @@ describe("Site environments (#2604)", () => {
     open();
 
     expect(await screen.findByText("How this site works")).toBeInTheDocument();
-    expect(screen.getByText("Changes land in dev")).toBeInTheDocument();
+    expect(screen.getByText("Publish makes a release in dev")).toBeInTheDocument();
 
     expect(screen.getAllByTestId(/^env-(dev|stage|prod)$/).map((e) => e.dataset.testid)).toEqual(["env-dev", "env-stage", "env-prod"]);
     const dev = await screen.findByTestId("env-dev");
@@ -82,9 +82,9 @@ describe("Site environments (#2604)", () => {
     signIn("admin@example.com", true);
     open();
     fireEvent.click(await screen.findByRole("button", { name: "Hide" }));
-    expect(screen.queryByText("Changes land in dev")).toBeNull();
+    expect(screen.queryByText("Publish makes a release in dev")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "How this site works" }));
-    expect(screen.getByText("Changes land in dev")).toBeInTheDocument();
+    expect(screen.getByText("Publish makes a release in dev")).toBeInTheDocument();
   });
 
   it("shares a private environment with a person, naming that environment", async () => {
@@ -156,6 +156,9 @@ describe("Site environments (#2604)", () => {
     const dialog = await screen.findByRole("dialog", { name: "Promote to prod" });
     expect(within(dialog).getByTestId("promote-source")).toHaveTextContent("stage, release 11");
     expect(dialog).toHaveTextContent("prod takes releases only from stage, the environment before it.");
+    expect(within(dialog).getByTestId("promote-unchanged")).toHaveTextContent(
+      "No files are sent and nothing is rebuilt: prod will serve release 11 exactly as stage serves it now.",
+    );
     expect(within(dialog).queryByRole("combobox")).toBeNull();
     fireEvent.click(within(dialog).getByRole("button", { name: "Promote to prod" }));
     await waitFor(() => expect(sent.find((r) => r.path === "/api/v1/portal/sites/marketing/promote")?.body).toEqual({ from: "stage", to: "prod", release: 11, reason: "" }));
@@ -205,6 +208,7 @@ describe("Site environments (#2604)", () => {
     const dev = await screen.findByTestId("env-dev");
     fireEvent.click(within(dev).getByRole("button", { name: "Publish" }));
     const dialog = await screen.findByRole("dialog", { name: "Publish to dev" });
+    expect(dialog).toHaveTextContent("Nothing else changes until you promote.");
     expect(within(dialog).queryByRole("combobox", { name: "Environment" })).toBeNull();
     expect(dialog).toHaveTextContent("This changes dev only");
   });
@@ -376,6 +380,21 @@ describe("environment tiles (#2658)", () => {
     const dev = await screen.findByTestId("env-dev");
     expect(within(dev).getByTestId("site-tile-dev")).toHaveAttribute("src", expect.stringContaining("/environments/dev/tile"));
     expect(within(dev).getByTestId("tile-source-dev")).toHaveTextContent("Drawn from marketing--dev.pages.example.net at release 12");
+  });
+});
+
+describe("listTileEnvironment (#2681)", () => {
+  const env = (name: string, release: number): SiteEnvironment => ({ name, release }) as SiteEnvironment;
+  it("is the main address's environment while it has a release", () => {
+    expect(listTileEnvironment({ main_environment: "prod", environments: [env("dev", 3), env("prod", 2)] })?.name).toBe("prod");
+  });
+  it("falls back to the furthest environment along that has a release", () => {
+    expect(listTileEnvironment({ main_environment: "prod", environments: [env("dev", 3), env("stage", 2), env("prod", 0)] })?.name).toBe("stage");
+    expect(listTileEnvironment({ main_environment: "prod", environments: [env("dev", 3), env("prod", 0)] })?.name).toBe("dev");
+  });
+  it("keeps the main environment when none has a release, and none when there is no main", () => {
+    expect(listTileEnvironment({ main_environment: "prod", environments: [env("dev", 0), env("prod", 0)] })?.name).toBe("prod");
+    expect(listTileEnvironment({ main_environment: "", environments: [env("dev", 0)] })).toBeUndefined();
   });
 });
 

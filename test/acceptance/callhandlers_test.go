@@ -291,18 +291,19 @@ func handlerTest(t *testing.T, c *client, args map[string]any) map[string]any {
 
 // unmatchedLatency holds the handlers' own cost on a call none of them
 // applies to, while 50 handlers of kind are bound to other connections
-// (#2436, #2634), and measures the call end to end beside it (#2653).
+// (#2436, #2634), and logs the call end to end beside it.
 //
 // The handlers' layer reports its own time per call, the call itself left out
 // (call_handlers_layer_seconds): at least 99% of the unmatched calls spend
-// at most a millisecond in it. End to end, p50 and p99 with the handlers stay
-// within 5% of without them plus an absolute allowance (2.5ms at p50, 5ms at
-// p99): on a shared CI runner, two blocks of the same call differ by more
-// than 5% of a few milliseconds whatever the handlers do (#2653 measured
-// 0.18ms on 2.4ms and 1.9ms on 4.2ms there), so a percentage alone fails on
-// the runner's noise. The two states are measured interleaved (#2645): five
-// rounds of 200 calls each, the order alternating, the 50 handlers enabled or
-// disabled between blocks, so both states sample the same stack.
+// at most a millisecond in it. That is what is asserted. The end-to-end p50
+// and p99 with and without the handlers are logged, not asserted (#2682):
+// the stack shares its runner with the rest of the suite, and the p99 of the
+// same call differed by 20ms between blocks with the layer at or under 1ms on
+// every call (nightly 43912189822). The Endpoint latency job of
+// .github/workflows/load.yml holds a latency bound on a runner of its own
+// (#2544). The two states are measured interleaved (#2645): five rounds of
+// 200 calls each, the order alternating, the 50 handlers enabled or disabled
+// between blocks, so both states sample the same stack.
 func unmatchedLatency(t *testing.T, admin, caller *client, prefix, kind, source, entry string) {
 	t.Helper()
 	const rounds, block, settle = 5, 200, 20
@@ -381,27 +382,10 @@ func unmatchedLatency(t *testing.T, admin, caller *client, prefix, kind, source,
 	without50, without99 := pct(samples[false], 50), pct(samples[false], 99)
 	with50, with99 := pct(samples[true], 50), pct(samples[true], 99)
 	t.Logf("%s: without handlers p50 %v p99 %v; with 50 elsewhere p50 %v p99 %v", kind, without50, without99, with50, with99)
-	if limit := allowed(without50, latencyAllowanceP50); with50 > limit {
-		t.Errorf("p50 with 50 %s handlers elsewhere is %v, over %v (5%% over %v plus %v)", kind, with50, limit, without50, latencyAllowanceP50)
-	}
-	if limit := allowed(without99, latencyAllowanceP99); with99 > limit {
-		t.Errorf("p99 with 50 %s handlers elsewhere is %v, over %v (5%% over %v plus %v)", kind, with99, limit, without99, latencyAllowanceP99)
-	}
 	t.Logf("%s: the handlers' layer spent at most 1ms on %.0f of %.0f unmatched calls", kind, within, n)
 	if n < rounds*block*2 || within < 0.99*n {
 		t.Errorf("the handlers' layer spent at most 1ms on %.0f of %.0f unmatched calls; want at least 99%% of at least %d", within, n, rounds*block*2)
 	}
-}
-
-// The absolute allowance an end-to-end latency comparison adds to 5% (#2653).
-const (
-	latencyAllowanceP50 = 2500 * time.Microsecond
-	latencyAllowanceP99 = 5 * time.Millisecond
-)
-
-// allowed is the most a latency may be against base: 5% over it plus slack.
-func allowed(base, slack time.Duration) time.Duration {
-	return time.Duration(float64(base)*1.05) + slack
 }
 
 // layerShare is, of the calls the handlers' layer saw between two scrapes

@@ -104,4 +104,29 @@ The built-in knowledge page `platform-public-applications` builds one for the pu
 
 ## Site parts
 
-One environment of a static site can be a part of an application: `add_part` with `kind: "site"` and `part_id: "<site>/<environment>"`. A release pins the site's newest release and points that environment at it; a rollback restores it. See [Sites and pages](sites.md).
+One environment of a static site can be a part of an application: `add_part` with `kind: "site"` and `part_id: "<site>/<environment>"`. Being a part gives the environment the application's `/endpoints/<name>` on its own address, the application's cookies and its viewer. Whether an application release also ships it is the part's **release mode** (#2679):
+
+| | linked | coupled |
+|---|---|---|
+| Same-origin `/endpoints/`, application cookies, viewer identity | yes | yes |
+| An application release moves the environment | only when `move_sites` names it | yes, one step |
+| `manage_site promote` and `rollback` own the environment | yes | the next release moves it again |
+| An application rollback returns it | only when the rolled-back release moved it | yes |
+
+A new site part is **linked**; `add_part` takes `release_mode: "coupled"` to make it coupled, and `set_part` (or `PATCH /api/v1/portal/applications/{app}/parts/site/{id}`) changes it. Parts added before v1.163.0 are coupled, so nothing changes for them. A release that moves a part pins it at what the environment before it serves, `dev` at the site's newest release, and points that environment at it. `release` takes `move_sites: ["<site>/<environment>", ...]` to move named parts one step in this release, linked or not, and a rollback of that release returns exactly the parts it moved.
+
+### The compatibility contract
+
+Front ends and backends are usually compatible across releases; a contract says when they are not. The application declares a **contract version**, a whole number raised by hand when a release breaks what front ends call: `manage_application update contract_version=3`, or `contract` on `release` (saved once the release is recorded). 0 declares none. A site release may declare the range it needs in an `_application` file at its root:
+
+```json
+{"application": "store", "contract": ">=2 <4"}
+```
+
+A range is clauses of an operator (`>=`, `>`, `<=`, `<`, `=`) and a whole number; a release with no `_application` file, or one naming another application, is compatible with everything. The file is read at publish, kept on the release (not served), and reads back through `manage_asset` like `_redirects`.
+
+- An application release is refused while any site part would serve, after it, a release whose range excludes the contract, naming each part, its release and the range. `force` (an administrator's) releases anyway and the release records each part under `changes.forced`.
+- `manage_site promote` of a release whose range excludes the contract of the application the target environment is a part of is refused, naming the contract.
+- A breaking change is then a coordinated release: publish front ends that accept both contracts, promote them, release the backend with the new contract, and later drop the old one.
+
+`manage_application get` (and the portal's Parts card) lists each site part under `site_parts` with its mode, the release it serves, the release a move would point it at, the range that release declares and whether it works with the contract. See [Sites and pages](sites.md).

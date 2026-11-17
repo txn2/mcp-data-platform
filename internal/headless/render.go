@@ -155,6 +155,15 @@ type Page struct {
 	// page's own origin that Files answers with a 5xx fails it the same way,
 	// whatever its type (#2218).
 	RequireSubresources bool
+	// Quiet, when set, is how long the page must go with no request
+	// outstanding before it is read as settled: a page that draws itself from
+	// data it fetches after it loads -- a module application, a page reading a
+	// JSON file -- has drawn nothing at its load event. The page is waited on
+	// for quiet before and after Ready, at most QuietMax each time, and then
+	// captured as it stands; a page that never goes quiet (a poll, a stream)
+	// is not failed for it.
+	Quiet    time.Duration
+	QuietMax time.Duration
 }
 
 // ErrIncomplete marks a render whose document named a public file it needs
@@ -218,6 +227,13 @@ type render struct {
 	// missing is each needed public file that did not arrive, for a page
 	// that requires them.
 	missing []string
+	// outstanding counts the paused requests not yet answered, and lastSeen
+	// is when one was last paused or answered: what Quiet is read from.
+	outstanding int
+	lastSeen    time.Time
+	// changed is signaled whenever a request starts or is answered, so a
+	// quiet wait wakes on the change rather than polling for it.
+	changed chan struct{}
 }
 
 // Render draws p and returns the screenshot as a PNG.
@@ -243,7 +259,7 @@ func (r *Renderer) PrintPDF(ctx context.Context, p Page) (pdf []byte, err error)
 
 // draw is one render from dial to teardown, ending in capture.
 func (r *Renderer) draw(ctx context.Context, p Page, capture func(*render, context.Context, string) ([]byte, error)) (out []byte, err error) {
-	rs := &render{r: r, page: p, host: originHost(), sessions: map[string]bool{}}
+	rs := &render{r: r, page: p, host: originHost(), sessions: map[string]bool{}, changed: make(chan struct{}, 1)}
 	c, err := dial(ctx, r.local, r.endpoint, rs.onEvent)
 	if err != nil {
 		return nil, err
@@ -270,7 +286,7 @@ func (r *Renderer) draw(ctx context.Context, p Page, capture func(*render, conte
 	if err := rs.navigate(ctx, session); err != nil {
 		return nil, err
 	}
-	if err := rs.awaitReady(ctx, session); err != nil {
+	if err := rs.settle(ctx, session); err != nil {
 		return nil, err
 	}
 	if err := rs.failedArming(); err != nil {
@@ -363,6 +379,88 @@ func (rs *render) navigate(ctx context.Context, session string) error {
 		return fmt.Errorf("headless: the page did not load: %s", nav.ErrorText)
 	}
 	return nil
+}
+
+// settle waits for the page to be drawn: its readiness promise, and for a
+// page that sets Quiet, a quiet network before it and after it, since the
+// data a page fetched can bring images the promise must wait on in turn.
+func (rs *render) settle(ctx context.Context, session string) error {
+	if rs.page.Quiet <= 0 {
+		return rs.awaitReady(ctx, session)
+	}
+	rs.awaitQuiet(ctx)
+	if err := rs.awaitReady(ctx, session); err != nil {
+		return err
+	}
+	rs.awaitQuiet(ctx)
+	return rs.awaitReady(ctx, session)
+}
+
+// awaitQuiet returns once no request has been outstanding for Quiet, after
+// QuietMax, or when ctx ends, whichever is first. It wakes when a request
+// starts or is answered, and when the quiet it is waiting out would end.
+func (rs *render) awaitQuiet(ctx context.Context) {
+	limit := time.NewTimer(rs.page.QuietMax)
+	defer limit.Stop()
+	for wait, done := rs.quietIn(); !done; wait, done = rs.quietIn() {
+		if !rs.waitChange(ctx, limit.C, wait) {
+			return
+		}
+	}
+}
+
+// waitChange waits for a change in the outstanding requests or for wait to
+// pass, reporting false when ctx ends or the limit fires first.
+func (rs *render) waitChange(ctx context.Context, limit <-chan time.Time, wait time.Duration) bool {
+	t := time.NewTimer(wait)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-limit:
+		return false
+	case <-rs.changed:
+	case <-t.C:
+	}
+	return true
+}
+
+// quietIn reports whether the network has been quiet for Quiet and, when it
+// has not, how long until it could be: the rest of Quiet with nothing
+// outstanding, all of it while a request is (its answer wakes the wait).
+func (rs *render) quietIn() (time.Duration, bool) {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	if rs.outstanding > 0 {
+		return rs.page.Quiet, false
+	}
+	left := rs.page.Quiet - time.Since(rs.lastSeen)
+	return left, left <= 0
+}
+
+// track counts a paused request as outstanding until the returned func is
+// called, once it is answered.
+func (rs *render) track() func() {
+	rs.mu.Lock()
+	rs.outstanding++
+	rs.lastSeen = time.Now()
+	rs.mu.Unlock()
+	rs.signal()
+	return func() {
+		rs.mu.Lock()
+		rs.outstanding--
+		rs.lastSeen = time.Now()
+		rs.mu.Unlock()
+		rs.signal()
+	}
+}
+
+// signal wakes a quiet wait without blocking; one pending wake is enough.
+func (rs *render) signal() {
+	select {
+	case rs.changed <- struct{}{}:
+	default:
+	}
 }
 
 // awaitReady waits for the page's own readiness promise.

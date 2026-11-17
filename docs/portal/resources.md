@@ -182,6 +182,23 @@ A file is shared the way an asset is (#2258), in the same dialog (#2291). **Shar
 
 An external persona can be set to let its people upload: each upload lands in the uploader's own folder and is shared on arrival with the people and personas the persona names. See [Uploads by external people](../personas/overview.md#uploads-by-external-people).
 
+## Letting people write a Global folder
+
+Everyone signed in reads Global, and only administrators write it. An administrator can let a person or a persona write one Global folder and everything beneath it, at any depth, including folders made later (#2684): **Permissions** on the folder's menu lists who can write there, the grants on folders above it marked inherited, and adds or removes a person (by address) or a persona. When the folder, or one above it, is a site's [media](../server/sites.md#media-folders), the dialog names the sites, since a write there changes what they serve.
+
+Inside a folder they can write, a grantee uploads files (one at a time or in bulk), makes folders, writes new versions, renames, changes descriptions and tags, moves files and folders as long as the source and the destination are both folders they can write, deletes, and shares files the way [Sharing a file](#sharing-a-file) does. The granted folder itself is renamed, moved and deleted by administrators only, since that changes what the grant covers. Their Resources page shows Upload, New folder, Rename, Move and Delete inside those folders and nowhere else in Global, and marks each one "You can edit".
+
+- A folder covers its own path and what is beneath it by segment: a grant on `reports` covers `reports/q3` and never `reports2` or `reports-old`.
+- A grant follows its folder: an administrator's rename or move of the folder rewrites its grants and the ones beneath it in the same change, and deleting the folder deletes them.
+- A persona grant covers everyone whose roles reach that persona, including a person whose roles reach several personas.
+- Grants are read on every request. A removed grant, or a person whose roles no longer reach a granted persona, is refused on their next write, on every replica. An [upload link](#uploading-from-an-agents-shell) reads them again when its file arrives, so a grant removed after the link was issued refuses the upload.
+- The persona's Resources level is a ceiling no grant overrides: a persona whose level allows no uploads writes no Global folder. A person of an external persona never sees Global, so a grant to an external person or persona is refused when it is saved, and one whose holder later becomes external grants nothing.
+- A managed script writes where its author can write: a run acting for a grantee files under their folders, and a grant held by somebody else gives a run nothing.
+- `manage_resource` upload, upload link, version, move and delete in `scope=global` follow the grants. A refusal names the Global folders the caller can write, or says they can write none.
+- Only administrators see who holds grants. Adding and removing one is audited (`folder_grant_add`, `folder_grant_remove`).
+
+`GET /api/v1/admin/resources/folder-grants?folder=<path>`, `POST /api/v1/admin/resources/folder-grants` (`folder`, and `email` or `persona`) and `DELETE /api/v1/admin/resources/folder-grants/{id}` are the administrator's routes; `GET /api/v1/resources/folder-grants/mine` answers the caller's own writable Global folders. Grants are stored as folder shares (`portal_shares.folder_path`, migration 000256).
+
 ## Moving a resource to another library
 
 A resource's library used to be chosen once, on the upload form, and never again. The only route from a personal library to a shared one was to upload the file a second time, which mints a second id, a second URI and a second blob, leaves the original in place, and gives the two copies separate version trails, while every asset and prompt that already referenced the first one keeps referencing it.
@@ -190,6 +207,7 @@ A resource's library used to be chosen once, on the upload form, and never again
 
 - Your own library, always.
 - A persona you belong to. This is looser than uploading, which needs that persona's `persona-admin:{name}` role: putting new material in front of a persona's members is the persona administrator's call, while moving in a file you already own and will read yourself is not.
+- A Global folder a write grant lets you write (#2684), and only those.
 - Every persona, the global library, and a named person's library, for a platform administrator. These are offered wherever the dialog is opened from, on your own Resources page and in [Admin > Resources](admin-content.md#resources-admin) alike: the authority is the administrator's, not the page's, and the server grants every one of these targets whichever route the request arrives on.
 
 ![Moving a resource to another library](../images/screenshots/light/admin-resource-move-light.webp#only-light)![Moving a resource to another library](../images/screenshots/dark/admin-resource-move-dark.webp#only-dark)

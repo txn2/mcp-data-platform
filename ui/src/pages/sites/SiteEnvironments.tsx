@@ -128,10 +128,13 @@ function HeaderActions({ site, onAct }: { site: Site; onAct: (d: EnvDialog) => v
 }
 
 const STEPS: [string, string][] = [
-  ["Changes land in dev", "Publishing, editing files and agents change dev and nothing else. dev is the working copy: only the people who manage this site can open it, unless you share it."],
   [
-    "Promote one step at a time",
-    "A release moves left to right: each environment takes the release of the one before it. Those environments change only by Promote and Roll back, so nobody edits what people are using.",
+    "Publish makes a release in dev",
+    "Publish turns files into a new release and serves it in dev. It's the only way a release is made. Editing files and agents change dev too, and nothing else. dev is the working copy: only the people who manage this site can open it, unless you share it.",
+  ],
+  [
+    "Promote moves a release, unchanged",
+    "Promote makes no new release and sends no files. It moves the release the environment before serves to the next one, left to right, so what people use is exactly what was checked before it. Roll back returns an environment to a release it served before.",
   ],
   [
     "Only a domain you make public opens for anyone",

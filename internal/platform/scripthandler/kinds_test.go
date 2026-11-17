@@ -118,7 +118,9 @@ func TestStoreOr(t *testing.T) {
 func TestIntegrationKind(t *testing.T) {
 	refusal := checkOne(Handler{ID: "h1", Kind: KindIntegration, Target: "site_routing"}, "def main():\n    pass\n")
 	assert.Contains(t, refusal, "route(req)")
-	assert.Empty(t, checkOne(Handler{ID: "h1", Kind: KindIntegration}, "def route(req):\n    return {}\n"))
+	assert.Empty(t, checkOne(Handler{ID: "h1", Kind: KindIntegration}, "INTEGRATION = \"site_routing\"\n\ndef route(req):\n    return {}\n"))
+	assert.Contains(t, checkOne(Handler{ID: "h1", Kind: KindIntegration}, "def route(req):\n    return {}\n"), `INTEGRATION = "site_routing"`,
+		"a bound script's save without the declaration names the line to add (#2683)")
 
 	svc := &Service{}
 	_, err := svc.Set(context.Background(), SetRequest{Admin: true, Script: &script.Script{ID: "s"}, Kind: KindIntegration})

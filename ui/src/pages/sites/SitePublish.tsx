@@ -45,7 +45,7 @@ export function PublishDialog({ site, onClose, onNavigate }: { site: Site; onClo
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Publish to dev</DialogTitle>
-          <DialogDescription>{site.name}</DialogDescription>
+          <DialogDescription>Makes a new release of {site.name} from these files and serves it in dev. Nothing else changes until you promote.</DialogDescription>
         </DialogHeader>
         <PublishFields site={site} form={form} onChange={setForm} limits={limits} refusal={refusal} uploading={flow.uploading} />
         <DialogFooter>

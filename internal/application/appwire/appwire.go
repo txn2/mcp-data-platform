@@ -91,6 +91,8 @@ type Deps struct {
 	// it at construction, so the portal's and manage_application's agree
 	// (#2613).
 	Sites appsvc.Sites
+	// Contracts reads site parts' contracts (#2679); nil checks none.
+	Contracts appsvc.ContractSites
 }
 
 // Service builds the application service over deps, nil without a database.
@@ -120,6 +122,9 @@ func Service(d Deps) *appsvc.Service {
 	}
 	if d.Sites != nil {
 		svc.Sites = d.Sites
+	}
+	if d.Contracts != nil {
+		svc.Contracts = d.Contracts
 	}
 	// A nil store is left nil, never an interface holding a nil.
 	if d.Assets != nil {

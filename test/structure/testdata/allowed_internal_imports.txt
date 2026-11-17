@@ -210,6 +210,7 @@ internal/application/appsvc -> internal/platform/scriptevents
 internal/application/appsvc -> internal/platform/scriptflow
 internal/application/appsvc -> internal/platform/scriptflow/sqlread
 internal/application/appsvc -> internal/portal/portaldomain
+internal/application/appsvc -> internal/site
 internal/application/appsvc -> pkg/script
 internal/application/apptool -> internal/application
 internal/application/apptool -> internal/application/appsvc
@@ -657,6 +658,10 @@ internal/httpserver/feedbackwire -> pkg/middleware
 internal/httpserver/feedbackwire -> pkg/portal
 internal/httpserver/feedbackwire -> pkg/portal/mention
 internal/httpserver/feedbackwire -> pkg/user
+internal/httpserver/foldergrantwire -> internal/grantsource
+internal/httpserver/foldergrantwire -> internal/portal/foldergrant
+internal/httpserver/foldergrantwire -> pkg/admin
+internal/httpserver/foldergrantwire -> pkg/platform
 internal/httpserver/formpublishwire -> internal/approval
 internal/httpserver/formpublishwire -> internal/approval/apprhttp
 internal/httpserver/formpublishwire -> internal/endpoint/eppreview
@@ -765,6 +770,7 @@ internal/httpserver/resourcelevel -> pkg/persona
 internal/httpserver/resourcelevel -> pkg/resource
 internal/httpserver/resourcesharewire -> internal/httpjson
 internal/httpserver/resourcesharewire -> internal/httpserver/channelhttp
+internal/httpserver/resourcesharewire -> internal/httpserver/foldergrantwire
 internal/httpserver/resourcesharewire -> internal/httpserver/personashare
 internal/httpserver/resourcesharewire -> internal/httpserver/tablesource
 internal/httpserver/resourcesharewire -> internal/platform/notifydelivery
@@ -945,6 +951,8 @@ internal/httpserver/thumbwire -> internal/outbound
 internal/httpserver/thumbwire -> internal/platform/scripttiles
 internal/httpserver/thumbwire -> internal/platform/thumbworker
 internal/httpserver/thumbwire -> internal/portal/assetrefs
+internal/httpserver/thumbwire -> internal/site/siteconfig
+internal/httpserver/thumbwire -> internal/site/sitegw
 internal/httpserver/thumbwire -> internal/site/sitetile
 internal/httpserver/thumbwire -> internal/site/sitetile/tilepage
 internal/httpserver/thumbwire -> pkg/platform
@@ -2059,6 +2067,12 @@ internal/portal/feedbackapi -> pkg/portal/mention
 internal/portal/feedbackapi -> pkg/portal/threads
 internal/portal/feedbackapi -> pkg/prompt
 internal/portal/feedbackapi -> pkg/toolkits/knowledge
+internal/portal/foldergrant -> internal/grantsource
+internal/portal/foldergrant -> internal/httpjson
+internal/portal/foldergrant -> internal/logsan
+internal/portal/foldergrant -> pkg/audit
+internal/portal/foldergrant -> pkg/middleware
+internal/portal/foldergrant -> pkg/resource
 internal/portal/generalfeedback -> internal/httpjson
 internal/portal/generalfeedback -> internal/logsan
 internal/portal/generalfeedback -> internal/notification/notifyalert
@@ -2138,6 +2152,7 @@ internal/server -> internal/platform/knowledgebuiltin
 internal/server -> pkg/platform
 internal/shutdown -> internal/inprocess
 internal/site/siteconfig -> internal/site
+internal/site/sitecontract -> internal/site
 internal/site/sitecrawl -> internal/egressguard
 internal/site/sitecrawl -> internal/outbound
 internal/site/sitecrawl -> internal/site
@@ -2195,7 +2210,6 @@ internal/site/sitesvc -> pkg/contenttype
 internal/site/sitesvc -> pkg/textpatch
 internal/site/sitetile/tilepage -> internal/headless
 internal/site/sitetile/tilepage -> internal/site
-internal/site/sitetile/tilepage -> internal/site/sitesvc
 internal/site/sitetool -> internal/bucketsource
 internal/site/sitetool -> internal/logsan
 internal/site/sitetool -> internal/site
@@ -2213,6 +2227,7 @@ internal/site/sitetool -> pkg/textpatch/patchmcp
 internal/site/sitetool -> pkg/toolkit
 internal/site/sitetool -> pkg/toolkits/portal
 internal/site/sitetraffic -> internal/logsan
+internal/site/sitewire -> internal/application
 internal/site/sitewire -> internal/application/appstore
 internal/site/sitewire -> internal/approval
 internal/site/sitewire -> internal/bucketsource
@@ -2224,6 +2239,7 @@ internal/site/sitewire -> internal/platform/scriptsrc
 internal/site/sitewire -> internal/platform/settingsjson
 internal/site/sitewire -> internal/site
 internal/site/sitewire -> internal/site/siteconfig
+internal/site/sitewire -> internal/site/sitecontract
 internal/site/sitewire -> internal/site/sitecrawl
 internal/site/sitewire -> internal/site/sitegw
 internal/site/sitewire -> internal/site/siteprune
@@ -2780,6 +2796,7 @@ pkg/registry -> pkg/toolkits/postgres
 pkg/registry -> pkg/toolkits/s3
 pkg/registry -> pkg/toolkits/trino
 pkg/resource -> internal/exporttrunc
+pkg/resource -> internal/grantsource
 pkg/resource -> internal/indexpolicy
 pkg/resource -> internal/logsan
 pkg/resource -> internal/opsobs

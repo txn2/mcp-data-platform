@@ -132,5 +132,8 @@ func SQLSamples() map[string]string {
 		"buildList/page.sizeDesc": bySizePage,
 		"insertFolder":            insertFolder,
 		"selectPeople":            selectPeople,
+		"moveGrantsQuery":         moveGrantsQuery(),
+		"deleteGrantsQuery":       deleteGrantsQuery(),
+		"countMountingQuery":      countMountingQuery(),
 	}
 }

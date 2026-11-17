@@ -451,8 +451,8 @@ func (s *Service) start(ctx context.Context, spec Spec, b *Binding, c change) er
 	if err != nil || v == nil {
 		return s.Store.RecordRefusal(ctx, spec.Name, fmt.Sprintf("the approved version %d of the chosen script could not be read", runAs.Version)) //nolint:wrapcheck // the store names what it wrote
 	}
-	if err := spec.CheckFor(v.Source); err != nil {
-		return s.Store.RecordRefusal(ctx, spec.Name, fmt.Sprintf("version %d: %s", v.Version, err)) //nolint:wrapcheck // the store names what it wrote
+	if !spec.Serves(v.Source) {
+		return s.Store.RecordRefusal(ctx, spec.Name, fmt.Sprintf("version %d defines no top-level %s", v.Version, spec.Contract())) //nolint:wrapcheck // the store names what it wrote
 	}
 	req := Request{Reason: reason, Added: entries(added), Items: entries(now), Removed: make([]map[string]any, 0, len(removed))}
 	removedKeys := make([]string, 0, len(removed))
