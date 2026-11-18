@@ -138,9 +138,15 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: acceptance-logs-${{ inputs.id }}
+          # The Playwright output each browser criterion writes (screenshots,
+          # error context, traces): build/<suite>-results from the configs
+          # that name one, ui/test-results from the rest (#2694). Without it
+          # a browser failure in CI could not be read (#2691).
           path: |
             build/release/
             build/acceptance/
             build/acceptance.jsonl
+            build/*-results/
+            ui/test-results/
           if-no-files-found: warn
           retention-days: 14

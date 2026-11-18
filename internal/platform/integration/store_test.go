@@ -176,7 +176,7 @@ func TestStore_Runs(t *testing.T) {
 		RunID: "run1", Results: map[string]ItemResult{"a.example.com": {Status: StatusReady}},
 		Failed: []string{"b.example.com"}, FailWith: "The site routing script failed", Removed: []string{"c.example.com"}, Status: "succeeded",
 	}
-	steps := []string{"SET status = \\$3", "SET status = 'failed'", "DELETE FROM integration_items", "SET current_run_id = NULL"}
+	steps := []string{"FOR UPDATE", "SET status = \\$3", "SET status = 'failed'", "DELETE FROM integration_items", "SET current_run_id = NULL"}
 	mock.ExpectBegin()
 	for _, step := range steps {
 		mock.ExpectExec(step).WillReturnResult(sqlmock.NewResult(0, 1))

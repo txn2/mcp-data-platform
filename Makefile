@@ -746,7 +746,7 @@ portal-surface-check:
 e2e-copy-check:
 	@python3 scripts/e2e-copy-check.py
 
-## acceptance-copy-check: Fail when an acceptance criterion asserts text the diff removed from production Go (#2519)
+## acceptance-copy-check: Fail when an acceptance criterion asserts text the diff removed from production Go (#2519) or reads from a built-in page (#2695)
 ## make acceptance-check runs only the criteria in acceptance files a diff
 ## changes, and the whole suite runs only in the E2E Nightly. #2498 changed a
 ## refusal issue 2171's criterion still asserted; the nightly after the merge

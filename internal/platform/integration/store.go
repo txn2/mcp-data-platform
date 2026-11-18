@@ -261,13 +261,19 @@ func (s *Store) RunOutcome(ctx context.Context, runID string) (RunOutcome, error
 }
 
 // Apply writes a finished run's statuses, deletes the items it removed, and
-// clears the run in flight, in one transaction.
+// clears the run in flight, in one transaction. It locks the binding row
+// first, the order StartRun and Clear take their locks in (binding, then
+// items): writing the items first deadlocked with a Clear that held the
+// binding and waited on the items (#2691).
 func (s *Store) Apply(ctx context.Context, op string, a Applied) error {
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("applying the %s run: %w", op, err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `SELECT 1 FROM integration_bindings WHERE operation = $1 FOR UPDATE`, op); err != nil {
+		return fmt.Errorf("applying the %s run: %w", op, err)
+	}
 	for key, r := range a.Results {
 		if _, err := tx.ExecContext(ctx, `UPDATE integration_items SET status = $3, message = $4, failed_run = '', checked_at = NOW()
 			WHERE operation = $1 AND item_key = $2 AND NOT removing`, op, key, r.Status, r.Message); err != nil {

@@ -171,3 +171,33 @@ func TestAcceptanceCopyCheck(t *testing.T) {
 		})
 	}
 }
+
+// TestAcceptanceCopyCheckReadsBuiltinPages pins #2695: a criterion that reads
+// a built-in page by path and holds text the diff removed from it fails, as
+// #2558's apex criterion did when #2692 rewrote the page's recipe; one that
+// reads text the page still holds passes.
+func TestAcceptanceCopyCheckReadsBuiltinPages(t *testing.T) {
+	const page = "internal/platform/knowledgebuiltin/pages/public-applications.md"
+	criterion := func(marker string) string {
+		return "package acceptance\n\nconst guide = \"../../internal/platform/knowledgebuiltin/pages/public-applications.md\"\n\n" +
+			"func TestIssue2558_TheApex() { fence(guide, \"" + marker + "\") }\n"
+	}
+	before := "## 9. Hostnames\n\n```text\n/* https://www.store.example/:splat 301\n```\n"
+	after := "## 9. Hostnames\n\nAdd the apex with primary=true and mode=redirect.\n"
+	for _, tc := range []struct {
+		name   string
+		marker string
+		exp    expect
+	}{
+		{"a removed recipe fails", ":splat 301", expect{want: []string{"reads text this diff removed from a built-in page", ":splat 301", page}}},
+		{"text the page still holds passes", "mode=redirect", expect{pass: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			root := newGitRepo(t, acceptanceCopyScriptRelPath, map[string]string{page: before, "test/acceptance/issue_2558_test.go": criterion(tc.marker)})
+			writeFile(t, root, page, after)
+			out, passed := runScript(t, root, []string{acceptanceCopyScriptRelPath}, nil)
+			assertOutput(t, out, passed, tc.exp)
+		})
+	}
+}

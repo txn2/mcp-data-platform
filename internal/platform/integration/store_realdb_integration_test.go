@@ -131,3 +131,52 @@ func TestTriggers_RealDB(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 	}
 }
+
+// TestStore_ApplyAndClearDoNotDeadlock_RealDB pins #2691: a Clear that holds
+// the binding row while a run's Apply arrives deletes the items without
+// deadlocking, because Apply takes the binding first, as Clear does. Before
+// the fix Apply locked the item rows first and the two waited on each other.
+func TestStore_ApplyAndClearDoNotDeadlock_RealDB(t *testing.T) {
+	db := testdb.New(t)
+	ctx := context.Background()
+	scripts := scriptstore.New(db)
+	sc := &script.Script{Name: "ingress-routes", Source: "INTEGRATION = \"site_routing\"\n\ndef route(req):\n    return {}\n", OwnerEmail: "ops@example.com", Enabled: true}
+	require.NoError(t, scripts.Create(ctx, sc, script.Author{Email: "ops@example.com", Roles: []string{"admin"}}))
+	v, err := scripts.GetVersion(ctx, sc.ID, sc.Version)
+	require.NoError(t, err)
+	s := &Store{DB: db}
+	_, err = s.Bind(ctx, OpSiteRouting, sc.ID, 900, "ops@example.com")
+	require.NoError(t, err)
+	spec, _ := SpecOf(OpSiteRouting)
+	item := Item{Key: "a.example.com", Entry: map[string]any{"hostname": "a.example.com"}}
+	req := Request{Reason: ReasonChange, Added: []map[string]any{item.Entry}, Items: []map[string]any{item.Entry}}
+	require.NoError(t, s.StartRun(ctx, OpSiteRouting, NewRun{
+		ID: "run-dl", ScriptID: sc.ID, VersionID: v.ID, Version: v.Version, Approver: "ops@example.com", Roles: []string{"admin"},
+		Call: RunCall(spec, req), Reason: ReasonChange, Added: []Item{item},
+	}))
+
+	// Clear's first step, held open: the binding is locked.
+	clear, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer func() { _ = clear.Rollback() }()
+	_, err = clear.ExecContext(ctx, `DELETE FROM integration_bindings WHERE operation = $1`, OpSiteRouting)
+	require.NoError(t, err)
+
+	applied := make(chan error, 1)
+	go func() {
+		applied <- s.Apply(ctx, OpSiteRouting, Applied{RunID: "run-dl", Results: map[string]ItemResult{item.Key: {Status: StatusReady}}, Status: "succeeded"})
+	}()
+	// Wait until Apply is blocked on a lock, then take Clear's second step.
+	require.Eventually(t, func() bool {
+		var waiting int
+		_ = db.QueryRowContext(ctx, `SELECT count(*) FROM pg_locks WHERE NOT granted`).Scan(&waiting)
+		return waiting > 0
+	}, 10*time.Second, 20*time.Millisecond, "Apply never waited on the binding")
+	_, err = clear.ExecContext(ctx, `DELETE FROM integration_items WHERE operation = $1`, OpSiteRouting)
+	require.NoError(t, err, "Clear deadlocked with Apply")
+	require.NoError(t, clear.Commit())
+	require.NoError(t, <-applied, "Apply after the Clear")
+	var left int
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM integration_items WHERE operation = $1`, OpSiteRouting).Scan(&left))
+	assert.Zero(t, left, "the cleared items stay cleared")
+}
