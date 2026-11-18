@@ -5,11 +5,13 @@ import type {
   ApplicationPartKind,
   ApplicationRelease,
 } from "@/api/portal/hooks/applications";
+import type { ApplicationVariable } from "@/api/portal/hooks/applicationEnvironments";
 import { shopDiagram } from "../data/applicationDiagram";
 import {
   candidateOf,
   mockApplicationBundle,
   mockApplicationDetails,
+  mockApplicationVariables,
   mockPartCatalog,
   partView,
   schemaViewOf,
@@ -27,6 +29,9 @@ import {
 //   GET    /portal/applications/:app/diagram
 //   POST   /portal/applications/import
 //   GET    /portal/application-databases
+//   POST   /portal/applications/:app/environments, PATCH/DELETE .../environments/:env
+//   POST   /portal/applications/:app/environments/:env/promote, .../rollback
+//   GET    /portal/applications/:app/variables, PUT/DELETE .../variables/:name
 
 const BASE = "/api/v1/portal/applications";
 
@@ -37,6 +42,10 @@ const details: Record<string, ApplicationDetail> = JSON.parse(
 function find(ref: string): ApplicationDetail | undefined {
   return details[ref] ?? Object.values(details).find((d) => d.application.name === ref);
 }
+
+const variables: Record<string, ApplicationVariable[]> = JSON.parse(
+  JSON.stringify(mockApplicationVariables),
+) as Record<string, ApplicationVariable[]>;
 
 function problem(status: number, detail: string) {
   return HttpResponse.json({ status, detail }, { status });
@@ -414,5 +423,103 @@ export const applicationHandlers = [
         "Content-Disposition": `attachment; filename="${d.application.name}-release-${release}.json"`,
       },
     });
+  }),
+
+  // Environments (#2696).
+  http.post(`${BASE}/:app/environments/:env/promote`, ({ params }) => {
+    const d = find(String(params.app));
+    if (!d) return notFound(String(params.app));
+    const envs = d.application.environments ?? [];
+    const at = envs.findIndex((e) => e.name === params.env);
+    if (at < 0) return problem(422, `no environment "${String(params.env)}"`);
+    const next = envs[at + 1];
+    if (!next) return problem(422, `${String(params.env)} is the last environment; there is nothing to promote it to`);
+    const src = envs[at]!;
+    if (!src.release) return problem(422, `${src.name} runs no release yet`);
+    const replaced = next.release;
+    next.release = src.release;
+    next.updated_at = now();
+    if (at + 1 === envs.length - 1) d.application.current_release = src.release;
+    return HttpResponse.json({ from: src.name, to: next.name, release: src.release, replaced });
+  }),
+
+  http.post(`${BASE}/:app/environments/:env/rollback`, async ({ params, request }) => {
+    const d = find(String(params.app));
+    if (!d) return notFound(String(params.app));
+    const env = (d.application.environments ?? []).find((e) => e.name === params.env);
+    if (!env) return problem(422, `no environment "${String(params.env)}"`);
+    const body = (await request.json().catch(() => ({}))) as { to_release?: number };
+    const to = body.to_release ?? env.release - 1;
+    const target = d.releases.find((r) => r.number === to);
+    if (!target || to >= env.release) return problem(422, `${env.name} has no earlier release to roll back to`);
+    env.release = to;
+    env.updated_at = now();
+    return HttpResponse.json(target);
+  }),
+
+  http.post(`${BASE}/:app/environments`, async ({ params, request }) => {
+    const d = find(String(params.app));
+    if (!d) return notFound(String(params.app));
+    const body = (await request.json()) as { name: string; after: string; requires_approval: boolean };
+    const envs = d.application.environments ?? [];
+    if (envs.some((e) => e.name === body.name)) return problem(422, `environment "${body.name}" exists`);
+    const at = body.after ? envs.findIndex((e) => e.name === body.after) + 1 : 0;
+    envs.splice(at, 0, {
+      name: body.name,
+      release: 0,
+      requires_approval: body.requires_approval,
+      updated_by: "admin@example.com",
+      updated_at: now(),
+    });
+    d.application.environments = envs;
+    return HttpResponse.json(touch(d));
+  }),
+
+  http.patch(`${BASE}/:app/environments/:env`, async ({ params, request }) => {
+    const d = find(String(params.app));
+    if (!d) return notFound(String(params.app));
+    const env = (d.application.environments ?? []).find((e) => e.name === params.env);
+    if (!env) return problem(422, `no environment "${String(params.env)}"`);
+    env.requires_approval = ((await request.json()) as { requires_approval: boolean }).requires_approval;
+    return HttpResponse.json(touch(d));
+  }),
+
+  http.delete(`${BASE}/:app/environments/:env`, ({ params }) => {
+    const d = find(String(params.app));
+    if (!d) return notFound(String(params.app));
+    d.application.environments = (d.application.environments ?? []).filter((e) => e.name !== params.env);
+    return HttpResponse.json(touch(d));
+  }),
+
+  http.get(`${BASE}/:app/variables`, ({ params }) => {
+    const d = find(String(params.app));
+    if (!d) return notFound(String(params.app));
+    return HttpResponse.json({ variables: variables[d.application.id] ?? [] });
+  }),
+
+  http.put(`${BASE}/:app/variables/:name`, async ({ params, request }) => {
+    const d = find(String(params.app));
+    if (!d) return notFound(String(params.app));
+    const body = (await request.json()) as { environment: string; value: string };
+    const list = (variables[d.application.id] ??= []);
+    const name = String(params.name);
+    const held = list.find((v) => v.name === name && v.environment === body.environment);
+    if (held) {
+      held.value = body.value;
+      held.updated_at = now();
+    } else {
+      list.push({ environment: body.environment, name, value: body.value, updated_by: "admin@example.com", updated_at: now() });
+    }
+    return HttpResponse.json({ variables: list });
+  }),
+
+  http.delete(`${BASE}/:app/variables/:name`, ({ params, request }) => {
+    const d = find(String(params.app));
+    if (!d) return notFound(String(params.app));
+    const env = new URL(request.url).searchParams.get("environment") ?? "";
+    variables[d.application.id] = (variables[d.application.id] ?? []).filter(
+      (v) => !(v.name === params.name && v.environment === env),
+    );
+    return HttpResponse.json({ variables: variables[d.application.id] });
   }),
 ];

@@ -31,7 +31,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/txn2/mcp-data-platform/internal/bgloop"
+	"github.com/txn2/mcp-data-platform/internal/application/appenv"
 	"github.com/txn2/mcp-data-platform/internal/notification/notifyalert"
 	"github.com/txn2/mcp-data-platform/internal/notification/notifychannel"
 	"github.com/txn2/mcp-data-platform/internal/notification/notifyprefs"
@@ -41,6 +41,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptalert"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptincident"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptqueue"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
@@ -94,6 +95,8 @@ type Config struct {
 	Scripts   ScriptReader
 	Versions  VersionReader
 	Schedules script.ScheduleStore
+	// Environments resolves a run's application environment (#2696).
+	Environments appenv.Resolver
 
 	// DSN is the raw database DSN for the LISTEN connection that wakes the
 	// worker the moment a run is enqueued. Empty degrades to poll-only.
@@ -367,7 +370,7 @@ func New(cfg Config) *Handle {
 		return nil
 	}
 	h := &Handle{runs: stores.runs, export: cfg.Export}
-	registerQueueGauges(cfg.Metrics, stores.runs, stores.schedules)
+	scriptqueue.RegisterGauges(cfg.Metrics, stores.runs, stores.schedules)
 	if cfg.WorkerDisabled {
 		slog.Info("scripts: the run worker is off on this replica; queued runs wait for a worker deployment")
 		return h
@@ -396,12 +399,13 @@ func New(cfg Config) *Handle {
 	// does: a replica that will not claim gains nothing by producing rows for
 	// one that will.
 	h.scheduler = newScheduler(schedulerConfig{
-		schedules: stores.schedules,
-		scripts:   stores.scripts,
-		versions:  stores.versions,
-		wake:      h.worker.Notify,
-		metrics:   cfg.Metrics,
-		interval:  materializeEvery(),
+		schedules:    stores.schedules,
+		scripts:      stores.scripts,
+		versions:     stores.versions,
+		environments: cfg.Environments,
+		wake:         h.worker.Notify,
+		metrics:      cfg.Metrics,
+		interval:     materializeEvery(),
 	})
 	if cfg.DSN != "" {
 		h.listener = pglisten.New(cfg.DSN, scriptstore.NotifyChannel, h)
@@ -554,42 +558,4 @@ func (h *Handle) Stop(ctx context.Context) error {
 		h.closer()
 	}
 	return nil
-}
-
-// runQueueReader is the run store's read of its own queue (scriptstore).
-type runQueueReader interface {
-	RunQueueState(ctx context.Context) (scriptstore.QueueState, error)
-}
-
-// dueScheduleReader is the schedule store's read of its due schedules.
-type dueScheduleReader interface {
-	DueScheduleState(ctx context.Context) (int64, time.Duration, error)
-}
-
-// registerQueueGauges installs the samplers background_queue_items and
-// background_queue_oldest_age_seconds read the run queue and the due
-// schedules from (#1897). It runs on every replica, the worker-off ones
-// included: a deployment whose every worker is off is the one whose runs and
-// schedules pile up, and the replica serving the scrape must be able to say so.
-func registerQueueGauges(m *observability.Metrics, runs, schedules any) {
-	if q, ok := runs.(runQueueReader); ok {
-		m.RegisterBackgroundQueue(bgloop.NameScriptWorker, func(ctx context.Context) ([]observability.BackgroundQueueSample, error) {
-			st, err := q.RunQueueState(ctx)
-			if err != nil {
-				return nil, err //nolint:wrapcheck // the store's message names the read
-			}
-			return []observability.BackgroundQueueSample{{
-				Pending: st.Pending, Running: st.Running, Waiting: st.Waiting, OldestAge: st.OldestDue,
-			}}, nil
-		})
-	}
-	if s, ok := schedules.(dueScheduleReader); ok {
-		m.RegisterBackgroundQueue(bgloop.NameScriptScheduler, func(ctx context.Context) ([]observability.BackgroundQueueSample, error) {
-			due, oldest, err := s.DueScheduleState(ctx)
-			if err != nil {
-				return nil, err //nolint:wrapcheck // the store's message names the read
-			}
-			return []observability.BackgroundQueueSample{{Pending: due, OldestAge: oldest}}, nil
-		})
-	}
 }

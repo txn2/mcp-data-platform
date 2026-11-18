@@ -85,6 +85,10 @@ type SetRequest struct {
 	Args     map[string]any `json:"args,omitempty"`
 	// EventSource is a webhook handler's source.
 	EventSource string `json:"event_source,omitempty" example:"form-contact"`
+	// Environment is the application environment a schedule's or webhook
+	// handler's runs execute in (#2696); left out, a new one runs in the
+	// last and a changed one keeps its own.
+	Environment string `json:"environment,omitempty" example:"dev"`
 	// The tool-call kinds' settings (policy, transform, watch; #2436): each
 	// left out keeps its value on a change. Connection is the connection
 	// setting endpoints share.
@@ -121,6 +125,10 @@ type ScriptHandlers struct {
 	Sources []string `json:"sources"`
 	// MaxPerKind is how many handlers of one kind a script may hold.
 	MaxPerKind int `json:"max_per_kind" example:"20"`
+	// Environments are the environments of the application holding the
+	// script, in promotion order, that a schedule or webhook handler may
+	// run in (#2696); empty for a script no application holds.
+	Environments []string `json:"environments"`
 }
 
 // HandlerList is one page of handlers.
@@ -219,6 +227,9 @@ func (h *Handler) scriptHandlers(ctx context.Context, sc *script.Script, c scrip
 	if out.Sources, err = svc.SourceNames(ctx, c); err != nil {
 		return nil, err //nolint:wrapcheck // the service's error is read by identity
 	}
+	if out.Environments, err = svc.EnvironmentNames(ctx, sc.ID); err != nil {
+		return nil, err //nolint:wrapcheck // the service's error is read by identity
+	}
 	return out, nil
 }
 
@@ -236,6 +247,7 @@ func setRequest(c scripthandler.Caller, sc *script.Script, body SetRequest) scri
 	req := scripthandler.SetRequest{
 		Caller: c, Script: sc, Kind: body.Kind, Endpoint: body.Input, TimeoutSeconds: body.TimeoutSeconds,
 		Cron: body.Cron, Timezone: body.Timezone, Args: body.Args, EventSource: body.EventSource, Approve: body.Approve,
+		Environment: body.Environment,
 		Call: callhandler.Patch{
 			Operations: body.Operations, Personas: body.Personas, Users: body.Users, Everyone: body.Everyone, Conditions: body.Conditions,
 			TimeoutMS: body.TimeoutMS, OnFailure: body.OnFailure, ItemsPath: body.ItemsPath, Writes: body.Writes,

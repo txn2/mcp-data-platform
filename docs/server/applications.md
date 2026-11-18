@@ -61,6 +61,24 @@ A release that cannot be made changes nothing:
 
 `rollback` restores the pins of an earlier release (`to_release`, or the one before the current release) and records itself as a new release. It reverts the migrations applied since that release when every one of them has a down migration; when one has none it reverts none and says which (`changes.migrations_kept`). `releases` lists every release, newest first, with its pins and changes.
 
+## Environments and variables
+
+An application runs in ordered environments (#2696). `manage_application create` makes one, `prod`, so its releases go live as they always have; `add_environment` with `environment: "dev"` and no `after` puts dev first. The portal's New application dialog (and `POST /api/v1/portal/applications` with `environments`, for example `["dev", "prod"]`) creates them at once, filled in with `dev, prod`. Each environment records the release it runs:
+
+- `release` lands in the first environment;
+- `promote` with `environment` copies that environment's release to the next one;
+- `rollback` with `environment` moves that environment back one release, or to `to_release`. With no `environment` it rolls back the last, as before.
+
+The last environment is what `/endpoints/<name>`, the page origin and every schedule or webhook handler naming no environment run. `scripts.released_version` and `portal_assets.released_version` hold its pins, so everything that names no environment behaves as it did before environments. Another environment's endpoints answer at `/environments/<env>/endpoints/<name>/...` with the same binding, access mode and limits, running the version its release pins. An environment running no release answers 404 there. A schedule or webhook handler names the environment its runs execute in with `manage_script handler_environment` (`handler`, `environment`), or the Environment field on the script's handler forms. A queued run records its environment in `script_runs.environment`. Assets are served at the last environment's pins.
+
+`add_environment` puts one after another (`after`; none puts it first), never after the last. `remove_environment` removes one other than the last, with its variables. `requires_approval` (on `add_environment` or `set_environment`) makes an agent's `promote` or `rollback` into that environment refused with `APPROVAL_REQUIRED`: a person carries it out with Promote or Roll back on the application's page. Environments are an administrator's to change, promote and roll back.
+
+Every environment uses the application's schema. Its migrations move with the first environment: a release applies them, and a rollback there reverts them; a promote, or a rollback in a later environment, leaves the schema alone. A schema per environment is not offered: an application's migrations name its schema and its `<schema>_write` role.
+
+**Variables** are `NAME=value` per environment, plus application-wide defaults (no `environment`). A script reads them with `platform.env("NAME", default=None)`: the environment's own value, else the default, else `default`. `platform.environment()` names the environment, or None for a script no application holds. A change takes effect on the next run; no release is needed. `set_variable`, `delete_variable` and `variables` on `manage_application`, the portal's Variables table and `GET`/`PUT`/`DELETE /api/v1/portal/applications/{app}/variables[/{name}]` are the application owner's and administrators'. A name is uppercase letters, digits and underscores, at most 64; a value is at most 8 KiB.
+
+A value is plain text, shown to the owner and administrators and recorded in the call's audit row like any other argument. Never put a secret's value in a variable. To use one, store it in Admin > Secrets and write `{{secret:<name>}}` as the value: the script reads the placeholder as written, and the API gateway fills it only when a request carrying it is sent through a connection the secret's `allow_connections` lists. The answer is redacted as for any stored secret, so the script, its run, its recording and the audit never hold the value.
+
 ## Export and import
 
 `export` (an administrator) writes a release as a bundle, a JSON managed resource in the caller's library at `applications/<name>/<name>-release-<n>.json`:

@@ -14,6 +14,7 @@ import {
   type Cadence,
 } from "./cadence";
 import { formatWhen } from "./runFormat";
+import { EnvironmentField } from "./HandlerEnvironment";
 import { ScheduleBuilder } from "./ScheduleBuilder";
 import {
   boundParams,
@@ -70,6 +71,13 @@ export function ScheduleHandler({ scriptId, contract, schedule, onDone }: Props)
           saved={schedule && { cron: schedule.cron_spec, timezone: schedule.timezone }}
           onCadenceChange={(cadence) => setDraft({ ...current, cadence })}
           onTimezoneChange={(timezone) => setDraft({ ...current, timezone })}
+        />
+
+        <EnvironmentField
+          id={`${form}-environment`}
+          value={current.environment}
+          disabled={busy}
+          onChange={(environment) => setDraft({ ...current, environment })}
         />
 
         <ScriptParameterForm
@@ -133,6 +141,7 @@ function useScheduleActions(
         cron: toCron(current.cadence),
         timezone: current.timezone.trim(),
         args: boundParams(params, current.values),
+        ...(current.environment ? { environment: current.environment } : {}),
       },
       {
         onError: fail,
@@ -237,6 +246,7 @@ interface Draft {
   cadence: Cadence;
   timezone: string;
   values: Values;
+  environment: string;
 }
 
 // draftOf seeds the form from the stored schedule, so editing one starts from
@@ -248,6 +258,7 @@ function draftOf(schedule: ScriptSchedule | null): Draft {
     cadence: schedule ? fromCron(schedule.cron_spec) : DEFAULT_CADENCE,
     timezone: schedule?.timezone || defaultTimezone(),
     values: valuesFrom(schedule?.params),
+    environment: schedule?.environment ?? "",
   };
 }
 

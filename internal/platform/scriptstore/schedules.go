@@ -29,7 +29,7 @@ const defaultDueLimit = 100
 // mirrored by scanSchedule so the scan order cannot drift from the query.
 const scheduleColumns = `id, script_id, cron_spec, timezone, params, enabled,
 	next_run_at, last_fire_at, missed_fires, created_by, updated_by,
-	created_at, updated_at`
+	created_at, updated_at, environment`
 
 // scheduleSelect is the base SELECT for the schedule columns.
 const scheduleSelect = "SELECT " + scheduleColumns + " FROM script_schedules"
@@ -41,7 +41,7 @@ func scanSchedule(sc rowScanner) (*script.Schedule, error) {
 	var nextRunAt sql.NullTime
 	err := sc.Scan(&s.ID, &s.ScriptID, &s.CronSpec, &s.Timezone, &paramsJSON, &s.Enabled,
 		&nextRunAt, &s.LastFireAt, &s.MissedFires, &s.CreatedBy, &s.UpdatedBy,
-		&s.CreatedAt, &s.UpdatedAt)
+		&s.CreatedAt, &s.UpdatedAt, &s.Environment)
 	if err != nil {
 		return nil, fmt.Errorf("scanning script schedule row: %w", err)
 	}
@@ -67,11 +67,11 @@ func (s *Store) SetSchedule(ctx context.Context, sched *script.Schedule) error {
 	if sched.ID == "" {
 		row := s.db.QueryRowContext(ctx, `
 			INSERT INTO script_schedules (script_id, cron_spec, timezone, params, enabled,
-			                              next_run_at, created_by, updated_by)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+			                              next_run_at, created_by, updated_by, environment)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8)
 			RETURNING id, created_at, updated_at`,
 			sched.ScriptID, sched.CronSpec, sched.Timezone, params, sched.Enabled,
-			orNilTime(sched.NextRunAt), sched.UpdatedBy)
+			orNilTime(sched.NextRunAt), sched.UpdatedBy, sched.Environment)
 		if err := row.Scan(&sched.ID, &sched.CreatedAt, &sched.UpdatedAt); err != nil {
 			return fmt.Errorf("create script schedule: %w", err)
 		}
@@ -80,11 +80,11 @@ func (s *Store) SetSchedule(ctx context.Context, sched *script.Schedule) error {
 	row := s.db.QueryRowContext(ctx, `
 		UPDATE script_schedules
 		   SET cron_spec = $3, timezone = $4, params = $5, enabled = $6,
-		       next_run_at = $7, updated_by = $8, updated_at = NOW()
+		       next_run_at = $7, updated_by = $8, environment = $9, updated_at = NOW()
 		 WHERE id = $1 AND script_id = $2
 		RETURNING created_by, created_at, updated_at`,
 		sched.ID, sched.ScriptID, sched.CronSpec, sched.Timezone, params, sched.Enabled,
-		orNilTime(sched.NextRunAt), sched.UpdatedBy)
+		orNilTime(sched.NextRunAt), sched.UpdatedBy, sched.Environment)
 	err = row.Scan(&sched.CreatedBy, &sched.CreatedAt, &sched.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return script.ErrScheduleNotFound
@@ -283,14 +283,14 @@ func (s *Store) insertScheduledRun(ctx context.Context, r *script.Run, status st
 	row := s.db.QueryRowContext(ctx, `
 		INSERT INTO script_runs (id, script_id, script_version_id, version, trigger_kind,
 		                         status, params, requested_by, fire_time, scheduled_for,
-		                         schedule_id, error, finished_at, state_revision, state_read, exclusive, queued)
+		                         schedule_id, error, finished_at, state_revision, state_read, exclusive, queued, environment)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10, $11,
 		        CASE WHEN $6 = 'skipped_overlap' THEN NOW() END,
-		        `+StateAtCreation+`, `+exclusiveAtCreation+`, `+queuedAtCreation+`)
+		        `+StateAtCreation+`, `+exclusiveAtCreation+`, `+queuedAtCreation+`, $12)
 		ON CONFLICT DO NOTHING
 		RETURNING state_revision, state_read, created_at, updated_at`,
 		r.ID, r.ScriptID, r.VersionID, r.Version, script.TriggerSchedule,
-		status, params, r.RequestedBy, r.FireTime, r.ScheduleID, skipReason(status, r.Error))
+		status, params, r.RequestedBy, r.FireTime, r.ScheduleID, skipReason(status, r.Error), r.Environment)
 	err = row.Scan(&r.StateRevision, &stateRead, &r.CreatedAt, &r.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil

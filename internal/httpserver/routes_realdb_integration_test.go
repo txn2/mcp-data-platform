@@ -60,7 +60,7 @@ var routesUnmountedHere = []struct {
 	{regexp.MustCompile(`/calls/\{id\}/(promote|reject)$`), "callapi.Register: no call promoter"},
 	{regexp.MustCompile(`^(GET|POST|DELETE) /api/v1/(tables|table-connections|(portal/assets|resources)/\{id\}/tables)`), "mountTableAPI: the table registrar needs a Trino connection and an object store; the test platform has neither"},
 	{regexp.MustCompile(`^(GET|POST) /api/v1/admin/tables/`), "mountTableAdmin: the table registrar needs a Trino connection and an object store; the test platform has neither"},
-	{regexp.MustCompile(`^/endpoints/`), "endpointwire.Mount: endpoints are assembled by Platform.Start with the script layer, which this test does not run"},
+	{regexp.MustCompile(`^/(environments/\{env\}/)?endpoints/`), "endpointwire.Mount: endpoints, in every application environment (#2696), are assembled by Platform.Start with the script layer, which this test does not run"},
 	{regexp.MustCompile(`^(GET|OPTIONS) /botcheck/`), "endpointwire.Mount: endpoints are assembled by Platform.Start with the script layer, which this test does not run"},
 	{regexp.MustCompile(`^GET /forms/`), "endpointwire.Mount: a form's page is mounted with the endpoints, which Platform.Start assembles with the script layer, which this test does not run"},
 	{regexp.MustCompile(`^(GET|POST) /endpoints/_preview/\{id\}$`), "endpointwire.mountPreviews: a form's preview is answered with the endpoints, which Platform.Start assembles with the script layer, which this test does not run"},

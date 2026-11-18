@@ -262,19 +262,13 @@ func (h *Handle) IndexProducer() *indexjobs.Producer {
 // the caller's email, their user id when the credential carries no email, and
 // "anonymous" only when there is no identity at all.
 //
-// The user-id fallback is load-bearing rather than cosmetic. An OIDC token
-// without an email claim leaves UserEmail empty, so falling straight through to
-// the "anonymous" sentinel would give every such caller the SAME owner string,
-// and a script is exactly as private as that comparison is specific:
-// two different people would read, edit, and run each other's scripts. A user
-// id is distinct per caller wherever a credential identifies one at all.
+// The user-id fallback is load-bearing: an OIDC token with no email claim
+// would otherwise give every such caller the same "anonymous" owner string,
+// and two people would read, edit and run each other's scripts.
 //
-// "anonymous" therefore means what it says — no identity was presented — which
-// is the single-caller deployment with no authenticator configured, where one
-// owner string is the whole population. A script left owned by that string in a
-// deployment that later starts identifying its callers matches nobody but an
-// admin, which is the fail-closed answer for a record whose owner cannot be
-// established.
+// "anonymous" means no identity was presented (a deployment with no
+// authenticator); a script owned by it matches nobody but an admin once callers
+// are identified, which fails closed.
 func resolveEmail(ctx context.Context) string {
 	pc := middleware.GetPlatformContext(ctx)
 	if pc != nil && pc.UserEmail != "" {

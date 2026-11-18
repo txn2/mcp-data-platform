@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/txn2/mcp-data-platform/internal/application/appstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/integration"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -127,6 +128,9 @@ func Build(deps Deps) *Endpoints {
 		Bindings: bindings, Scripts: scripts, Server: deps.Server, Audit: deps.Audit, Metrics: deps.Metrics,
 		Subjects: deps.Subjects, Limits: deps.Limits, Destinations: deps.Destinations,
 		Libraries: libraries(scripts, deps.Sources), Tokens: tokens, FormKey: epform.Key(deps.Key),
+		// An application endpoint runs in an environment and reads its
+		// variables (#2696).
+		Environments: appstore.New(deps.DB),
 	}
 	approvalStore := approval.NewPostgresStore(deps.DB)
 	approvals := &approval.Service{Store: approvalStore, Scripts: scripts, IsForm: epform.DefinesSource, Allowances: approvalStore}

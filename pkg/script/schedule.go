@@ -116,6 +116,9 @@ type Schedule struct {
 	UpdatedBy string    `json:"updated_by,omitempty" example:"jane@example.com"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+	// Environment is the application environment the schedule's runs
+	// execute in, empty for the last (#2696).
+	Environment string `json:"environment,omitempty" example:"dev"`
 }
 
 // DueAt reports when this schedule's next fire is due, and the zero time when

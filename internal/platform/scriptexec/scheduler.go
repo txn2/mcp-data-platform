@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/application/appenv"
 	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
@@ -62,9 +63,10 @@ const logKeyScheduleID = "schedule_id"
 
 // schedulerConfig is what materializing due schedules needs.
 type schedulerConfig struct {
-	schedules script.ScheduleStore
-	scripts   ScriptReader
-	versions  VersionReader
+	schedules    script.ScheduleStore
+	scripts      ScriptReader
+	versions     VersionReader
+	environments appenv.Resolver // #2696
 	// wake nudges the local run worker after a run is materialized, so a fire
 	// starts executing now rather than on the worker's next poll.
 	wake func()
@@ -225,7 +227,7 @@ func (s *scheduler) materialize(ctx context.Context, sched *script.Schedule, now
 // produce one. Every refusal is logged, because a schedule that stops producing
 // without saying why is the failure this whole surface exists to prevent.
 func (s *scheduler) buildRun(ctx context.Context, sched *script.Schedule, fire time.Time, cronSpec script.Cron) *script.Run {
-	sc, v, err := s.current(ctx, sched.ScriptID)
+	sc, v, err := s.current(ctx, sched)
 	if err != nil {
 		refuse(sched, err)
 		return nil
@@ -249,6 +251,7 @@ func (s *scheduler) buildRun(ctx context.Context, sched *script.Schedule, fire t
 		// version author's captured roles.
 		RequestedBy: sched.CreatedBy,
 		FireTime:    fire, ScheduledFor: fire,
+		Environment: sched.Environment,
 	}
 	// The one gate, asked the same question the worker will ask it again at
 	// execution. Asking here too keeps a schedule from filling the queue with
@@ -260,17 +263,21 @@ func (s *scheduler) buildRun(ctx context.Context, sched *script.Schedule, fire t
 	return run
 }
 
-// current resolves the script a schedule names and its latest saved version,
-// which is the version a fire executes.
-func (s *scheduler) current(ctx context.Context, scriptID string) (*script.Script, *script.Version, error) {
-	sc, err := s.cfg.scripts.GetByID(ctx, scriptID)
+// current resolves the script a schedule names and the version a fire
+// executes in the schedule's environment (#2696).
+func (s *scheduler) current(ctx context.Context, sched *script.Schedule) (*script.Script, *script.Version, error) {
+	sc, err := s.cfg.scripts.GetByID(ctx, sched.ScriptID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("reading the script failed: %w", err)
 	}
 	if sc == nil {
 		return nil, nil, errors.New("the script this schedule belongs to no longer exists")
 	}
-	v, err := s.cfg.versions.GetVersion(ctx, sc.ID, sc.RunVersion())
+	version, err := appenv.RunVersionIn(ctx, s.cfg.environments, sc, sched.Environment)
+	if err != nil {
+		return nil, nil, err //nolint:wrapcheck // the resolver's sentence is the refusal
+	}
+	v, err := s.cfg.versions.GetVersion(ctx, sc.ID, version)
 	if err != nil {
 		return nil, nil, fmt.Errorf("reading the script's current version failed: %w", err)
 	}

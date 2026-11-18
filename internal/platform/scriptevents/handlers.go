@@ -16,14 +16,17 @@ var ErrHandlerNotFound = errors.New("no such webhook handler")
 // Handler is one webhook handler (#2434): each event the source stores
 // enqueues one run of the script while it is enabled.
 type Handler struct {
-	ID        string    `json:"id"`
-	ScriptID  string    `json:"script_id"`
-	Source    string    `json:"event_source"`
-	Enabled   bool      `json:"enabled"`
-	CreatedBy string    `json:"created_by"`
-	UpdatedBy string    `json:"updated_by"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID       string `json:"id"`
+	ScriptID string `json:"script_id"`
+	Source   string `json:"event_source"`
+	Enabled  bool   `json:"enabled"`
+	// Environment is the application environment its runs execute in,
+	// empty for the last (#2696).
+	Environment string    `json:"environment,omitempty"`
+	CreatedBy   string    `json:"created_by"`
+	UpdatedBy   string    `json:"updated_by"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // HandlerFilter selects webhook handlers. A nil ScriptIDs matches every
@@ -33,11 +36,11 @@ type HandlerFilter struct {
 	Source    string
 }
 
-const handlerColumns = `id, script_id, source, enabled, created_by, updated_by, created_at, updated_at`
+const handlerColumns = `id, script_id, source, enabled, created_by, updated_by, created_at, updated_at, environment`
 
 func scanHandler(row interface{ Scan(...any) error }) (Handler, error) {
 	var h Handler
-	err := row.Scan(&h.ID, &h.ScriptID, &h.Source, &h.Enabled, &h.CreatedBy, &h.UpdatedBy, &h.CreatedAt, &h.UpdatedAt)
+	err := row.Scan(&h.ID, &h.ScriptID, &h.Source, &h.Enabled, &h.CreatedBy, &h.UpdatedBy, &h.CreatedAt, &h.UpdatedAt, &h.Environment)
 	return h, err //nolint:wrapcheck // each caller says what it was reading
 }
 
@@ -50,7 +53,7 @@ func (s *PostgresStore) AddHandler(ctx context.Context, scriptID, source, actor 
 		ON CONFLICT (script_id, source) DO UPDATE
 		   SET enabled = TRUE, updated_by = EXCLUDED.updated_by, updated_at = NOW()
 		RETURNING `+handlerColumns+`, (xmax = 0)`, scriptID, source, actor)
-	err = row.Scan(&h.ID, &h.ScriptID, &h.Source, &h.Enabled, &h.CreatedBy, &h.UpdatedBy, &h.CreatedAt, &h.UpdatedAt, &created)
+	err = row.Scan(&h.ID, &h.ScriptID, &h.Source, &h.Enabled, &h.CreatedBy, &h.UpdatedBy, &h.CreatedAt, &h.UpdatedAt, &h.Environment, &created)
 	if err != nil {
 		return Handler{}, false, fmt.Errorf("binding script %s to webhook source %s: %w", scriptID, source, err)
 	}
@@ -118,6 +121,35 @@ func (s *PostgresStore) DeleteHandler(ctx context.Context, id string) error {
 		return fmt.Errorf("deleting webhook handler %s: %w", id, err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrHandlerNotFound
+	}
+	return nil
+}
+
+// HandlerEnvironment is the environment the script's handler for source
+// names, "" for the last or for no handler.
+func (s *PostgresStore) HandlerEnvironment(ctx context.Context, scriptID, source string) (string, error) {
+	var env string
+	err := s.db.QueryRowContext(ctx, `SELECT environment FROM script_webhook_handlers
+		 WHERE script_id = $1 AND source = $2`, scriptID, source).Scan(&env)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("reading webhook handler environment: %w", err)
+	}
+	return env, nil
+}
+
+// SetHandlerEnvironment changes the environment a webhook handler's runs
+// execute in (#2696).
+func (s *PostgresStore) SetHandlerEnvironment(ctx context.Context, id, env, actor string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE script_webhook_handlers
+		   SET environment = $2, updated_by = $3, updated_at = NOW() WHERE id = $1`, id, env, actor)
+	if err != nil {
+		return fmt.Errorf("setting webhook handler environment: %w", err)
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
 		return ErrHandlerNotFound
 	}
 	return nil

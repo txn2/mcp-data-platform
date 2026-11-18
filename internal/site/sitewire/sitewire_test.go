@@ -76,6 +76,7 @@ func expectOwningApplication(mock sqlmock.Sqlmock, name string) {
 		"created_by", "created_at", "updated_at", "schema_adopted_version", "schema_added_by", "schema_added_at", "contract_version",
 	}).AddRow("app_1", name, "", "jane@example.com", "", "", 0, "jane@example.com", now, now, 0, "", nil, 0))
 	mock.ExpectQuery("SELECT kind, part_id").WillReturnRows(sqlmock.NewRows([]string{"kind", "part_id", "added_by", "added_at", "release_mode"}))
+	mock.ExpectQuery("FROM application_environments").WillReturnRows(sqlmock.NewRows([]string{"name", "release", "requires_approval", "updated_by", "updated_at"}))
 }
 
 func TestPageAllowed_NoPagesDomain(t *testing.T) {
@@ -566,6 +567,7 @@ func expectApplicationNamed(mock sqlmock.Sqlmock, query, name string) {
 		"created_by", "created_at", "updated_at", "schema_adopted_version", "schema_added_by", "schema_added_at", "contract_version",
 	}).AddRow("app_1", name, "", "jane@example.com", "", "", 0, "jane@example.com", now, now, 0, "", nil, 0))
 	mock.ExpectQuery("SELECT kind, part_id").WillReturnRows(sqlmock.NewRows([]string{"kind", "part_id", "added_by", "added_at", "release_mode"}))
+	mock.ExpectQuery("FROM application_environments").WillReturnRows(sqlmock.NewRows([]string{"name", "release", "requires_approval", "updated_by", "updated_at"}))
 }
 
 func TestPageAddress(t *testing.T) {

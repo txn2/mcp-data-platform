@@ -21,7 +21,7 @@ import (
 var scheduleSelectColumns = []string{
 	"id", "script_id", "cron_spec", "timezone", "params", "enabled",
 	"next_run_at", "last_fire_at", "missed_fires", "created_by", "updated_by",
-	"created_at", "updated_at",
+	"created_at", "updated_at", "environment",
 }
 
 // scheduleRow returns one full schedule row in scheduleColumns order.
@@ -33,7 +33,7 @@ func scheduleRow(nextRunAt any) []driver.Value {
 		"sched_1", "script_1", "0 7 * * 1-5", "America/Los_Angeles",
 		[]byte(`{"report_date":"${fire_date}"}`), true,
 		nextRunAt, nil, 0, "jane@example.com", "jane@example.com",
-		rowTime, rowTime,
+		rowTime, rowTime, "",
 	}
 }
 
@@ -51,7 +51,7 @@ func TestScheduleColumnsMatchTheScanOrder(t *testing.T) {
 func TestSetSchedule_CreatesWhenTheIDIsEmpty(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectQuery(`^\s*INSERT INTO script_schedules[^;]*RETURNING id, created_at, updated_at\s*$`).
-		WithArgs("script_1", "@daily", "UTC", []byte(`{}`), true, rowTime, "jane@example.com").
+		WithArgs("script_1", "@daily", "UTC", []byte(`{}`), true, rowTime, "jane@example.com", "").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).
 			AddRow("sched_1", rowTime, rowTime))
 
@@ -75,7 +75,7 @@ func TestSetSchedule_ReplacesTheScheduleWithItsID(t *testing.T) {
 	t.Run("replaces and keeps the creation stamp", func(t *testing.T) {
 		s, mock := newMock(t)
 		mock.ExpectQuery(update).
-			WithArgs("sched_1", "script_1", "@hourly", "UTC", []byte(`{}`), false, rowTime, "joe@example.com").
+			WithArgs("sched_1", "script_1", "@hourly", "UTC", []byte(`{}`), false, rowTime, "joe@example.com", "").
 			WillReturnRows(sqlmock.NewRows([]string{"created_by", "created_at", "updated_at"}).
 				AddRow("jane@example.com", created, rowTime))
 
@@ -116,7 +116,7 @@ func TestSetSchedule_ReplacesTheScheduleWithItsID(t *testing.T) {
 func TestSetSchedule_AZeroNextFireBindsNull(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO script_schedules")).
-		WithArgs("script_1", "@daily", "UTC", []byte(`{}`), true, nil, "").
+		WithArgs("script_1", "@daily", "UTC", []byte(`{}`), true, nil, "", "").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).
 			AddRow("sched_1", rowTime, rowTime))
 
@@ -367,7 +367,7 @@ func TestMaterializeRun(t *testing.T) {
 		mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO script_runs")).
 			WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
 				script.RunStatusSkippedOverlap, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-				"another run of this script was still open when this fire came due, so this fire was skipped").
+				"another run of this script was still open when this fire came due, so this fire was skipped", "").
 			WillReturnRows(sqlmock.NewRows(materializeReturning))
 
 		outcome, err := s.MaterializeRun(context.Background(), materializing())

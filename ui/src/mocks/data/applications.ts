@@ -1,3 +1,4 @@
+import type { ApplicationVariable } from "@/api/portal/hooks/applicationEnvironments";
 import type {
   Application,
   ApplicationCandidate,
@@ -34,6 +35,10 @@ export const mockApplications: Application[] = [
       { kind: "source", id: "billing-events", added_by: "admin@example.com", added_at: "2025-01-15T14:00:00Z" },
       { kind: "schema", id: "acme-shop/shop", added_by: "sarah.chen@example.com", added_at: "2025-01-10T09:00:00Z" },
     ],
+    environments: [
+      { name: "dev", release: 3, requires_approval: false, updated_by: "sarah.chen@example.com", updated_at: "2025-01-22T16:30:00Z" },
+      { name: "prod", release: 3, requires_approval: true, updated_by: "admin@example.com", updated_at: "2025-01-22T16:30:00Z" },
+    ],
   },
   {
     id: "app-intake",
@@ -49,6 +54,9 @@ export const mockApplications: Application[] = [
     updated_at: "2025-01-20T10:00:00Z",
     parts: [
       { kind: "script", id: "script-004", added_by: "j.martinez@example.com", added_at: "2025-01-20T10:02:00Z" },
+    ],
+    environments: [
+      { name: "prod", release: 0, requires_approval: false, updated_by: "j.martinez@example.com", updated_at: "2025-01-20T10:00:00Z" },
     ],
   },
 ];
@@ -244,4 +252,14 @@ export const mockApplicationBundle = {
     sources: ["billing-events"],
     bot_checks: [],
   },
+};
+
+/** The shop application's variables (#2696). */
+export const mockApplicationVariables: Record<string, ApplicationVariable[]> = {
+  "app-shop": [
+    { environment: "", name: "API_BASE", value: "https://sandbox.pay.example.com", updated_by: "sarah.chen@example.com", updated_at: "2025-01-20T10:00:00Z" },
+    { environment: "prod", name: "API_BASE", value: "https://pay.example.com", updated_by: "admin@example.com", updated_at: "2025-01-21T10:00:00Z" },
+    { environment: "dev", name: "PROCESSOR_KEY", value: "{{secret:processor-sandbox}}", updated_by: "sarah.chen@example.com", updated_at: "2025-01-20T10:00:00Z" },
+    { environment: "prod", name: "PROCESSOR_KEY", value: "{{secret:processor-live}}", updated_by: "admin@example.com", updated_at: "2025-01-21T10:00:00Z" },
+  ],
 };

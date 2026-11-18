@@ -409,24 +409,18 @@ WHAT IS AVAILABLE
       deadline, the run_timeout it is halted at. The way to budget a long
       run: stop and checkpoint before the deadline instead of adding up
       duration_ms, which leaves out exports, registrations, retry waits and
-      the interpreter's own time:
-        if platform.remaining_ms() < 60000:
-            platform.checkpoint({"synced_through": mark})
-            return
+      the interpreter's own time.
       Each value is recorded with the run, so a test replays it exactly, and
       testing.set_run(remaining_ms=) sets it in a test.
+  platform.env(name, default=None)  The application variable name for the
+      run's environment (its own value, else the default), else default.
+      {{secret:<name>}} in it is filled only when sent through a connection
+      the secret allows. platform.environment() names the environment
+      (None outside an application).
   platform.sleep(seconds)  Wait, at most 60 seconds per call (a number,
-      fractions allowed). It is how a script polls something slow -- a job,
-      a report, a page an upstream is building -- with short calls instead
-      of one call held open until the upstream answers. A wait that would
-      pass the run's deadline is refused before it starts, so check the
-      time left first, and bound the loop by range():
-        for _ in range(30):
-            if poll()["state"] == "ready":
-                break
-            if platform.remaining_ms() < 15000:
-                fail("not ready in time")
-            platform.sleep(10)
+      fractions allowed), to poll something slow with short calls. A wait
+      past the run's deadline is refused before it starts, so check
+      platform.remaining_ms() first and bound the loop by range().
       A test and a replay do not wait: the call returns at once and is not
       recorded, so a test of a polling script runs in no time.
   platform.result(value)  Hand one JSON value back to whoever ran the script:

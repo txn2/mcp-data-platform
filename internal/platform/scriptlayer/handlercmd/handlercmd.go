@@ -39,11 +39,14 @@ const (
 	// Test asks what every tool-call handler on a connection would make of
 	// a call, without sending it (#2436).
 	Test = "handler_test"
+	// Environment points a schedule or webhook handler at the application
+	// environment its runs execute in (#2696).
+	Environment = "handler_environment"
 )
 
 // Commands is every handler command, in the order the schema lists them,
 // with form_preview, which opens an endpoint form's preview.
-var Commands = []string{Set, List, Get, Enable, Disable, Delete, Test, epcmd.CmdFormPreview}
+var Commands = []string{Set, List, Get, Enable, Disable, Delete, Test, Environment, epcmd.CmdFormPreview}
 
 // Removed are the commands the handler commands replaced, with what replaces
 // each: a call to one is refused naming it, and none is an alias.

@@ -47,6 +47,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptenv"
+
 	"go.starlark.net/lib/json"
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
@@ -233,6 +235,11 @@ type Options struct {
 	// that has never saved any. It is an input of the run exactly as Params
 	// are, pinned by the caller and never read here.
 	State map[string]any
+
+	// Environment and Variables are the run's application environment and
+	// its variables (#2696, scriptenv).
+	Environment string
+	Variables   map[string]string
 
 	// Event is the webhook event an event run was enqueued for (#2332),
 	// handed to the script as run.event; nil, run.event is None.
@@ -783,6 +790,8 @@ func predeclared(host *hostState) starlark.StringDict {
 				"save_state":       starlark.NewBuiltin(CapabilitySaveState, host.guarded(host.saveState)),
 				"checkpoint":       starlark.NewBuiltin(CapabilityCheckpoint, host.guarded(host.checkpoint)),
 				"remaining_ms":     starlark.NewBuiltin(CapabilityRemainingMS, host.guarded(clock.RemainingMS)),
+				"env":              scriptenv.Env(host.opts.Variables),
+				"environment":      scriptenv.Environment(host.opts.Environment),
 				"sleep":            starlark.NewBuiltin(scriptpace.SleepCapability, host.guarded(clock.Sleep)),
 				"notify":           starlark.NewBuiltin(CapabilityNotify, host.guarded(host.notify)),
 				"publish":          starlark.NewBuiltin(CapabilityPublish, host.guarded(host.publish)),

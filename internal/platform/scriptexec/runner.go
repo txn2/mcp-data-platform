@@ -11,6 +11,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/application/appenv"
 	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/platform/integration"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
@@ -80,7 +81,8 @@ type runner struct {
 	// wrote (#1922); nil records none.
 	lineage *sqllineage.Scripts
 	// tokens answers platform.mint_token and platform.verify_token (#2175).
-	tokens *scripttoken.Issuer
+	tokens       *scripttoken.Issuer
+	environments appenv.Resolver // #2696; nil runs outside any
 }
 
 // newRunner builds the executor the worker drives.
@@ -90,7 +92,7 @@ func newRunner(runs script.RunStore, cfg Config) *runner {
 		audit: cfg.Audit, destinations: cfg.Destinations, subjects: cfg.Subjects,
 		portalURL: cfg.PortalURL, limits: cfg.Limits.WithDefaults(),
 		reportEvery: liveReportEvery, recordings: cfg.Recordings, libraries: cfg.libraries(), sources: cfg.Sources,
-		lineage: cfg.Lineage, tokens: cfg.Tokens,
+		lineage: cfg.Lineage, tokens: cfg.Tokens, environments: cfg.Environments,
 	}
 }
 
@@ -142,6 +144,9 @@ func (r *runner) execute(ctx context.Context, run *script.Run, sc *script.Script
 	opts.Event = run.Event
 	// The call a watch run was queued for (#2635).
 	opts.Call = run.Call
+	if opts.Environment, opts.Variables, err = appenv.ForRun(ctx, r.environments, run.ScriptID, run.Environment); err != nil {
+		return *retryable("reading the run's environment " + run.Environment + " failed: " + err.Error()) // #2696
+	}
 	finish, err := integration.Prepare(run.Trigger, &opts) // an integration's run calls its operation's function (#2659)
 	if err != nil {
 		return *terminal(err.Error(), runstate.CausePlatform)

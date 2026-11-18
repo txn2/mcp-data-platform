@@ -86,6 +86,7 @@ describe("scheduleOf", () => {
       last_fire_at: "2026-08-15T14:00:00Z",
       missed_fires: 2,
       created_by: "sarah.chen@example.com",
+      environment: "",
     });
   });
 

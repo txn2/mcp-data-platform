@@ -75,6 +75,7 @@ describe("ApplicationsPage", () => {
     expect(post?.body).toEqual({
       name: "ledger",
       description: "The books",
+      environments: ["dev", "prod"],
       connection: "acme-shop",
       schema: "ledger",
     });
@@ -115,7 +116,7 @@ describe("ApplicationsPage", () => {
       expect(sent.some((r) => r.method === "POST" && r.path === "/api/v1/portal/applications")).toBe(true),
     );
     const post = sent.find((r) => r.method === "POST" && r.path === "/api/v1/portal/applications");
-    expect(post?.body).toEqual({ name: "order-system", description: "" });
+    expect(post?.body).toEqual({ name: "order-system", description: "", environments: ["dev", "prod"] });
   });
 
   it("shows the server's refusal when the name is taken", async () => {

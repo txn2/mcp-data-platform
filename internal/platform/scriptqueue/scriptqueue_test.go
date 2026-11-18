@@ -1,4 +1,4 @@
-package scriptexec
+package scriptqueue
 
 import (
 	"context"
@@ -52,7 +52,7 @@ func TestRegisterQueueGauges_ReportsTheRunQueueAndTheDueSchedules(t *testing.T) 
 		state: scriptstore.QueueState{Pending: 2, Running: 1, OldestDue: 30 * time.Second},
 		due:   3, age: 5 * time.Minute,
 	}
-	registerQueueGauges(m, reads, reads)
+	RegisterGauges(m, reads, reads)
 	body := scrapeRecorder(t, m)
 	assert.Contains(t, body, `background_queue_items{loop="script_worker",state="pending"} 2`)
 	assert.Contains(t, body, `background_queue_items{loop="script_worker",state="running"} 1`)
@@ -65,7 +65,7 @@ func TestRegisterQueueGauges_AFailingReadReportsNothingAndNoStoreRegistersNothin
 	m, err := observability.New(observability.Config{Enabled: true, ListenAddr: ":0"})
 	require.NoError(t, err)
 	defer func() { _ = m.Shutdown(context.Background()) }()
-	registerQueueGauges(m, fakeQueueReads{err: errors.New("down")}, fakeQueueReads{err: errors.New("down")})
-	registerQueueGauges(m, struct{}{}, nil)
+	RegisterGauges(m, fakeQueueReads{err: errors.New("down")}, fakeQueueReads{err: errors.New("down")})
+	RegisterGauges(m, struct{}{}, nil)
 	assert.NotContains(t, scrapeRecorder(t, m), "background_queue_items")
 }

@@ -15514,6 +15514,391 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/applications/{app}/environments": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Adds an environment after another (after; empty puts it first, and none may follow the last, which /endpoints serves). It runs no release until one is promoted or released to it. requires_approval makes an agent's promote or rollback into it a person's to carry out. For administrators.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Applications"
+                ],
+                "summary": "Add an application environment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Application name or id",
+                        "name": "app",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The environment",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/apphttp.environmentRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/application.Application"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/applications/{app}/environments/{env}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Removes an environment and its variables. The last environment, which /endpoints serves, cannot be removed. For administrators.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Applications"
+                ],
+                "summary": "Remove an application environment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Application name or id",
+                        "name": "app",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Environment",
+                        "name": "env",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/application.Application"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Sets requires_approval: an agent's promote or rollback into the environment is refused, for a person to carry out here. For administrators.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Applications"
+                ],
+                "summary": "Change an application environment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Application name or id",
+                        "name": "app",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Environment",
+                        "name": "env",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The setting",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/apphttp.environmentPatch"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/application.Application"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/applications/{app}/environments/{env}/promote": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The environment after {env} runs the release {env} runs. It applies no migration: an application's migrations move with its first environment. For administrators.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Applications"
+                ],
+                "summary": "Promote an application environment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Application name or id",
+                        "name": "app",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "The environment promoted from",
+                        "name": "env",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/appsvc.Promoted"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/applications/{app}/environments/{env}/rollback": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "{env} runs an earlier release: to_release, or the one before the release it runs. In the last environment it is the application's rollback, recorded as a release; in another it points the environment at the earlier release. For administrators.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Applications"
+                ],
+                "summary": "Roll back an application environment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Application name or id",
+                        "name": "app",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Environment",
+                        "name": "env",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The release",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/apphttp.rollbackRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/application.Release"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/applications/{app}/export": {
             "get": {
                 "security": [
@@ -16012,6 +16397,207 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/applications/{app}/variables": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Each NAME=value, per environment, and the application-wide defaults (environment empty). A value is plain text; one referencing a stored secret holds {{secret:\u003cname\u003e}}, never the secret. For the owner and administrators.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Applications"
+                ],
+                "summary": "List an application's variables",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Application name or id",
+                        "name": "app",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/apphttp.variablesResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/applications/{app}/variables/{name}": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Writes NAME=value for an environment, or the application-wide default when environment is empty. The next run reads it; no release is needed. For the owner and administrators.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Applications"
+                ],
+                "summary": "Set an application variable",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Application name or id",
+                        "name": "app",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Variable name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The value",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/apphttp.variableRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/apphttp.variablesResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Removes NAME from an environment (?environment=), or the application-wide default when it is absent. For the owner and administrators.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Applications"
+                ],
+                "summary": "Delete an application variable",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Application name or id",
+                        "name": "app",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Variable name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Environment; the default when absent",
+                        "name": "environment",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/apphttp.variablesResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -39254,6 +39840,17 @@ const docTemplate = `{
                     "type": "string",
                     "example": "The storefront, its API and its orders"
                 },
+                "environments": {
+                    "description": "Environments are the application's environments in promotion\norder (#2696); one, prod, when omitted.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "dev",
+                        "prod"
+                    ]
+                },
                 "name": {
                     "type": "string",
                     "example": "shop"
@@ -39340,6 +39937,31 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/appsvc.SitePartView"
                     }
+                }
+            }
+        },
+        "apphttp.environmentPatch": {
+            "type": "object",
+            "properties": {
+                "requires_approval": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "apphttp.environmentRequest": {
+            "type": "object",
+            "properties": {
+                "after": {
+                    "description": "After is the environment the new one follows; empty puts it first.",
+                    "type": "string",
+                    "example": "dev"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "stage"
+                },
+                "requires_approval": {
+                    "type": "boolean"
                 }
             }
         },
@@ -39450,6 +40072,31 @@ const docTemplate = `{
                 }
             }
         },
+        "apphttp.variableRequest": {
+            "type": "object",
+            "properties": {
+                "environment": {
+                    "description": "Environment is the environment the value is for; empty sets the\napplication-wide default.",
+                    "type": "string",
+                    "example": "prod"
+                },
+                "value": {
+                    "type": "string",
+                    "example": "https://pay.example.com"
+                }
+            }
+        },
+        "apphttp.variablesResponse": {
+            "type": "object",
+            "properties": {
+                "variables": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/application.Variable"
+                    }
+                }
+            }
+        },
         "application.Application": {
             "type": "object",
             "properties": {
@@ -39478,6 +40125,13 @@ const docTemplate = `{
                 "description": {
                     "type": "string",
                     "example": "The storefront, its API and its orders"
+                },
+                "environments": {
+                    "description": "Environments are where the application runs, in promotion order: a\nrelease lands in the first, a promote copies an environment's release\nto the next, and the last is what /endpoints/\u003cname\u003e and every handler\nnaming no environment run (#2696).",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/application.Environment"
+                    }
                 },
                 "id": {
                     "type": "string",
@@ -39550,6 +40204,31 @@ const docTemplate = `{
                     "items": {
                         "type": "integer"
                     }
+                }
+            }
+        },
+        "application.Environment": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "example": "dev"
+                },
+                "release": {
+                    "description": "Release is the release it runs, 0 for none yet.",
+                    "type": "integer",
+                    "example": 8
+                },
+                "requires_approval": {
+                    "description": "RequiresApproval makes an agent's promote or rollback into it wait on a\nperson, as a site environment's does.",
+                    "type": "boolean"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "string",
+                    "example": "jane@example.com"
                 }
             }
         },
@@ -39652,6 +40331,30 @@ const docTemplate = `{
                     "description": "Restored is the release a rollback restored the pins of.",
                     "type": "integer",
                     "example": 2
+                }
+            }
+        },
+        "application.Variable": {
+            "type": "object",
+            "properties": {
+                "environment": {
+                    "type": "string",
+                    "example": "prod"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "API_BASE"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "value": {
+                    "type": "string",
+                    "example": "https://pay.example.com"
                 }
             }
         },
@@ -40059,6 +40762,28 @@ const docTemplate = `{
                 },
                 "updated_at": {
                     "type": "string"
+                }
+            }
+        },
+        "appsvc.Promoted": {
+            "type": "object",
+            "properties": {
+                "from": {
+                    "type": "string",
+                    "example": "dev"
+                },
+                "release": {
+                    "type": "integer",
+                    "example": 8
+                },
+                "replaced": {
+                    "description": "Replaced is the release the target ran before, 0 for none.",
+                    "type": "integer",
+                    "example": 6
+                },
+                "to": {
+                    "type": "string",
+                    "example": "prod"
                 }
             }
         },
@@ -45181,6 +45906,13 @@ const docTemplate = `{
                     "type": "object",
                     "additionalProperties": {}
                 },
+                "environments": {
+                    "description": "Environments are the environments of the application holding the\nscript, in promotion order, that a schedule or webhook handler may\nrun in (#2696); empty for a script no application holds.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "handlers": {
                     "description": "Handlers are the script's handlers, each as its kind describes it,\nwith its id, kind and type (the kind, or form).",
                     "type": "array",
@@ -45264,6 +45996,11 @@ const docTemplate = `{
                 },
                 "endpoint": {
                     "type": "string"
+                },
+                "environment": {
+                    "description": "Environment is the application environment a schedule's or webhook\nhandler's runs execute in (#2696); left out, a new one runs in the\nlast and a changed one keeps its own.",
+                    "type": "string",
+                    "example": "dev"
                 },
                 "event_source": {
                     "description": "EventSource is a webhook handler's source.",
@@ -52052,6 +52789,11 @@ const docTemplate = `{
                 },
                 "enabled": {
                     "type": "boolean"
+                },
+                "environment": {
+                    "description": "Environment is the application environment the schedule's runs\nexecute in, empty for the last (#2696).",
+                    "type": "string",
+                    "example": "dev"
                 },
                 "id": {
                     "type": "string"

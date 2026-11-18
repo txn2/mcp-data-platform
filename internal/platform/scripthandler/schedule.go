@@ -30,6 +30,15 @@ func (s *Service) setSchedule(ctx context.Context, req SetRequest) (map[string]a
 	if err != nil {
 		return nil, invalid(err)
 	}
+	if err := s.checkEnvironment(ctx, sc, req.Environment); err != nil {
+		return nil, err
+	}
+	switch {
+	case req.Environment != "":
+		sched.Environment = req.Environment
+	case prev != nil:
+		sched.Environment = prev.Environment
+	}
 	if prev == nil {
 		if err := checkNewSchedule(sc, held, sched); err != nil {
 			return nil, err
@@ -117,6 +126,9 @@ func scheduleFields(sc *script.Script, sched *script.Schedule) map[string]any {
 		// the count is what tells an owner the automation was not running.
 		"missed_fires": sched.MissedFires,
 		fieldCreatedBy: sched.CreatedBy,
+	}
+	if sched.Environment != "" {
+		out[fieldEnvironment] = sched.Environment
 	}
 	// DueAt rather than NextRunAt: a paused schedule's stored due time is the
 	// fire it is parked on, and reporting it here would tell an author their

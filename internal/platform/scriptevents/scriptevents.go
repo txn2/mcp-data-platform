@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/application/appenv"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whevent"
@@ -69,6 +70,25 @@ type Enqueuer struct {
 	MaxQueued int
 	// Timeout bounds one source's enqueue; zero is ten seconds.
 	Timeout time.Duration
+	// Environments resolves the version a handler naming an application
+	// environment runs (#2696); nil refuses such a handler's runs.
+	Environments appenv.Resolver
+}
+
+// handlerEnvironments reads the environment a script's handler for a source
+// names (PostgresStore).
+type handlerEnvironments interface {
+	HandlerEnvironment(ctx context.Context, scriptID, source string) (string, error)
+}
+
+// environmentOf is the environment the script's handler for source names,
+// "" for the last.
+func (e *Enqueuer) environmentOf(ctx context.Context, scriptID, source string) (string, error) {
+	he, ok := e.Store.(handlerEnvironments)
+	if !ok {
+		return "", nil
+	}
+	return he.HandlerEnvironment(ctx, scriptID, source) //nolint:wrapcheck // the store names what failed
 }
 
 // Stored enqueues one run of each script that names source for each of
@@ -103,7 +123,15 @@ func (e *Enqueuer) enqueue(ctx context.Context, source, scriptID string, events 
 			"source", logsan.SanitizeForLog(source), "script_id", scriptID, "reason", logsan.SanitizeForLog(refusal.Error()))
 		return nil
 	}
-	v, err := e.Scripts.GetVersion(ctx, sc.ID, sc.RunVersion())
+	env, err := e.environmentOf(ctx, sc.ID, source)
+	if err != nil {
+		return err
+	}
+	version, err := appenv.RunVersionIn(ctx, e.Environments, sc, env)
+	if err != nil {
+		return err //nolint:wrapcheck // the resolver's sentence is the refusal
+	}
+	v, err := e.Scripts.GetVersion(ctx, sc.ID, version)
 	if err != nil || v == nil {
 		return fmt.Errorf("reading the script's current version: %w", err)
 	}
@@ -124,6 +152,7 @@ func (e *Enqueuer) enqueue(ctx context.Context, source, scriptID string, events 
 			// it, as a schedule's author is for a fire.
 			RequestedBy: sc.OwnerEmail,
 			EventSource: source, EventID: ev.EventID, Event: Value(source, ev),
+			Environment: env,
 		})
 	}
 	got, err := e.Store.EnqueueEvents(ctx, runs, e.maxQueued())

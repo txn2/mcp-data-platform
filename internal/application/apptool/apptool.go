@@ -36,12 +36,21 @@ const (
 	CmdReleases   = "releases"
 	CmdExport     = "export"
 	CmdImport     = "import"
+	// Environments and variables (#2696).
+	CmdPromote           = "promote"
+	CmdAddEnvironment    = "add_environment"
+	CmdRemoveEnvironment = "remove_environment"
+	CmdSetEnvironment    = "set_environment"
+	CmdVariables         = "variables"
+	CmdSetVariable       = "set_variable"
+	CmdDeleteVariable    = "delete_variable"
 )
 
 // Commands is every command, in the order the schema lists them.
 var Commands = []string{
 	CmdCreate, CmdGet, CmdList, CmdUpdate, CmdDelete, CmdAddPart, CmdRemovePart, CmdSetPart,
 	CmdRelease, CmdRollback, CmdReleases, CmdExport, CmdImport,
+	CmdPromote, CmdAddEnvironment, CmdRemoveEnvironment, CmdSetEnvironment, CmdVariables, CmdSetVariable, CmdDeleteVariable,
 }
 
 // Reads is the commands that change nothing.
@@ -76,6 +85,17 @@ type Input struct {
 	MoveSites []string `json:"move_sites,omitempty"`
 	// Force releases over a site part that does not accept the contract.
 	Force bool `json:"force,omitempty"`
+	// Environment is the environment promote moves from, rollback moves
+	// back, and a variable belongs to ("" its default); After is where
+	// add_environment puts one; RequiresApproval is whether an agent's
+	// promote or rollback into it is refused for a person to carry out
+	// (#2696).
+	Environment      string `json:"environment,omitempty"`
+	After            string `json:"after,omitempty"`
+	RequiresApproval *bool  `json:"requires_approval,omitempty"`
+	// Variable and Value are set_variable's NAME=value.
+	Variable string `json:"variable,omitempty"`
+	Value    string `json:"value,omitempty"`
 }
 
 // Bundles exports and imports applications; nil on a deployment that cannot.
@@ -133,7 +153,23 @@ const description = "Applications: one record naming what a system built on the 
 	"CONTRACT: the application declares contract_version (update, or contract on release), raised when a release breaks what its " +
 	"front ends call; a site release's _application file declares the range it works with ({\"application\": \"store\", " +
 	"\"contract\": \">=2 <4\"}). A release whose contract a site part's release excludes is refused naming it unless force is set " +
-	"(administrator, recorded), and manage_site promote refuses a release that excludes the application's contract."
+	"(administrator, recorded), and manage_site promote refuses a release that excludes the application's contract. " +
+	"ENVIRONMENTS (#2696): an application runs in ordered environments, one (prod) when created; add_environment environment=dev " +
+	"with no after puts dev first, where releases land. release lands in the first; promote environment=<name> copies its release to the next; rollback " +
+	"environment=<name> moves one back (the last when omitted). The last is what /endpoints/<name> and handlers with no environment run; " +
+	"another answers at /environments/<env>/endpoints/<name>, and a schedule or webhook handler names one with manage_script " +
+	"handler_environment. Every environment uses the application's schema, and its migrations move with the first environment. " +
+	"An environment with requires_approval refuses an agent's promote or rollback into it: a person does it on the application's page. " +
+	"VARIABLES: set_variable variable=NAME value=... environment=<name> (omit for the application-wide default); scripts read " +
+	"platform.env(\"NAME\") and platform.environment(). A value is plain text; to use a stored secret write {{secret:<name>}}, " +
+	"filled only when a request carrying it is sent through a connection the secret allows. variables lists them (owner and administrators)."
+
+// The argument and result keys environments and variables are named by.
+const (
+	keyApplication = "application"
+	keyEnvironment = "environment"
+	keyVariable    = "variable"
+)
 
 // JSON Schema words the input schema is written in.
 const (
@@ -174,8 +210,15 @@ func schema() map[string]any {
 			},
 			"force":      map[string]any{keyType: "boolean", keyDesc: "release: release over a site part whose release does not accept the contract (administrator); the release records each one."},
 			"to_release": num("rollback: the release whose pins to restore; the one before the current release when omitted."),
-			"release":    num("export: the release to export; the current release when omitted."),
-			"bundle":     str("import: the managed resource holding the bundle, by id or mcp:// URI."),
+			keyEnvironment: str("promote: the environment whose release moves to the next. rollback: the environment moved back (the last when omitted). " +
+				"add_environment, remove_environment, set_environment: the environment. set_variable, delete_variable: the environment the variable " +
+				"belongs to, omitted for the application-wide default."),
+			"after":             str("add_environment: the environment the new one follows; omitted puts it first. It cannot follow the last."),
+			"requires_approval": map[string]any{keyType: "boolean", keyDesc: "add_environment, set_environment: an agent's promote or rollback into it is refused; a person carries it out in the portal."},
+			keyVariable:         str("set_variable, delete_variable: the variable's NAME (uppercase letters, digits and underscores)."),
+			"value":             str("set_variable: the value, plain text up to 8 KiB; {{secret:<name>}} references a stored secret."),
+			"release":           num("export: the release to export; the current release when omitted."),
+			"bundle":            str("import: the managed resource holding the bundle, by id or mcp:// URI."),
 			"map": map[string]any{
 				keyType: "object", "additionalProperties": map[string]any{keyType: typString},
 				keyDesc: "import: for each connection and secret name the bundle names, the name on this deployment it becomes.",
@@ -261,8 +304,18 @@ func (t *Tool) handlers() map[string]handler {
 			})
 		},
 		CmdRollback: func(ctx context.Context, actor application.Actor, in Input) (any, error) {
-			return s.Rollback(ctx, actor, in.Application, in.ToRelease) //nolint:wrapcheck // the caller's message
+			if err := t.agentMove(ctx, in.Application, in.Environment, false); err != nil {
+				return nil, err
+			}
+			return s.RollbackIn(ctx, actor, in.Application, in.Environment, in.ToRelease) //nolint:wrapcheck // the caller's message
 		},
+		CmdPromote:           t.promote,
+		CmdAddEnvironment:    t.addEnvironment,
+		CmdRemoveEnvironment: t.removeEnvironment,
+		CmdSetEnvironment:    t.setEnvironment,
+		CmdVariables:         t.variables,
+		CmdSetVariable:       t.setVariable,
+		CmdDeleteVariable:    t.deleteVariable,
 		CmdReleases: func(ctx context.Context, _ application.Actor, in Input) (any, error) {
 			return t.releases(ctx, in.Application)
 		},

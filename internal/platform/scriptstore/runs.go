@@ -36,7 +36,7 @@ const runColumns = `id, script_id, script_version_id, version, trigger_kind, sta
 	state_revision_written, result, progress_message, progress_done, progress_total,
 	progress_at, cancel_requested_at, cancel_requested_by, reclaims, attempts, claimed_at,
 	heartbeat_at, failure_cause, created_at, updated_at, state_checkpoint, event_source, event_id, event,
-	call, run_as, COALESCE(call_handler_id::text, '')`
+	call, run_as, COALESCE(call_handler_id::text, ''), environment`
 
 // optionalJSON decodes a run column NULL on most runs.
 func optionalJSON(raw []byte, into any, what string) error {
@@ -132,7 +132,7 @@ func scanRun(sc rowScanner) (*script.Run, error) {
 		&revisionWritten, &live.result, &live.message, &live.done, &live.total, &live.at,
 		&r.CancelRequestedAt, &r.CancelRequestedBy, &r.Reclaims, &attemptsJSON, &r.ClaimedAt,
 		&r.HeartbeatAt, &r.Cause, &r.CreatedAt, &r.UpdatedAt, &r.StateCheckpoint,
-		&r.EventSource, &r.EventID, &eventJSON, &callJSON, &runAsJSON, &r.CallHandlerID)
+		&r.EventSource, &r.EventID, &eventJSON, &callJSON, &runAsJSON, &r.CallHandlerID, &r.Environment)
 	if err != nil {
 		return nil, fmt.Errorf("scanning script run row: %w", err)
 	}
@@ -213,12 +213,12 @@ func (s *Store) insertPending(ctx context.Context, r *script.Run) error {
 	row := s.db.QueryRowContext(ctx, `
 		INSERT INTO script_runs (id, script_id, script_version_id, version, trigger_kind,
 		                         status, params, requested_by, fire_time, scheduled_for,
-		                         state_revision, state_read, exclusive, queued)
+		                         state_revision, state_read, exclusive, queued, environment)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, NOW()), COALESCE($10, NOW()),
-		        `+StateAtCreation+`, `+exclusiveAtCreation+`, `+queuedAtCreation+`)
+		        `+StateAtCreation+`, `+exclusiveAtCreation+`, `+queuedAtCreation+`, $11)
 		RETURNING fire_time, scheduled_for, state_revision, state_read, created_at, updated_at`,
 		r.ID, r.ScriptID, r.VersionID, r.Version, r.Trigger, script.RunStatusPending,
-		params, r.RequestedBy, orNilTime(r.FireTime), orNilTime(r.ScheduledFor))
+		params, r.RequestedBy, orNilTime(r.FireTime), orNilTime(r.ScheduledFor), r.Environment)
 	if err := row.Scan(&r.FireTime, &r.ScheduledFor, &r.StateRevision, &stateRead, &r.CreatedAt, &r.UpdatedAt); err != nil {
 		return fmt.Errorf("enqueue script run: %w", err)
 	}

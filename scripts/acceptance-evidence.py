@@ -14,8 +14,11 @@ gates then read results rather than prose:
   transcript -- write build/<n>/acceptance.md from a ticket's acceptance files
               and its stream: their `// Wire forms:` comments, then each
               criterion's result (#2541)
-  affected -- the acceptance files that call a tool whose registering package
-              a diff changes (#2543), read from the changed paths on stdin,
+  affected -- the acceptance files that call a tool a diff changes (#2543),
+              read from the changed paths on stdin: within the package
+              registering the tool, only a change the tool's handler reaches
+              through a command the file names, or through the code every
+              command runs, counts (#2693),
               and the unchanged ones that call, directly or through another
               helper, a helper whose declaration the diff changes in another
               acceptance file (#2627), read from the diff ACCEPTANCE_DIFF_RANGE
@@ -467,35 +470,95 @@ def tools_called() -> dict[str, set[str]]:
     return {path: tools_named(text, tools, consts, funcs, set()) for path, text in sources.items() if issue_of(path)}
 
 
-def changed_source_of(where: str, changed: list[str]) -> str | None:
-    """The first changed production file that where (a package or a file)
-    names, or None."""
-    for path in changed:
-        if path.endswith("_test.go") or not path.endswith(".go"):
-            continue
-        if path == where or Path(path).parent.as_posix() == where:
-            return path
+def changed_sources_of(where: str, changed: list[str]) -> list[str]:
+    """The changed production files that where (a package or a file) names."""
+    return [path for path in changed
+            if path.endswith(".go") and not path.endswith("_test.go")
+            and (path == where or Path(path).parent.as_posix() == where)]
+
+
+def tool_hit(tool: str, where: str, files: list[str], lines: dict[str, set[int]],
+             ops: set[str] | None) -> tuple[str, str] | None:
+    """The changed file and the change in it that reaches tool's handler for a
+    criterion naming ops, or None when no change does (#2693). A file changed
+    in a composition root, a diff with no lines to read, or a change the reading
+    cannot place is the package rule: the first changed file."""
+    if where in COMPOSITION_ROOTS or where.endswith(".go") or not all(f in lines for f in files):
+        return files[0], "changed"
+    reach = tool_reach(where, tool)
+    if not reach.full:
+        return files[0], "changed, and the handler it registers was not read"
+    reached = reach.reached(ops)
+    by_rel = {f.rel: f for f in reach.pkg.files}
+    for path in files:
+        gofile = by_rel.get(path)
+        if gofile is None:
+            return path, "changed"
+        for kind, name, what in placed(gofile, lines[path], reach):
+            if kind == "unplaced":
+                return path, f"changed at {what}"
+            if kind == "func" and name in reached:
+                return path, f"changed {what}, which {tool} reaches"
+            if kind == "op" and (ops is None or name in ops or not (ops & set(reach.ops))):
+                return path, f"changed {what}, which {tool} runs"
+            if kind in ("type", "const", "var", "field") and mentioned(kind, name or "", reach.text(ops), reach.aliases):
+                return path, f"changed {what}, which {tool} reaches"
     return None
 
 
-def affected(changed: list[str]) -> dict[str, dict[str, str]]:
+def mentioned(kind: str, name: str, ran: tuple[str, set[str]], aliases: frozenset[str] = frozenset()) -> bool:
+    """Whether the source a criterion runs names a changed type, constant,
+    variable or struct field. A field is read as x.Field or written Field: in
+    a literal; pkg.Field, an imported package's name, is not the field."""
+    text, types = ran
+    if kind == "type":
+        return name in types
+    if kind == "field":
+        owner, _, field = name.partition(".")
+        if owner not in types:
+            return False
+        for m in re.finditer(rf"(\w*)\.{field}\b|\b{field}\s*:", text):
+            if m.group(1) is None or m.group(1) not in aliases:
+                return True
+        return False
+    return re.search(rf"\b{re.escape(name)}\b", text) is not None
+
+
+def affected(changed: list[str]) -> dict[str, dict[str, tuple[str, str]]]:
     """The acceptance files calling a tool the changed paths change, each
-    mapped to those tools and the changed file behind each. A file whose every
-    criterion runs in its own environment is left out: a run on the plain
-    stack cannot execute it, and the E2E Nightly runs that environment."""
-    changed_tools: dict[str, str] = {}
+    mapped to those tools and the changed file behind each with what in it
+    reached the tool. A file whose every criterion runs in its own environment
+    is left out: a run on the plain stack cannot execute it, and the E2E Nightly
+    runs that environment."""
+    changed_tools: dict[str, tuple[str, list[str]]] = {}
     for tool, sources in tool_sources().items():
         for where in sorted(sources):
-            hit = changed_source_of(where, changed)
-            if hit:
-                changed_tools.setdefault(tool, hit)
+            hits = changed_sources_of(where, changed)
+            if hits:
+                changed_tools.setdefault(tool, (where, hits))
                 break
     if not changed_tools:
         return {}
+    files = sorted({f for _, hits in changed_tools.values() for f in hits})
+    lines = production_changed_lines(diff_range(), files)
     elsewhere = environment_criteria()
-    out: dict[str, dict[str, str]] = {}
+    directory = REPO_ROOT / "test" / "acceptance"
+    sources = {p.relative_to(REPO_ROOT).as_posix(): p.read_text(encoding="utf-8") for p in sorted(directory.glob("*_test.go"))}
+    joined = "\n".join(sources.values())
+    foreign = foreign_methods(joined)
+    funcs = {name: body for name, body in package_functions(joined).items()
+             if not name.startswith("connect") and name not in foreign}
+    out: dict[str, dict[str, tuple[str, str]]] = {}
     for path, called in sorted(tools_called().items()):
-        hits = {tool: changed_tools[tool] for tool in sorted(called) if tool in changed_tools}
+        wanted = [tool for tool in sorted(called) if tool in changed_tools]
+        if not wanted:
+            continue
+        ops = ops_called(sources[path], funcs, set())
+        hits = {}
+        for tool in wanted:
+            hit = tool_hit(tool, changed_tools[tool][0], changed_tools[tool][1], lines, ops)
+            if hit:
+                hits[tool] = hit
         if not hits:
             continue
         criteria = criteria_in(REPO_ROOT / path, issue_of(path) or "")
@@ -509,6 +572,7 @@ def affected(changed: list[str]) -> dict[str, dict[str, str]]:
 # acceptance-check.sh sets it to the merge base, and the pull request job to
 # the range it diffs. Unset, no helper is read as changed.
 DIFF_RANGE_ENV = "ACCEPTANCE_DIFF_RANGE"
+GROUP_EDGE = re.compile(r"^(?:(?:const|var|type)\s*\(|\))$")
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 
 
@@ -516,13 +580,13 @@ def diff_range() -> str:
     return os.environ.get(DIFF_RANGE_ENV, "").strip()
 
 
-def changed_lines(range_: str) -> dict[str, set[int]]:
-    """Each acceptance file the diff changes, mapped to its changed lines on
+def changed_lines(range_: str, paths: tuple[str, ...] = ("test/acceptance",)) -> dict[str, set[int]]:
+    """Each file under paths the diff changes, mapped to its changed lines on
     the new side; a deletion counts as a change of the line after it."""
     if not range_:
         return {}
     diff = subprocess.run(
-        ["git", "diff", "-U0", range_, "--", "test/acceptance"],
+        ["git", "diff", "-U0", range_, "--", *paths],
         cwd=REPO_ROOT, capture_output=True, text=True, check=True,
     ).stdout
     out: dict[str, set[int]] = {}
@@ -535,6 +599,51 @@ def changed_lines(range_: str) -> dict[str, set[int]]:
         if current and m:
             start, count = int(m.group(1)), int(m.group(2) if m.group(2) is not None else "1")
             out.setdefault(current, set()).update(range(start, start + count) if count else {start})
+    return out
+
+
+def production_changed_lines(range_: str, files: list[str]) -> dict[str, set[int]]:
+    """The changed lines of each named production file, from the diff range;
+    a file the range does not change, as when the change is not committed and
+    no range is set, is absent, and the package rule reads it."""
+    if not range_ or not files:
+        return {}
+    diff = subprocess.run(
+        ["git", "diff", "-U0", "-w", range_, "--", *files],
+        cwd=REPO_ROOT, capture_output=True, text=True, check=True,
+    ).stdout
+    # Whitespace is ignored (gofmt realigning a struct changes no field), and
+    # so is a blank or comment line: an added one is not counted, and a hunk
+    # removing only such lines is not either.
+    out: dict[str, set[int]] = {f: set() for f in files}
+    current, at, removed = "", 0, False
+
+    def code(text: str) -> bool:
+        # A group's own "const (" or closing ")" says nothing its specs do not.
+        t = text.strip()
+        return bool(t) and not t.startswith("//") and not GROUP_EDGE.match(t)
+
+    for line in diff.splitlines():
+        if line.startswith("+++ "):
+            current = line[len("+++ b/"):] if line.startswith("+++ b/") else ""
+            continue
+        if line.startswith(("--- ", "diff ", "index ")):
+            continue
+        m = HUNK.match(line)
+        if m:
+            at, removed = int(m.group(1)), False
+            if m.group(2) == "0":
+                at += 1
+            continue
+        if not current:
+            continue
+        if line.startswith("-") and code(line[1:]) and not removed:
+            removed = True
+            out.setdefault(current, set()).add(at)
+        elif line.startswith("+"):
+            if code(line[1:]):
+                out.setdefault(current, set()).add(at)
+            at += 1
     return out
 
 
@@ -651,18 +760,450 @@ def stale_recordings(changed: list[str]) -> list[str]:
     problems.extend(stale_helper_recordings(changed))
     for path, hits in affected(changed).items():
         issue = issue_of(path) or ""
-        named = ", ".join(sorted(hits))
+        named = "; ".join(f"{tool}: {source} {what}" for tool, (source, what) in sorted(hits.items()))
         found = verdict(issue, [path])
-        problems.extend(f"{p} (it calls {named}, which this diff changes)" for p in found)
+        problems.extend(f"{p} (it calls {named})" for p in found)
         if found:
             continue
         recorded = stream_path(issue).stat().st_mtime
-        for tool, source in sorted(hits.items()):
+        for tool, (source, what) in sorted(hits.items()):
             if (REPO_ROOT / source).stat().st_mtime > recorded:
                 problems.append(f"#{issue}: {stream_path(issue).relative_to(REPO_ROOT)} was recorded "
-                                f"before {source} changed, and {path} calls {tool}")
+                                f"before {source} changed, and {path} calls {tool} ({source} {what})")
                 break
     return problems
+
+
+# ---------------------------------------------------------------- reach
+
+# A recorded run is stale only when the diff changes what its criteria
+# exercise (#2693). On #2692 a change to manage_site's set_domain and to the
+# api gateway's config type marked 139 tickets stale under the package rule,
+# though almost none of them called set_domain or read the field. Inside the
+# package registering a tool, a changed function counts against a criterion
+# only when the tool's handler reaches it: through the handler of a command the
+# acceptance file names, or through the code every command runs. Reach is read
+# lexically, by name, so a method shared by name with another type is counted
+# as reached (more stale, never fewer). A change the reading cannot place (a
+# type, a constant, a variable, an init, the registration, a deleted function)
+# keeps the package rule for that tool.
+
+# The fields a tool with several operations takes the operation in.
+DISCRIMINATORS = ("command", "action", "operation")
+DISCRIMINATOR_ARG = re.compile(r'"(?:' + "|".join(DISCRIMINATORS) + r')"\s*:\s*(?:"([a-z][a-z0-9_]*)")?')
+# A dispatch table: map[string]<func type>{...}, keyed by operation.
+DISPATCH_MAP = re.compile(r"\bmap\[string\](func\b|[A-Za-z_]\w*)")
+FUNC_TYPE = re.compile(r"^type[ \t]+([A-Za-z_]\w*)[ \t]+func\b", re.MULTILINE)
+# A dispatch switch: switch in.Command {, switch action {.
+DISPATCH_SWITCH = re.compile(r"\bswitch\s+(?:[A-Za-z_][\w.]*\.)?(?:" +
+                             "|".join(d.capitalize() + "|" + d for d in DISCRIMINATORS) + r"|cmd)\s*\{")
+CASE_KEY = re.compile(r'"([a-z][a-z0-9_]*)"|([A-Za-z_][\w.]*)')
+IMPORT_LINE = re.compile(r'^\s*(?:import\s+)?(?:([A-Za-z_]\w*)\s+)?"([^"]+)"\s*$')
+ENTRY_KEY = re.compile(r'\s*(?:"([a-z][a-z0-9_]*)"|([A-Za-z_][\w.]*))\s*:')
+TOP_DECL = re.compile(r"^(type|const|var)\b", re.MULTILINE)
+SPEC_NAME = re.compile(r"\s*([A-Za-z_]\w*)")
+FIELD_LINE = re.compile(r"^\s*([A-Za-z_]\w*)\s+[\[\]*A-Za-z_(]")
+
+
+def skip_literal(text: str, i: int) -> int:
+    """The index of the last character of the string, rune or comment starting
+    at i, or i when none starts there."""
+    n = len(text)
+    if text.startswith("//", i):
+        end = text.find("\n", i)
+        return n - 1 if end < 0 else end
+    if text.startswith("/*", i):
+        end = text.find("*/", i)
+        return n - 1 if end < 0 else end + 1
+    c = text[i]
+    if c == "`":
+        end = text.find("`", i + 1)
+        return n - 1 if end < 0 else end
+    if c in "\"'":
+        j = i + 1
+        while j < n and text[j] != c and text[j] != "\n":
+            j += 2 if text[j] == "\\" else 1
+        return j
+    return i
+
+
+def top_level(text: str, start: int, end: int, marks: str) -> list[int]:
+    """The indexes in text[start:end] of the characters in marks at bracket
+    depth zero, strings and comments skipped."""
+    found: list[int] = []
+    depth = 0
+    i = start
+    while i < end:
+        j = skip_literal(text, i)
+        if j != i:
+            i = j + 1
+            continue
+        c = text[i]
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        elif depth == 0 and c in marks:
+            found.append(i)
+        i += 1
+    return found
+
+
+def module_path() -> str:
+    gomod = REPO_ROOT / "go.mod"
+    if not gomod.is_file():
+        return ""
+    for line in gomod.read_text(encoding="utf-8").splitlines():
+        if line.startswith("module "):
+            return line.split()[1]
+    return ""
+
+
+class GoFile:
+    """One Go source: its text, its declarations' extents, its imports."""
+
+    def __init__(self, path: Path):
+        self.rel = path.relative_to(REPO_ROOT).as_posix()
+        self.text = path.read_text(encoding="utf-8", errors="replace")
+        self.starts = [0] + [m.end() for m in re.finditer("\n", self.text)]
+        # name, doc line, last line, body start, body end, declaration start
+        self.funcs: list[tuple[str, int, int, int, int, int]] = []
+        for m in FUNC_DECL.finditer(self.text):
+            brace = self.text.find("{", m.end())
+            if brace < 0:
+                continue
+            body = balanced(self.text, brace, "{", "}")
+            self.funcs.append((m.group(1), self.doc_line(self.line_of(m.start())),
+                               self.line_of(brace + len(body) - 1), brace, brace + len(body), m.start()))
+        # kind (type, const, var), name, first line, last line, text
+        self.specs: list[tuple[str, str, int, int, str]] = []
+        for m in TOP_DECL.finditer(self.text):
+            after = m.end()
+            while after < len(self.text) and self.text[after] in " \t":
+                after += 1
+            if self.text.startswith("(", after):
+                close = after + len(balanced(self.text, after, "(", ")"))
+                cuts = [after] + top_level(self.text, after + 1, close - 1, "\n") + [close - 1]
+                for a, b in zip(cuts, cuts[1:]):
+                    a += 1
+                    # A spec's doc comment ends at a newline the cut skipped.
+                    while self.text[a:b].lstrip().startswith("//"):
+                        a = self.text.find("\n", a + len(self.text[a:b]) - len(self.text[a:b].lstrip()), b) + 1
+                        if a <= 0:
+                            a = b
+                    spec = self.text[a:b]
+                    name = SPEC_NAME.match(spec)
+                    if name:
+                        first = self.line_of(a + name.start(1))
+                        self.specs.append((m.group(1), name.group(1), first, self.line_of(b), spec))
+                continue
+            # The declaration ends at the first newline outside brackets that
+            # does not follow an operator: "a" +\n"b" continues.
+            end = len(self.text)
+            for i in top_level(self.text, after, len(self.text), "\n"):
+                if not self.text[after:i].rstrip().endswith(("+", "-", "*", "/", ",", "||", "&&", "=", ".")):
+                    end = i
+                    break
+            name = SPEC_NAME.match(self.text, after, end)
+            if name:
+                self.specs.append((m.group(1), name.group(1), self.doc_line(self.line_of(m.start())),
+                                   self.line_of(end), self.text[after:end]))
+        self.imports: dict[str, str] = {}
+        self.import_lines: set[int] = set()
+        for m in re.finditer(r"^import\s*\(.*?^\)|^import\s+[^\n]+", self.text, re.MULTILINE | re.DOTALL):
+            first, last = self.line_of(m.start()), self.line_of(m.end() - 1)
+            self.import_lines.update(range(first, last + 1))
+            for raw in m.group(0).replace("import", "", 1).strip("()\n ").splitlines():
+                im = IMPORT_LINE.match(raw)
+                if im:
+                    self.imports[im.group(1) or im.group(2).rsplit("/", 1)[-1]] = im.group(2)
+        pkg = re.search(r"^package\s+\w+", self.text, re.MULTILINE)
+        if pkg:
+            self.import_lines.add(self.line_of(pkg.start()))
+
+    def doc_line(self, first: int) -> int:
+        """The first line of the doc comment above line first, or first."""
+        while first > 1 and self.line(first - 1).lstrip().startswith("//"):
+            first -= 1
+        return first
+
+    def line_of(self, index: int) -> int:
+        lo, hi = 0, len(self.starts) - 1
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if self.starts[mid] <= index:
+                lo = mid
+            else:
+                hi = mid - 1
+        return lo + 1
+
+    def line(self, number: int) -> str:
+        start = self.starts[number - 1]
+        end = self.starts[number] if number < len(self.starts) else len(self.text)
+        return self.text[start:end]
+
+
+class Entry:
+    """One operation's handler in a dispatch table or switch."""
+
+    def __init__(self, gofile: GoFile, holder: str, op: str | None, start: int, end: int):
+        self.file, self.holder, self.op = gofile, holder, op
+        self.start, self.end = start, end
+        self.first, self.last = gofile.line_of(start), gofile.line_of(max(start, end - 1))
+
+
+class Package:
+    """A package's functions by name and its dispatch entries, read once."""
+
+    def __init__(self, directory: str):
+        self.files = [GoFile(p) for p in sorted((REPO_ROOT / directory).glob("*.go")) if not p.name.endswith("_test.go")]
+        joined = "\n".join(f.text for f in self.files)
+        self.consts = dict(STRING_CONST.findall(joined))
+        self.func_types = set(FUNC_TYPE.findall(joined))
+        self.entries: list[Entry] = []
+        self.bodies: dict[str, list[str]] = {}
+        self.full: dict[str, list[str]] = {}
+        self.types: dict[str, list[str]] = {}
+        for f in self.files:
+            for name, _doc, _last, start, end, decl in f.funcs:
+                found = self._dispatch(f, name, start, end)
+                self.entries.extend(found)
+                self.full.setdefault(name, []).append(f.text[decl:end])
+                self.bodies.setdefault(name, []).append(blank(f.text, decl, end, found))
+            for kind, name, _first, _last, text in f.specs:
+                if kind == "type":
+                    self.types.setdefault(name, []).append(text)
+
+    def key(self, gofile: GoFile, raw: str | None, literal: str | None) -> str | None:
+        """The operation a table key or case names, or None when unresolved."""
+        if literal:
+            return literal
+        if not raw:
+            return None
+        alias, _, name = raw.rpartition(".")
+        if not alias:
+            return self.consts.get(name)
+        return imported_consts(gofile.imports.get(alias, "")).get(name)
+
+    def _dispatch(self, f: GoFile, holder: str, start: int, end: int) -> list[Entry]:
+        found: list[Entry] = []
+        text = f.text
+        for m in DISPATCH_MAP.finditer(text, start, end):
+            if m.group(1) == "func":
+                brace = text.find("{", m.end())
+                if brace < 0 or "\n" in text[m.end():brace]:
+                    continue
+            elif m.group(1) in self.func_types and text.startswith("{", m.end()):
+                brace = m.end()
+            else:
+                continue
+            block_end = brace + len(balanced(text, brace, "{", "}"))
+            cuts = [brace] + top_level(text, brace + 1, block_end - 1, ",") + [block_end - 1]
+            for a, b in zip(cuts, cuts[1:]):
+                km = ENTRY_KEY.match(text, a + 1, b)
+                if not km:
+                    continue
+                # The entry holds its key: a constant naming one command is
+                # that command's, not the code every command runs.
+                lead = text[a + 1:b]
+                found.append(Entry(f, holder, self.key(f, km.group(2), km.group(1)), b - len(lead.lstrip()), b))
+        for m in DISPATCH_SWITCH.finditer(text, start, end):
+            brace = m.end() - 1
+            block_end = brace + len(balanced(text, brace, "{", "}"))
+            heads = [i for i in top_level(text, brace + 1, block_end - 1, "cd")
+                     if re.match(r"(?:case\b|default\s*:)", text[i:i + 8]) and not re.match(r"\w", text[i - 1])]
+            for a, b in zip(heads, heads[1:] + [block_end - 1]):
+                colon = top_level(text, a, b, ":")
+                if not colon:
+                    continue
+                if text.startswith("default", a):
+                    found.append(Entry(f, holder, None, colon[0] + 1, b))
+                    continue
+                for km in CASE_KEY.finditer(text, a + 4, colon[0]):
+                    found.append(Entry(f, holder, self.key(f, km.group(2), km.group(1)), a, b))
+        return found
+
+    def reach(self, texts: list[str], bodies: dict[str, list[str]]) -> set[str]:
+        """The package functions the texts name, directly or through a
+        function they name."""
+        seen: set[str] = set()
+        work = list(texts)
+        while work:
+            for ident in IDENT.findall(work.pop()):
+                if ident in bodies and ident not in seen:
+                    seen.add(ident)
+                    work.extend(bodies[ident])
+        return seen
+
+
+TOOL_LITERAL = re.compile(r"\bTool\{")
+
+
+def without_definition(span: str) -> str:
+    """A registration with its mcp.Tool literal cut out: the name,
+    description and input schema tools/list advertises, which no handler runs
+    (the advertised surface is held to the tool table by toolsurface's
+    tests)."""
+    m = TOOL_LITERAL.search(span)
+    if not m:
+        return span
+    literal = balanced(span, m.end() - 1, "{", "}")
+    return span[:m.start()] + span[m.end() - 1 + len(literal):]
+
+
+def blank(text: str, start: int, end: int, entries: list[Entry]) -> str:
+    """text[start:end] with each resolved entry's handler cut out: what the
+    function runs for every operation."""
+    out, at = [], start
+    for e in sorted((e for e in entries if e.op), key=lambda e: e.start):
+        if e.start >= at:
+            out.append(text[at:e.start])
+            at = e.end
+    out.append(text[at:end])
+    return "".join(out)
+
+
+_IMPORTED: dict[str, dict[str, str]] = {}
+
+
+def imported_consts(import_path: str) -> dict[str, str]:
+    """The string constants of a package of this module, by import path."""
+    if import_path not in _IMPORTED:
+        consts: dict[str, str] = {}
+        prefix = module_path() + "/"
+        if import_path.startswith(prefix):
+            directory = REPO_ROOT / import_path[len(prefix):]
+            for go in sorted(directory.glob("*.go")) if directory.is_dir() else []:
+                if not go.name.endswith("_test.go"):
+                    consts.update(STRING_CONST.findall(go.read_text(encoding="utf-8", errors="replace")))
+        _IMPORTED[import_path] = consts
+    return _IMPORTED[import_path]
+
+
+_PACKAGES: dict[str, Package] = {}
+
+
+def package(directory: str) -> Package:
+    if directory not in _PACKAGES:
+        _PACKAGES[directory] = Package(directory)
+    return _PACKAGES[directory]
+
+
+class ToolReach:
+    """What one tool's handler runs: the functions every operation reaches,
+    and per operation the functions its handler reaches."""
+
+    def __init__(self, pkg: Package, tool: str):
+        self.pkg = pkg
+        spans: list[str] = []
+        self.registration: set[str] = set()
+        tools = {tool}
+        for f in pkg.files:
+            for m in ADD_TOOL.finditer(f.text):
+                span = balanced(f.text, m.end() - 1, "(", ")")
+                if registered_in(span, tools, pkg.consts, {n: b[0] for n, b in pkg.full.items()}):
+                    spans.append(without_definition(span))
+                    self.registration |= {d[0] for d in f.funcs if d[5] <= m.start() < d[4]}
+        self.spans = spans
+        # The package names the package's files import, which a field read
+        # (x.Field) is never qualified by.
+        self.aliases = frozenset(a for f in pkg.files for a in f.imports)
+        self.full = pkg.reach(spans, pkg.full)
+        self._texts: dict[frozenset[str] | None, tuple[str, set[str]]] = {}
+        owned = [e for e in pkg.entries if e.holder in self.full or e.holder in self.registration]
+        self.entries = owned
+        unresolved = [e.file.text[e.start:e.end] for e in owned if not e.op]
+        self.common = pkg.reach(spans + unresolved, pkg.bodies)
+        self.ops: dict[str, set[str]] = {}
+        for e in owned:
+            if e.op:
+                self.ops.setdefault(e.op, set()).update(pkg.reach([e.file.text[e.start:e.end]], pkg.bodies))
+
+    def text(self, ops: set[str] | None) -> tuple[str, set[str]]:
+        """The source a criterion naming ops runs, and the package types it
+        names, directly or through another type."""
+        key = frozenset(ops) if ops is not None else None
+        if key not in self._texts:
+            funcs = self.reached(ops)
+            texts = list(self.spans)
+            for name in funcs:
+                texts.extend(self.pkg.bodies[name] if funcs is not self.full else self.pkg.full[name])
+            named = ops & set(self.ops) if ops is not None else set(self.ops)
+            texts.extend(e.file.text[e.start:e.end] for e in self.entries
+                         if not e.op or e.op in named or funcs is self.full)
+            text = "\n".join(texts)
+            self._texts[key] = (text, self.pkg.reach([text], self.pkg.types))
+        return self._texts[key]
+
+    def reached(self, ops: set[str] | None) -> set[str]:
+        """The functions a criterion naming ops reaches; None, or no op this
+        tool dispatches, is every function the handler reaches."""
+        named = ops & set(self.ops) if ops is not None else set()
+        if not named:
+            return self.full
+        out = set(self.common)
+        for op in named:
+            out |= self.ops[op]
+        return out
+
+
+_TOOLS: dict[tuple[str, str], ToolReach] = {}
+
+
+def tool_reach(directory: str, tool: str) -> ToolReach:
+    if (directory, tool) not in _TOOLS:
+        _TOOLS[(directory, tool)] = ToolReach(package(directory), tool)
+    return _TOOLS[(directory, tool)]
+
+
+def placed(gofile: GoFile, lines: set[int], reach: ToolReach) -> list[tuple[str, str | None, str]]:
+    """Each changed line of a file in a tool's package, placed as ("func",
+    name, what), ("op", operation, what), ("type"|"const"|"var", name, what),
+    ("field", "Type.Field", what) or ("unplaced", None, what)."""
+    out = []
+    for n in sorted(lines):
+        if n in gofile.import_lines:
+            continue
+        entry = next((e for e in reach.entries if e.file is gofile and e.op and e.first <= n <= e.last), None)
+        if entry:
+            out.append(("op", entry.op, f"{gofile.rel}:{n} ({entry.op} in {entry.holder})"))
+            continue
+        decl = next((d for d in gofile.funcs if d[1] <= n <= d[2]), None)
+        spec = next((d for d in gofile.specs if d[2] <= n <= d[3]), None) if decl is None else None
+        if spec is not None:
+            kind, name = spec[0], spec[1]
+            field = FIELD_LINE.match(gofile.line(n)) if kind == "type" and n > spec[2] else None
+            if field and field.group(1) not in ("struct", "interface", "func", "type"):
+                out.append(("field", f"{name}.{field.group(1)}", f"{gofile.rel}:{n} (field {field.group(1)} of {name})"))
+            else:
+                out.append((kind, name, f"{gofile.rel}:{n} ({kind} {name})"))
+        elif decl is None:
+            out.append(("unplaced", None, f"{gofile.rel}:{n}, outside any declaration"))
+        elif decl[0] == "init" or decl[0] in reach.registration:
+            out.append(("unplaced", None, f"{gofile.rel}:{n}, in {decl[0]}, which registers or initializes the tool"))
+        else:
+            out.append(("func", decl[0], f"{gofile.rel}:{n} ({decl[0]})"))
+    return out
+
+
+def ops_called(text: str, funcs: dict[str, str], seen: set[str]) -> set[str] | None:
+    """The operations an acceptance file names in literal command, action or
+    operation arguments, directly or through a helper it calls; None when one
+    is not a literal, so every operation counts."""
+    ops: set[str] = set()
+    for m in DISCRIMINATOR_ARG.finditer(text):
+        if not m.group(1):
+            return None
+        ops.add(m.group(1))
+    for m in CALL.finditer(text):
+        name = m.group(1)
+        if name in funcs and name not in seen:
+            seen.add(name)
+            more = ops_called(funcs[name], funcs, seen)
+            if more is None:
+                return None
+            ops |= more
+    return ops
 
 
 # ---------------------------------------------------------------- check

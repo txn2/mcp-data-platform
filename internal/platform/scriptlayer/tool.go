@@ -99,6 +99,7 @@ type manageScriptInput struct {
 	Exclusive *runstate.ExclusiveMode `json:"exclusive,omitempty"`
 	// EventSource is a webhook handler's source (#2434); update refuses it.
 	EventSource  *string `json:"event_source,omitempty"`
+	Environment  string  `json:"environment,omitempty"`
 	Status       string  `json:"status,omitempty"`
 	SupersededBy string  `json:"superseded_by,omitempty"`
 
@@ -233,14 +234,15 @@ func (h *Handle) commands() map[string]commandHandler {
 		cmdTest:       h.handleTest,
 		cmdRecording:  h.handleRecording,
 
-		handlercmd.Set:       h.handleHandlerSet,
-		handlercmd.List:      h.handleHandlerList,
-		handlercmd.Get:       h.handleHandlerGet,
-		handlercmd.Enable:    h.handleHandlerEnable,
-		handlercmd.Disable:   h.handleHandlerDisable,
-		handlercmd.Delete:    h.handleHandlerDelete,
-		handlercmd.Test:      h.handleHandlerTest,
-		epcmd.CmdFormPreview: h.handleFormPreview,
+		handlercmd.Set:         h.handleHandlerSet,
+		handlercmd.List:        h.handleHandlerList,
+		handlercmd.Get:         h.handleHandlerGet,
+		handlercmd.Enable:      h.handleHandlerEnable,
+		handlercmd.Disable:     h.handleHandlerDisable,
+		handlercmd.Delete:      h.handleHandlerDelete,
+		handlercmd.Test:        h.handleHandlerTest,
+		handlercmd.Environment: h.handleHandlerEnvironment,
+		epcmd.CmdFormPreview:   h.handleFormPreview,
 	}
 }
 
@@ -398,6 +400,7 @@ func manageScriptSchema() any {
 			"true and false are read as refuse and off."},
 		"event_source": map[string]any{keyType: valString, keyDescription: "For handler_set kind=webhook: the webhook source the script runs for. Each event it stores (a post, a form submission, a filed message) enqueues one run, trigger event, reading run.event (id, type, key, received_at, source, payload) under the script's saved roles; " +
 			"one run per event id, at most scripts.events.max_queued waiting for this handler (past it, skipped_backlog), one at a time when exclusive. Several scripts may run for one source and one script for several. An administrator names any source; the owner only their own form's (form-<endpoint>)."},
+		"environment":   map[string]any{keyType: valString, keyDescription: "For handler_environment: the application environment (dev, prod, ...) the schedule or webhook handler named by handler runs in, on a script an application holds: its runs execute the version that environment's release pins and read its variables through platform.env (#2696). A new handler runs in the application's last environment."},
 		fieldStatus:     map[string]any{keyType: valString, keyEnum: []string{script.StatusActive, script.StatusDeprecated, script.StatusSuperseded}, keyDescription: "Lifecycle transition to apply."},
 		"superseded_by": map[string]any{keyType: valString, keyDescription: "Name of the replacing script when superseding."},
 		"search":        map[string]any{keyType: valString, keyDescription: "Substring filter for list."},

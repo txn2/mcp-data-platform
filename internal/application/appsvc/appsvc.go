@@ -86,6 +86,9 @@ type Service struct {
 	// Contracts reads what a site part serves and the contract a release
 	// declares (#2679); nil checks no contract.
 	Contracts ContractSites
+	// Environments keeps the applications' environments and variables
+	// (#2696); nil refuses every environment operation.
+	Environments application.EnvironmentStore
 }
 
 // Webhooks reads webhook handlers (scriptevents.PostgresStore).
@@ -144,6 +147,9 @@ func (s *Service) Create(ctx context.Context, actor application.Actor, a applica
 	a.OwnerEmail, a.CreatedBy = actor.Email, actor.Email
 	if err := a.Validate(); err != nil {
 		return nil, &RefusedError{Msg: err.Error()}
+	}
+	if err := checkEnvironments(a.Environments); err != nil {
+		return nil, err
 	}
 	if strings.Contains(a.Name, "--") {
 		// <site>--<env> is a site environment's address on the pages domain
@@ -588,7 +594,8 @@ func (s *Service) makeRelease(ctx context.Context, actor application.Actor, ref 
 	if err := blocking(found); err != nil {
 		return nil, err
 	}
-	prev, err := s.current(ctx, a)
+	env, running := landing(a)
+	prev, err := s.releaseOf(ctx, a, running)
 	if err != nil {
 		return nil, err
 	}
@@ -602,7 +609,7 @@ func (s *Service) makeRelease(ctx context.Context, actor application.Actor, ref 
 	rel.Changes.Parts = application.Diff(withoutSites(prev.Pins, unmoved(a, named)), pins)
 	s.servedBefore(ctx, rel.Changes.Parts)
 	rel.Changes.Findings = appdiagram.Problems(&appdiagram.Diagram{Findings: found})
-	recorded, err := s.Store.Record(ctx, a.ID, application.Recorded{Release: rel, After: a.CurrentRelease})
+	recorded, err := s.Store.Record(ctx, a.ID, application.Recorded{Release: rel, After: running, Environment: env})
 	if err != nil {
 		return nil, err //nolint:wrapcheck // read by identity
 	}
@@ -681,7 +688,9 @@ func (s *Service) Rollback(ctx context.Context, actor application.Actor, ref str
 		Pins: target.Pins, MigrationVersion: prev.MigrationVersion,
 	}
 	rel.Changes.Reverted = []int{}
-	if a.Schema != "" {
+	// Migrations move with the first environment (#2696); a rollback in a
+	// later one leaves the schema alone.
+	if a.Schema != "" && first(a, "") {
 		// Migrations applied before the schema was added were applied by no
 		// release, and no rollback reverts them (#2539).
 		to := max(target.MigrationVersion, a.SchemaAdoptedVersion)

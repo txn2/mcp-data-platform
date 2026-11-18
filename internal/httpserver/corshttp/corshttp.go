@@ -166,7 +166,7 @@ func credentialed(w http.ResponseWriter, r *http.Request, next http.Handler, tru
 // binding names the origins it answers, without credentials, and refuses the
 // preflight of any other, where this layer would reflect every origin with
 // credentials allowed.
-var ownCORSPrefixes = []string{whreceiver.PathPrefix, ephttp.PathPrefix, ephttp.BotCheckPrefix}
+var ownCORSPrefixes = []string{whreceiver.PathPrefix, ephttp.PathPrefix, ephttp.EnvironmentPrefix, ephttp.BotCheckPrefix}
 
 // WithoutHooks routes the routes that answer their own cross-origin requests
 // (ownCORSPrefixes) around cors.

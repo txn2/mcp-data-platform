@@ -24,6 +24,7 @@ type memStore struct {
 	failRec  error
 	runRoles map[string]application.RunRole
 	failSet  error
+	vars     map[string][]application.Variable
 }
 
 func newMem() *memStore {
@@ -49,6 +50,7 @@ func (m *memStore) Get(_ context.Context, id string) (*application.Application, 
 	}
 	cp := *a
 	cp.Parts = slices.Clone(a.Parts)
+	cp.Environments = slices.Clone(a.Environments)
 	return &cp, nil
 }
 
@@ -137,11 +139,14 @@ func (m *memStore) Record(_ context.Context, id string, r application.Recorded) 
 		return nil, m.failRec
 	}
 	a := m.apps[id]
+	if r.Environment != "" && len(a.Environments) > 1 {
+		return m.recordIn(id, r)
+	}
 	if a.CurrentRelease != r.After {
 		return nil, application.ErrStale
 	}
 	rel := r.Release
-	rel.Number = a.CurrentRelease + 1
+	rel.Number = len(m.releases[id]) + 1
 	a.CurrentRelease = rel.Number
 	m.releases[id] = append(m.releases[id], rel)
 	for _, p := range rel.Pins {
