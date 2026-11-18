@@ -83,7 +83,11 @@ saving the chosen one both require it, and the refusal names the line to add.
 | `hosts` | Every hostname entry the platform serves now |
 
 A hostname entry has `hostname`, `kind` (`pages`, `application` or `domain`),
-`site` and `environment` or `application`, whichever applies, and `public`.
+`site` and `environment` or `application`, whichever applies, and `public`. A
+site's domain also has `primary`, `mode` (`serve` or `redirect`) and, for a
+redirect domain, `redirects_to`, the primary it sends visitors to (#2687). A
+script routes a redirect domain like any other hostname, to the platform with the
+same ingress shape and certificate: the platform's gateway answers the redirect.
 
 `route(req)` returns a dict keyed by hostname, each value
 `{"status": "ready" | "failed", "message": "..."}`. A hostname the request did

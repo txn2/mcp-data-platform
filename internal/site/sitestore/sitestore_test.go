@@ -31,7 +31,7 @@ var (
 	releaseCols = []string{"id", "site_id", "number", "source", "note", "file_count", "total_bytes", "manifest_sha256", "redirects", "created_by", "created_at", "base_number", "manifest_parent", "manifest_depth", "rendered", "pruned_at", "headers", "contract"}
 	fileCols    = []string{"path", "sha256", "content_type", "size", "gzip_size", "brotli_size", "stored_in"}
 	deployCols  = []string{"environment", "action", "from_release", "to_release", "actor", "detail", "decided_by", "removed", "created_at"}
-	domainCols  = []string{"hostname", "site_id", "name", "environment", "application_id", "application", "created_by", "created_at", "public", "access_changed_at"}
+	domainCols  = []string{"hostname", "site_id", "name", "environment", "application_id", "application", "created_by", "created_at", "public", "access_changed_at", "is_primary", "mode", "redirects_to", "primary_public"}
 	routeCols   = []string{"id", "name", "env", "number", "private", "part_of", "status", "status_message", "back_at", "redirect_to", "redirect_keep_path"}
 )
 
@@ -57,7 +57,7 @@ func releaseRow(n int, redirects string) []driver.Value {
 }
 
 func domainRow(host string) []driver.Value {
-	return []driver.Value{host, "site_1", "marketing", "prod", "", "", "admin@example.com", rowTime, true, rowTime}
+	return []driver.Value{host, "site_1", "marketing", "prod", "", "", "admin@example.com", rowTime, true, rowTime, false, "serve", "", false}
 }
 
 func TestIDs(t *testing.T) {
@@ -721,7 +721,7 @@ func TestAddDomain(t *testing.T) {
 	s, mock := newMock(t)
 	d := &site.Domain{Hostname: "www.example.com", SiteID: "site_1", Environment: "prod", CreatedBy: "a"}
 
-	mock.ExpectQuery(q("INSERT INTO site_domains")).WithArgs("www.example.com", "site_1", "prod", "", "a", false).
+	mock.ExpectQuery(q("INSERT INTO site_domains")).WithArgs("www.example.com", "site_1", "prod", "", "a", false, false, "").
 		WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(rowTime))
 	require.NoError(t, s.AddDomain(ctx, d))
 	assert.Equal(t, rowTime, d.CreatedAt)
@@ -842,7 +842,7 @@ func TestRouteHost(t *testing.T) {
 	})
 	t.Run("an application's hostname names the application alone", func(t *testing.T) {
 		s, mock := newMock(t)
-		domain(mock, []driver.Value{"shop.example.com", "", "", "", "app_1", "shop", "a", rowTime, false, rowTime})
+		domain(mock, []driver.Value{"shop.example.com", "", "", "", "app_1", "shop", "a", rowTime, false, rowTime, false, "serve", "", false})
 		r, err := s.RouteHost(ctx, "shop.example.com")
 		require.NoError(t, err)
 		assert.Equal(t, &site.Route{Application: "shop", Hostname: "shop.example.com"}, r)
@@ -977,4 +977,55 @@ func TestHandoffs(t *testing.T) {
 	require.NoError(t, s.ExpireHandoffs(ctx, rowTime))
 	mock.ExpectExec(q("DELETE FROM page_handoffs")).WillReturnError(errDown)
 	require.ErrorContains(t, s.ExpireHandoffs(ctx, rowTime), "expire handoffs")
+}
+
+func TestSetDomainRole(t *testing.T) {
+	ctx := context.Background()
+	t.Run("a new primary takes the mark in one transaction", func(t *testing.T) {
+		s, mock := newMock(t)
+		mock.ExpectBegin()
+		mock.ExpectExec(q("UPDATE site_domains o SET is_primary = FALSE")).WithArgs("example.com").WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectExec(q("UPDATE site_domains SET is_primary = $2, mode = $3")).WithArgs("example.com", true, "serve").WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectCommit()
+		require.NoError(t, s.SetDomainRole(ctx, "example.com", true, "serve"))
+	})
+	t.Run("a redirect clears nothing else", func(t *testing.T) {
+		s, mock := newMock(t)
+		mock.ExpectBegin()
+		mock.ExpectExec(q("UPDATE site_domains SET is_primary = $2, mode = $3")).WithArgs("www.example.com", false, "redirect").WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectCommit()
+		require.NoError(t, s.SetDomainRole(ctx, "www.example.com", false, "redirect"))
+	})
+	t.Run("failures", func(t *testing.T) {
+		s, mock := newMock(t)
+		mock.ExpectBegin().WillReturnError(errDown)
+		require.ErrorContains(t, s.SetDomainRole(ctx, "a", true, "serve"), "set domain role")
+		mock.ExpectBegin()
+		mock.ExpectExec(q("UPDATE site_domains o")).WillReturnError(errDown)
+		mock.ExpectRollback()
+		require.ErrorContains(t, s.SetDomainRole(ctx, "a", true, "serve"), "set domain role")
+		mock.ExpectBegin()
+		mock.ExpectExec(q("UPDATE site_domains SET")).WillReturnError(errDown)
+		mock.ExpectRollback()
+		require.ErrorContains(t, s.SetDomainRole(ctx, "a", false, "serve"), "set domain role")
+		mock.ExpectBegin()
+		mock.ExpectExec(q("UPDATE site_domains SET")).WillReturnResult(sqlmock.NewResult(0, 0))
+		mock.ExpectRollback()
+		require.ErrorIs(t, s.SetDomainRole(ctx, "none", false, "serve"), site.ErrNoDomain)
+		mock.ExpectBegin()
+		mock.ExpectExec(q("UPDATE site_domains SET")).WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectCommit().WillReturnError(errDown)
+		require.ErrorContains(t, s.SetDomainRole(ctx, "a", false, "serve"), "set domain role")
+	})
+}
+
+func TestRouteHost_ARedirectDomainReadsNoRelease(t *testing.T) {
+	s, mock := newMock(t)
+	row := []driver.Value{"www.example.com", "site_1", "marketing", "prod", "", "", "a", rowTime, false, rowTime, false, "redirect", "example.com", true}
+	mock.ExpectQuery(q("WHERE d.hostname = $1")).WillReturnRows(sqlmock.NewRows(domainCols).AddRow(row...))
+	r, err := s.RouteHost(context.Background(), "www.example.com")
+	require.NoError(t, err)
+	assert.Equal(t, "example.com", r.PrimaryHost)
+	assert.False(t, r.Private, "the primary is public")
+	assert.Nil(t, r.Release)
 }

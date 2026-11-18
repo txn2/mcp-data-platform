@@ -51,6 +51,7 @@ var sensitiveConfigKeys = map[string]bool{
 	"client_secret":        true,
 	"oauth_client_secret":  true,
 	"oauth2_client_secret": true, // api gateway client_credentials grant
+	"oauth_password":       true, // the password grant's API user password (#2689)
 	"mtls_client_key_pem":  true, // api gateway mTLS private key
 	"jwt_client_secret":    true, // signed_jwt HMAC shared secret
 	"jwt_private_key_pem":  true, // signed_jwt RS256/ES256 signing key

@@ -55,7 +55,7 @@ GOLINT := golangci-lint
 
 .PHONY: all migrate-check-diff build test lint lint-full fmt clean install help docs-serve docs-build docs-images-check verify verify-release alert-rules-test builtin-pages-check \
 	load-endpoint-up load-platform tools-check dead-code mutate patch-coverage patch-coverage-check coverage-summary doc-check acceptance acceptance-release acceptance-check acceptance-release-check release-tag-check schedule-lane schedule-lane-ui realdb-lane state-readers-check e2e-copy-check acceptance-copy-check route-manifest-check posture-check migrate-check-lane swagger swagger-check verify-checks verify-go verify-static verify-docker verify-ui verify-static-ui vet-tags e2e-standalone \
-	semgrep semgrep-diff semgrep-changed codeql sast osv embed-clean migrate-check \
+	semgrep semgrep-diff semgrep-changed codeql sast osv osv-release embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer content-viewer-embed \
 	frontend-dev frontend-mock frontend-test frontend-lint frontend-e2e \
 	frontend-e2e-public-viewer \
@@ -534,20 +534,30 @@ endif
 ## finding fails it too, so the file cannot hold a stale acceptance. CI runs
 ## this target. bench/ and test/load/ are separate modules the release never
 ## builds and are not scanned.
+##
+## scripts/osv-gate.py judges the report (#2690). OSV_SCOPE=diff, the default
+## here and on a pull request, fails only on an advisory against a package
+## version the change adds or moves to since OSV_BASE (diff_base: the merge base
+## with main, or the last green tree), and prints one against an unchanged
+## dependency as a warning: it is about main, not the change. The push to main
+## and the scheduled runs set OSV_SCOPE=full and fail on every advisory.
 OSV_MANIFESTS := -L go.mod -L $(UI_DIR)/package-lock.json -L docs/requirements.txt
 OSV_LOG := build/osv-scanner.log
+OSV_REPORT := build/osv-report.json
+OSV_SCOPE ?= diff
 osv:
 	@echo "Running osv-scanner..."
 	@mkdir -p $(dir $(OSV_LOG))
-	@osv-scanner scan source --config osv-scanner.toml $(OSV_MANIFESTS) > $(OSV_LOG) 2>&1; \
+	@osv-scanner scan source --config osv-scanner.toml --format json $(OSV_MANIFESTS) > $(OSV_REPORT) 2> $(OSV_LOG); \
 	status=$$?; \
-	cat $(OSV_LOG); \
-	if grep -q 'has unused ignores' $(OSV_LOG); then \
-		echo "ERROR: osv-scanner.toml accepts an advisory no longer reported; delete that entry."; \
-		status=1; \
-	fi; \
-	rm -f $(OSV_LOG); \
-	exit $$status
+	if [ $$status -ne 0 ] && [ $$status -ne 1 ]; then cat $(OSV_LOG); echo "osv-scanner failed to run (exit $$status)"; exit 1; fi; \
+	$(diff_base); \
+	OSV_SCOPE="$(OSV_SCOPE)" OSV_BASE="$${OSV_BASE:-$$base}" python3 scripts/osv-gate.py $(OSV_REPORT) $(OSV_LOG)
+
+## osv-release: Fail on every known advisory, whatever change introduced it
+## The scope a release and the push to main judge (#2690); verify-release runs it.
+osv-release:
+	@$(MAKE) --no-print-directory osv OSV_SCOPE=full
 
 ## semgrep: Run Semgrep SAST with standard and custom rules
 semgrep:
@@ -736,7 +746,7 @@ portal-surface-check:
 e2e-copy-check:
 	@python3 scripts/e2e-copy-check.py
 
-## acceptance-copy-check: Fail when an acceptance criterion asserts text the diff removed from production Go (#2519)
+## acceptance-copy-check: Fail when an acceptance criterion asserts text the diff removed from production Go (#2519) or reads from a built-in page (#2695)
 ## make acceptance-check runs only the criteria in acceptance files a diff
 ## changes, and the whole suite runs only in the E2E Nightly. #2498 changed a
 ## refusal issue 2171's criterion still asserted; the nightly after the merge
@@ -1061,8 +1071,9 @@ embed-clean:
 ## Both are expensive and must NOT run per-revision; CI runs each on the PR.
 ## The release's own tickets must have a passing acceptance run
 ## (acceptance-release-check); the whole suite is the E2E Nightly's, which the
-## tag check requires green (#2218).
-verify-release: verify codeql mutate acceptance-release-check
+## tag check requires green (#2218). A release judges every advisory, not
+## only the ones its last change introduced (osv-release, #2690).
+verify-release: verify codeql mutate acceptance-release-check osv-release
 	@echo ""
 	@echo "=== Release verification complete (incl. CodeQL, mutation testing and the release's acceptance runs) ==="
 

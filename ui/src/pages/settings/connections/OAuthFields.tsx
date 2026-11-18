@@ -35,6 +35,14 @@ const JWT_BEARER_GRANT = {
   label: "jwt_bearer (signed assertion, RFC 7523)",
 };
 
+// PASSWORD_GRANT is the legacy resource owner password grant (#2689), offered
+// beside jwt_bearer by the same kinds: the platform speaks it only as a
+// client, to an upstream that offers no other grant.
+const PASSWORD_GRANT = {
+  value: "password",
+  label: "password (username and password, legacy)",
+};
+
 // COPY is the help text that differs between the editors that offer the
 // jwt_bearer grant and the one that does not, and on the grant itself.
 const COPY = {
@@ -51,6 +59,12 @@ const COPY = {
     "Optional, as the client id. Encrypted at rest. Use [REDACTED] to keep the existing value when re-saving.",
   clientIDJWTBearer:
     "Optional. Only for an upstream that also authenticates the client on the token request; the assertion identifies it otherwise.",
+  grantHelpPassword:
+    "Use password only for an upstream that offers no other grant. The platform posts the API user's username and password to the token endpoint, reuses the token until it expires, renews it with the refresh token, and signs in again with the password when the upstream refuses that. OAuth 2.1 removes this grant.",
+  clientIDPassword: "Optional. Only for an upstream that also identifies the client.",
+  secretPassword: "Optional, with a client ID. Encrypted at rest.",
+  username: "The upstream's API user. May name a stored secret.",
+  password: "Encrypted at rest and never shown again. Leave [REDACTED] to keep it. May name a stored secret.",
 };
 
 // ClientCredentialFields edits the client id and secret. Every grant but
@@ -60,12 +74,15 @@ function ClientCredentialFields({
   config,
   onChange,
   isJWTBearer,
-}: ConfigFormProps & { isJWTBearer: boolean }) {
+  isPassword,
+}: ConfigFormProps & { isJWTBearer: boolean; isPassword: boolean }) {
+  const idHelp = isPassword ? COPY.clientIDPassword : isJWTBearer ? COPY.clientIDJWTBearer : undefined;
+  const secretHelp = isPassword ? COPY.secretPassword : isJWTBearer ? COPY.secretJWTBearer : COPY.secret;
   return (
     <div className="grid grid-cols-2 gap-3">
       <ConfigField
         label="Client ID"
-        help={isJWTBearer ? COPY.clientIDJWTBearer : undefined}
+        help={idHelp}
         value={stored(config, "oauth_client_id")}
         onChange={(v) => onChange(update(config, "oauth_client_id", v))}
         placeholder="platform-client"
@@ -73,7 +90,7 @@ function ClientCredentialFields({
       />
       <ConfigField
         label="Client Secret"
-        help={isJWTBearer ? COPY.secretJWTBearer : COPY.secret}
+        help={secretHelp}
         value={stored(config, "oauth_client_secret")}
         onChange={(v) => onChange(update(config, "oauth_client_secret", v))}
         sensitive
@@ -156,12 +173,48 @@ function ScopeField({
   );
 }
 
+// grantOptions are the grants a kind's editor offers: the HTTP-based kinds
+// add jwt_bearer and password, which only they implement.
+function grantOptions(jwtBearer?: boolean) {
+  return jwtBearer ? [...GRANTS, JWT_BEARER_GRANT, PASSWORD_GRANT] : GRANTS;
+}
+
+// grantHelp is the grant picker's help for the editor and the chosen grant.
+function grantHelp(jwtBearer: boolean | undefined, isPassword: boolean): string {
+  if (isPassword) return COPY.grantHelpPassword;
+  return jwtBearer ? COPY.grantHelpWithJWTBearer : COPY.grantHelp;
+}
+
+// PasswordUserFields edits the API user the password grant posts (#2689).
+function PasswordUserFields({ config, onChange }: ConfigFormProps) {
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <ConfigField
+        label="Username"
+        help={COPY.username}
+        value={stored(config, "oauth_username")}
+        onChange={(v) => onChange(update(config, "oauth_username", v))}
+        placeholder="api-integration"
+        mono
+      />
+      <ConfigField
+        label="Password"
+        help={COPY.password}
+        value={stored(config, "oauth_password")}
+        onChange={(v) => onChange(update(config, "oauth_password", v))}
+        sensitive
+      />
+    </div>
+  );
+}
+
 // OAuthFields renders the grant picker and the endpoints and credentials the
 // chosen grant needs, on the canonical oauth_* keys.
 //
 // endpointAuthStyle adds the token-endpoint credential placement, which the
 // HTTP-based kinds expose. jwtBearer offers the RFC 7523 grant and its signing
-// fields, which only those kinds implement. connect is the browser sign-in
+// fields, and the legacy password grant (#2689), which only those kinds
+// implement. connect is the browser sign-in
 // affordance, rendered under the authorization_code fields by the kinds whose
 // editor carries one.
 export function OAuthFields({
@@ -177,14 +230,15 @@ export function OAuthFields({
 }) {
   const isAuthCode = config.oauth_grant === "authorization_code";
   const isJWTBearer = jwtBearer === true && config.oauth_grant === "jwt_bearer";
+  const isPassword = jwtBearer === true && config.oauth_grant === "password";
   return (
     <ConfigGroup title="OAuth 2.1">
       <ConfigSelect
         label="Grant type"
         value={stored(config, "oauth_grant", "client_credentials")}
         onChange={(v) => onChange(update(config, "oauth_grant", v))}
-        options={jwtBearer ? [...GRANTS, JWT_BEARER_GRANT] : GRANTS}
-        help={jwtBearer ? COPY.grantHelpWithJWTBearer : COPY.grantHelp}
+        options={grantOptions(jwtBearer)}
+        help={grantHelp(jwtBearer, isPassword)}
       />
       {isAuthCode && (
         <ConfigField
@@ -206,10 +260,12 @@ export function OAuthFields({
         placeholder="https://idp.example.com/oauth/token"
         mono
       />
+      {isPassword && <PasswordUserFields config={config} onChange={onChange} />}
       <ClientCredentialFields
         config={config}
         onChange={onChange}
         isJWTBearer={isJWTBearer}
+        isPassword={isPassword}
       />
       <ScopeField config={config} onChange={onChange} isAuthCode={isAuthCode} />
       {endpointAuthStyle && (

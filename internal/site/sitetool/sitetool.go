@@ -101,7 +101,11 @@ type Input struct {
 	// unset.
 	InternalView *bool `json:"internal_view,omitempty"`
 	Public       *bool `json:"public,omitempty"`
-	Main         *bool `json:"main,omitempty"`
+	// Primary and Mode place a domain among its environment's domains
+	// (#2687): the primary, and serve or redirect.
+	Primary *bool  `json:"primary,omitempty"`
+	Mode    string `json:"mode,omitempty"`
+	Main    *bool  `json:"main,omitempty"`
 	// MainEnvironment moves the main address on update; "" gives it to none.
 	MainEnvironment *string  `json:"main_environment,omitempty"`
 	Email           string   `json:"email,omitempty"`
@@ -211,7 +215,10 @@ const description = "Static sites served by the platform. AGENTS WORK IN dev, PE
 	"the people who manage the site and whoever the environment is shared with. ONLY AN ADDED DOMAIN CAN BE PUBLIC: add_domain " +
 	"with public true, or set_domain with public true, opens that one domain to anyone (owner or administrator only; through " +
 	"Approvals where the environment requires approval); a domain is added private otherwise, and set_domain public false makes " +
-	"it private again. grant shares: level view with email (a person) or persona (everyone holding it, read on every " +
+	"it private again. ONE HOSTNAME WINS: set_domain primary true marks an environment's canonical domain, and set_domain mode redirect on another " +
+	"(www.example.com, or the bare example.com: either direction) answers it with a permanent redirect to the primary, path and query kept. It belongs " +
+	"to the environment's domains, so it takes effect at once and promote and rollback leave it alone; remove_domain refuses a primary others redirect to. " +
+	"grant shares: level view with email (a person) or persona (everyone holding it, read on every " +
 	"request) and environments (the environments it opens; none is every one); level manage (internal people only, " +
 	"site-wide) publishes, promotes, rolls back, adds domains and shares. Inside a private environment the site reads " +
 	"/_viewer for who signed in, and when the environment is a part of an application (add_part kind site, part_id " +
@@ -253,9 +260,11 @@ const (
 	typArray  = "array"
 	typBool   = "boolean"
 	keySite   = "site"
-	keyFolder = "folder"
-	keyPrefix = "prefix"
-	keyScope  = "scope"
+	// keyRemoved names what a remove command took away.
+	keyRemoved = "removed"
+	keyFolder  = "folder"
+	keyPrefix  = "prefix"
+	keyScope   = "scope"
 )
 
 func schema() map[string]any {
@@ -330,9 +339,14 @@ func schema() map[string]any {
 					keyPrefix:    str("The folder in the bucket, \"exports/site/\"; empty for the whole bucket."),
 				},
 			},
-			keyScope:      str("publish with folder: the library's scope (user, persona, global; default user)."),
-			"scope_id":    str("publish with folder: the persona name or user subject."),
-			"hostname":    str("add_domain, set_domain, remove_domain: the hostname."),
+			keyScope:   str("publish with folder: the library's scope (user, persona, global; default user)."),
+			"scope_id": str("publish with folder: the persona name or user subject."),
+			"hostname": str("add_domain, set_domain, remove_domain: the hostname."),
+			"primary": map[string]any{keyType: typBool, keyDesc: "add_domain, set_domain: true makes this domain its environment's primary, the canonical hostname " +
+				"the environment's redirect domains send visitors to; the previous primary stops being primary and keeps serving. A primary always serves."},
+			"mode": map[string]any{keyType: typString, "enum": []string{"serve", "redirect"}, keyDesc: "add_domain, set_domain: serve (the default) serves the release " +
+				"here; redirect answers every request with a permanent redirect (301, 308 for a method other than GET and HEAD) to the environment's primary, " +
+				"path and query kept, and serves nothing. It needs a primary on the environment."},
 			"application": str("add_domain: the application whose endpoints and pages the hostname serves, in place of site and environment."),
 			"url":         str("crawl: the site to copy."),
 			"status": map[string]any{
@@ -509,11 +523,11 @@ func (t *Tool) handlers() map[string]handler {
 			if err != nil {
 				return nil, &sitesvc.RefusedError{Msg: err.Error()}
 			}
-			res, err := t.ops().AddDomain(ctx, a, sitesvc.DomainRequest{
+			res, err := t.ops().AddDomainWithRole(ctx, a, sitesvc.DomainRequest{
 				Hostname: in.Hostname, Site: in.Site, Environment: in.Environment, Application: in.Application, Reason: in.Reason,
 				RequiresApproval: in.RequiresApproval, Public: in.Public != nil && *in.Public, Keep: keep.Keep,
 				Place: placeOf(in),
-			})
+			}, siteenv.DomainRole{Primary: in.Primary, Mode: in.Mode})
 			if err == nil && res != nil && res.DomainResult != nil && res.Domain != nil {
 				// A domain just added is pending until the routing script
 				// answers for it (#2659).
@@ -521,14 +535,9 @@ func (t *Tool) handlers() map[string]handler {
 			}
 			return res, err //nolint:wrapcheck // the caller's message
 		},
-		CmdSetDomain: func(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
-			if in.Public == nil {
-				return nil, &sitesvc.RefusedError{Msg: "set_domain: say public true or false"}
-			}
-			return t.ops().SetDomainAccess(ctx, a, in.Hostname, *in.Public, in.Reason)
-		},
+		CmdSetDomain: t.setDomain,
 		CmdRemoveDomain: func(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
-			return map[string]any{"removed": in.Hostname}, s.RemoveDomain(ctx, a, in.Hostname)
+			return map[string]any{keyRemoved: in.Hostname}, t.ops().RemoveDomain(ctx, a, in.Hostname)
 		},
 		CmdDomains: func(ctx context.Context, a sitesvc.Actor, _ Input) (any, error) {
 			list, err := s.Store.Domains(ctx)
@@ -549,7 +558,7 @@ func (t *Tool) handlers() map[string]handler {
 			if err != nil {
 				return nil, err //nolint:wrapcheck // the caller's message
 			}
-			return map[string]any{"removed": in.Environment, keySite: st}, nil
+			return map[string]any{keyRemoved: in.Environment, keySite: st}, nil
 		},
 	}
 }
@@ -895,4 +904,16 @@ func pageOf(list []site.Site, offset, limit int) []site.Site {
 		list = list[:limit]
 	}
 	return list
+}
+
+// setDomain changes a domain's access, its place among its environment's
+// domains (#2687), or both.
+func (t *Tool) setDomain(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
+	res, err := t.ops().SetDomain(ctx, a, in.Hostname, siteenv.DomainChange{
+		Public: in.Public, Reason: in.Reason, Role: siteenv.DomainRole{Primary: in.Primary, Mode: in.Mode},
+	})
+	if err != nil {
+		return nil, err //nolint:wrapcheck // the caller's message
+	}
+	return res, nil
 }

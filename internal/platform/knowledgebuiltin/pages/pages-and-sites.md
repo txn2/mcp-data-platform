@@ -167,6 +167,13 @@ cannot decide (`manage_approval decide` refuses it). So finish your change on
 accepted or approved. An environment an administrator marked
 `agents_may_promote` is the exception.
 
+**One hostname wins.** When a site answers at both `example.com` and
+`www.example.com`, make one the environment's primary (`set_domain primary:
+true`) and the other a redirect (`set_domain mode: redirect`): the platform
+answers it with a permanent redirect to the primary, path and query kept. Do not
+build a second site holding a `_redirects` file for this. A redirect needs a
+primary on its environment, and a primary others redirect to cannot be removed.
+
 ```
 manage_site command=create name=marketing          # dev and prod; prod holds the main address
 manage_site command=publish site=marketing files=[{"path":"index.html","content":"<h1>Hello</h1>"}]

@@ -24,7 +24,18 @@ func TestProductionAddress(t *testing.T) {
 		{"hostname order", []Domain{
 			{Hostname: "z.example.test", Environment: "prod", Public: true},
 			{Hostname: "b.example.test", Environment: "prod", Public: true},
+		}, "https://b.example.test", 1}, // #2687: the primary is the address, and a redirect domain never is.
+		{"primary first", []Domain{
+			{Hostname: "a.example.test", Environment: "prod", Public: true},
+			{Hostname: "www.example.test", Environment: "prod", Primary: true},
+		}, "https://www.example.test", 1},
+		{"never a redirect", []Domain{
+			{Hostname: "a.example.test", Environment: "prod", Public: true, Mode: DomainRedirect},
+			{Hostname: "b.example.test", Environment: "prod"},
 		}, "https://b.example.test", 1},
+		{"only a redirect", []Domain{
+			{Hostname: "a.example.test", Environment: "prod", Public: true, Mode: DomainRedirect},
+		}, "https://docs.pages.example.net", 0},
 	}
 	for _, c := range cases {
 		got, more := at.ProductionAddress(st, c.domains)

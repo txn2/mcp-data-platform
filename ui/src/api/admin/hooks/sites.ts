@@ -11,6 +11,10 @@ export interface DeploymentAddress {
   site?: string;
   environment?: string;
   application?: string;
+  /** A site domain's role (#2687): its environment's primary, or a redirect to it. */
+  primary?: boolean;
+  mode?: "serve" | "redirect";
+  redirects_to?: string;
   created_by: string;
   created_at: string;
 }

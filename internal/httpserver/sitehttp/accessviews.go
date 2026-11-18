@@ -13,6 +13,10 @@ type DomainBody struct {
 	// approval. A domain is added private otherwise.
 	Public bool   `json:"public,omitempty"`
 	Reason string `json:"reason,omitempty"`
+	// Primary makes the domain its environment's primary, and Mode serve
+	// (the default) or redirect, a permanent redirect to the primary (#2687).
+	Primary *bool  `json:"primary,omitempty"`
+	Mode    string `json:"mode,omitempty" enums:"serve,redirect"`
 	// RequiresApproval sets whether the environment requires approval, on
 	// one the request creates or one that exists; After is where a new
 	// environment goes (#2617).
@@ -22,7 +26,12 @@ type DomainBody struct {
 
 // DomainAccessBody makes a domain public or private (#2619).
 type DomainAccessBody struct {
-	Public bool `json:"public"`
+	// Public opens or closes the domain; absent leaves its access alone.
+	Public *bool `json:"public,omitempty"`
+	// Primary and Mode set the domain's place among its environment's domains
+	// (#2687); absent leaves each alone.
+	Primary *bool  `json:"primary,omitempty"`
+	Mode    string `json:"mode,omitempty" enums:"serve,redirect"`
 	// Reason goes with a request to make it public.
 	Reason string `json:"reason,omitempty"`
 }

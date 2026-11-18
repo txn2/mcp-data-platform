@@ -589,9 +589,9 @@ func TestApplicationAddresses(t *testing.T) {
 		rt.Service.Live = rt.Live
 		expectApplicationNamed(mock, "FROM applications WHERE name", "shop")
 		mock.ExpectQuery("ORDER BY d.hostname").WillReturnRows(sqlmock.NewRows([]string{
-			"hostname", "site_id", "name", "environment", "application_id", "application", "created_by", "created_at", "public", "access_changed_at",
-		}).AddRow("shop.client.example", "", "", "", "app_1", "shop", "a", time.Now(), false, time.Now()).
-			AddRow("www.client.example", "site_1", "marketing", "prod", "", "", "a", time.Now(), true, time.Now()))
+			"hostname", "site_id", "name", "environment", "application_id", "application", "created_by", "created_at", "public", "access_changed_at", "is_primary", "mode", "redirects_to", "primary_public",
+		}).AddRow("shop.client.example", "", "", "", "app_1", "shop", "a", time.Now(), false, time.Now(), false, "serve", "", false).
+			AddRow("www.client.example", "site_1", "marketing", "prod", "", "", "a", time.Now(), true, time.Now(), false, "serve", "", false))
 
 		origin, domains, err := rt.ApplicationAddresses(ctx, "shop")
 		require.NoError(t, err)

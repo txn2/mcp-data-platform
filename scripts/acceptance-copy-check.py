@@ -32,6 +32,11 @@ fails on a literal that matches a removed text:
     fragment as common as "knowledge page" loses one of its places to many
     diffs without a criterion reading that place.
 
+Built-in knowledge pages are read by criteria too (#2695): a criterion that
+opens internal/platform/knowledgebuiltin/pages/<page>.md by path and holds a
+string literal the page held before the diff and no longer holds fails, as
+#2558's apex criterion did when #2692 rewrote the page's recipe.
+
 Each finding names the acceptance file and line and the production file the
 text left. A criterion line the diff itself changed is the author's update and
 is not reported. A base branch that cannot be resolved fails.
@@ -326,16 +331,49 @@ def findings(base: str, before: list[Literal], after: list[Literal]) -> list[str
     return out
 
 
+# The built-in knowledge pages a criterion may read by path (#2695).
+PAGES_DIR = "internal/platform/knowledgebuiltin/pages/"
+
+
+def page_findings(base: str, files: list[str]) -> list[str]:
+    """Literals of a criterion that names a changed built-in page, which the
+    page held before the diff and holds no longer."""
+    pages = [f for f in files if f.startswith(PAGES_DIR) and f.endswith(".md")]
+    if not pages:
+        return []
+    added = added_lines(base)
+    out: list[str] = []
+    for rel in acceptance_files():
+        if rel in added and added[rel] is None:
+            continue
+        src = work_text(rel)
+        for page in pages:
+            if Path(page).name not in src:
+                continue
+            was, now = base_text(base, page), work_text(page)
+            for lineno, literal in literals(src):
+                if len(literal) < 4 or lineno in (added.get(rel) or ()):
+                    continue
+                if literal in was and literal not in now:
+                    out.append(f'  {rel}:{lineno}: "{shorten(literal)}" is read from {page}, which no longer has it')
+    return out
+
+
 def main() -> int:
     base = merge_base(os.environ.get("BASE_BRANCH", "main"))
-    before, after = changed_literals(base, changed_files(base))
+    files = changed_files(base)
+    page_failed = page_findings(base, files)
+    if page_failed:
+        print("FAIL acceptance-copy-check: an acceptance criterion reads text this diff removed from a built-in page.", file=sys.stderr)
+        print("\n".join(page_failed), file=sys.stderr)
+    before, after = changed_literals(base, files)
     if not removed_texts(before, after):
         print("acceptance-copy-check: no text removed from production Go against main")
-        return 0
+        return 1 if page_failed else 0
     failed = findings(base, before, after)
     if not failed:
         print("acceptance-copy-check: text left production Go; no acceptance criterion asserts it")
-        return 0
+        return 1 if page_failed else 0
     print("FAIL acceptance-copy-check: an acceptance criterion asserts text this diff removed from production Go.", file=sys.stderr)
     print("The E2E Nightly would fail on each of these; update the criterion to what the platform says now:", file=sys.stderr)
     print("\n".join(failed), file=sys.stderr)

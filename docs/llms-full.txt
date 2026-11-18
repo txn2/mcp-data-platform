@@ -4426,6 +4426,10 @@ No other mode reaches this class of upstream. `bearer` sends a fixed string, and
 
 Real examples: Sage X3 connected applications (HS256 over a client id and secret), Snowflake key-pair authentication (RS256 over a registered private key), Apple App Store Connect and APNs (ES256 over a downloaded key identified by a `kid` header), and the long tail of internal service APIs that issue a client id and a shared secret.
 
+## The OAuth password grant (legacy upstreams, #2689)
+
+`oauth_grant: password` (api and graphql connections; mcp refuses it) is the RFC 6749 section 4.3 resource owner password grant, for an upstream that issues tokens no other way. The platform is only ever the client. Keys: `oauth_token_url` (required), `oauth_username` (required), `oauth_password` (required; encrypted at rest, write-only, read back as [REDACTED], redacted in the config export, never in an audit row, log or error), optional `oauth_client_id`/`oauth_client_secret` placed by `oauth_endpoint_auth_style`, and `oauth_scope`. Any of the four credentials may name a stored secret, read for each request. The token is cached in memory per replica until it expires, renewed with the refresh token, and the password is posted again when the upstream refuses the refresh (any 4xx) or sent none; a refresh failing otherwise fails the call and keeps the refresh token. Nothing is stored. A refusal (invalid_grant, invalid_client, unauthorized_client, invalid_scope) fails the connection test and every call with the upstream's code and description, the password and client secret removed, and records the connection state auth_failed; a passing test names the user the token was issued for. Portal: Admin > Connections, grant "password (username and password, legacy)", Username and Password fields.
+
 ## signed_jwt or the jwt_bearer grant
 
 The same keys sign an assertion for `auth_mode: oauth` with `oauth_grant: jwt_bearer` (RFC 7523). `signed_jwt` presents the assertion itself as `Authorization: Bearer <jwt>`, for an upstream that validates a JWT the client minted and names no token endpoint. `jwt_bearer` POSTs it to the upstream's token endpoint and presents the access token issued in exchange, for an upstream whose setup names a token URL and a JWT bearer flow; an upstream that validates only tokens it issued rejects a `signed_jwt` assertion however correct its claims are.
@@ -7108,6 +7112,8 @@ private and the request to make it public goes to Approvals. `dev` cannot have a
 domain: it is the working copy, not an address people rely on. Only an
 administrator maps a hostname to an application, whose domain answers by the
 application's own rules and has no public setting.
+
+Primary and redirecting domains (#2687): one domain of an environment can be its primary; every other domain serves the release (the default) or redirects, answered by the gateway with a permanent redirect to the primary, path and query kept (301 for GET and HEAD, 308 otherwise, Cache-Control public, max-age=3600), reading no release. It answers anyone when the primary is public and asks for the sign-in when the primary is private. `add_domain`/`set_domain` take `primary: true` and `mode: serve|redirect`; the portal's Domains tab has a Role column with Make primary, Redirect to primary and Serve here. A new primary takes the mark from the old one, which keeps serving; a redirect needs a primary; a primary others redirect to cannot be removed or given up. Promote and rollback leave it alone. The environment's address and the site's production address is the primary, never a redirect domain. `GET /api/v1/admin/sites/domains`, `manage_site get` and the Site routing items carry `primary`, `mode` and `redirects_to`. Migration 000258.
 
 The gateway answers an added hostname before the platform's routes, so the
 portal's hostname, the OAuth and sign-in issuers' hostnames, anything under the

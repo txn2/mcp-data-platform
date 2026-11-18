@@ -3,6 +3,7 @@ package gates
 import (
 	"encoding/json"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -193,8 +194,11 @@ func carried(t *testing.T, jobs string, change map[string]string) map[string]str
 	for rel, body := range change {
 		writeFile(t, root, rel, body)
 	}
-	writeFile(t, root, ".jobs.json", jobs)
-	out, ok := runScript(t, root, []string{ciDelta, "carry", "run 7 at abc1234", ".jobs.json"}, []string{"DELTA_BASE=" + base})
+	// Outside the repository: a file written into it would be part of the
+	// change, and every path but a few is one the Test job reads.
+	jobsDir := t.TempDir()
+	writeFile(t, jobsDir, "jobs.json", jobs)
+	out, ok := runScript(t, root, []string{ciDelta, "carry", "run 7 at abc1234", filepath.Join(jobsDir, "jobs.json")}, []string{"DELTA_BASE=" + base})
 	if !ok {
 		t.Fatalf("carry failed:\n%s", out)
 	}
@@ -284,6 +288,9 @@ func TestCIDeltaCarriesNothingAFailedOrUnrunJobDidNotProve(t *testing.T) {
 func TestCIDeltaEveryCarriedGroupIsWiredIntoTheWorkflow(t *testing.T) {
 	ci := readRepoFile(t, ".github/workflows/ci.yml")
 	for _, want := range []string{
+		"needs.delta.outputs.skip_lint != 'true'",
+		"needs.delta.outputs.skip_test != 'true'",
+		"needs.delta.outputs.skip_build != 'true'",
 		"needs.delta.outputs.skip_frontend != 'true'",
 		"needs.delta.outputs.skip_frontend_e2e != 'true'",
 		"needs.delta.outputs.skip_security != 'true'",
@@ -292,6 +299,115 @@ func TestCIDeltaEveryCarriedGroupIsWiredIntoTheWorkflow(t *testing.T) {
 	} {
 		if !strings.Contains(ci, want) {
 			t.Errorf("ci.yml does not read %q", want)
+		}
+	}
+}
+
+// greenRunJobs is a run on which every job passed.
+var greenRunJobs = strings.ReplaceAll(previousRunJobs, `"failure"`, `"success"`)
+
+// TestCIDeltaCarriesLintTestAndBuildPastAChangeTheyDoNotRead pins #2690: a
+// push changing only osv-scanner.toml runs Security Scan and carries every
+// other job, Lint, Test and Build included, each naming the run it relied on.
+func TestCIDeltaCarriesLintTestAndBuildPastAChangeTheyDoNotRead(t *testing.T) {
+	got := carried(t, greenRunJobs, map[string]string{"osv-scanner.toml": "# accepted\n"})
+	want := []string{"acceptance", "build", "frontend", "frontend_e2e", "lint", "test"}
+	if g := groupsOf(got); strings.Join(g, " ") != strings.Join(want, " ") {
+		t.Fatalf("carried %v, want %v", g, want)
+	}
+	for group, why := range got {
+		if !strings.Contains(why, "run 7 at abc1234") {
+			t.Errorf("%s says %q, which names no run it relies on", group, why)
+		}
+	}
+}
+
+// TestCIDeltaRunsLintTestAndBuildOnAGoChange pins #2690's other half: a
+// change to a Go file runs all three, and a file Go tests read (a doc, a UI
+// source) runs Test.
+func TestCIDeltaRunsLintTestAndBuildOnAGoChange(t *testing.T) {
+	cases := []struct {
+		name    string
+		change  map[string]string
+		running []string
+	}{
+		{"go", map[string]string{"lib/lib.go": "package lib\n\nfunc One() int { return 2 - 1 }\n"}, []string{"lint", "test", "build"}},
+		{"go test", map[string]string{"lib/lib_test.go": "package lib\n\n// changed\n"}, []string{"lint", "test", "build"}},
+		{"lint config", map[string]string{".golangci.yml": "version: \"2\"\n"}, []string{"lint", "test"}},
+		{"doc a test reads", map[string]string{"docs/index.md": "# changed\n"}, []string{"test"}},
+		{"ui", map[string]string{"ui/src/app.ts": "export const a = 2\n"}, []string{"test", "build"}},
+		{"release definition", map[string]string{".goreleaser.yml": "version: 2\n"}, []string{"test", "build"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := carried(t, greenRunJobs, tc.change)
+			for _, group := range tc.running {
+				if _, ok := got[group]; ok {
+					t.Errorf("the change reaches %s, which was carried: %v", group, groupsOf(got))
+				}
+			}
+		})
+	}
+}
+
+// TestCIDeltaSummaryNamesACarriedJobOnADeltaRun: a delta run that carries
+// Test says so, naming the run, in place of what a delta Test would run.
+func TestCIDeltaSummaryNamesACarriedJobOnADeltaRun(t *testing.T) {
+	root := deltaRepo(t)
+	base := deltaGit(t, root, "rev-parse", "HEAD")
+	writeFile(t, root, "osv-scanner.toml", "# accepted\n")
+	carriedJSON := `{"test":"passed on run 9 at def5678, and the change since reaches none of its inputs"}`
+	out, ok := runScript(t, root, []string{ciDelta, "summary", "delta", "the change since the last green run"},
+		[]string{"DELTA_BASE=" + base, "CARRIED=" + carriedJSON})
+	if !ok {
+		t.Fatalf("summary failed:\n%s", out)
+	}
+	if !strings.Contains(out, "| Test | skipped: passed on run 9 at def5678") {
+		t.Errorf("the summary does not name the carried Test:\n%s", out)
+	}
+	if !strings.Contains(out, "| Lint | on a delta run") {
+		t.Errorf("the summary dropped the Lint row:\n%s", out)
+	}
+}
+
+// TestCIDeltaADeltaRunCarriesOnlyLintTestAndBuild: a delta run's own carry
+// (delta_carry, which ci-base writes) skips Lint, Test and Build past a change
+// none of them reads, and leaves the jobs a delta run already narrows to
+// their own rules.
+func TestCIDeltaADeltaRunCarriesOnlyLintTestAndBuild(t *testing.T) {
+	root := deltaRepo(t)
+	probe := `import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("d", "scripts/ci-delta.py")
+d = importlib.util.module_from_spec(spec); spec.loader.exec_module(d)
+print(json.dumps(d.delta_carry("run 3 at aaa1111", sys.argv[1:])))`
+	writeFile(t, root, "probe.py", probe)
+	outputs := func(files ...string) map[string]string {
+		out, ok := runScript(t, root, append([]string{"probe.py"}, files...), nil)
+		if !ok {
+			t.Fatalf("delta_carry failed:\n%s", out)
+		}
+		got := map[string]string{}
+		require(t, json.Unmarshal([]byte(lastLine(out)), &got))
+		return got
+	}
+	got := outputs("osv-scanner.toml")
+	for _, g := range []string{"lint", "test", "build"} {
+		if got["skip_"+g] != "true" {
+			t.Errorf("skip_%s = %q past an osv-scanner.toml change", g, got["skip_"+g])
+		}
+	}
+	for _, g := range []string{"frontend", "frontend_e2e", "security", "acceptance"} {
+		if got["skip_"+g] != "false" {
+			t.Errorf("a delta run's carry set skip_%s = %q", g, got["skip_"+g])
+		}
+	}
+	if !strings.Contains(got["carried"], "run 3 at aaa1111") {
+		t.Errorf("carried names no run: %s", got["carried"])
+	}
+	got = outputs("lib/lib.go")
+	for _, g := range []string{"lint", "test", "build"} {
+		if got["skip_"+g] != "false" {
+			t.Errorf("skip_%s = %q past a Go change", g, got["skip_"+g])
 		}
 	}
 }

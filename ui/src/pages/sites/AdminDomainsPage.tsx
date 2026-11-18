@@ -79,7 +79,10 @@ export function AdminDomainsPage({ onNavigate }: { onNavigate: (path: string) =>
                       <button type="button" className="text-primary hover:underline" onClick={() => open(a)}>
                         {serves(a)}
                       </button>
-                      <p className="text-xs text-muted-foreground">{KIND_LABEL[a.kind]}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {KIND_LABEL[a.kind]}
+                        {roleNote(a)}
+                      </p>
                     </TableCell>
                     <TableCell>
                       <div>{when(a.created_at)}</div>
@@ -257,4 +260,11 @@ function ApplicationField({ value, onChange }: { value: string; onChange: (v: st
       </SelectContent>
     </Select>
   );
+}
+
+/** roleNote is a site domain's role beside its kind (#2687): primary, or where it redirects. */
+function roleNote(a: DeploymentAddress): string {
+  if (a.primary) return " · Primary";
+  if (a.mode === "redirect" && a.redirects_to) return ` · 301 to ${a.redirects_to}`;
+  return "";
 }

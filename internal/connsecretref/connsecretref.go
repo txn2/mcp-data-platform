@@ -108,7 +108,9 @@ func Allowed(kind string, cfg map[string]any, path string) bool {
 	case !fillsConfig[kind]:
 		return false
 	case oauthClientKeys[key]:
-		return !nested && clientCredentialsGrant(cfg)
+		return !nested && (clientCredentialsGrant(cfg) || (kind != kindMCP && passwordGrant(cfg)))
+	case passwordKeys[key]:
+		return !nested && kind != kindMCP && passwordGrant(cfg)
 	case kind == kindMCP:
 		return !nested && key == keyCredential
 	case nested:
@@ -122,6 +124,18 @@ var fillsConfig = map[string]bool{kindAPI: true, kindGraphQL: true, kindMCP: tru
 
 // oauthClientKeys are the OAuth client's id and secret.
 var oauthClientKeys = map[string]bool{connoauth.ConfigKeyClientID: true, connoauth.ConfigKeyClientSecret: true}
+
+// passwordKeys are the password grant's API user (#2689), which the api and
+// graphql kinds post to the token endpoint at every password request.
+var passwordKeys = map[string]bool{"oauth_username": true, "oauth_password": true}
+
+// passwordGrant reports whether cfg is an OAuth connection on the password
+// grant.
+func passwordGrant(cfg map[string]any) bool {
+	mode, _ := cfg[keyAuthMode].(string)
+	grant, _ := cfg[connoauth.ConfigKeyGrant].(string)
+	return mode == authModeOAuth && grant == connoauth.GrantPassword
+}
 
 // validEntry reports whether a map entry's name is one header, not a path
 // deeper into the configuration.
@@ -147,12 +161,14 @@ func clientCredentialsGrant(cfg map[string]any) bool {
 // kind may name a stored secret.
 func Fields(kind string) string {
 	const oauth = connoauth.ConfigKeyClientID + " and " + connoauth.ConfigKeyClientSecret + " under the client_credentials grant"
+	const password = "oauth_username and oauth_password, and " + connoauth.ConfigKeyClientID + " and " +
+		connoauth.ConfigKeyClientSecret + " under the password grant"
 	switch kind {
 	case kindAPI, kindGraphQL:
 		return strings.Join([]string{
 			keyCredential, keyUsername, keyPassword, keyPathSecret,
 			sessionlogin.ConfigKeyLoginBody, sessionlogin.ConfigKeyLoginSecret,
-			"the values of " + keyStaticHeaders + " and " + sessionlogin.ConfigKeyLoginHeaders, "and " + oauth,
+			"the values of " + keyStaticHeaders + " and " + sessionlogin.ConfigKeyLoginHeaders, oauth, password,
 		}, listSep)
 	case kindMCP:
 		return keyCredential + listSep + "and " + oauth

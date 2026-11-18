@@ -286,57 +286,11 @@ type Config struct {
 // ClientID + ClientSecret (client_credentials), by refreshing the token
 // an administrator's one-time browser sign-in persisted
 // (authorization_code), or by exchanging an assertion signed with the
-// connection's SignedJWT key (jwt_bearer).
-type OAuth2Config struct {
-	// Grant is the OAuth flow, populated by ParseConfig from the
-	// canonical oauth_grant (or derived from a legacy auth_mode). One
-	// of connoauth.GrantClientCredentials,
-	// connoauth.GrantAuthorizationCode or connoauth.GrantJWTBearer. The
-	// authenticator and validation dispatch on this rather than on the
-	// auth_mode string.
-	Grant string
-	// TokenURL is the upstream's token endpoint. Required.
-	TokenURL string
-	// ClientID is the platform's registered client id. Required, except
-	// for jwt_bearer, where the assertion identifies the client.
-	ClientID string
-	// ClientSecret is the platform's registered client secret.
-	// Required, except for jwt_bearer. Encrypted at rest via the platform's
-	// FieldEncryptor (sensitive-key list already includes
-	// "client_secret"; the nested map's value is encrypted before
-	// storage in connection_instances.config).
-	ClientSecret string
-	// Scopes is an optional list of OAuth scopes to request.
-	Scopes []string
-	// ScopePlacement is where the jwt_bearer grant carries Scopes: the
-	// "scope" form parameter (param, the default), a claim in the signed
-	// assertion (claim, which Google reads), or both (#2061).
-	ScopePlacement string
-	// EndpointAuthStyle controls how the client credentials are
-	// transmitted at token-fetch time. "header" (default) sends
-	// them as HTTP Basic auth on the token request; "params"
-	// sends them as POST body parameters. Some IdPs require one
-	// or the other; "header" is the OAuth 2.1 default.
-	EndpointAuthStyle string
-	// AuthorizationURL is the upstream's authorization endpoint.
-	// Required only for the authorization_code grant — that's
-	// where the platform redirects the admin's browser to start
-	// the flow.
-	AuthorizationURL string
-	// Prompt is an optional OIDC prompt parameter (RFC OIDC
-	// §3.1.2.1). Common values: "login" (force credential prompt),
-	// "consent" (force consent screen), "select_account",
-	// "none" (silent auth). Empty by default — the IdP decides.
-	// Operators of strict OIDC realms (Keycloak, Auth0, Okta)
-	// typically set this to "login" so admin Reconnect actions
-	// always re-prompt the user. Pure-OAuth (non-OIDC) providers
-	// often reject unknown parameters with invalid_request, so
-	// leave empty for those.
-	Prompt string
-	// UnstatedTokenLifetime is how long a token whose response states no
-	// expires_in is reused (oauth_token_lifetime, #2218).
-	UnstatedTokenLifetime time.Duration
-}
+// connection's SignedJWT key (jwt_bearer), or by posting an API user's
+// username and password (password, #2689). It is internal/upstreamauth's own
+// type, so a field the shared seam adds reaches this kind with nothing to
+// copy across.
+type OAuth2Config = upstreamauth.OAuth2Config
 
 // EndpointAuthStyle values, owned by internal/upstreamauth and aliased
 // here because they are part of this toolkit's public API.

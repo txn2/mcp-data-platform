@@ -84,6 +84,20 @@ async function quietly<T>(page: Page, expression: string): Promise<T> {
 
 const opened = (page: Page) => quietly<string[]>(page, "window.__opened");
 
+/** watch records a page's console messages and its failed or erroring requests. */
+function watch(page: Page) {
+  const lines: string[] = [];
+  page.on("console", (m) => lines.push(`console.${m.type()}: ${m.text()}`));
+  page.on("pageerror", (e) => lines.push(`pageerror: ${e.message}`));
+  page.on("requestfailed", (r) => lines.push(`request failed: ${r.method()} ${r.url()} ${r.failure()?.errorText ?? ""}`));
+  page.on("response", (r) => {
+    if (r.status() >= 400) lines.push(`response ${r.status()}: ${r.request().method()} ${r.url()}`);
+  });
+  return {
+    report: (p: Page) => [...lines, ...p.frames().map((f) => `frame: ${f.url()}`)].join("\n"),
+  };
+}
+
 /** A stand-in for the site every link names: it reports its opener and referrer, and the Referer it was sent. */
 async function stubSite(context: BrowserContext): Promise<string[]> {
   const referers: string[] = [];
@@ -145,6 +159,7 @@ async function openCase(browser: Browser, surface: Surface, c: Case) {
     );
   }
   const page = await context.newPage();
+  const trail = watch(page);
   const url = new URL(surface.path(c), env("LINKS_BASE_URL")).href;
   const cdp = await context.newCDPSession(page);
   await cdp.send("Page.navigate", { url });
@@ -154,7 +169,14 @@ async function openCase(browser: Browser, surface: Surface, c: Case) {
   if (c.kind === "markdown") {
     await expect.poll(() => quietly<boolean>(page, `!!document.querySelector('a[href="${SITE}/md"]')`)).toBe(true);
   } else {
-    await expect.poll(() => quietly<boolean>(page, "window.__loaded"), { message: "the asset never reported it had loaded" }).toBe(true);
+    try {
+      await expect.poll(() => quietly<boolean>(page, "window.__loaded"), { message: "the asset never reported it had loaded" }).toBe(true);
+    } catch (err) {
+      // What the page did, in the job's own log: the console, every request
+      // that failed or answered an error, and the frames it holds (#2691).
+      console.log(`asset-links: ${c.kind} on ${surface.name} never loaded\n${trail.report(page)}`);
+      throw err;
+    }
   }
   return { context, page, referers };
 }

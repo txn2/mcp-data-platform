@@ -31,7 +31,7 @@ import (
 // Wire forms: manage_application, manage_schema, manage_script and
 // manage_site take their arguments as JSON strings (version, rate_limit and
 // ip_rate_limit as numbers, capture, methods, callers and files as
-// lists, public as a boolean); the api connection and the webhook source are
+// lists, public and primary as booleans, mode as a string); the api connection and the webhook source are
 // one JSON object each through the admin API. A visitor's request is an HTTP
 // GET, or a POST of a JSON object to the API, naming the site's hostname in
 // Host, with the application cookie in a Cookie header and, on a POST, the
@@ -484,24 +484,33 @@ func TestIssue2558_TheClientOverItsLimitIsRefusedAndAnotherIsNot(t *testing.T) {
 	}
 }
 
-// The apex hostname: a site holding only the guide's redirect map sends every
-// path, with its rest and its query string, to the storefront's hostname.
+// The apex hostname, as the guide's section 9 says (#2687): the storefront's
+// hostname is its environment's primary and the apex beside it redirects,
+// sending every path, with its rest and its query string, to the storefront's
+// hostname.
 func TestIssue2558_TheApexRedirectsToTheStorefrontKeepingThePath(t *testing.T) {
+	raw, err := os.ReadFile(guide2558)
+	if err != nil {
+		t.Fatalf("reading the guide: %v", err)
+	}
+	for _, step := range []string{"primary=true", "mode=redirect"} {
+		if !strings.Contains(string(raw), step) {
+			t.Fatalf("the guide's hostname section no longer names %s", step)
+		}
+	}
 	admin := connect(t)
 	stamp := unique1579()
-	webHost := "acc2558-web-" + stamp + ".example.test"
-	apex, apexHost := "acc2558-apex-"+stamp, "acc2558-apex-"+stamp+".example.test"
-	s := &store2558{webHost: webHost}
-	admin.call("manage_site", map[string]any{"command": "create", "name": apex, "description": "Acceptance #2558: the apex"})
-	t.Cleanup(func() { _, _, _ = admin.callRaw("manage_site", map[string]any{"command": "delete", "site": apex}) })
-	rules := s.names(fence2558(t, "text", ":splat 301"))
-	files := []map[string]any{{"path": "_redirects", "content": rules}, {"path": "index.html", "content": "apex"}}
-	if got := admin.call("manage_site", map[string]any{"command": "publish", "site": apex, "files": files}); got["release"] == nil {
-		t.Fatalf("publishing the apex: %v", got)
+	web, webHost, apexHost := "acc2558-web-"+stamp, "www.acc2558-"+stamp+".example.test", "acc2558-"+stamp+".example.test"
+	admin.call("manage_site", map[string]any{"command": "create", "name": web, "description": "Acceptance #2558: the storefront's hostnames"})
+	t.Cleanup(func() { _, _, _ = admin.callRaw("manage_site", map[string]any{"command": "delete", "site": web}) })
+	files := []map[string]any{{"path": "index.html", "content": "storefront"}}
+	if got := admin.call("manage_site", map[string]any{"command": "publish", "site": web, "files": files}); got["release"] == nil {
+		t.Fatalf("publishing the storefront: %v", got)
 	}
-	agentsMayPromote2643(t, apex, "prod") // about serving, not who decides (#2643)
-	admin.call("manage_site", map[string]any{"command": "add_domain", "hostname": apexHost, "site": apex, "environment": "prod", "public": true})
-	admin.call("manage_site", map[string]any{"command": "promote", "site": apex, "from": "dev", "to": "prod"})
+	agentsMayPromote2643(t, web, "prod") // about serving, not who decides (#2643)
+	admin.call("manage_site", map[string]any{"command": "promote", "site": web, "from": "dev", "to": "prod"})
+	admin.call("manage_site", map[string]any{"command": "add_domain", "hostname": webHost, "site": web, "environment": "prod", "public": true, "primary": true})
+	admin.call("manage_site", map[string]any{"command": "add_domain", "hostname": apexHost, "site": web, "environment": "prod", "public": true, "mode": "redirect"})
 	got := pollUntil2518(t, func() (pageResponse, bool) {
 		r := onHost(t, apexHost, http.MethodGet, "/products/tee?ref=ad", nil, "")
 		return r, r.status == http.StatusMovedPermanently

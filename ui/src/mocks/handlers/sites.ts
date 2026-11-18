@@ -1,5 +1,5 @@
 import { http, HttpResponse } from "msw";
-import type { Site, SiteEnvironment, SiteGrant, SiteJob, SiteRelease } from "@/api/portal/hooks/sites";
+import type { DomainMode, Site, SiteEnvironment, SiteGrant, SiteJob, SiteRelease } from "@/api/portal/hooks/sites";
 import { siteFileHandlers, resetSiteFiles } from "./siteFiles";
 import { siteOpsHandlers } from "./siteOps";
 
@@ -58,8 +58,28 @@ function addressNote(name: string, pages: string): string {
   );
 }
 const domain = (hostname: string, site: string, environment: string, isPublic = false) => ({
-  hostname, site, environment, public: isPublic, created_by: "jane.doe@example.com", created_at: at,
+  hostname, site, environment, public: isPublic, primary: false, mode: "serve" as DomainMode, created_by: "jane.doe@example.com", created_at: at,
 });
+
+type MockDomain = Site["domains"][number];
+
+// roleRefusal applies a role to d as the server does (#2687), or names why it
+// refuses: a redirect needs a primary, a primary never redirects, and a
+// primary others redirect to is not given up.
+function roleRefusal(s: Site, d: MockDomain, primary?: boolean, mode?: DomainMode): string {
+  const peers = s.domains.filter((x) => x.environment === d.environment && x.hostname !== d.hostname);
+  const nextPrimary = primary ?? !!d.primary;
+  const nextMode = mode ?? (primary ? "serve" : (d.mode ?? "serve"));
+  const redirecting = peers.filter((x) => x.mode === "redirect").map((x) => x.hostname);
+  if (nextPrimary && nextMode === "redirect") return `${d.hostname} cannot be the primary and redirect`;
+  if (nextMode === "redirect" && !peers.some((x) => x.primary)) return `${d.hostname} cannot redirect: environment "${d.environment}" has no primary domain to redirect to`;
+  if (d.primary && !nextPrimary && redirecting.length) return `${d.hostname} is the primary that ${redirecting.join(", ")} redirect to`;
+  if (nextPrimary) peers.forEach((x) => (x.primary = false));
+  Object.assign(d, { primary: nextPrimary, mode: nextMode });
+  const p = s.domains.find((x) => x.environment === d.environment && x.primary);
+  s.domains.forEach((x) => (x.redirects_to = x.mode === "redirect" && x.environment === d.environment ? p?.hostname : x.redirects_to));
+  return "";
+}
 
 function makeSites(): Site[] {
   const site = (name: string, description: string, owner: string, environments: Site["environments"], domains: Site["domains"], permissions: Site["permissions"], main = "prod"): Site =>
@@ -76,7 +96,7 @@ function makeSites(): Site[] {
       "marketing", "Company website", "jane.doe@example.com",
       // dev keeps its last 3, stage the deployment's default, prod every release it served (#2602).
       [env("dev", 12, false, false, 3, 3), env("stage", 11, false, true, undefined, 1), env("prod", 9, true, false, 0, 2)],
-      [domain("go.example.com", "marketing", "stage"), domain("example.com", "marketing", "prod", true), domain("www.example.com", "marketing", "prod")],
+      [domain("go.example.com", "marketing", "stage"), { ...domain("example.com", "marketing", "prod", true), primary: true }, { ...domain("www.example.com", "marketing", "prod"), mode: "redirect" as DomainMode, redirects_to: "example.com" }],
       admin,
     ),
   ].map((st) => ({ ...st, media: st.name === "marketing" ? [media("/media/", "sites/marketing/media"), media("/downloads/", "sites/marketing/downloads")] : [] }));
@@ -345,7 +365,7 @@ export const siteHandlers = [
     return HttpResponse.json({ environment: b.environment, release: b.release, status: "rollback" });
   }),
   http.post(`${base}/:site/domains`, async ({ params, request }) => {
-    const b = (await request.json()) as { hostname: string; environment: string; requires_approval?: boolean; public?: boolean; after?: string };
+    const b = (await request.json()) as { hostname: string; environment: string; requires_approval?: boolean; public?: boolean; after?: string; primary?: boolean; mode?: DomainMode };
     const s = find(params.site as string);
     if (!s) return missing();
     if (b.environment === "dev") return HttpResponse.json({ detail: "dev is the working copy and cannot have a domain: add the domain to the environment people use, and promote dev's release to it" }, { status: 422 });
@@ -353,25 +373,40 @@ export const siteHandlers = [
     if (!s.environments.some((e) => e.name === b.environment)) placeEnv(s, env(b.environment, 0, !!b.requires_approval), b.after);
     const gated = !!s.environments.find((e) => e.name === b.environment)?.requires_approval;
     const waits = !!b.public && gated && !s.permissions.delete;
-    const d = domain(b.hostname, s.name, b.environment, !!b.public && !waits);
+    const d: MockDomain = domain(b.hostname, s.name, b.environment, !!b.public && !waits);
     s.domains.push(d);
+    const refusal = b.primary !== undefined || b.mode ? roleRefusal(s, d, b.primary, b.mode) : "";
+    if (refusal) {
+      s.domains = s.domains.filter((x) => x !== d);
+      return HttpResponse.json({ detail: refusal }, { status: 422 });
+    }
     Object.assign(s, withAddresses(s));
     return HttpResponse.json({ ...d, status: waits ? "awaiting_approval" : "done", ...(waits ? { approval: { id: "apr_public1" } } : {}) }, { status: 201 });
   }),
   http.put(`${base}/:site/domains/:hostname`, async ({ params, request }) => {
-    const b = (await request.json()) as { public: boolean };
+    const b = (await request.json()) as { public?: boolean; primary?: boolean; mode?: DomainMode };
     const s = find(params.site as string);
     const d = s?.domains.find((x) => x.hostname === params.hostname);
     if (!s || !d) return HttpResponse.json({ detail: "no such domain" }, { status: 404 });
+    if (b.primary !== undefined || b.mode) {
+      const refusal = roleRefusal(s, d, b.primary, b.mode);
+      if (refusal) return HttpResponse.json({ detail: refusal }, { status: 422 });
+      if (b.public === undefined) return HttpResponse.json({ ...d, status: "done" });
+    }
     const gated = !!s.environments.find((e) => e.name === d.environment)?.requires_approval;
     if (b.public && !d.public && gated && !s.permissions.delete) return HttpResponse.json({ ...d, status: "awaiting_approval", approval: { id: "apr_public1" } });
-    d.public = b.public;
+    d.public = !!b.public;
     Object.assign(s, withAddresses(s));
     return HttpResponse.json({ ...d, status: "done" });
   }),
   http.delete(`${base}/:site/domains/:hostname`, ({ params }) => {
     const s = find(params.site as string);
-    if (s) s.domains = s.domains.filter((d) => d.hostname !== params.hostname);
+    const d = s?.domains.find((x) => x.hostname === params.hostname);
+    const redirecting = d?.primary ? s!.domains.filter((x) => x.environment === d.environment && x.mode === "redirect").map((x) => x.hostname) : [];
+    if (d && redirecting.length) {
+      return HttpResponse.json({ detail: `${d.hostname} is the primary that ${redirecting.join(", ")} redirect to: make another domain of environment "${d.environment}" primary, or set those to serve, before removing it` }, { status: 422 });
+    }
+    if (s) s.domains = s.domains.filter((x) => x.hostname !== params.hostname);
     return new HttpResponse(null, { status: 204 });
   }),
   http.get(`${base}/:site/access`, ({ params }) => {
@@ -452,7 +487,8 @@ export const siteHandlers = [
   http.get("/api/v1/admin/sites/domains", () =>
     HttpResponse.json({
       addresses: [
-        { hostname: "example.com", kind: "domain", site: "marketing", environment: "prod", created_by: "jane.doe@example.com", created_at: at },
+        { hostname: "example.com", kind: "domain", site: "marketing", environment: "prod", primary: true, mode: "serve", created_by: "jane.doe@example.com", created_at: at },
+        { hostname: "www.example.com", kind: "domain", site: "marketing", environment: "prod", mode: "redirect", redirects_to: "example.com", created_by: "jane.doe@example.com", created_at: at },
         { hostname: "marketing.pages.example.net", kind: "site_address", site: "marketing", environment: "dev", created_by: "jane.doe@example.com", created_at: at },
         { hostname: "shop.example.com", kind: "application", application: "shop", created_by: "sarah.chen@example.com", created_at: at },
       ],

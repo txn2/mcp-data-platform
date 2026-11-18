@@ -12570,7 +12570,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/sitehttp.AddressList"
+                            "$ref": "#/definitions/siteaddr.AddressList"
                         }
                     },
                     "401": {
@@ -12662,7 +12662,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Stops routing a hostname.",
+                "description": "Stops routing a hostname. A primary that other domains redirect to is refused (#2687).",
                 "tags": [
                     "Sites"
                 ],
@@ -29545,7 +29545,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Public opens this one domain to anyone (#2619); every address of the environment on the pages domain keeps asking for a sign-in. Making it public is the owner's or an administrator's, and where the environment requires approval someone who is not an administrator files a request in Approvals and asks again once it is approved. Anyone who manages the site makes a domain private.",
+                "description": "Public opens this one domain to anyone (#2619); every address of the environment on the pages domain keeps asking for a sign-in. Making it public is the owner's or an administrator's, and where the environment requires approval someone who is not an administrator files a request in Approvals and asks again once it is approved. Anyone who manages the site makes a domain private. Primary makes the domain its environment's canonical hostname and mode redirect answers it with a permanent redirect to that primary, path and query kept (#2687); a redirect needs a primary, a primary never redirects, and a primary others redirect to is not given up. Each field left out is left alone.",
                 "consumes": [
                     "application/json"
                 ],
@@ -29555,7 +29555,7 @@
                 "tags": [
                     "Sites"
                 ],
-                "summary": "Make a domain public or private",
+                "summary": "Change a domain's access or role",
                 "parameters": [
                     {
                         "type": "string",
@@ -29617,7 +29617,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Stops routing a hostname. The environment and its release do not change.",
+                "description": "Stops routing a hostname. The environment and its release do not change. A primary that other domains redirect to is refused (#2687).",
                 "tags": [
                     "Sites"
                 ],
@@ -54794,9 +54794,26 @@
                     "type": "string",
                     "example": "www.example.com"
                 },
+                "mode": {
+                    "description": "Mode is DomainServe (the release is served here) or DomainRedirect\n(every request is answered with a permanent redirect to the primary).",
+                    "type": "string",
+                    "enum": [
+                        "serve",
+                        "redirect"
+                    ]
+                },
+                "primary": {
+                    "description": "Primary marks the environment's canonical hostname (#2687): at most one\ndomain of an environment is primary, and the domains that redirect send\ntheir visitors to it.",
+                    "type": "boolean"
+                },
                 "public": {
                     "description": "Public answers anyone at this hostname (#2619): the one way a site\nenvironment opens to someone who has not signed in. A domain is added\nprivate unless public is asked for.",
                     "type": "boolean"
+                },
+                "redirects_to": {
+                    "description": "RedirectsTo is the primary hostname a redirect domain sends visitors to,\nread with the domain, empty for one that serves.",
+                    "type": "string",
+                    "example": "example.com"
                 },
                 "routing": {
                     "description": "Routing is the Site routing script's status for the hostname (#2659),\nabsent when no script is chosen.",
@@ -55284,6 +55301,61 @@
                 }
             }
         },
+        "siteaddr.AddressList": {
+            "type": "object",
+            "properties": {
+                "addresses": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/siteaddr.DeploymentAddress"
+                    }
+                }
+            }
+        },
+        "siteaddr.DeploymentAddress": {
+            "type": "object",
+            "properties": {
+                "application": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "environment": {
+                    "type": "string",
+                    "example": "default"
+                },
+                "hostname": {
+                    "type": "string",
+                    "example": "marketing.pages.example.net"
+                },
+                "kind": {
+                    "type": "string",
+                    "example": "site_address"
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": [
+                        "serve",
+                        "redirect"
+                    ]
+                },
+                "primary": {
+                    "description": "Primary, Mode and RedirectsTo are a site domain's role (#2687): a\nredirect domain needs the same ingress as any other, and the gateway\nanswers the redirect. Absent on a pages address and an application's\ndomain.",
+                    "type": "boolean"
+                },
+                "redirects_to": {
+                    "type": "string"
+                },
+                "site": {
+                    "type": "string",
+                    "example": "marketing"
+                }
+            }
+        },
         "siteconfig.Settings": {
             "type": "object",
             "properties": {
@@ -55368,9 +55440,26 @@
                     "type": "string",
                     "example": "www.example.com"
                 },
+                "mode": {
+                    "description": "Mode is DomainServe (the release is served here) or DomainRedirect\n(every request is answered with a permanent redirect to the primary).",
+                    "type": "string",
+                    "enum": [
+                        "serve",
+                        "redirect"
+                    ]
+                },
+                "primary": {
+                    "description": "Primary marks the environment's canonical hostname (#2687): at most one\ndomain of an environment is primary, and the domains that redirect send\ntheir visitors to it.",
+                    "type": "boolean"
+                },
                 "public": {
                     "description": "Public answers anyone at this hostname (#2619): the one way a site\nenvironment opens to someone who has not signed in. A domain is added\nprivate unless public is asked for.",
                     "type": "boolean"
+                },
+                "redirects_to": {
+                    "description": "RedirectsTo is the primary hostname a redirect domain sends visitors to,\nread with the domain, empty for one that serves.",
+                    "type": "string",
+                    "example": "example.com"
                 },
                 "routing": {
                     "description": "Routing is the Site routing script's status for the hostname (#2659),\nabsent when no script is chosen.",
@@ -55439,17 +55528,6 @@
                     "type": "array",
                     "items": {
                         "type": "string"
-                    }
-                }
-            }
-        },
-        "sitehttp.AddressList": {
-            "type": "object",
-            "properties": {
-                "addresses": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/sitehttp.DeploymentAddress"
                     }
                 }
             }
@@ -55530,36 +55608,6 @@
                 }
             }
         },
-        "sitehttp.DeploymentAddress": {
-            "type": "object",
-            "properties": {
-                "application": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "created_by": {
-                    "type": "string"
-                },
-                "environment": {
-                    "type": "string",
-                    "example": "default"
-                },
-                "hostname": {
-                    "type": "string",
-                    "example": "marketing.pages.example.net"
-                },
-                "kind": {
-                    "type": "string",
-                    "example": "site_address"
-                },
-                "site": {
-                    "type": "string",
-                    "example": "marketing"
-                }
-            }
-        },
         "sitehttp.DeploymentList": {
             "type": "object",
             "properties": {
@@ -55574,7 +55622,19 @@
         "sitehttp.DomainAccessBody": {
             "type": "object",
             "properties": {
+                "mode": {
+                    "type": "string",
+                    "enum": [
+                        "serve",
+                        "redirect"
+                    ]
+                },
+                "primary": {
+                    "description": "Primary and Mode set the domain's place among its environment's domains\n(#2687); absent leaves each alone.",
+                    "type": "boolean"
+                },
                 "public": {
+                    "description": "Public opens or closes the domain; absent leaves its access alone.",
                     "type": "boolean"
                 },
                 "reason": {
@@ -55596,6 +55656,17 @@
                 "hostname": {
                     "type": "string",
                     "example": "www.example.com"
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": [
+                        "serve",
+                        "redirect"
+                    ]
+                },
+                "primary": {
+                    "description": "Primary makes the domain its environment's primary, and Mode serve\n(the default) or redirect, a permanent redirect to the primary (#2687).",
+                    "type": "boolean"
                 },
                 "public": {
                     "description": "Public opens the domain to anyone (#2619): the owner's or an\nadministrator's, through Approvals where the environment requires\napproval. A domain is added private otherwise.",
@@ -56864,9 +56935,26 @@
                     "type": "string",
                     "example": "www.example.com"
                 },
+                "mode": {
+                    "description": "Mode is DomainServe (the release is served here) or DomainRedirect\n(every request is answered with a permanent redirect to the primary).",
+                    "type": "string",
+                    "enum": [
+                        "serve",
+                        "redirect"
+                    ]
+                },
+                "primary": {
+                    "description": "Primary marks the environment's canonical hostname (#2687): at most one\ndomain of an environment is primary, and the domains that redirect send\ntheir visitors to it.",
+                    "type": "boolean"
+                },
                 "public": {
                     "description": "Public answers anyone at this hostname (#2619): the one way a site\nenvironment opens to someone who has not signed in. A domain is added\nprivate unless public is asked for.",
                     "type": "boolean"
+                },
+                "redirects_to": {
+                    "description": "RedirectsTo is the primary hostname a redirect domain sends visitors to,\nread with the domain, empty for one that serves.",
+                    "type": "string",
+                    "example": "example.com"
                 },
                 "routing": {
                     "description": "Routing is the Site routing script's status for the hostname (#2659),\nabsent when no script is chosen.",

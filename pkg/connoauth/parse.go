@@ -21,7 +21,7 @@ const (
 	// is AuthModeOAuth; the specific flow is carried by ConfigKeyGrant.
 	ConfigKeyAuthMode = "auth_mode"
 	// ConfigKeyGrant selects the OAuth flow: GrantAuthorizationCode,
-	// GrantClientCredentials or GrantJWTBearer.
+	// GrantClientCredentials, GrantJWTBearer or GrantPassword.
 	ConfigKeyGrant = "oauth_grant"
 	// ConfigKeyTokenURL is the IdP token endpoint.
 	ConfigKeyTokenURL = "oauth_token_url" // #nosec G101 -- config-map key, not a credential
@@ -60,6 +60,14 @@ const (
 	// kind, and a kind that cannot honor it refuses it in its own
 	// validation.
 	GrantJWTBearer = "jwt_bearer"
+	// GrantPassword is the RFC 6749 section 4.3 resource owner password
+	// credentials grant: the client posts a dedicated API user's username
+	// and password with its own client credentials, and renews with the
+	// refresh token the response carries. OAuth 2.1 removes it; the
+	// platform speaks it only as a client, to upstreams that offer no
+	// other grant (#2689). Like GrantJWTBearer, only the kinds built on
+	// internal/upstreamauth honor it.
+	GrantPassword = "password"
 )
 
 // AuthModeOAuth is the canonical ConfigKeyAuthMode value for an OAuth
@@ -187,11 +195,11 @@ func ParseConfig(kind, name string, cfg map[string]any) (Config, error) {
 func resolveGrant(cfg map[string]any, legacy *bool) (string, error) {
 	if g := getStringValue(cfg, ConfigKeyGrant); g != "" {
 		switch g {
-		case GrantAuthorizationCode, GrantClientCredentials, GrantJWTBearer:
+		case GrantAuthorizationCode, GrantClientCredentials, GrantJWTBearer, GrantPassword:
 			return g, nil
 		default:
-			return "", fmt.Errorf("unknown oauth_grant %q (want %s, %s or %s): %w",
-				g, GrantAuthorizationCode, GrantClientCredentials, GrantJWTBearer, ErrInvalidConfig)
+			return "", fmt.Errorf("unknown oauth_grant %q (want %s, %s, %s or %s): %w",
+				g, GrantAuthorizationCode, GrantClientCredentials, GrantJWTBearer, GrantPassword, ErrInvalidConfig)
 		}
 	}
 	switch mode := getStringValue(cfg, ConfigKeyAuthMode); mode {

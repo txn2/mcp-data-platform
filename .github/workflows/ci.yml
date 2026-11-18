@@ -15,12 +15,14 @@ jobs:
   # the change, the frontend only when ui/ changed, and the criteria of the
   # tickets it touches. A pull request's first run, a run with no green
   # ancestor, every push to main, and a change to a file that decides how the
-  # gates run (scripts/ci-delta.py FULL_RUN_FILES) run everything. Lint, Test
-  # and Build always run, so the checks a merge requires are never skipped.
+  # gates run (scripts/ci-delta.py FULL_RUN_FILES) run everything.
   # A push after a failed run carries the jobs that passed on it when the
   # change since reaches none of their inputs (#2642, ci-delta.py
-  # CARRY_GROUPS): the frontend jobs and Security Scan skip, and the
-  # acceptance jobs run the criteria of the tickets the change reaches.
+  # CARRY_GROUPS): Lint, Test, Build, the frontend jobs and Security Scan
+  # skip, and the acceptance jobs run the criteria of the tickets the change
+  # reaches. A delta run carries Lint, Test and Build from its green base the
+  # same way (#2690). A required check skipped by its job's condition reports
+  # success, so a carried Lint, Test or Build does not hold the merge.
   delta:
     name: Delta
     runs-on: ubuntu-latest
@@ -32,6 +34,9 @@ jobs:
       old_head: ${{ steps.base.outputs.old_head }}
       old_main: ${{ steps.base.outputs.old_main }}
       ui: ${{ steps.scope.outputs.ui }}
+      skip_lint: ${{ steps.base.outputs.skip_lint }}
+      skip_test: ${{ steps.base.outputs.skip_test }}
+      skip_build: ${{ steps.base.outputs.skip_build }}
       skip_frontend: ${{ steps.base.outputs.skip_frontend }}
       skip_frontend_e2e: ${{ steps.base.outputs.skip_frontend_e2e }}
       skip_security: ${{ steps.base.outputs.skip_security }}
@@ -90,7 +95,7 @@ jobs:
   lint:
     name: Lint
     needs: delta
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.delta.outputs.skip_lint != 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -138,7 +143,7 @@ jobs:
   test:
     name: Test
     needs: delta
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.delta.outputs.skip_test != 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -294,7 +299,7 @@ jobs:
   build:
     name: Build
     needs: delta
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.delta.outputs.skip_build != 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -453,9 +458,21 @@ jobs:
 
       # The same target `make security` ends with, so an advisory govulncheck's
       # database does not carry (#2143) fails CI as it fails a local verify.
+      # A pull request fails only on an advisory against a package version it
+      # adds or moves to, judged against the main its merge was made with (the
+      # merge ref's first parent), so a push after an earlier one introduced it
+      # still fails; one against an unchanged dependency is a warning (#2690).
+      # A push to main and a scheduled run fail on every advisory.
       - name: Run osv-scanner
+        env:
+          OSV_SCOPE: ${{ github.event_name == 'pull_request' && 'diff' || 'full' }}
         run: |
           go install github.com/google/osv-scanner/v2/cmd/osv-scanner@v2.5.1  # OSV_SCANNER_VERSION in the Makefile
+          if [ "$OSV_SCOPE" = "diff" ]; then
+            git fetch --quiet --depth=2 origin "$GITHUB_SHA"
+            OSV_BASE=$(git rev-parse HEAD^1)
+            export OSV_BASE
+          fi
           make osv
 
       - name: Run Semgrep

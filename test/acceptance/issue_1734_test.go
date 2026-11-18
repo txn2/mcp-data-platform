@@ -554,7 +554,7 @@ func TestIssue1734_TheSaveRefusesAnUnusableConfig(t *testing.T) {
 		{"no token URL", "api", nil, []string{"oauth_token_url"}, "oauth_token_url"},
 		{"a client secret with no client id", "api", map[string]any{"oauth_client_secret": "s3cret"}, nil, "oauth_client_id"},
 		{"a shared secret under RS256", "api", map[string]any{"jwt_client_secret": "shared"}, nil, "jwt_client_secret"},
-		{"a mistyped grant", "api", map[string]any{"oauth_grant": "jwt-bearer"}, nil, "want authorization_code, client_credentials or jwt_bearer"},
+		{"a mistyped grant", "api", map[string]any{"oauth_grant": "jwt-bearer"}, nil, "want authorization_code, client_credentials, jwt_bearer or password"},
 		{"the mcp kind", "mcp", map[string]any{
 			"endpoint": "https://upstream.invalid/mcp", "oauth_client_id": "cid", "oauth_client_secret": "csec",
 		}, []string{"base_url"}, `oauth.grant "jwt_bearer" not supported`},

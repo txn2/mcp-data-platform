@@ -26,11 +26,46 @@ type Domain struct {
 	// AccessChangedAt is when Public last changed; an approval to make the
 	// domain public is for the access it was asked against.
 	AccessChangedAt time.Time `json:"-"`
-	CreatedBy       string    `json:"created_by"`
-	CreatedAt       time.Time `json:"created_at"`
+	// Primary marks the environment's canonical hostname (#2687): at most one
+	// domain of an environment is primary, and the domains that redirect send
+	// their visitors to it.
+	Primary bool `json:"primary"`
+	// Mode is DomainServe (the release is served here) or DomainRedirect
+	// (every request is answered with a permanent redirect to the primary).
+	Mode string `json:"mode" enums:"serve,redirect"`
+	// RedirectsTo is the primary hostname a redirect domain sends visitors to,
+	// read with the domain, empty for one that serves.
+	RedirectsTo string `json:"redirects_to,omitempty" example:"example.com"`
+	// primaryPublic is whether that primary answers anyone.
+	primaryPublic bool
+	CreatedBy     string    `json:"created_by"`
+	CreatedAt     time.Time `json:"created_at"`
 	// Routing is the Site routing script's status for the hostname (#2659),
 	// absent when no script is chosen.
 	Routing *Routing `json:"routing,omitempty"`
+}
+
+// The modes of a domain (#2687).
+const (
+	DomainServe    = "serve"
+	DomainRedirect = "redirect"
+)
+
+// ValidMode reports whether m is a domain mode.
+func ValidMode(m string) bool { return m == DomainServe || m == DomainRedirect }
+
+// SetPrimaryAccess records whether the primary a redirect domain points at is
+// public, as the store reads it beside the domain.
+func (d *Domain) SetPrimaryAccess(public bool) { d.primaryPublic = public }
+
+// RedirectRoute is what a redirect domain answers: a permanent redirect to its
+// environment's primary, answered to anyone when the primary is public and to
+// those who may open the environment when it is not. It never reads a release.
+func (d *Domain) RedirectRoute() *Route {
+	return &Route{
+		SiteID: d.SiteID, Site: d.Site, Environment: d.Environment, Hostname: d.Hostname,
+		Private: !d.primaryPublic, PrimaryHost: d.RedirectsTo,
+	}
 }
 
 // Routing is the Site routing integration's status for one hostname (#2659):
@@ -78,6 +113,9 @@ type Route struct {
 	// Status is what the environment answers in place of its release, after
 	// the access check (#2631, #2632); its zero value is online.
 	Status EnvironmentStatus
+	// PrimaryHost is set for a redirect domain (#2687): every request is
+	// answered with a permanent redirect to it, after the access check.
+	PrimaryHost string
 }
 
 // ClaimRules are what a hostname a domain maps must stay clear of: the pages

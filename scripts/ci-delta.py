@@ -27,9 +27,11 @@ and any run whose base cannot be read.
 A push whose pull request has no green run on an ancestor still carries the
 jobs that passed on the previous push (#2642): when the previous run failed,
 `ci-base` reads that run's jobs, and a job that passed there (Frontend Build,
-Frontend E2E, Security Scan, the acceptance jobs) is skipped when the change
-since the merge that run tested reaches none of its inputs (CARRY_GROUPS).
-Lint, Test and Build always run, in full.
+Frontend E2E, Security Scan, the acceptance jobs, and Lint, Test and Build) is
+skipped when the change since the merge that run tested reaches none of its
+inputs (CARRY_GROUPS). A delta run carries Lint, Test and Build the same way
+from the green run it is based on (#2690): a push changing only osv-scanner.toml
+runs Security Scan and nothing else.
 
 Subcommands:
   ci-base            write mode/old_head/old_main/reason, and the jobs carried
@@ -143,6 +145,35 @@ def reads_security(path: str) -> bool:
     return path in SECURITY_FILES or path.startswith(".semgrep/")
 
 
+# Files the Go suites never open, so a change to them alone leaves every Go
+# test's result as it was: what only Security Scan reads. Go tests read far
+# more than Go files (ui/, docs/, dev/, CLAUDE.md, codecov.yml, .semgrep/ and
+# the scripts the gates run), so Test's inputs are every path but these.
+TEST_UNREAD = {"osv-scanner.toml", ".govulncheck-allow.txt"}
+
+
+def reads_lint(path: str) -> bool:
+    """A path the Lint job reads: Go source and golangci-lint's configuration."""
+    return path.endswith(".go") or path == ".golangci.yml" or path.startswith(".semgrep")
+
+
+def reads_test(path: str) -> bool:
+    """A path the Test job reads: every path but TEST_UNREAD."""
+    return path not in TEST_UNREAD
+
+
+# The trees `go build ./...` compiles and embeds from (a go:embed pattern names
+# files under its own package), and the release's build files.
+BUILD_TREES = ("cmd/", "pkg/", "internal/", "test/", "ui/")
+
+
+def reads_build(path: str) -> bool:
+    """A path the Build job reads: Go source, what it embeds, and the image and
+    release definitions."""
+    return (path.endswith(".go") or path.startswith(BUILD_TREES)
+            or path.startswith("Dockerfile") or path.startswith(".goreleaser"))
+
+
 def full_run_reason(files: list[str]) -> str:
     hit = sorted(set(files) & FULL_RUN_FILES)
     if hit:
@@ -246,6 +277,9 @@ def find_green_base(repo: str, branch: str, head: str) -> dict:
 # the tickets from the change since the carried run, so a change reaching no
 # criterion runs none and a change reaching one runs that one.
 CARRY_GROUPS = {
+    "lint": (("Lint",), reads_lint),
+    "test": (("Test",), reads_test),
+    "build": (("Build",), reads_build),
     "frontend": (("Frontend Build",), reads_frontend),
     "frontend_e2e": (("Frontend E2E",), reads_frontend),
     "security": (("Security Scan",), reads_security),
@@ -345,14 +379,35 @@ def ci_base() -> int:
         write_outputs({**full, **previous_run_carry(head), "reason": found["reason"]})
         return 0
     os.environ["DELTA_BASE"] = found["base"]
-    if reason := full_run_reason(changed_files(found["base"])):
+    files = changed_files(found["base"])
+    if reason := full_run_reason(files):
         write_outputs({**full, "reason": reason})
         return 0
     write_outputs({
         "mode": "delta", "old_head": found["old_head"], "old_main": found["old_main"],
         "reason": f"the change since the last green run ({found['why']})",
+        **delta_carry(found["why"], files),
     })
     return 0
+
+
+# The groups a delta run carries from its green base. The others are already
+# narrowed on a delta run: the frontend jobs by the ui output, Security Scan
+# to the packages the change touches, acceptance to the tickets it reaches.
+DELTA_CARRY = ("lint", "test", "build")
+
+
+def delta_carry(run: str, files: list[str]) -> dict[str, str]:
+    """The skip outputs of a delta run: every job passed on the green run it is
+    based on, so Lint, Test and Build are carried when the change since reaches
+    none of their inputs."""
+    out = {f"skip_{g}": "false" for g in CARRY_GROUPS}
+    jobs = [{"name": ROOT_JOB, "conclusion": "success"}]
+    jobs += [{"name": CARRY_GROUPS[g][0][0], "conclusion": "success"} for g in DELTA_CARRY]
+    carried = {g: why for g, why in carry(run, jobs, files).items() if g in DELTA_CARRY}
+    out.update({f"skip_{g}": "true" for g in carried})
+    out["carried"] = json.dumps(carried, separators=(",", ":"))
+    return out
 
 
 def previous_run_carry(head: str) -> dict[str, str]:
@@ -383,10 +438,10 @@ def record_tested() -> int:
 
 # The jobs a delta run narrows, in the words the run summary uses.
 SUMMARY_JOBS = [
-    ("Lint", "always; on a delta run, the issues in the change"),
-    ("Test", "always; on a delta run, the affected packages and their importers, the changed tests' schedule lane, "
+    ("Lint", "on a delta run, the issues in the change"),
+    ("Test", "on a delta run, the affected packages and their importers, the changed tests' schedule lane, "
              "the affected RealDB tests, and the change's patch coverage"),
-    ("Build", "always"),
+    ("Build", "every package"),
     ("Frontend Build / Frontend E2E", "on a delta run, only when the change touches ui/ or internal/apidocs/"),
     ("Security Scan", "always; on a delta run, gosec over the packages the change touches"),
     ("Acceptance", "the criteria of the tickets the change touches"),
@@ -395,6 +450,9 @@ SUMMARY_JOBS = [
 
 # The summary row of each carried group.
 CARRY_JOBS = {
+    "lint": "Lint",
+    "test": "Test",
+    "build": "Build",
     "frontend": "Frontend Build",
     "frontend_e2e": "Frontend E2E",
     "security": "Security Scan",
@@ -410,8 +468,8 @@ def summary(mode: str, reason: str) -> int:
     except ValueError:
         carried = {}
     if mode != "delta" and carried:
-        print("Lint, Test and Build run in full. A job that passed on the previous push is carried when the "
-              "change since reaches none of its inputs.\n")
+        print("A job that passed on the previous push is carried when the change since reaches none of its "
+              "inputs.\n")
         print("| Job | What runs |\n| --- | --- |")
         for group, job in CARRY_JOBS.items():
             if group not in carried:
@@ -433,6 +491,9 @@ def summary(mode: str, reason: str) -> int:
         if job.startswith("Frontend"):
             what = ("runs: the change touches what the frontend jobs read" if ui_touched
                     else "skipped: the change touches nothing under ui/ or internal/apidocs/")
+        group = next((g for g, j in CARRY_JOBS.items() if j == job), "")
+        if group in carried:
+            what = f"skipped: {carried[group]}"
         print(f"| {job} | {what} |")
     return 0
 

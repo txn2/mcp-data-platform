@@ -120,6 +120,14 @@ const ConfigSchemaPropertiesJSON = `{
     "type": ["string", "integer"],
     "description": "How long an access token is reused when the token endpoint's response states no expires_in, as a duration string or seconds. Default 15m. An expires_in the endpoint states always wins."
   },
+  "oauth_username": {
+    "type": "string",
+    "description": "The API user oauth_grant=password posts to oauth_token_url. May name a stored secret as {{secret:<name>}}."
+  },
+  "oauth_password": {
+    "type": "string",
+    "description": "That user's password (oauth_grant=password). Encrypted at rest; read back as \"[REDACTED]\", and sending that placeholder keeps the stored value. May name a stored secret as {{secret:<name>}}, read for each password request."
+  },
   "oauth_scope_placement": {
     "type": "string",
     "enum": ["param", "claim", "both"],

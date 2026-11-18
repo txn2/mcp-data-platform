@@ -969,3 +969,63 @@ func TestRealDB_AMoveNeverLandsOnAPrunedRelease(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 3, got.Environment(site.EnvDev).Release, "dev still serves what it served")
 }
+
+// A primary domain and the domains redirecting to it (#2687): one primary per
+// environment, a new primary takes the mark, a redirect domain's route is the
+// redirect with the primary's access and no release, and the database refuses
+// a primary that redirects and a role on an application's domain.
+func TestRealDB_PrimaryAndRedirectDomains(t *testing.T) {
+	db := testdb.New(t)
+	ctx := context.Background()
+	s := New(db)
+	st := realSite(ctx, t, s, "marketing")
+	realRelease(ctx, t, s, st.ID, 1)
+	require.NoError(t, s.Point(ctx, site.Pointer{SiteID: st.ID, Environment: realProd, To: 1, Action: site.ActionPromote, Actor: realOwner}))
+	for _, h := range []string{"example.com", "www.example.com", "old.example.com"} {
+		require.NoError(t, s.AddDomain(ctx, &site.Domain{Hostname: h, SiteID: st.ID, Environment: realProd, CreatedBy: realOwner}))
+	}
+	added, err := s.Domain(ctx, "example.com")
+	require.NoError(t, err)
+	assert.Equal(t, site.DomainServe, added.Mode, "a domain is added serving")
+	assert.False(t, added.Primary)
+
+	require.NoError(t, s.SetDomainRole(ctx, "example.com", true, site.DomainServe))
+	require.NoError(t, s.SetDomainPublic(ctx, "example.com", true))
+	require.NoError(t, s.SetDomainRole(ctx, "www.example.com", false, site.DomainRedirect))
+
+	www, err := s.Domain(ctx, "www.example.com")
+	require.NoError(t, err)
+	assert.Equal(t, "example.com", www.RedirectsTo)
+	route, err := s.RouteHost(ctx, "www.example.com")
+	require.NoError(t, err)
+	assert.Equal(t, "example.com", route.PrimaryHost)
+	assert.False(t, route.Private, "the primary is public, so its redirect answers anyone")
+	assert.Nil(t, route.Release, "a redirect reads no release")
+	served, err := s.RouteHost(ctx, "example.com")
+	require.NoError(t, err)
+	assert.Empty(t, served.PrimaryHost)
+	require.NotNil(t, served.Release)
+
+	// The other direction: www becomes primary, the bare domain gives up the
+	// mark and redirects; www's route serves.
+	require.NoError(t, s.SetDomainRole(ctx, "www.example.com", true, site.DomainServe))
+	require.NoError(t, s.SetDomainRole(ctx, "example.com", false, site.DomainRedirect))
+	bare, err := s.Domain(ctx, "example.com")
+	require.NoError(t, err)
+	assert.False(t, bare.Primary)
+	assert.Equal(t, "www.example.com", bare.RedirectsTo)
+	route, err = s.RouteHost(ctx, "example.com")
+	require.NoError(t, err)
+	assert.Equal(t, "www.example.com", route.PrimaryHost)
+	assert.True(t, route.Private, "www is private, so the redirect to it asks for a sign-in")
+
+	var primaries int
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM site_domains WHERE site_id = $1 AND is_primary`, st.ID).Scan(&primaries))
+	assert.Equal(t, 1, primaries)
+
+	require.Error(t, s.SetDomainRole(ctx, "old.example.com", true, site.DomainRedirect), "a primary never redirects")
+	require.ErrorIs(t, s.SetDomainRole(ctx, "none.example.com", true, site.DomainServe), site.ErrNoDomain)
+	app := realApplication(ctx, t, db, "shop")
+	require.NoError(t, s.AddDomain(ctx, &site.Domain{Hostname: "shop.example.com", ApplicationID: app.ID, CreatedBy: realOwner}))
+	require.ErrorIs(t, s.SetDomainRole(ctx, "shop.example.com", true, site.DomainServe), site.ErrNoDomain)
+}

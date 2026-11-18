@@ -9,8 +9,8 @@ package connoauth
 const ConfigSchemaPropertiesJSON = `{
   "oauth_grant": {
     "type": "string",
-    "enum": ["client_credentials", "authorization_code", "jwt_bearer"],
-    "description": "Which OAuth grant this connection uses (auth_mode=oauth)."
+    "enum": ["client_credentials", "authorization_code", "jwt_bearer", "password"],
+    "description": "Which OAuth grant this connection uses (auth_mode=oauth). password (api and graphql connections) is the legacy resource owner password grant, for an upstream that offers no other: it sends oauth_username and oauth_password."
   },
   "oauth_token_url": {
     "type": "string",

@@ -22,6 +22,7 @@ import { useAuthStore } from "@/stores/auth";
 import { envNameProblem } from "./envName";
 import { ConfirmPublic, MakeDomainPrivateDialog, MakeDomainPublicDialog } from "./SiteDomainAccess";
 import { RoutingCell } from "./RoutingCell";
+import { DomainRoleChoice, RoleButtons, RoleCell, roleBody, type AddRole } from "./SiteDomainRole";
 import { AddressAccess, AddressLink } from "./SiteParts";
 import { bareAddress, envAddress, errorText, hostUrl, orderedEnvironments, when } from "./siteFormat";
 
@@ -38,6 +39,7 @@ export function SiteDomainsTab({ site }: { site: Site }) {
   const [removing, setRemoving] = useState<SiteDomain | null>(null);
   const [opening, setOpening] = useState<SiteDomain | null>(null);
   const [closing, setClosing] = useState<SiteDomain | null>(null);
+  const [roleFailure, setRoleFailure] = useState<string | null>(null);
   const canEdit = site.permissions.manage;
   const envs = orderedEnvironments(site.environments);
   const withAddress = envs.filter((e) => envAddress(site, e.name));
@@ -105,11 +107,17 @@ export function SiteDomainsTab({ site }: { site: Site }) {
             </div>
           ) : (
             <div className="overflow-x-auto">
+              {roleFailure && (
+                <Alert variant="destructive" data-testid="domain-role-refused">
+                  <AlertDescription>{roleFailure}</AlertDescription>
+                </Alert>
+              )}
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Domain</TableHead>
                     <TableHead>Serves</TableHead>
+                    <TableHead>Role</TableHead>
                     <TableHead>Access</TableHead>
                     {domainsRouted && <TableHead>Routing</TableHead>}
                     <TableHead>Added</TableHead>
@@ -130,6 +138,7 @@ export function SiteDomainsTab({ site }: { site: Site }) {
                       onRemove={() => setRemoving(d)}
                       onPublic={() => setOpening(d)}
                       onPrivate={() => setClosing(d)}
+                      onRoleError={setRoleFailure}
                     />
                   ))}
                 </TableBody>
@@ -137,7 +146,7 @@ export function SiteDomainsTab({ site }: { site: Site }) {
             </div>
           )}
           <p className="text-xs text-muted-foreground">
-            A domain is private unless it is made public: a private one asks for a sign-in on that domain and sends people back to it, and a public one opens for anyone. Only the owner or an administrator makes a domain public. {DOMAIN_NOTE} dev can't have a domain.
+            A domain is private unless it is made public: a private one asks for a sign-in on that domain and sends people back to it, and a public one opens for anyone. Only the owner or an administrator makes a domain public. One domain of an environment can be its primary; a domain set to redirect answers every request with a permanent redirect to the primary, path and query kept, and serves nothing. It opens for anyone when the primary is public, and promote and rollback leave it alone. {DOMAIN_NOTE} dev can't have a domain.
             {!canEdit && " Only the owner and the people who can manage this site add domains."}
           </p>
         </div>
@@ -197,6 +206,7 @@ function DomainRow({
   onRemove,
   onPublic,
   onPrivate,
+  onRoleError,
 }: {
   site: Site;
   domain: SiteDomain;
@@ -208,6 +218,7 @@ function DomainRow({
   onRemove: () => void;
   onPublic: () => void;
   onPrivate: () => void;
+  onRoleError: (msg: string | null) => void;
 }) {
   return (
     <TableRow>
@@ -215,6 +226,9 @@ function DomainRow({
         <AddressLink href={hostUrl(site, d.hostname)} text={d.hostname} />
       </TableCell>
       <TableCell>{d.environment}</TableCell>
+      <TableCell>
+        <RoleCell domain={d} />
+      </TableCell>
       <TableCell>
         <AddressAccess isPublic={d.public} />
       </TableCell>
@@ -226,6 +240,7 @@ function DomainRow({
       {canEdit && (
         <TableCell>
           <div className="flex flex-wrap justify-end gap-2">
+            <RoleButtons site={site} domain={d} onError={onRoleError} />
             {d.public ? (
               <Button size="sm" variant="outline" onClick={onPrivate}>
                 Make private
@@ -272,6 +287,7 @@ function useAddDomainForm(site: Site, onClose: () => void) {
   const [name, setName] = useState("");
   const [approval, setApproval] = useState(false);
   const [isPublic, setPublic] = useState(false);
+  const [role, setRole] = useState<AddRole>("serve");
   const [confirming, setConfirming] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const creating = choice === NEW_ENV;
@@ -284,10 +300,10 @@ function useAddDomainForm(site: Site, onClose: () => void) {
     setFailure(null);
     const place = creating ? { requires_approval: approval, ...(choices.length > 1 ? { after } : {}) } : {};
     const access = isPublic ? { public: true, ...(reason ? { reason } : {}) } : {};
-    add.mutate({ hostname: host, environment, ...access, ...place }, { onSuccess: onClose, onError: (e) => setFailure(errorText(e, "This domain could not be added")) });
+    add.mutate({ hostname: host, environment, ...access, ...place, ...roleBody(role) }, { onSuccess: onClose, onError: (e) => setFailure(errorText(e, "This domain could not be added")) });
   };
   return {
-    add, existing, hostname, setHostname, choice, setChoice, name, setName, approval, setApproval, isPublic, setPublic, confirming, setConfirming,
+    add, existing, hostname, setHostname, choice, setChoice, name, setName, approval, setApproval, isPublic, setPublic, confirming, setConfirming, role, setRole,
     failure, creating, environment, choices, after, setAfter, asks: gated && !isAdmin, host, submit,
     problem: creating ? envNameProblem(site.name, environment) : "",
   };
@@ -334,6 +350,7 @@ export function AddDomainDialog({ site, onClose }: { site: Site; onClose: () => 
           {creating && (
             <NewEnvironmentFields site={site} name={name} onName={setName} problem={problem} choices={choices} after={after} onAfter={setAfter} approval={approval} onApproval={setApproval} />
           )}
+          <DomainRoleChoice site={site} environment={creating ? "" : environment} role={f.role} onRole={f.setRole} />
           <DomainAccessChoice site={site} hostname={host || "this domain"} environment={environment} isPublic={isPublic} onPublic={setPublic} gated={f.asks} />
           <p className="text-xs text-muted-foreground">{DOMAIN_NOTE}</p>
         </div>
