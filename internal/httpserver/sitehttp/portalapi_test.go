@@ -1015,6 +1015,7 @@ func TestApplicationAddresses_AnswersWhereItIs(t *testing.T) {
 		"created_by", "created_at", "updated_at", "schema_adopted_version", "schema_added_by", "schema_added_at", "contract_version",
 	}).AddRow("app_1", "shop", "", "jane@example.com", "", "", 0, "jane@example.com", now, now, 0, "", nil, 0))
 	mock.ExpectQuery("SELECT kind, part_id").WillReturnRows(sqlmock.NewRows([]string{"kind", "part_id", "added_by", "added_at", "release_mode"}))
+	mock.ExpectQuery("FROM application_environments").WillReturnRows(sqlmock.NewRows([]string{"name", "release", "requires_approval", "updated_by", "updated_at"}))
 	mock.ExpectQuery("ORDER BY d.hostname").WillReturnRows(sqlmock.NewRows([]string{
 		"hostname", "site_id", "name", "environment", "application_id", "application", "created_by", "created_at", "public", "access_changed_at", "is_primary", "mode", "redirects_to", "primary_public",
 	}).AddRow("shop.client.example", "", "", "", "app_1", "shop", "a", now, false, now, false, "serve", "", false).

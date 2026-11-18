@@ -46,6 +46,10 @@ const (
 	// PathPrefix is every endpoint's prefix; a request's path is
 	// /endpoints/{name} and what follows it.
 	PathPrefix = "/endpoints/"
+	// EnvironmentPrefix is where an application endpoint answers in an
+	// environment other than its last (#2696):
+	// /environments/{env}/endpoints/{name}/...
+	EnvironmentPrefix = "/environments/"
 	// BotCheckPrefix is the bot check's routes.
 	BotCheckPrefix = "/botcheck/"
 
@@ -138,6 +142,8 @@ func (h *Handler) clientIP(r *http.Request) string {
 func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.Handle(PathPrefix+"{name}", h)
 	mux.Handle(PathPrefix+"{name}/{rest...}", h)
+	mux.Handle(EnvironmentPrefix+"{env}"+PathPrefix+"{name}", h)
+	mux.Handle(EnvironmentPrefix+"{env}"+PathPrefix+"{name}/{rest...}", h)
 	mux.HandleFunc("GET "+challengePath, h.challenge)
 	mux.HandleFunc("OPTIONS "+challengePath, h.challenge)
 	mux.HandleFunc("GET "+solverPath, solver)
@@ -220,11 +226,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if v := r.PathValue("rest"); v != "" {
 		rest = "/" + v
 	}
-	h.serve(w, r, r.PathValue("name"), rest)
+	h.serveIn(w, r, r.PathValue("env"), r.PathValue("name"), rest)
 }
 
 func (h *Handler) serve(w http.ResponseWriter, r *http.Request, name, rest string) {
-	t, ok := h.resolve(w, r, name)
+	h.serveIn(w, r, "", name, rest)
+}
+
+// envResolver resolves an endpoint in an application environment
+// (eprun.Runner).
+type envResolver interface {
+	ResolveIn(ctx context.Context, name, env string) (*eprun.Target, error)
+}
+
+func (h *Handler) serveIn(w http.ResponseWriter, r *http.Request, env, name, rest string) {
+	t, ok := h.resolve(w, r, name, env)
 	if !ok {
 		return
 	}
@@ -304,10 +320,18 @@ func (h *Handler) routed(w http.ResponseWriter, r *http.Request, t *eprun.Target
 
 // resolve is the enabled endpoint name serves, writing the error response
 // when there is none.
-func (h *Handler) resolve(w http.ResponseWriter, r *http.Request, name string) (*eprun.Target, bool) {
-	t, err := h.Runner.Resolve(r.Context(), name)
+func (h *Handler) resolve(w http.ResponseWriter, r *http.Request, name, env string) (*eprun.Target, bool) {
+	var t *eprun.Target
+	var err error
+	if env == "" {
+		t, err = h.Runner.Resolve(r.Context(), name)
+	} else if er, ok := h.Runner.(envResolver); ok {
+		t, err = er.ResolveIn(r.Context(), name, env)
+	} else {
+		err = eprun.ErrNoEnvironment
+	}
 	switch {
-	case errors.Is(err, epbinding.ErrNotFound) || (err == nil && !t.Binding.Enabled):
+	case errors.Is(err, epbinding.ErrNotFound) || errors.Is(err, eprun.ErrNoEnvironment) || (err == nil && !t.Binding.Enabled):
 		httpjson.WriteError(w, http.StatusNotFound, "no endpoint answers at this path")
 		return nil, false
 	case err != nil:
@@ -554,7 +578,7 @@ func tooMany(w http.ResponseWriter, r *http.Request, rpm int) {
 // answering the cross-origin request a page on an allowed origin sends for
 // it.
 func (h *Handler) challenge(w http.ResponseWriter, r *http.Request) {
-	t, ok := h.resolve(w, r, r.URL.Query().Get("endpoint"))
+	t, ok := h.resolve(w, r, r.URL.Query().Get("endpoint"), "")
 	if !ok {
 		return
 	}

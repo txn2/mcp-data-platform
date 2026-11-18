@@ -3460,6 +3460,16 @@ definitions:
       description:
         example: The storefront, its API and its orders
         type: string
+      environments:
+        description: |-
+          Environments are the application's environments in promotion
+          order (#2696); one, prod, when omitted.
+        example:
+        - dev
+        - prod
+        items:
+          type: string
+        type: array
       name:
         example: shop
         type: string
@@ -3531,6 +3541,23 @@ definitions:
         items:
           $ref: '#/definitions/appsvc.SitePartView'
         type: array
+    type: object
+  apphttp.environmentPatch:
+    properties:
+      requires_approval:
+        type: boolean
+    type: object
+  apphttp.environmentRequest:
+    properties:
+      after:
+        description: After is the environment the new one follows; empty puts it first.
+        example: dev
+        type: string
+      name:
+        example: stage
+        type: string
+      requires_approval:
+        type: boolean
     type: object
   apphttp.importRequest:
     properties:
@@ -3611,6 +3638,25 @@ definitions:
       owner_email:
         type: string
     type: object
+  apphttp.variableRequest:
+    properties:
+      environment:
+        description: |-
+          Environment is the environment the value is for; empty sets the
+          application-wide default.
+        example: prod
+        type: string
+      value:
+        example: https://pay.example.com
+        type: string
+    type: object
+  apphttp.variablesResponse:
+    properties:
+      variables:
+        items:
+          $ref: '#/definitions/application.Variable'
+        type: array
+    type: object
   application.Application:
     properties:
       connection:
@@ -3640,6 +3686,15 @@ definitions:
       description:
         example: The storefront, its API and its orders
         type: string
+      environments:
+        description: |-
+          Environments are where the application runs, in promotion order: a
+          release lands in the first, a promote copies an environment's release
+          to the next, and the last is what /endpoints/<name> and every handler
+          naming no environment run (#2696).
+        items:
+          $ref: '#/definitions/application.Environment'
+        type: array
       id:
         example: app_01J9...
         type: string
@@ -3702,6 +3757,26 @@ definitions:
         items:
           type: integer
         type: array
+    type: object
+  application.Environment:
+    properties:
+      name:
+        example: dev
+        type: string
+      release:
+        description: Release is the release it runs, 0 for none yet.
+        example: 8
+        type: integer
+      requires_approval:
+        description: |-
+          RequiresApproval makes an agent's promote or rollback into it wait on a
+          person, as a site environment's does.
+        type: boolean
+      updated_at:
+        type: string
+      updated_by:
+        example: jane@example.com
+        type: string
     type: object
   application.Part:
     properties:
@@ -3779,6 +3854,23 @@ definitions:
         description: Restored is the release a rollback restored the pins of.
         example: 2
         type: integer
+    type: object
+  application.Variable:
+    properties:
+      environment:
+        example: prod
+        type: string
+      name:
+        example: API_BASE
+        type: string
+      updated_at:
+        type: string
+      updated_by:
+        example: jane@example.com
+        type: string
+      value:
+        example: https://pay.example.com
+        type: string
     type: object
   apprhttp.RecentCall:
     properties:
@@ -4083,6 +4175,22 @@ definitions:
         example: ok
         type: string
       updated_at:
+        type: string
+    type: object
+  appsvc.Promoted:
+    properties:
+      from:
+        example: dev
+        type: string
+      release:
+        example: 8
+        type: integer
+      replaced:
+        description: Replaced is the release the target ran before, 0 for none.
+        example: 6
+        type: integer
+      to:
+        example: prod
         type: string
     type: object
   appsvc.SchemaView:
@@ -8167,6 +8275,14 @@ definitions:
           answer and, for a form, the connections its submissions could be
           stored on.
         type: object
+      environments:
+        description: |-
+          Environments are the environments of the application holding the
+          script, in promotion order, that a schedule or webhook handler may
+          run in (#2696); empty for a script no application holds.
+        items:
+          type: string
+        type: array
       handlers:
         description: |-
           Handlers are the script's handlers, each as its kind describes it,
@@ -8233,6 +8349,13 @@ definitions:
           type: string
         type: array
       endpoint:
+        type: string
+      environment:
+        description: |-
+          Environment is the application environment a schedule's or webhook
+          handler's runs execute in (#2696); left out, a new one runs in the
+          last and a changed one keeps its own.
+        example: dev
         type: string
       event_source:
         description: EventSource is a webhook handler's source.
@@ -13682,6 +13805,12 @@ definitions:
         type: string
       enabled:
         type: boolean
+      environment:
+        description: |-
+          Environment is the application environment the schedule's runs
+          execute in, empty for the last (#2696).
+        example: dev
+        type: string
       id:
         type: string
       last_fire_at:
@@ -30467,6 +30596,261 @@ paths:
       summary: Draw an application
       tags:
       - Applications
+  /portal/applications/{app}/environments:
+    post:
+      consumes:
+      - application/json
+      description: Adds an environment after another (after; empty puts it first,
+        and none may follow the last, which /endpoints serves). It runs no release
+        until one is promoted or released to it. requires_approval makes an agent's
+        promote or rollback into it a person's to carry out. For administrators.
+      parameters:
+      - description: Application name or id
+        in: path
+        name: app
+        required: true
+        type: string
+      - description: The environment
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/apphttp.environmentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/application.Application'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Add an application environment
+      tags:
+      - Applications
+  /portal/applications/{app}/environments/{env}:
+    delete:
+      description: Removes an environment and its variables. The last environment,
+        which /endpoints serves, cannot be removed. For administrators.
+      parameters:
+      - description: Application name or id
+        in: path
+        name: app
+        required: true
+        type: string
+      - description: Environment
+        in: path
+        name: env
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/application.Application'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Remove an application environment
+      tags:
+      - Applications
+    patch:
+      consumes:
+      - application/json
+      description: 'Sets requires_approval: an agent''s promote or rollback into the
+        environment is refused, for a person to carry out here. For administrators.'
+      parameters:
+      - description: Application name or id
+        in: path
+        name: app
+        required: true
+        type: string
+      - description: Environment
+        in: path
+        name: env
+        required: true
+        type: string
+      - description: The setting
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/apphttp.environmentPatch'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/application.Application'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Change an application environment
+      tags:
+      - Applications
+  /portal/applications/{app}/environments/{env}/promote:
+    post:
+      description: 'The environment after {env} runs the release {env} runs. It applies
+        no migration: an application''s migrations move with its first environment.
+        For administrators.'
+      parameters:
+      - description: Application name or id
+        in: path
+        name: app
+        required: true
+        type: string
+      - description: The environment promoted from
+        in: path
+        name: env
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/appsvc.Promoted'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Promote an application environment
+      tags:
+      - Applications
+  /portal/applications/{app}/environments/{env}/rollback:
+    post:
+      consumes:
+      - application/json
+      description: '{env} runs an earlier release: to_release, or the one before the
+        release it runs. In the last environment it is the application''s rollback,
+        recorded as a release; in another it points the environment at the earlier
+        release. For administrators.'
+      parameters:
+      - description: Application name or id
+        in: path
+        name: app
+        required: true
+        type: string
+      - description: Environment
+        in: path
+        name: env
+        required: true
+        type: string
+      - description: The release
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/apphttp.rollbackRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/application.Release'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Roll back an application environment
+      tags:
+      - Applications
   /portal/applications/{app}/export:
     get:
       description: 'Answers one release as a bundle to download: its migrations, script
@@ -30812,6 +31196,138 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Roll an application back
+      tags:
+      - Applications
+  /portal/applications/{app}/variables:
+    get:
+      description: Each NAME=value, per environment, and the application-wide defaults
+        (environment empty). A value is plain text; one referencing a stored secret
+        holds {{secret:<name>}}, never the secret. For the owner and administrators.
+      parameters:
+      - description: Application name or id
+        in: path
+        name: app
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/apphttp.variablesResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List an application's variables
+      tags:
+      - Applications
+  /portal/applications/{app}/variables/{name}:
+    delete:
+      description: Removes NAME from an environment (?environment=), or the application-wide
+        default when it is absent. For the owner and administrators.
+      parameters:
+      - description: Application name or id
+        in: path
+        name: app
+        required: true
+        type: string
+      - description: Variable name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Environment; the default when absent
+        in: query
+        name: environment
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/apphttp.variablesResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete an application variable
+      tags:
+      - Applications
+    put:
+      consumes:
+      - application/json
+      description: Writes NAME=value for an environment, or the application-wide default
+        when environment is empty. The next run reads it; no release is needed. For
+        the owner and administrators.
+      parameters:
+      - description: Application name or id
+        in: path
+        name: app
+        required: true
+        type: string
+      - description: Variable name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: The value
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/apphttp.variableRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/apphttp.variablesResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Set an application variable
       tags:
       - Applications
   /portal/applications/import:

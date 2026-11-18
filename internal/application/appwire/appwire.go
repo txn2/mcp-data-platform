@@ -101,14 +101,16 @@ func Service(d Deps) *appsvc.Service {
 		return nil
 	}
 	scripts := scriptstore.New(d.DB)
+	store := appstore.New(d.DB)
 	svc := &appsvc.Service{
-		Store:     appstore.New(d.DB),
-		Scripts:   scripts,
-		Sources:   sources{db: d.DB},
-		Schedules: scripts,
-		Webhooks:  scriptevents.NewStore(d.DB),
-		Activity:  sources{db: d.DB},
-		Schema:    &appschema.Schema{Kit: Kit(d.Toolkits), Store: migrationstore.New(d.DB)},
+		Store:        store,
+		Environments: store,
+		Scripts:      scripts,
+		Sources:      sources{db: d.DB},
+		Schedules:    scripts,
+		Webhooks:     scriptevents.NewStore(d.DB),
+		Activity:     sources{db: d.DB},
+		Schema:       &appschema.Schema{Kit: Kit(d.Toolkits), Store: migrationstore.New(d.DB)},
 		// A connection named at create must be an application database
 		// one (#2491).
 		HasConnection: hasConnection(d.Toolkits),

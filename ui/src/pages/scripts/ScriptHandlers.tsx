@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { HandlerEnvironments } from "./HandlerEnvironment";
 import { ChevronRight, Plus, Zap } from "lucide-react";
 import type { ScriptContract } from "@/api/portal/hooks/scripts";
 import {
@@ -65,40 +66,42 @@ export function ScriptHandlers({ scriptId, contract }: { scriptId: string; contr
     setAdding(kind);
   };
   return (
-    <SectionCard
-      title="Handlers"
-      action={
-        data && (
-          <AddHandlerMenu offers={data.add} onPick={pick} disabled={adding !== null} isForm={Boolean(data.endpoint?.is_form)} />
-        )
-      }
-      data-testid="script-handlers"
-    >
-      <div className="space-y-3">
-        {isLoading && <p className="text-sm text-muted-foreground">Loading the handlers...</p>}
-        {error && (
-          <Alert variant="destructive">
-            <AlertDescription>This script&apos;s handlers could not be read.</AlertDescription>
-          </Alert>
-        )}
-        <SaveWarning warning={warning} />
-        {data && <HandlerVersionBanner scriptId={scriptId} contract={contract} handlers={data.handlers} />}
-        {data && adding && (
-          <AddHandler
-            key={adding}
-            kind={adding}
-            scriptId={scriptId}
-            contract={contract}
-            data={data}
-            onDone={(saved) => {
-              setWarning(saved?.warning ?? "");
-              setAdding(null);
-            }}
-          />
-        )}
-        {data && <HandlerList scriptId={scriptId} contract={contract} handlers={data.handlers} adding={adding !== null} />}
-      </div>
-    </SectionCard>
+    <HandlerEnvironments.Provider value={environmentsOf(data)}>
+      <SectionCard
+          title="Handlers"
+        action={
+          data && (
+            <AddHandlerMenu offers={data.add} onPick={pick} disabled={adding !== null} isForm={Boolean(data.endpoint?.is_form)} />
+          )
+        }
+        data-testid="script-handlers"
+      >
+        <div className="space-y-3">
+          {isLoading && <p className="text-sm text-muted-foreground">Loading the handlers...</p>}
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>This script&apos;s handlers could not be read.</AlertDescription>
+            </Alert>
+          )}
+          <SaveWarning warning={warning} />
+          {data && <HandlerVersionBanner scriptId={scriptId} contract={contract} handlers={data.handlers} />}
+          {data && adding && (
+            <AddHandler
+              key={adding}
+              kind={adding}
+              scriptId={scriptId}
+              contract={contract}
+              data={data}
+              onDone={(saved) => {
+                setWarning(saved?.warning ?? "");
+                setAdding(null);
+              }}
+            />
+          )}
+          {data && <HandlerList scriptId={scriptId} contract={contract} handlers={data.handlers} adding={adding !== null} />}
+        </div>
+      </SectionCard>
+    </HandlerEnvironments.Provider>
   );
 }
 
@@ -446,4 +449,10 @@ function HandlerVersionBanner({
       </AlertDescription>
     </Alert>
   );
+}
+
+// environmentsOf is the environments a schedule or webhook handler of the
+// script may run in (#2696).
+function environmentsOf(data: Handlers | undefined): string[] {
+  return data?.environments ?? [];
 }

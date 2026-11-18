@@ -181,6 +181,7 @@ internal/application/appdiagram -> internal/platform/scriptflow/sqlread
 internal/application/appdiagram -> internal/platform/scriptlib
 internal/application/appdiagram -> internal/webhook/whsource
 internal/application/appdiagram -> pkg/script
+internal/application/appenv -> pkg/script
 internal/application/apphttp -> internal/application
 internal/application/apphttp -> internal/application/appbundle
 internal/application/apphttp -> internal/application/appdiagram
@@ -202,6 +203,7 @@ internal/application/apprunrole -> pkg/registry
 internal/application/apprunrole -> pkg/toolkits/postgres
 internal/application/appschema -> pkg/toolkits/postgres
 internal/application/appstore -> internal/application
+internal/application/appstore -> internal/application/appenv
 internal/application/appsvc -> internal/application
 internal/application/appsvc -> internal/application/appdiagram
 internal/application/appsvc -> internal/application/appschema
@@ -325,6 +327,7 @@ internal/endpoint/eppreview -> internal/wirejson
 internal/endpoint/eppreview -> pkg/script
 internal/endpoint/eprefusal -> internal/bgloop
 internal/endpoint/eprefusal -> internal/logsan
+internal/endpoint/eprun -> internal/application/appenv
 internal/endpoint/eprun -> internal/auditredact
 internal/endpoint/eprun -> internal/endpoint/epbinding
 internal/endpoint/eprun -> internal/endpoint/epcollect
@@ -355,6 +358,7 @@ internal/endpoint/epsubmit -> internal/webhook/whsource
 internal/endpoint/epsubmit -> internal/webhook/whtable
 internal/endpoint/epsubmit -> pkg/audit
 internal/endpoint/epsubmit -> pkg/middleware
+internal/endpoint/epwire -> internal/application/appstore
 internal/endpoint/epwire -> internal/approval
 internal/endpoint/epwire -> internal/botcheck
 internal/endpoint/epwire -> internal/endpoint/epbinding
@@ -973,6 +977,7 @@ internal/httpserver/versionhttp -> internal/wirejson
 internal/httpserver/versionhttp -> pkg/prompt
 internal/httpserver/webhookwire -> internal/admin/webhookapi
 internal/httpserver/webhookwire -> internal/advisorylock
+internal/httpserver/webhookwire -> internal/application/appstore
 internal/httpserver/webhookwire -> internal/bgloop
 internal/httpserver/webhookwire -> internal/endpoint/epcmd
 internal/httpserver/webhookwire -> internal/endpoint/epcollect
@@ -1559,6 +1564,7 @@ internal/platform/scriptdraft -> pkg/registry
 internal/platform/scriptdraft -> pkg/resource
 internal/platform/scriptdraft -> pkg/script
 internal/platform/scriptdraft -> pkg/session
+internal/platform/scriptevents -> internal/application/appenv
 internal/platform/scriptevents -> internal/logsan
 internal/platform/scriptevents -> internal/platform/scriptstore
 internal/platform/scriptevents -> internal/runstate
@@ -1568,6 +1574,7 @@ internal/platform/scriptevents -> pkg/session
 internal/platform/scriptevents/sourcerule -> internal/webhook/whsource
 internal/platform/scriptevents/sourcerule -> pkg/script
 internal/platform/scriptexamples -> pkg/script
+internal/platform/scriptexec -> internal/application/appenv
 internal/platform/scriptexec -> internal/bgloop
 internal/platform/scriptexec -> internal/logsan
 internal/platform/scriptexec -> internal/notification/notifyalert
@@ -1582,6 +1589,7 @@ internal/platform/scriptexec -> internal/platform/scriptguard
 internal/platform/scriptexec -> internal/platform/scriptincident
 internal/platform/scriptexec -> internal/platform/scriptlib
 internal/platform/scriptexec -> internal/platform/scriptlive
+internal/platform/scriptexec -> internal/platform/scriptqueue
 internal/platform/scriptexec -> internal/platform/scriptrec
 internal/platform/scriptexec -> internal/platform/scriptres
 internal/platform/scriptexec -> internal/platform/scriptrun
@@ -1622,6 +1630,8 @@ internal/platform/scriptfmt -> internal/platform/scriptdialect
 internal/platform/scriptgrant -> pkg/script
 internal/platform/scriptguard -> internal/runstate
 internal/platform/scriptguard -> internal/upstreamretry
+internal/platform/scripthandler -> internal/application/appenv
+internal/platform/scripthandler -> internal/application/appstore
 internal/platform/scripthandler -> internal/approval
 internal/platform/scripthandler -> internal/endpoint/epbinding
 internal/platform/scripthandler -> internal/endpoint/epcmd
@@ -1714,6 +1724,9 @@ internal/platform/scriptout/exportrecord -> internal/platform/scriptout
 internal/platform/scriptout/exportrecord -> internal/platform/starlarkconv
 internal/platform/scriptout/exportrecord -> internal/tablexlsx
 internal/platform/scriptpending -> pkg/script
+internal/platform/scriptqueue -> internal/bgloop
+internal/platform/scriptqueue -> internal/platform/scriptstore
+internal/platform/scriptqueue -> pkg/observability
 internal/platform/scriptrec -> internal/jsonwalk
 internal/platform/scriptrec -> internal/platform/scriptrun
 internal/platform/scriptrec -> internal/platform/scriptsession
@@ -1733,6 +1746,7 @@ internal/platform/scriptrun -> internal/platform/exportrefs
 internal/platform/scriptrun -> internal/platform/exporttable
 internal/platform/scriptrun -> internal/platform/scriptdecide
 internal/platform/scriptrun -> internal/platform/scriptdialect
+internal/platform/scriptrun -> internal/platform/scriptenv
 internal/platform/scriptrun -> internal/platform/scriptfail
 internal/platform/scriptrun -> internal/platform/scriptguard
 internal/platform/scriptrun -> internal/platform/scriptlex
@@ -1825,6 +1839,8 @@ internal/platform/scripttx -> internal/platform/scriptsession
 internal/platform/scripttx -> internal/platform/scriptsql
 internal/platform/scripttx -> internal/platform/starlarkconv
 internal/platform/scriptwiring -> internal/application
+internal/platform/scriptwiring -> internal/application/appenv
+internal/platform/scriptwiring -> internal/application/appstore
 internal/platform/scriptwiring -> internal/application/appsvc
 internal/platform/scriptwiring -> internal/application/appwire
 internal/platform/scriptwiring -> internal/approval/apprtool

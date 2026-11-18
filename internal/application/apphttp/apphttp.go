@@ -118,6 +118,7 @@ func Register(mux *http.ServeMux, wrap func(http.Handler) http.Handler, cfg Conf
 	mux.Handle("POST "+Prefix+"/{app}/rollback", wrap(http.HandlerFunc(h.rollback)))
 	mux.Handle("GET "+Prefix+"/{app}/export", wrap(http.HandlerFunc(h.export)))
 	mux.Handle("GET "+Prefix+"/{app}/diagram", wrap(http.HandlerFunc(h.diagram)))
+	h.mountEnvironments(mux, wrap)
 	if cfg.Databases != nil {
 		mux.Handle("GET "+DatabasesPath, wrap(http.HandlerFunc(h.databases)))
 	}
@@ -253,6 +254,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) {
 	}
 	a, err := h.cfg.Service.Create(r.Context(), actor, application.Application{
 		Name: req.Name, Description: req.Description, Connection: req.Connection, Schema: req.Schema,
+		Environments: environmentsNamed(req.Environments),
 	})
 	h.record(r, actor, apptool.CmdCreate, map[string]any{"name": req.Name}, err)
 	h.answer(w, a, err)
@@ -298,6 +300,9 @@ type (
 		Description string `json:"description" example:"The storefront, its API and its orders"`
 		Connection  string `json:"connection" example:"orders"`
 		Schema      string `json:"schema" example:"shop"`
+		// Environments are the application's environments in promotion
+		// order (#2696); one, prod, when omitted.
+		Environments []string `json:"environments,omitempty" example:"dev,prod"`
 	}
 	updateRequest struct {
 		Description string `json:"description"`

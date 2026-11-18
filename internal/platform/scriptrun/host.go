@@ -7,6 +7,8 @@ import (
 	"maps"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptenv"
+
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 
@@ -113,7 +115,7 @@ const (
 // by Validate, which reports the tool names it names.
 var Capabilities = []string{
 	CapabilityQuery, CapabilityExecute, CapabilityExport, CapabilityPublishData, CapabilityCall, CapabilitySaveState,
-	CapabilityCheckpoint, CapabilityRemainingMS, scriptpace.SleepCapability, CapabilityNotify, CapabilityPublish, scriptlive.CapabilityProgress, scriptlive.CapabilityResult,
+	CapabilityCheckpoint, CapabilityRemainingMS, scriptenv.CapabilityEnv, scriptenv.CapabilityEnvironment, scriptpace.SleepCapability, CapabilityNotify, CapabilityPublish, scriptlive.CapabilityProgress, scriptlive.CapabilityResult,
 	scripttoken.CapabilityMint, scripttoken.CapabilityVerify, scripttoken.CapabilityDecrypt, scripttx.CapabilityTransaction, scripttx.CapabilityBatch,
 	scripttx.CapabilityQueryIter, scripttx.CapabilityCopyIn, scripttx.CapabilityCopyOut, scripttx.CapabilityMaintain, scriptres.CapabilityRead,
 	scriptdecide.CapabilityAllow, scriptdecide.CapabilityDeny, scriptdecide.CapabilityRequireApproval, scriptdecide.CapabilityCount,

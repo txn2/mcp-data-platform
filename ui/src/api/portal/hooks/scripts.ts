@@ -24,6 +24,8 @@ export interface ScriptSchedule {
   missed_fires?: number;
   created_by?: string;
   updated_by?: string;
+  /** environment is the application environment its runs execute in, "" for the last (#2696). */
+  environment?: string;
 }
 
 // ScriptScheduleInput is a cadence as its owner submits it. It carries no

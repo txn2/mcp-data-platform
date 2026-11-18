@@ -115,6 +115,8 @@ schedule_set was removed: use handler_set with kind=schedule (#2441)
 `handler_set kind=webhook event_source=<source>`. A kind's settings keep the
 parameter names the old commands took.
 
+A schedule or webhook handler of a script an application holds runs in an environment (#2696): `handler_environment` with `handler` and `environment` sets it, and its runs execute the version that environment's release pins and read its variables. A new handler runs in the last environment; an environment the application lacks is refused. The portal's schedule and webhook forms show an Environment field for such a script, and `GET /portal/scripts/{id}/handlers` lists the choices as `environments`.
+
 ## What a save checks
 
 A save is refused when the new version could not serve a handler the script

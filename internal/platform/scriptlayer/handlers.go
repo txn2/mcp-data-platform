@@ -147,6 +147,16 @@ func (h *Handle) handleHandlerEnable(ctx context.Context, input manageScriptInpu
 	return h.enableHandler(ctx, input, true)
 }
 
+// handleHandlerEnvironment points a schedule or webhook handler at the
+// application environment its runs execute in (#2696).
+func (h *Handle) handleHandlerEnvironment(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
+	if off := h.handlersOff(); off != nil {
+		return off, nil, nil
+	}
+	out, err := h.handlers.SetEnvironment(ctx, input.Handler, input.Environment, h.caller(ctx))
+	return handlerResult(ctx, out, err)
+}
+
 // handleHandlerDisable turns a handler off.
 func (h *Handle) handleHandlerDisable(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
 	return h.enableHandler(ctx, input, false)

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
+	"github.com/txn2/mcp-data-platform/internal/application/appstore"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcollect"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epsource"
@@ -129,6 +130,6 @@ func (w *Webhooks) wireEventRuns(db *sql.DB, dsn string, maxQueued int) {
 	if dsn != "" {
 		w.bindings = pglisten.New(dsn, scriptevents.BindingsChannel, bindings)
 	}
-	runs := &scriptevents.Enqueuer{Store: store, Bindings: bindings, Scripts: scriptstore.New(db), MaxQueued: maxQueued}
+	runs := &scriptevents.Enqueuer{Store: store, Bindings: bindings, Scripts: scriptstore.New(db), MaxQueued: maxQueued, Environments: appstore.New(db)}
 	w.AttachEventRuns(runs.Stored)
 }

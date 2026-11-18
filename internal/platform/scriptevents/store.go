@@ -55,11 +55,11 @@ const insertEventRunSQL = `
 		INSERT INTO script_runs (id, script_id, script_version_id, version, trigger_kind,
 		                         status, params, requested_by, fire_time, scheduled_for,
 		                         state_revision, state_read, exclusive, queued,
-		                         event_source, event_id, event, error, finished_at)
+		                         event_source, event_id, event, error, finished_at, environment)
 		VALUES ($1, $2, $3, $4, 'event', $5, $6, $7, NOW(), NOW(),
 		        ` + scriptstore.StateAtCreation + `, FALSE,
 		        COALESCE((SELECT exclusive_mode <> 'off' FROM scripts WHERE id = $2), FALSE),
-		        $8, $9, $10, $11, CASE WHEN $5 = 'skipped_backlog' THEN NOW() END)
+		        $8, $9, $10, $11, CASE WHEN $5 = 'skipped_backlog' THEN NOW() END, $12)
 		ON CONFLICT (script_id, event_source, event_id) WHERE event_id <> '' DO NOTHING`
 
 // eventSummarySQL is a script's pending event runs, its skipped ones since
@@ -182,7 +182,7 @@ func insertEventRun(ctx context.Context, tx *sql.Tx, r *script.Run, full bool, m
 	}
 	res, err := tx.ExecContext(ctx, insertEventRunSQL,
 		r.ID, r.ScriptID, r.VersionID, r.Version, status, params, r.RequestedBy,
-		r.EventSource, r.EventID, event, reason)
+		r.EventSource, r.EventID, event, reason, r.Environment)
 	if err != nil {
 		return false, false, fmt.Errorf("enqueue event run: %w", err)
 	}

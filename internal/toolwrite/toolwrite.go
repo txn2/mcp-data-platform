@@ -314,8 +314,9 @@ var actionTools = map[string]actionRule{
 	// application serves, export writes a bundle resource, import creates or
 	// releases an application.
 	"manage_application": {arg: "command", reads: set(
-		"get", "list", "releases",
-	), writes: set("create", "update", "delete", "add_part", "remove_part", "set_part", "release", "rollback", "export", "import")},
+		"get", "list", "releases", "variables",
+	), writes: set("create", "update", "delete", "add_part", "remove_part", "set_part", "release", "rollback", "export", "import",
+		"promote", "add_environment", "remove_environment", "set_environment", "set_variable", "delete_variable")},
 	// manage_site (#2518): publish writes a release, promote and rollback
 	// move what an environment serves, crawl publishes a copied site, and
 	// set_domain changes who a domain answers (#2619).
@@ -342,7 +343,7 @@ var actionTools = map[string]actionRule{
 		"versions", "runs", "get_run", "test", "recording", "handler_list", "handler_get", "handler_test",
 	), writes: set(
 		"create", "update", "delete", "patch", "run_draft", "cancel_run", "form_preview",
-		"handler_set", "handler_enable", "handler_disable", "handler_delete",
+		"handler_set", "handler_enable", "handler_disable", "handler_delete", "handler_environment",
 	), split: map[string]actionRule{
 		"state": {arg: "state_action", reads: set("", "get"), writes: set("set", "clear")},
 	}},

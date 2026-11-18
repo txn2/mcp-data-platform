@@ -98,12 +98,30 @@ func (s *Store) Create(ctx context.Context, a *application.Application) error {
 	if a.ID == "" {
 		a.ID = NewID()
 	}
+	if len(a.Environments) == 0 {
+		a.Environments = []application.Environment{{Name: DefaultEnvironment}}
+	}
+	names := make([]string, 0, len(a.Environments))
+	for _, e := range a.Environments {
+		names = append(names, e.Name)
+	}
+	// The application and its environments are one statement, so neither
+	// exists without the other (#2696).
 	err := s.db.QueryRowContext(ctx, `
-		INSERT INTO applications (id, name, description, owner_email, connection, schema_name, created_by)
-		SELECT $1, $2, $3, $4, $5, $6, $7
-		 WHERE NOT EXISTS (SELECT 1 FROM sites WHERE name = $2)
-		RETURNING created_at, updated_at`,
+		WITH app AS (
+			INSERT INTO applications (id, name, description, owner_email, connection, schema_name, created_by)
+			SELECT $1, $2, $3, $4, $5, $6, $7
+			 WHERE NOT EXISTS (SELECT 1 FROM sites WHERE name = $2)
+			RETURNING created_at, updated_at
+		), envs AS (
+			INSERT INTO application_environments (application_id, name, position, updated_by)
+			SELECT $1, e.name, e.ord - 1, $7
+			  FROM unnest($8::text[]) WITH ORDINALITY AS e(name, ord)
+			 WHERE EXISTS (SELECT 1 FROM app)
+		)
+		SELECT created_at, updated_at FROM app`,
 		a.ID, a.Name, a.Description, a.OwnerEmail, a.Connection, a.Schema, a.CreatedBy,
+		pq.Array(names),
 	).Scan(&a.CreatedAt, &a.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) { // a site holds the name: both answer on the pages domain
 		return application.ErrNameTaken
@@ -147,6 +165,9 @@ func (s *Store) one(ctx context.Context, query string, args ...any) (*applicatio
 		return nil, err
 	}
 	a.Parts = row.withSchema(parts)
+	if a.Environments, err = s.environments(ctx, a.ID); err != nil {
+		return nil, err
+	}
 	return a, nil
 }
 
@@ -196,6 +217,9 @@ func (s *Store) List(ctx context.Context) ([]application.Application, error) {
 		return nil, fmt.Errorf("list applications: %w", err)
 	}
 	if err := s.listParts(ctx, out); err != nil {
+		return nil, err
+	}
+	if err := s.listEnvironments(ctx, out); err != nil {
 		return nil, err
 	}
 	for i := range out {
@@ -510,11 +534,12 @@ func (s *Store) Release(ctx context.Context, applicationID string, number int) (
 	return rel, nil
 }
 
-// Record writes a release and its pins, makes it current, and holds each
-// pinned part at its version, in one transaction. The application row is
-// locked and its current release compared with r.After first, so of two
-// releases decided against one current release the second fails with
-// ErrStale and changes nothing.
+// Record writes a release and its pins and makes r.Environment (the last
+// when empty) run it, in one transaction; in the last environment the
+// release becomes current and each pinned part is held at its version
+// (#2696). The application row is locked and the environment's release
+// compared with r.After first, so of two releases decided against one
+// release the second fails with ErrStale and changes nothing.
 func (s *Store) Record(ctx context.Context, applicationID string, r application.Recorded) (*application.Release, error) {
 	rel := r.Release
 	normalizeChanges(&rel.Changes)
@@ -522,23 +547,28 @@ func (s *Store) Record(ctx context.Context, applicationID string, r application.
 		rel.Pins = []application.Pin{}
 	}
 	err := s.withTx(ctx, func(tx *sql.Tx) error {
-		var current int
-		err := tx.QueryRowContext(ctx, `SELECT current_release FROM applications WHERE id = $1 FOR UPDATE`,
-			applicationID).Scan(&current)
+		var next int
+		err := tx.QueryRowContext(ctx, `
+			SELECT COALESCE((SELECT MAX(number) FROM application_releases WHERE application_id = a.id), 0) + 1
+			  FROM applications a WHERE a.id = $1 FOR UPDATE`, applicationID).Scan(&next)
 		if errors.Is(err, sql.ErrNoRows) {
 			return application.ErrNotFound
 		}
 		if err != nil {
 			return fmt.Errorf("lock application: %w", err)
 		}
-		if current != r.After {
+		env, running, err := lockEnvironment(ctx, tx, applicationID, r.Environment)
+		if err != nil {
+			return err
+		}
+		if running != r.After {
 			return application.ErrStale
 		}
-		rel.Number = current + 1
+		rel.Number = next
 		if err := insertRelease(ctx, tx, applicationID, &rel); err != nil {
 			return err
 		}
-		return hold(ctx, tx, applicationID, rel.Number)
+		return runRelease(ctx, tx, applicationID, application.Move{Environment: env, Number: rel.Number, By: rel.CreatedBy})
 	})
 	if err != nil {
 		return nil, err
@@ -568,10 +598,6 @@ func insertRelease(ctx context.Context, tx *sql.Tx, applicationID string, rel *a
 			applicationID, rel.Number, p.Kind, p.PartID, p.Version); err != nil {
 			return fmt.Errorf("record release pin: %w", err)
 		}
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE applications SET current_release = $2, updated_at = NOW() WHERE id = $1`,
-		applicationID, rel.Number); err != nil {
-		return fmt.Errorf("make release current: %w", err)
 	}
 	return nil
 }

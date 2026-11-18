@@ -40,7 +40,9 @@ describe("ApplicationDetailPage", () => {
     await loaded();
 
     expect(screen.getByTestId("application-facts")).toHaveTextContent("sarah.chen@example.com");
-    expect(screen.getByText("Release 3")).toBeInTheDocument();
+    // The header's release, and each environment's (#2696).
+    expect(screen.getAllByText("Release 3")).toHaveLength(3);
+    expect(screen.getByLabelText("prod runs release 3")).toBeInTheDocument();
     expect(screen.getByTestId("parts-subtitle")).toHaveTextContent("5 parts. Release v3 pins the version of each.");
     expect(screen.getByRole("group", { name: "Automations" })).toHaveTextContent("Automations · 2");
     const sales = screen.getByTestId("part-script-script-001");

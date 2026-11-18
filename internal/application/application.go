@@ -90,6 +90,104 @@ type Application struct {
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 	Parts           []Part    `json:"parts"`
+	// Environments are where the application runs, in promotion order: a
+	// release lands in the first, a promote copies an environment's release
+	// to the next, and the last is what /endpoints/<name> and every handler
+	// naming no environment run (#2696).
+	Environments []Environment `json:"environments"`
+}
+
+// Environment is one place the application runs (#2696).
+type Environment struct {
+	Name string `json:"name" example:"dev"`
+	// Release is the release it runs, 0 for none yet.
+	Release int `json:"release" example:"8"`
+	// RequiresApproval makes an agent's promote or rollback into it wait on a
+	// person, as a site environment's does.
+	RequiresApproval bool      `json:"requires_approval"`
+	UpdatedBy        string    `json:"updated_by" example:"jane@example.com"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+// Last is the environment /endpoints/<name> runs, nil for none.
+func (a *Application) Last() *Environment {
+	if len(a.Environments) == 0 {
+		return nil
+	}
+	return &a.Environments[len(a.Environments)-1]
+}
+
+// EnvironmentNamed is the environment called name and its position; "" names
+// the last.
+func (a *Application) EnvironmentNamed(name string) (*Environment, int, bool) {
+	if name == "" {
+		if l := a.Last(); l != nil {
+			return l, len(a.Environments) - 1, true
+		}
+		return nil, -1, false
+	}
+	for i := range a.Environments {
+		if a.Environments[i].Name == name {
+			return &a.Environments[i], i, true
+		}
+	}
+	return nil, -1, false
+}
+
+// Move is one environment moved to a release: Number, decided while it ran
+// Expect, by By (#2696).
+type Move struct {
+	Environment string
+	Number      int
+	Expect      int
+	By          string
+}
+
+// Variable is NAME=value in one environment, or the application-wide default
+// when Environment is empty (#2696). A value is plain text; a stored secret
+// is referenced in it as {{secret:<name>}} and filled when a request is sent.
+type Variable struct {
+	Environment string    `json:"environment" example:"prod"`
+	Name        string    `json:"name" example:"API_BASE"`
+	Value       string    `json:"value" example:"https://pay.example.com"`
+	UpdatedBy   string    `json:"updated_by" example:"jane@example.com"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// VariablesFor is the variables a run in env sees: the defaults overlaid by
+// env's own.
+func VariablesFor(vars []Variable, env string) map[string]string {
+	out := map[string]string{}
+	for _, v := range vars {
+		if v.Environment == "" {
+			out[v.Name] = v.Value
+		}
+	}
+	for _, v := range vars {
+		if v.Environment == env && env != "" {
+			out[v.Name] = v.Value
+		}
+	}
+	return out
+}
+
+// EnvironmentStore keeps an application's environments and variables
+// (#2696).
+type EnvironmentStore interface {
+	// AddEnvironment inserts e after the environment named after, "" for
+	// first.
+	AddEnvironment(ctx context.Context, applicationID string, e Environment, after string) error
+	// RemoveEnvironment removes an environment and its variables.
+	RemoveEnvironment(ctx context.Context, applicationID, name string) error
+	// SetEnvironmentRelease makes the environment m names run m.Number,
+	// failing with ErrStale when it no longer runs m.Expect. Setting the last
+	// environment's release makes it current and holds its pins.
+	SetEnvironmentRelease(ctx context.Context, applicationID string, m Move) error
+	// SetEnvironmentApproval changes whether an agent's move into it waits.
+	SetEnvironmentApproval(ctx context.Context, applicationID, name string, requires bool, by string) error
+	Variables(ctx context.Context, applicationID string) ([]Variable, error)
+	SetVariable(ctx context.Context, applicationID string, v Variable) error
+	DeleteVariable(ctx context.Context, applicationID, environment, name string) error
 }
 
 // Part is one member of an application.
@@ -314,9 +412,11 @@ func (a *Application) MayEdit(actor Actor) bool {
 // release it was decided against.
 type Recorded struct {
 	Release Release
-	// After is the current release the release was decided against; the
-	// record fails with ErrStale when another release moved it.
+	// After is the release the environment ran when the release was decided;
+	// the record fails with ErrStale when another release moved it.
 	After int
+	// Environment is where the release lands, "" for the last (#2696).
+	Environment string
 }
 
 // Store keeps applications, their parts and their releases.
@@ -355,4 +455,31 @@ type Store interface {
 	// Record writes a release and its pins, makes it current, and holds each
 	// pinned part at its version, in one transaction.
 	Record(ctx context.Context, applicationID string, r Recorded) (*Release, error)
+}
+
+var (
+	envNameRE = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
+	varNameRE = regexp.MustCompile(`^[A-Z_][A-Z0-9_]{0,63}$`)
+)
+
+// MaxVariableValue is the most bytes a variable's value holds.
+const MaxVariableValue = 8 << 10
+
+// CheckEnvironment refuses an environment name the store would not hold.
+func CheckEnvironment(e Environment) error {
+	if !envNameRE.MatchString(e.Name) {
+		return fmt.Errorf("environment %q: a lowercase letter, then lowercase letters, digits and hyphens, at most 32", e.Name)
+	}
+	return nil
+}
+
+// CheckVariable refuses a variable the store would not hold.
+func CheckVariable(v Variable) error {
+	if !varNameRE.MatchString(v.Name) {
+		return fmt.Errorf("variable %q: an uppercase letter or underscore, then uppercase letters, digits and underscores, at most 64", v.Name)
+	}
+	if len(v.Value) > MaxVariableValue {
+		return fmt.Errorf("variable %s: at most %d bytes", v.Name, MaxVariableValue)
+	}
+	return nil
 }

@@ -472,6 +472,19 @@ creates or releases the application there. A migration that writes a
 credential (`PASSWORD '...'`) is refused when it is added, so no bundle ever
 carries one.
 
+**Environments (#2696).** An application starts with one environment,
+prod. `add_environment` with `environment: "dev"` and no `after` puts dev
+first, so releases land there: `release` lands in the first environment, `promote` with `environment: "dev"` copies dev's release to
+prod, and `rollback` with `environment` moves one back. `/endpoints/<name>`
+serves the last environment; another answers at
+`/environments/<env>/endpoints/<name>`. Keep what differs between
+environments in variables, not in code: `set_variable` with `variable`,
+`value` and `environment` (none sets the default), read in a script with
+`platform.env("API_BASE")`. A secret is never a variable's value: write
+`{{secret:<name>}}` and the gateway fills it when the request is sent.
+An environment with `requires_approval` refuses your promote into it; ask
+the person to promote it on the application's page.
+
 ## Giving it a front
 
 An endpoint with `response_mode: "page"` is a working browser page on the

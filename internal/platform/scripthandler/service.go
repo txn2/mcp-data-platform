@@ -8,6 +8,9 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/application/appenv"
+	"github.com/txn2/mcp-data-platform/internal/application/appstore"
+
 	"github.com/txn2/mcp-data-platform/internal/approval"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
@@ -70,12 +73,13 @@ func invalid(err error) error { return &kindError{err: err, kind: ErrInvalid} }
 
 // The keys a handler's id, its kind and its script's name are reported under.
 const (
-	fieldHandler    = "handler"
-	fieldKind       = "kind"
-	fieldName       = "name"
-	fieldEnabled    = "enabled"
-	fieldConnection = "connection"
-	fieldCreatedBy  = "created_by"
+	fieldHandler     = "handler"
+	fieldKind        = "kind"
+	fieldName        = "name"
+	fieldEnabled     = "enabled"
+	fieldConnection  = "connection"
+	fieldCreatedBy   = "created_by"
+	fieldEnvironment = "environment"
 )
 
 // Caller is who asks.
@@ -117,6 +121,9 @@ type Service struct {
 	// name is a connection stored under another one (#2649,
 	// connid.Resolver.CallName); nil takes every name as its calls' own.
 	CallNames func(name string) (bound string, stored bool)
+	// Environments checks the application environment a schedule or
+	// webhook handler names (#2696); nil refuses naming one.
+	Environments appenv.Resolver
 }
 
 // CallNamesOver is the CallNames of the live toolkits kits holds: the
@@ -151,6 +158,7 @@ func New(db *sql.DB, endpoints *epcmd.Handler, scripts Scripts, kits interface{ 
 		View: View{DB: db}, Scripts: scripts, Endpoints: endpoints,
 		Schedules: scriptstore.New(db), Webhooks: scriptevents.NewStore(db), Now: time.Now,
 		Calls: callhandler.NewStore(db), CallNames: CallNamesOver(kits),
+		Environments: appstore.New(db),
 	}
 	if rule := sourcerule.NewRule(db, scripts.GetByID); rule != nil {
 		s.Sources, s.SourceList = rule, whsource.NewStore(db, nil)
@@ -175,6 +183,10 @@ type SetRequest struct {
 	Args     map[string]any
 	// EventSource is a webhook handler's.
 	EventSource string
+	// Environment is the application environment a schedule's or webhook
+	// handler's runs execute in (#2696): empty keeps a handler's, and a new
+	// one runs in the last.
+	Environment string
 	// Call is a tool-call handler's match and settings (Args are its
 	// script's parameters); Approve approves the script's latest version
 	// for handlers as the administrator setting it.
@@ -512,4 +524,80 @@ func (s *Service) offerRefusal(sc *script.Script, c Caller, kind string) string 
 		return "This deployment cannot keep tool-call handlers."
 	}
 	return ""
+}
+
+// checkEnvironment refuses an environment the script's application does not
+// have, or any for a script no application holds (#2696).
+func (s *Service) checkEnvironment(ctx context.Context, sc *script.Script, env string) error {
+	if env == "" {
+		return nil
+	}
+	if s.Environments == nil {
+		return fmt.Errorf("environment %q: this deployment keeps no application environments: %w", env, ErrInvalid)
+	}
+	res, err := s.Environments.ForScript(ctx, sc.ID, env)
+	if errors.Is(err, appenv.ErrNoEnvironment) {
+		return fmt.Errorf("the application holding script %s has no environment %q: %w", sc.Name, env, ErrInvalid)
+	}
+	if err != nil {
+		return storeErr(err)
+	}
+	if !res.OK {
+		return fmt.Errorf("script %s belongs to no application, so its handlers run in no environment: %w", sc.Name, ErrInvalid)
+	}
+	return nil
+}
+
+// environmentLister lists the environments of the application holding a
+// script (appstore.Store).
+type environmentLister interface {
+	EnvironmentNames(ctx context.Context, scriptID string) ([]string, error)
+}
+
+// EnvironmentNames is the environments a schedule or webhook handler of the
+// script may run in, in promotion order; empty for a script no application
+// holds (#2696).
+func (s *Service) EnvironmentNames(ctx context.Context, scriptID string) ([]string, error) {
+	if l, ok := s.Environments.(environmentLister); ok {
+		names, err := l.EnvironmentNames(ctx, scriptID)
+		if err != nil {
+			return nil, storeErr(err)
+		}
+		return names, nil
+	}
+	return []string{}, nil
+}
+
+// SetEnvironment points a schedule or webhook handler at the application
+// environment its runs execute in (#2696) and returns it as Get does.
+func (s *Service) SetEnvironment(ctx context.Context, id, env string, c Caller) (map[string]any, error) {
+	h, sc, err := s.Resolve(ctx, id, c)
+	if err != nil {
+		return nil, err
+	}
+	if env == "" {
+		return nil, fmt.Errorf("environment is required: the application environment the handler runs in: %w", ErrInvalid)
+	}
+	if err := s.checkEnvironment(ctx, sc, env); err != nil {
+		return nil, err
+	}
+	switch h.Kind {
+	case KindSchedule:
+		sched, err := s.Schedules.ScheduleByID(ctx, h.ID)
+		if err != nil {
+			return nil, storeOr(err)
+		}
+		sched.Environment, sched.UpdatedBy = env, c.Email
+		if err := s.Schedules.SetSchedule(ctx, sched); err != nil {
+			return nil, storeOr(err)
+		}
+	case KindWebhook:
+		w := scriptevents.Handler{ID: h.ID}
+		if err := s.setWebhookEnvironment(ctx, &w, SetRequest{Caller: c, Environment: env}); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("handler %s is a %s handler; only a schedule or webhook handler runs in an environment: %w", id, h.Kind, ErrInvalid)
+	}
+	return s.Get(ctx, id, c)
 }

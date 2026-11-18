@@ -15,10 +15,10 @@ import (
 
 var handlerTime = time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
 
-var handlerCols = []string{"id", "script_id", "source", "enabled", "created_by", "updated_by", "created_at", "updated_at"}
+var handlerCols = []string{"id", "script_id", "source", "enabled", "created_by", "updated_by", "created_at", "updated_at", "environment"}
 
 func handlerRow(id, scriptID, source string) []driver.Value {
-	return []driver.Value{id, scriptID, source, true, "jane@example.com", "jane@example.com", handlerTime, handlerTime}
+	return []driver.Value{id, scriptID, source, true, "jane@example.com", "jane@example.com", handlerTime, handlerTime, ""}
 }
 
 // TestAddHandler binds a script to a source (#2434): a new binding reports

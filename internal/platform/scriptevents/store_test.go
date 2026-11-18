@@ -87,9 +87,9 @@ func TestEnqueueEvents(t *testing.T) {
 	expectEnqueue(mock, 1)
 	insert := regexp.QuoteMeta("INSERT INTO script_runs")
 	mock.ExpectExec(insert).WithArgs("dpx_a", "s1", "v1", 2, script.RunStatusPending, sqlmock.AnyArg(), "jane@example.com",
-		"shop", "a", sqlmock.AnyArg(), "").WillReturnResult(sqlmock.NewResult(0, 1))
+		"shop", "a", sqlmock.AnyArg(), "", "").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(insert).WithArgs("dpx_b", "s1", "v1", 2, runstate.StatusSkippedBacklog, sqlmock.AnyArg(), "jane@example.com",
-		"shop", "b", sqlmock.AnyArg(), containsArg("event runs of this script for source shop were already waiting")).
+		"shop", "b", sqlmock.AnyArg(), containsArg("event runs of this script for source shop were already waiting"), "").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(insert).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectCommit()

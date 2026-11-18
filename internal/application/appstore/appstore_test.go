@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/application"
+	"github.com/txn2/mcp-data-platform/internal/application/appenv"
 )
 
 var now = time.Unix(1700000000, 0).UTC()
@@ -50,6 +51,11 @@ func partRows(parts ...[2]string) *sqlmock.Rows {
 
 func unique(constraint string) error { return &pq.Error{Code: uniqueViolation, Constraint: constraint} }
 
+func envRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{"name", "release", "requires_approval", "updated_by", "updated_at"}).
+		AddRow("prod", 0, false, "jane@example.com", now)
+}
+
 func TestCreate(t *testing.T) {
 	s, mock := newMock(t)
 	ctx := context.Background()
@@ -75,6 +81,7 @@ func TestGetAndList(t *testing.T) {
 	ctx := context.Background()
 	mock.ExpectQuery("FROM applications WHERE id").WillReturnRows(appRow(2))
 	mock.ExpectQuery("FROM application_parts").WillReturnRows(partRows([2]string{"script", "s1"}))
+	mock.ExpectQuery("FROM application_environments").WillReturnRows(envRows())
 	a, err := s.Get(ctx, "app_1")
 	require.NoError(t, err)
 	assert.Equal(t, 2, a.CurrentRelease)
@@ -97,6 +104,8 @@ func TestGetAndList(t *testing.T) {
 	mock.ExpectQuery("FROM applications ORDER BY name").WillReturnRows(appRow(0))
 	mock.ExpectQuery("WHERE application_id = ANY").WillReturnRows(sqlmock.NewRows([]string{"application_id", "kind", "part_id", "added_by", "added_at", "release_mode"}).
 		AddRow("app_1", "script", "s1", "jane@example.com", now, "").AddRow("app_1", "asset", "a1", "jane@example.com", now, ""))
+	mock.ExpectQuery("FROM application_environments").WillReturnRows(sqlmock.NewRows([]string{"application_id", "name", "release", "requires_approval", "updated_by", "updated_at"}).
+		AddRow("app_1", "prod", 0, false, "jane@example.com", now))
 	list, err := s.List(ctx)
 	require.NoError(t, err)
 	require.Len(t, list, 1)
@@ -172,6 +181,7 @@ func TestParts(t *testing.T) {
 	mock.ExpectQuery("SELECT application_id FROM application_parts").WillReturnRows(sqlmock.NewRows([]string{"application_id"}).AddRow("app_1"))
 	mock.ExpectQuery("FROM applications WHERE id").WillReturnRows(appRow(0))
 	mock.ExpectQuery("FROM application_parts").WillReturnRows(partRows())
+	mock.ExpectQuery("FROM application_environments").WillReturnRows(envRows())
 	a, err := s.Owning(ctx, "script", "s1")
 	require.NoError(t, err)
 	assert.Equal(t, "shop", a.Name)
@@ -222,10 +232,18 @@ func TestRecord(t *testing.T) {
 		Pins: []application.Pin{{Kind: "script", PartID: "s1", Version: 2}},
 	}
 
-	mock.ExpectBegin()
-	mock.ExpectQuery("SELECT current_release FROM applications").WillReturnRows(sqlmock.NewRows([]string{"current_release"}).AddRow(1))
+	lockApp := func(next int) {
+		mock.ExpectBegin()
+		mock.ExpectQuery("SELECT COALESCE").WillReturnRows(sqlmock.NewRows([]string{"next"}).AddRow(next))
+	}
+	lockEnv := func(release int) {
+		mock.ExpectQuery("FROM application_environments").WillReturnRows(sqlmock.NewRows([]string{"name", "release"}).AddRow("prod", release))
+	}
+	lockApp(2)
+	lockEnv(1)
 	mock.ExpectQuery("INSERT INTO application_releases").WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(now))
 	mock.ExpectExec("INSERT INTO application_release_pins").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("UPDATE application_environments e SET release").WillReturnRows(sqlmock.NewRows([]string{"last"}).AddRow(true))
 	mock.ExpectExec("UPDATE applications SET current_release").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery("SELECT kind, part_id FROM application_parts").WillReturnRows(
 		sqlmock.NewRows([]string{"kind", "part_id"}).AddRow("script", "s1"))
@@ -238,20 +256,37 @@ func TestRecord(t *testing.T) {
 	assert.Equal(t, 2, got.Number)
 	assert.Equal(t, []int{}, got.Changes.Applied)
 
-	mock.ExpectBegin()
-	mock.ExpectQuery("SELECT current_release FROM applications").WillReturnRows(sqlmock.NewRows([]string{"current_release"}).AddRow(2))
+	// A release landing in an environment before the last holds nothing.
+	lockApp(3)
+	mock.ExpectQuery("FROM application_environments").WillReturnRows(sqlmock.NewRows([]string{"name", "release"}).AddRow("dev", 0))
+	mock.ExpectQuery("INSERT INTO application_releases").WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(now))
+	mock.ExpectExec("INSERT INTO application_release_pins").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("UPDATE application_environments e SET release").WillReturnRows(sqlmock.NewRows([]string{"last"}).AddRow(false))
+	mock.ExpectCommit()
+	got, err = s.Record(ctx, "app_1", application.Recorded{Release: rel, Environment: "dev"})
+	require.NoError(t, err)
+	assert.Equal(t, 3, got.Number)
+
+	lockApp(3)
+	lockEnv(2)
 	mock.ExpectRollback()
 	_, err = s.Record(ctx, "app_1", application.Recorded{Release: rel, After: 1})
 	require.ErrorIs(t, err, application.ErrStale)
 
 	mock.ExpectBegin()
-	mock.ExpectQuery("SELECT current_release FROM applications").WillReturnRows(sqlmock.NewRows([]string{"current_release"}))
+	mock.ExpectQuery("SELECT COALESCE").WillReturnRows(sqlmock.NewRows([]string{"next"}))
 	mock.ExpectRollback()
 	_, err = s.Record(ctx, "app_9", application.Recorded{Release: rel})
 	require.ErrorIs(t, err, application.ErrNotFound)
 
-	mock.ExpectBegin()
-	mock.ExpectQuery("SELECT current_release FROM applications").WillReturnRows(sqlmock.NewRows([]string{"current_release"}).AddRow(0))
+	lockApp(1)
+	mock.ExpectQuery("FROM application_environments").WillReturnRows(sqlmock.NewRows([]string{"name", "release"}))
+	mock.ExpectRollback()
+	_, err = s.Record(ctx, "app_1", application.Recorded{Release: rel, Environment: "qa"})
+	require.ErrorIs(t, err, appenv.ErrNoEnvironment)
+
+	lockApp(1)
+	lockEnv(0)
 	mock.ExpectQuery("INSERT INTO application_releases").WillReturnError(unique(releaseKey))
 	mock.ExpectRollback()
 	_, err = s.Record(ctx, "app_1", application.Recorded{Release: rel})
@@ -306,6 +341,7 @@ func TestSchemaAndRunRole(t *testing.T) {
 
 	mock.ExpectQuery("WHERE connection = \\$1 AND schema_name").WithArgs("orders", "shop").WillReturnRows(appRow(1))
 	mock.ExpectQuery("FROM application_parts").WillReturnRows(partRows())
+	mock.ExpectQuery("FROM application_environments").WillReturnRows(envRows())
 	a, err := s.Holding(ctx, "orders", "shop")
 	require.NoError(t, err)
 	assert.Equal(t, "shop", a.Name)

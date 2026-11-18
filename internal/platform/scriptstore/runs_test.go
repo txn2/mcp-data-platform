@@ -27,7 +27,7 @@ var runSelectColumns = []string{
 	"cancel_requested_at", "cancel_requested_by", "reclaims", "attempts", "claimed_at",
 	"heartbeat_at", "failure_cause", "created_at", "updated_at", "state_checkpoint",
 	"event_source", "event_id", "event",
-	"call", "run_as", "call_handler_id",
+	"call", "run_as", "call_handler_id", "environment",
 }
 
 // Positions in runSelectColumns the tests below set.
@@ -54,7 +54,7 @@ func runRow(status string, attempt int, outputs []byte) []driver.Value { //nolin
 		nil, "", nil, nil, nil, nil, "", 0, []byte("[]"), nil,
 		nil, "", rowTime, rowTime, false,
 		"", "", nil,
-		nil, nil, "",
+		nil, nil, "", "",
 	}
 }
 
@@ -79,7 +79,7 @@ func TestEnqueue_WritesAPendingRowAndWakesAWorker(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO script_runs")).
 		WithArgs("dpx_1", "script_1", "sver_1", 3, script.TriggerTool,
-			script.RunStatusPending, sqlmock.AnyArg(), "jane@example.com", nil, nil).
+			script.RunStatusPending, sqlmock.AnyArg(), "jane@example.com", nil, nil, "").
 		WillReturnRows(sqlmock.NewRows(enqueueReturning).
 			AddRow(rowTime, rowTime, int64(0), []byte("{}"), rowTime, rowTime))
 	mock.ExpectExec(regexp.QuoteMeta("SELECT pg_notify")).

@@ -58,6 +58,23 @@ export interface Application {
   created_at: string;
   updated_at: string;
   parts: ApplicationPart[];
+  /**
+   * Where it runs, in promotion order (#2696): a release lands in the first,
+   * a promote copies an environment's release to the next, and the last is
+   * what /endpoints/<name> serves.
+   */
+  environments?: ApplicationEnvironment[];
+}
+
+/** One place an application runs (#2696). */
+export interface ApplicationEnvironment {
+  name: string;
+  /** The release it runs, 0 for none yet. */
+  release: number;
+  /** An agent's promote or rollback into it is refused; a person does it here. */
+  requires_approval: boolean;
+  updated_by: string;
+  updated_at: string;
 }
 
 /** One part's pinned version in a release. */
@@ -295,6 +312,8 @@ export interface ApplicationCreateInput {
   description: string;
   connection?: string;
   schema?: string;
+  /** The environments in promotion order; one, prod, when omitted (#2696). */
+  environments?: string[];
 }
 
 /** The names a bundle refers to that may differ on the importing deployment. */
@@ -326,7 +345,7 @@ export const applicationKey = (app: string) => [...applicationsKey, app] as cons
 
 const BASE = "/applications";
 
-function appPath(app: string): string {
+export function appPath(app: string): string {
   return `${BASE}/${encodeURIComponent(app)}`;
 }
 
@@ -400,7 +419,7 @@ export function useCreateApplication() {
 
 // Every write on one application changes its page and, through its parts or
 // current release, the listing, so each invalidates the whole family.
-function useApplicationWrite<I, O>(fn: (input: I) => Promise<O>) {
+export function useApplicationWrite<I, O>(fn: (input: I) => Promise<O>) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: fn,

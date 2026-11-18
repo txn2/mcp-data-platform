@@ -54,6 +54,9 @@ export function NewApplicationDialog({
   const databases = useApplicationDatabases();
   const form = useApplicationForm(databases.data);
   const [description, setDescription] = useState("");
+  // Releases land in the first environment and /endpoints serves the last
+  // (#2696).
+  const [environments, setEnvironments] = useState("dev, prod");
   const [failure, setFailure] = useState<string | null>(null);
   const { trimmedName, hasDatabase, connection, schema } = form;
 
@@ -63,6 +66,10 @@ export function NewApplicationDialog({
       {
         name: trimmedName,
         description: description.trim(),
+        environments: environments
+          .split(",")
+          .map((e) => e.trim())
+          .filter(Boolean),
         ...(hasDatabase ? { connection, schema } : {}),
       },
       {
@@ -93,6 +100,18 @@ export function NewApplicationDialog({
               value={description}
               aria-describedby="application-description-help"
               onChange={(e) => setDescription(e.target.value)}
+            />
+          </Field>
+          <Field
+            id="application-environments"
+            label="Environments"
+            help="In promotion order, separated by commas. A release lands in the first; the last is what its endpoints serve."
+          >
+            <Input
+              id="application-environments"
+              value={environments}
+              aria-describedby="application-environments-help"
+              onChange={(e) => setEnvironments(e.target.value)}
             />
           </Field>
           <DatabaseField

@@ -224,6 +224,11 @@ type Run struct {
 	RunAs         *runstate.RunAs `json:"-"`
 	CallHandlerID string          `json:"call_handler_id,omitempty"`
 
+	// Environment is the application environment the run executes in,
+	// empty for the last (#2696): the version it runs is that environment's
+	// pin, and platform.env reads its variables.
+	Environment string `json:"environment,omitempty"`
+
 	// Params are the bound, type-checked parameter values the run executes
 	// with. They are bound once, when the run is created, so a re-read of the
 	// row explains the run exactly.

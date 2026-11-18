@@ -106,6 +106,8 @@ script whose source no longer defines it is refused, naming the endpoint and
 its handler. A library cannot be bound. A script with `handle` and no `main()`
 is a script, not a library.
 
+An endpoint whose script belongs to an application with several environments (#2696) also answers at `/environments/<env>/endpoints/<name>/...` for each environment other than the last, with the same binding and access mode, running the version that environment's release pins and reading its variables through `platform.env`. `/endpoints/<name>/...` is the last environment. See [Applications](../server/applications.md#environments-and-variables).
+
 ## The handler
 
 ```python

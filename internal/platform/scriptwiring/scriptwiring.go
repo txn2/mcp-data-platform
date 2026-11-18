@@ -17,6 +17,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/application"
+	"github.com/txn2/mcp-data-platform/internal/application/appenv"
+	"github.com/txn2/mcp-data-platform/internal/application/appstore"
 	"github.com/txn2/mcp-data-platform/internal/application/appsvc"
 	"github.com/txn2/mcp-data-platform/internal/application/appwire"
 	"github.com/txn2/mcp-data-platform/internal/approval/apprtool"
@@ -78,9 +80,10 @@ func Wire(deps Deps) *scriptexec.Handle {
 		Authority: scripttoken.Authority(deps.Authority),
 	})
 	scripts := scriptexec.New(scriptexec.Config{
-		DB:     deps.DB,
-		DSN:    deps.DSN,
-		Server: deps.Server,
+		DB:           deps.DB,
+		Environments: environments(deps.DB),
+		DSN:          deps.DSN,
+		Server:       deps.Server,
 		Export: scriptexec.ExportDeps{
 			Assets:   deps.Assets,
 			Versions: deps.Versions,
@@ -375,4 +378,13 @@ func scriptLineage(deps Deps) *sqllineage.Scripts {
 		return nil
 	}
 	return sqllineage.NewScripts(catalogstore.New(deps.DB), sqllineage.TrinoResolver(deps.Toolkits))
+}
+
+// environments resolves a run's application environment over db (#2696),
+// nil without one.
+func environments(db *sql.DB) appenv.Resolver {
+	if db == nil {
+		return nil
+	}
+	return appstore.New(db)
 }

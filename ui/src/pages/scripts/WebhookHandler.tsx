@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { EnvironmentField } from "./HandlerEnvironment";
 import { useScriptEventSummary } from "@/api/portal/hooks/scripts";
 import type { ScriptEventSummary } from "@/api/portal/hooks/scripts";
 import { useSaveHandler, useSetHandlerEnabled, type HandlerDetail } from "@/api/portal/hooks/scriptHandlers";
@@ -56,6 +57,7 @@ export function AddWebhook({
 }) {
   const choices = sources.filter((s) => !held.includes(s));
   const [source, setSource] = useState(choices[0] ?? "");
+  const [environment, setEnvironment] = useState("");
   const save = useSaveHandler(scriptId);
   return (
     <div className="space-y-3 text-sm">
@@ -86,6 +88,9 @@ export function AddWebhook({
           </select>
         </div>
       )}
+      {choices.length > 0 && (
+        <EnvironmentField id={`webhook-environment-${scriptId}`} value={environment} onChange={setEnvironment} />
+      )}
       {save.error && (
         <Alert variant="destructive">
           <AlertDescription>{save.error.message}</AlertDescription>
@@ -95,7 +100,10 @@ export function AddWebhook({
         <Button
           size="sm"
           disabled={!source || save.isPending}
-          onClick={() => save.mutate({ kind: "webhook", event_source: source }, { onSuccess: onDone })}
+          onClick={() => save.mutate(
+              { kind: "webhook", event_source: source, ...(environment ? { environment } : {}) },
+              { onSuccess: onDone },
+            )}
         >
           Add webhook
         </Button>

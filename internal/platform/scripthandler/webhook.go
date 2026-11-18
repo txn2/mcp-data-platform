@@ -25,7 +25,10 @@ func (s *Service) setWebhook(ctx context.Context, req SetRequest) (map[string]an
 		return nil, err
 	}
 	sc := req.Script
-	if existing != nil && req.Handler != "" {
+	if err := s.checkEnvironment(ctx, sc, req.Environment); err != nil {
+		return nil, err
+	}
+	if existing != nil && req.Handler != "" && (req.Environment == "" || req.Environment == existing.Environment) {
 		return webhookOut(sc, *existing, fmt.Sprintf("Webhook handler %s already runs %s for source %s; nothing changed.",
 			existing.ID, sc.Name, existing.Source)), nil
 	}
@@ -35,6 +38,9 @@ func (s *Service) setWebhook(ctx context.Context, req SetRequest) (map[string]an
 	w, created, err := s.Webhooks.AddHandler(ctx, sc.ID, req.EventSource, req.Email)
 	if err != nil {
 		return nil, storeErr(err)
+	}
+	if err := s.setWebhookEnvironment(ctx, &w, req); err != nil {
+		return nil, err
 	}
 	if created {
 		return webhookOut(sc, w, fmt.Sprintf("Each event source %s stores enqueues one run of %s, reading run.event.", w.Source, sc.Name)), nil
@@ -90,6 +96,29 @@ func webhookFields(sc *script.Script, w scriptevents.Handler) map[string]any {
 	return map[string]any{
 		fieldHandler: w.ID, fieldKind: KindWebhook, fieldName: sc.Name, "event_source": w.Source,
 		fieldEnabled: w.Enabled, fieldCreatedBy: w.CreatedBy, "created_at": w.CreatedAt,
-		"updated_by": w.UpdatedBy, "updated_at": w.UpdatedAt,
+		"updated_by": w.UpdatedBy, "updated_at": w.UpdatedAt, fieldEnvironment: w.Environment,
 	}
+}
+
+// webhookEnvironments sets the environment a webhook handler's runs execute
+// in (scriptevents.PostgresStore).
+type webhookEnvironments interface {
+	SetHandlerEnvironment(ctx context.Context, id, env, actor string) error
+}
+
+// setWebhookEnvironment points w at the environment req names, when it
+// names one other than w's (#2696).
+func (s *Service) setWebhookEnvironment(ctx context.Context, w *scriptevents.Handler, req SetRequest) error {
+	if req.Environment == "" || req.Environment == w.Environment {
+		return nil
+	}
+	we, ok := s.Webhooks.(webhookEnvironments)
+	if !ok {
+		return fmt.Errorf("this deployment's webhook handlers run in no environment: %w", ErrInvalid)
+	}
+	if err := we.SetHandlerEnvironment(ctx, w.ID, req.Environment, req.Email); err != nil {
+		return storeErr(err)
+	}
+	w.Environment = req.Environment
+	return nil
 }

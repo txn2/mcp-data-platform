@@ -68,6 +68,8 @@ export interface ScriptHandlers {
   /** sources are the webhook sources the caller may run the script for. */
   sources: string[];
   max_per_kind: number;
+  /** environments are the environments of the application holding the script (#2696). */
+  environments?: string[];
 }
 
 /** HandlerRow is one handler as Admin > Handlers lists it. */
@@ -149,6 +151,7 @@ export function scheduleOf(h: HandlerDetail): ScriptSchedule {
     last_fire_at: h.last_fire_at as string | undefined,
     missed_fires: (h.missed_fires as number | undefined) ?? 0,
     created_by: h.created_by as string | undefined,
+    environment: (h.environment as string | undefined) ?? "",
   };
 }
 

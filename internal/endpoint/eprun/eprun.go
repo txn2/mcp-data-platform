@@ -22,6 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/application/appenv"
 	"github.com/txn2/mcp-data-platform/internal/auditredact"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -111,6 +112,10 @@ type Runner struct {
 	// SlotWait is how long a request past MaxConcurrent waits for a slot;
 	// zero is the package's SlotWait.
 	SlotWait time.Duration
+	// Environments resolves an application endpoint's environment, the
+	// version it runs there and its variables (#2696); nil serves every
+	// endpoint outside any environment.
+	Environments appenv.Resolver
 
 	mu    sync.Mutex
 	cache map[string]*Target
@@ -138,6 +143,10 @@ type Target struct {
 	// Version. Nil on a form with no approved version, which serves such a
 	// caller nothing, and on everything that is not such a form.
 	public *Target
+	// Environment and Variables are the application environment this
+	// request runs in and its variables (#2696), empty outside one.
+	Environment string
+	variables   map[string]string
 }
 
 // ServesPublicly reports whether the target is a public or bot_check form,
@@ -172,9 +181,107 @@ func (t *Target) PublicVersion() int {
 	return t.public.Version.Version
 }
 
-// Resolve is the endpoint a name serves, current as of this call.
-// epbinding.ErrNotFound when no binding has the name.
+// ErrNoEnvironment is a request to an environment the endpoint's
+// application does not have, or that runs no release holding its script.
+var ErrNoEnvironment = errors.New("the endpoint has no such environment")
+
+// Resolve is the endpoint a name serves in its application's last
+// environment, current as of this call. epbinding.ErrNotFound when no
+// binding has the name.
 func (r *Runner) Resolve(ctx context.Context, name string) (*Target, error) {
+	return r.ResolveIn(ctx, name, "")
+}
+
+// ResolveIn is the endpoint a name serves in env, "" for its application's
+// last (#2696): the version that environment's release pins, with its
+// variables read for this request. An endpoint whose script no application
+// holds answers only for "", and env must be one its application has with
+// a release holding the script; ErrNoEnvironment otherwise.
+func (r *Runner) ResolveIn(ctx context.Context, name, env string) (*Target, error) {
+	t, err := r.lookup(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	res, err := r.environmentOf(ctx, t, env)
+	if err != nil || res == nil {
+		return t, err
+	}
+	out := t.in(res)
+	if env == "" || res.Version == t.Version.Version {
+		return out, nil
+	}
+	if res.Version == 0 {
+		return nil, ErrNoEnvironment
+	}
+	return r.inEnvironment(ctx, out, env, res.Version)
+}
+
+// environmentOf is env of the application holding t's script; nil for a
+// script no application holds asked for its last environment.
+func (r *Runner) environmentOf(ctx context.Context, t *Target, env string) (*appenv.Script, error) {
+	if t.stamp.Application == "" || r.Environments == nil {
+		if env != "" {
+			return nil, ErrNoEnvironment
+		}
+		return nil, nil //nolint:nilnil // no environment, and no refusal
+	}
+	res, err := r.Environments.ForScript(ctx, t.Script.ID, env)
+	switch {
+	case errors.Is(err, appenv.ErrNoEnvironment):
+		return nil, ErrNoEnvironment
+	case err != nil:
+		return nil, fmt.Errorf("reading the endpoint's environment: %w", err)
+	case !res.OK && env != "":
+		return nil, ErrNoEnvironment
+	case !res.OK:
+		return nil, nil //nolint:nilnil // no environment, and no refusal
+	}
+	return res, nil
+}
+
+// in is t running in res's environment with its variables; a caller with no
+// session on a public form runs its approved version in the same one.
+func (t *Target) in(res *appenv.Script) *Target {
+	out := *t
+	out.Environment, out.variables = res.Environment, res.Variables
+	if t.public != nil {
+		pub := *t.public
+		pub.Environment, pub.variables = res.Environment, res.Variables
+		out.public = &pub
+	}
+	return &out
+}
+
+// inEnvironment is t running version, the one env's release pins, its
+// compiled module kept per environment while the version holds.
+func (r *Runner) inEnvironment(ctx context.Context, t *Target, env string, version int) (*Target, error) {
+	key := env + "\x00" + t.Binding.Name
+	r.mu.Lock()
+	held := r.cache[key]
+	r.mu.Unlock()
+	if held != nil && held.Version.Version == version && held.Script.ID == t.Script.ID {
+		t.Version, t.program, t.Form = held.Version, held.program, held.Form
+		return t, nil
+	}
+	v, err := r.Scripts.GetVersion(ctx, t.Script.ID, version)
+	if err != nil {
+		return nil, fmt.Errorf("reading the endpoint's script version: %w", err)
+	}
+	if v == nil {
+		return nil, ErrNoEnvironment
+	}
+	t.Version, t.program, t.Form = v, &scriptdialect.Program{}, epform.DefinesSource(v.Source)
+	r.mu.Lock()
+	if r.cache == nil || len(r.cache) >= maxCached {
+		r.cache = map[string]*Target{}
+	}
+	r.cache[key] = t
+	r.mu.Unlock()
+	return t, nil
+}
+
+// lookup is the endpoint a name serves, current as of this call.
+func (r *Runner) lookup(ctx context.Context, name string) (*Target, error) {
 	stamp, err := r.Bindings.Stamp(ctx, name)
 	if err != nil {
 		return nil, err //nolint:wrapcheck // ErrNotFound is matched by the caller as it is
@@ -368,6 +475,7 @@ func (r *Runner) invoke(ctx context.Context, t *Target, sessionID string, call *
 	opts.ClampStatementTimeout = t.Version.PredatesStatementCap
 	opts.FireTime = time.Now().UTC()
 	opts.Caller, opts.Destinations, opts.Exporter = caller, r.Destinations, refuseExports{}
+	opts.Environment, opts.Variables = t.Environment, t.variables
 	var watch *secretWatch
 	if tokens := r.Tokens.Bind(scripttoken.Binding{Endpoint: t.Binding.Name}, t.Version.AuthorRoles); tokens != nil {
 		watch = &secretWatch{Caller: tokens}
