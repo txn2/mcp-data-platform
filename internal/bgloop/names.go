@@ -111,6 +111,9 @@ const (
 	// NameVerificationReminders tells the person who verified an asset and
 	// its owner that the verification expires within a week (#2503).
 	NameVerificationReminders = "verification_reminders"
+	// NameStartupHeap writes a heap profile each time the live heap doubles
+	// in a starting process's first minutes, when an operator asks (#2721).
+	NameStartupHeap = "startup_heap"
 
 	// LISTEN connections (Listen). The two pglisten channels report under
 	// "listen_" + their channel name.

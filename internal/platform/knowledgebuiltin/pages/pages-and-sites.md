@@ -383,6 +383,13 @@ back, adds domains and shares; it is for internal people, and only the owner or 
 administrator adds it. `set_environment ... internal_view=true` opens one private
 environment to everyone internal, for an intranet.
 
+A person finds the environments a grant opens for them on the portal's Home,
+under **Sites shared with you**, each with its address and an Open link, an
+external person included: the Sites area is for people who publish and manage
+sites and stays closed to an external persona. Nothing else of the site is
+listed there, not its other environments and not who else it is shared with
+(`GET /api/v1/portal/shared-sites`, #2718).
+
 ### Inside a private environment
 
 The platform decides who may open an environment; anything finer is the site's.

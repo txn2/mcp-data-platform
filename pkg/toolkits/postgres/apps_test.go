@@ -105,7 +105,7 @@ func TestCreateRunRole(t *testing.T) {
 	assert.Equal(t, codeRoleExists, refused.Code, "a role of the same name is refused")
 
 	f.exists["other_write"] = true
-	f.execErr = map[string]error{"GRANT": errors.New("grant failed")}
+	f.execErr = map[string]error{`GRANT "other_write"`: errors.New("grant failed")}
 	_, _, err = tk.CreateRunRole(ctx, "db", "other")
 	require.Error(t, err)
 	assert.Contains(t, f.executed[len(f.executed)-1], "DROP ROLE IF EXISTS", "a role not granted is dropped again")
@@ -153,15 +153,21 @@ func TestGrantDropAndMembership(t *testing.T) {
 	_, err = tk.IsMember(ctx, "nope", run, "shop_write")
 	require.ErrorIs(t, err, ErrConnectionNotFound)
 
+	dropFrom := len(f.executed)
 	require.NoError(t, tk.DropRunRole(ctx, "db", "shop"))
-	assert.Contains(t, f.executed, `/* mcp-data-platform */ DROP OWNED BY "`+run+`"`)
-	assert.Contains(t, f.executed, `/* mcp-data-platform */ DROP ROLE IF EXISTS "`+run+`"`)
+	assert.Equal(t, []string{
+		`/* mcp-data-platform */ GRANT "` + run + `" TO CURRENT_USER WITH INHERIT TRUE, SET TRUE`,
+		`/* mcp-data-platform */ DROP OWNED BY "` + run + `"`,
+		`/* mcp-data-platform */ DROP ROLE IF EXISTS "` + run + `"`,
+	}, f.executed[dropFrom:], "the connection's user takes the role's privileges before DROP OWNED BY needs them (#2717)")
 	f.exists[run] = false
 	before := len(f.executed)
 	require.NoError(t, tk.DropRunRole(ctx, "db", "shop"), "a role already gone")
 	assert.Len(t, f.executed, before)
 
 	f.exists[run] = true
+	f.execErr = map[string]error{"TO CURRENT_USER": errors.New("no")}
+	require.Error(t, tk.DropRunRole(ctx, "db", "shop"))
 	f.execErr = map[string]error{"DROP OWNED": errors.New("no")}
 	require.Error(t, tk.DropRunRole(ctx, "db", "shop"))
 	f.execErr = map[string]error{"DROP ROLE": errors.New("no")}

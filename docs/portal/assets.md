@@ -27,6 +27,7 @@ Features:
 
 ![Asset Viewer — Thumbnail panel](../images/screenshots/light/user-asset-thumbnail-light.webp#only-light)![Asset Viewer — Thumbnail panel](../images/screenshots/dark/user-asset-thumbnail-dark.webp#only-dark)
 
+- **On a phone** — Below 768 pixels the list view is rows rather than a table: the name on up to two lines, the type, Status and Verified badges, and one line of who, when and how big; tags, collections and share detail are on the asset's page (#2723). The grid shows two narrow cards to a row with the name, badges and date. The scope and the search stay on screen, every other filter folds behind a **Filters** button that counts the ones in force and opens a sheet, and each one in force shows as a chip that clears it. The section's introduction starts collapsed behind **About this page** and stays open once opened. While any row is selected, tapping a row selects it instead of opening it. Collections, Unused, Possible duplicates and Trash follow the same rules.
 - **Table rows** — Columns for name, type, tags, collections, size, sharing, and the ordering date. Name, size, and the date header sort the list; clicking the active column reverses it.
 
 ## Asset Viewer

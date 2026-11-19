@@ -236,6 +236,14 @@ function job(kind: SiteJob["kind"], environment: string): SiteJob {
 const base = "/api/v1/portal/sites";
 
 export const siteHandlers = [
+  http.get("/api/v1/portal/shared-sites", () =>
+    HttpResponse.json({
+      environments: [
+        { site: "partner-review", environment: "dev", address: "https://partner-review--dev.pages.example.net", online: true },
+        { site: "partner-review", environment: "staging", address: "https://staging.partner.example.com", online: false, message: "Back Monday" },
+      ],
+    }),
+  ),
   http.get("/api/v1/portal/application-addresses/:name", () => HttpResponse.json({ page_origin: "https://shop.pages.example.net", domains: ["shop.example.com"] })),
   http.get(base, ({ request }) => {
     const state = page();

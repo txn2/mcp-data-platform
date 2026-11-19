@@ -18450,6 +18450,35 @@ definitions:
           a publish held its stored files.
         type: boolean
     type: object
+  siteshared.Environment:
+    properties:
+      address:
+        description: |-
+          Address is where the environment is reached: its primary domain, else
+          its address on the pages domain; "" when it has neither.
+        example: https://partner-review--dev.pages.example.net
+        type: string
+      environment:
+        example: dev
+        type: string
+      message:
+        type: string
+      online:
+        description: |-
+          Online is false while the site's managers have taken it offline or
+          pointed it elsewhere; Message is what they said, if anything.
+        type: boolean
+      site:
+        example: partner-review
+        type: string
+    type: object
+  siteshared.List:
+    properties:
+      environments:
+        items:
+          $ref: '#/definitions/siteshared.Environment'
+        type: array
+    type: object
   sitestore.Sweep:
     properties:
       bytes:
@@ -41446,6 +41475,34 @@ paths:
       summary: List prompts shared with me
       tags:
       - Prompts
+  /portal/shared-sites:
+    get:
+      description: 'Each environment of a site that a grant to the caller''s verified
+        email or to their persona opens, with its address and whether it is online
+        (#2718). Nothing else of those sites is named: not their other environments
+        and not who else they are shared with. Every signed-in person may ask, an
+        external person included; one with no grant gets an empty list.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/siteshared.List'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List the site environments shared with me
+      tags:
+      - Sites
   /portal/shared-with-me:
     get:
       description: Returns paginated assets that other users have shared with the

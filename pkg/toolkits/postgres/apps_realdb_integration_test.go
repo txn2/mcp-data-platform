@@ -145,6 +145,62 @@ func TestRunRole_RealDB(t *testing.T) {
 	})
 }
 
+// TestRunRole_RealDB_DroppedByACreateRoleUser is #2717: on PostgreSQL 16 and
+// later a CREATEROLE user that creates a role holds only ADMIN on it, without
+// its privileges, and DROP OWNED BY needs them. A run role created and granted
+// on a schema by such a user (not a superuser, which hides it) is dropped.
+func TestRunRole_RealDB_DroppedByACreateRoleUser(t *testing.T) {
+	onTargets(t, func(t *testing.T) {
+		rt := realTarget(t)
+		db, _ := rt.target[cfgKeyDatabase].(string)
+		n := targetSeq.Add(1)
+		creator, shop := fmt.Sprintf("crr%d_%d", os.Getpid(), n), fmt.Sprintf("crs%d_%d", os.Getpid(), n)
+		for _, stmt := range []string{
+			`CREATE ROLE "` + creator + `" LOGIN CREATEROLE PASSWORD 'pw-` + creator + `'`,
+			`GRANT CREATE ON DATABASE "` + db + `" TO "` + creator + `"`,
+		} {
+			if _, err := rt.server.Exec(stmt); err != nil {
+				t.Fatalf("%s: %v", stmt, err)
+			}
+		}
+		t.Cleanup(func() {
+			_, _ = rt.server.Exec(`DROP SCHEMA IF EXISTS "` + shop + `" CASCADE`)
+			_, _ = rt.server.Exec(`DROP OWNED BY "` + runRoleNameFor(db, shop) + `"`)
+			_, _ = rt.server.Exec(`DROP ROLE IF EXISTS "` + runRoleNameFor(db, shop) + `"`)
+			_, _ = rt.server.Exec(`DROP OWNED BY "` + creator + `"`)
+			_, _ = rt.server.Exec(`DROP ROLE IF EXISTS "` + creator + `"`)
+		})
+		cfg := map[string]any{}
+		for k, v := range rt.target {
+			cfg[k] = v
+		}
+		cfg[cfgKeyUser], cfg[cfgKeyPassword] = creator, "pw-"+creator
+		tk := newRealToolkit(t, rt.platform, map[string]map[string]any{"target": cfg})
+		tk.SetMigrationStore(&memStore{})
+		apps := &fakeApps{holders: map[string]string{shop: "shop"}, roles: map[string][2]string{}}
+		tk.SetApplications(apps.Holder, apps.RunRole)
+		ctx := context.Background()
+
+		for _, stmt := range []string{"CREATE SCHEMA " + shop, "CREATE TABLE " + shop + ".orders (id int)"} {
+			execOK(t, tk, Statement{Connection: "target", SQL: stmt})
+		}
+		role, _, err := tk.CreateRunRole(ctx, "target", shop)
+		if err != nil {
+			t.Fatalf("creating the run role as a CREATEROLE user: %v", err)
+		}
+		if _, err := tk.GrantRunRole(ctx, "target", shop); err != nil {
+			t.Fatalf("granting the run role on its schema: %v", err)
+		}
+		if err := tk.DropRunRole(ctx, "target", shop); err != nil {
+			t.Fatalf("dropping a run role the connection's user created and granted: %v", err)
+		}
+		var exists bool
+		if err := rt.server.QueryRow(`SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)`, role).Scan(&exists); err != nil || exists {
+			t.Fatalf("the run role is gone: %v %v", exists, err)
+		}
+	})
+}
+
 // TestRunRole_RealDB_NeedsCreateRole: a connection whose user cannot create
 // roles is refused naming the statement that grants it.
 func TestRunRole_RealDB_NeedsCreateRole(t *testing.T) {

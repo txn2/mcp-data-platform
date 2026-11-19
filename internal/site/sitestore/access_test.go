@@ -116,3 +116,35 @@ func TestSiteAccess(t *testing.T) {
 	_, err = s.SiteAccess(ctx, "site_1", "prod", "a@example.com", "")
 	require.ErrorContains(t, err, "read access")
 }
+
+// #2718: the sites a grant to an email (normalized) or a persona names, [] for
+// none, and each failure named.
+func TestGrantedSiteIDs(t *testing.T) {
+	ctx := context.Background()
+	s, mock := newMock(t)
+
+	mock.ExpectQuery(q("SELECT DISTINCT site_id FROM site_grants")).WithArgs("pat@client.example", "partners").
+		WillReturnRows(sqlmock.NewRows([]string{"site_id"}).AddRow("site_1").AddRow("site_2"))
+	got, err := s.GrantedSiteIDs(ctx, " Pat@Client.example ", "partners")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"site_1", "site_2"}, got)
+
+	mock.ExpectQuery(q("SELECT DISTINCT site_id FROM site_grants")).WillReturnRows(sqlmock.NewRows([]string{"site_id"}))
+	got, err = s.GrantedSiteIDs(ctx, "", "")
+	require.NoError(t, err)
+	assert.Equal(t, []string{}, got, "none is [], never null")
+
+	mock.ExpectQuery(q("SELECT DISTINCT site_id FROM site_grants")).WillReturnError(errDown)
+	_, err = s.GrantedSiteIDs(ctx, "a@example.com", "")
+	require.ErrorContains(t, err, "list granted sites")
+
+	mock.ExpectQuery(q("SELECT DISTINCT site_id FROM site_grants")).WillReturnRows(sqlmock.NewRows([]string{"site_id", "extra"}).AddRow("x", "y"))
+	_, err = s.GrantedSiteIDs(ctx, "a@example.com", "")
+	require.ErrorContains(t, err, "read granted site")
+
+	mock.ExpectQuery(q("SELECT DISTINCT site_id FROM site_grants")).
+		WillReturnRows(sqlmock.NewRows([]string{"site_id"}).AddRow("x").RowError(0, errDown))
+	_, err = s.GrantedSiteIDs(ctx, "a@example.com", "")
+	require.ErrorContains(t, err, "list granted sites")
+	require.NoError(t, mock.ExpectationsWereMet())
+}

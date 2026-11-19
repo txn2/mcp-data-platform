@@ -24,13 +24,18 @@ const ConvertedFrom = "swagger 2.0"
 // `swagger: "2.0"`.
 var ErrNotSwagger = errors.New("swagger2: not a Swagger 2.0 document")
 
-// Is reports whether raw, JSON or YAML, declares `swagger: "2.0"`.
+// Is reports whether raw, JSON or YAML, declares `swagger: "2.0"`. A JSON
+// document is read as JSON: a YAML parser reading a large JSON document
+// allocates many times its size (#2721).
 func Is(raw string) bool {
 	var head struct {
 		Swagger any `json:"swagger" yaml:"swagger"`
 	}
-	if err := yaml.Unmarshal([]byte(raw), &head); err != nil {
-		return false
+	if err := json.Unmarshal([]byte(raw), &head); err != nil {
+		head.Swagger = nil
+		if err := yaml.Unmarshal([]byte(raw), &head); err != nil {
+			return false
+		}
 	}
 	switch v := head.Swagger.(type) {
 	case string:
@@ -75,7 +80,14 @@ func Convert(raw string) (string, error) {
 }
 
 // yamlToJSON re-encodes a YAML (or JSON, which is YAML) document as JSON.
+// A JSON document keeps its own encoding below the top level and only has its
+// version written as the string the document model takes (#2721).
 func yamlToJSON(raw string) ([]byte, error) {
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &top); err == nil {
+		top["swagger"] = json.RawMessage(`"2.0"`)
+		return json.Marshal(top) //nolint:wrapcheck // the caller wraps it
+	}
 	var doc any
 	if err := yaml.Unmarshal([]byte(raw), &doc); err != nil {
 		return nil, err //nolint:wrapcheck // the caller wraps it

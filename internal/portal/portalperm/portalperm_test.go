@@ -87,8 +87,15 @@ func TestRefusedHoldsAnExternalPersonaToItsRoutes(t *testing.T) {
 		"/api/v1/portal/me", "/api/v1/portal/assets/a1", "/api/v1/portal/collections/c1", "/api/v1/portal/shared-with-me",
 		"/api/v1/portal/shared-collections", "/api/v1/portal/threads", "/api/v1/portal/worklist", "/api/v1/portal/feedback",
 		"/api/v1/portal/notification-prefs", "/api/v1/portal/notifications",
+		"/api/v1/portal/recents", "/api/v1/portal/favorites", "/api/v1/portal/shared-sites",
 	} {
 		assert.Empty(t, Refused(ext, http.MethodGet, path), path)
+	}
+	// #2724: Home records an open and stars an item for them too.
+	assert.Empty(t, Refused(ext, http.MethodPost, "/api/v1/portal/recents"))
+	assert.Empty(t, Refused(ext, http.MethodPut, "/api/v1/portal/favorites/asset/a1"))
+	for _, path := range []string{"/api/v1/portal/trash", "/api/v1/portal/unused", "/api/v1/portal/duplicates"} {
+		assert.Equal(t, AreaExternal, Refused(ext, http.MethodGet, path), "an external person owns nothing to clean up: %s", path)
 	}
 	for _, path := range []string{
 		"/api/v1/portal/calls", "/api/v1/portal/sessions", "/api/v1/portal/events/e1", "/api/v1/portal/activity/overview",

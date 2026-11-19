@@ -77,6 +77,32 @@ func (s *Store) RemoveGrant(ctx context.Context, siteID, email, persona string) 
 	return oneRow(res, site.ErrNoGrant)
 }
 
+// GrantedSiteIDs is the sites with a grant to the email or the persona, the
+// candidates for the environments shared with a person (#2718); which of a
+// site's environments a grant opens is SiteAccess's to say.
+func (s *Store) GrantedSiteIDs(ctx context.Context, email, persona string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT site_id FROM site_grants
+		 WHERE (email = $1 AND $1 <> '') OR (persona = $2 AND $2 <> '')
+		 ORDER BY site_id`, site.NormalizeEmail(email), persona)
+	if err != nil {
+		return nil, fmt.Errorf("list granted sites: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("read granted site: %w", err)
+		}
+		out = append(out, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list granted sites: %w", err)
+	}
+	return out, nil
+}
+
 // SiteAccess reads, in one statement, what decides whether a person may open
 // one environment of a site: the owner, the environment's own internal view,
 // and whether a grant to their email or to their persona opens it. It is read

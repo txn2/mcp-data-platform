@@ -1,7 +1,8 @@
 import { useId, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { portalNavItems } from "@/components/layout/sidebar/navItems";
 import { sectionIntroPath, sectionIntroFor, type SectionIntroCopy } from "./sectionIntros";
 
@@ -31,31 +32,58 @@ export function SectionIntro({ route }: { route: string }) {
   return <IntroCard key={intro.path} intro={intro} />;
 }
 
-/** Absent means never opened, which reads as expanded: the reader has not been told yet. */
-function readExpanded(key: string): boolean {
+/**
+ * Absent means never opened, which reads as expanded on a wide screen (the
+ * reader has not been told yet) and collapsed on a phone, where the card would
+ * take a fifth of the screen on every visit (#2723). An open or close on
+ * either is remembered for both.
+ */
+function readExpanded(key: string, fallback: boolean): boolean {
   try {
-    return localStorage.getItem(key) !== "0";
+    const v = localStorage.getItem(key);
+    return v === null ? fallback : v !== "0";
   } catch {
-    return true;
+    return fallback;
   }
 }
 
-function IntroCard({ intro }: { intro: SectionIntroCopy }) {
-  const [expanded, setExpanded] = useState(() => readExpanded(intro.storageKey));
-  const detailId = useId();
-  const nav = portalNavItems.find((item) => item.path === intro.path);
-  const Icon = nav?.icon;
-
+/** useExpanded is a section's open or closed choice, remembered per section. */
+function useExpanded(key: string, fallback: boolean): [boolean, () => void] {
+  const [expanded, setExpanded] = useState(() => readExpanded(key, fallback));
   const toggle = () =>
     setExpanded((open) => {
       const next = !open;
       try {
-        localStorage.setItem(intro.storageKey, next ? "1" : "0");
+        localStorage.setItem(key, next ? "1" : "0");
       } catch {
         /* private mode: just don't persist */
       }
       return next;
     });
+  return [expanded, toggle];
+}
+
+function IntroCard({ intro }: { intro: SectionIntroCopy }) {
+  const isMobile = useIsMobile();
+  const [expanded, toggle] = useExpanded(intro.storageKey, !isMobile);
+  if (isMobile && !expanded) {
+    // On a phone the closed intro is one link (#2723).
+    return (
+      <div data-testid="section-intro" className="-mt-1 mb-2 flex justify-end">
+        <Button variant="ghost" size="sm" onClick={toggle} aria-expanded={false} className="min-h-11 text-primary">
+          About this page
+          <ChevronRight />
+        </Button>
+      </div>
+    );
+  }
+  return <IntroPanel intro={intro} expanded={expanded} toggle={toggle} />;
+}
+
+function IntroPanel({ intro, expanded, toggle }: { intro: SectionIntroCopy; expanded: boolean; toggle: () => void }) {
+  const detailId = useId();
+  const nav = portalNavItems.find((item) => item.path === intro.path);
+  const Icon = nav?.icon;
 
   return (
     <section

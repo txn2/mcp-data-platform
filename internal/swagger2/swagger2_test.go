@@ -64,6 +64,11 @@ func TestConvert(t *testing.T) {
 	require.NoError(t, err, "an unquoted 2.0 converts as the declaration it is")
 	assert.Contains(t, unquoted, `"openapi":"3.0`)
 
+	jsonUnquoted, err := Convert(`{"swagger":2.0,"info":{"title":"t","version":"1"},"paths":{"/a":{"get":{"responses":{"200":{"description":"ok"}}}}}}`)
+	require.NoError(t, err, "a JSON document's unquoted 2.0 converts too, read as JSON (#2721)")
+	assert.Contains(t, jsonUnquoted, `"openapi":"3.0`)
+	assert.Contains(t, jsonUnquoted, `"/a"`)
+
 	_, err = Convert(`{"openapi":"3.0.3"}`)
 	assert.True(t, errors.Is(err, ErrNotSwagger))
 	_, err = Convert(`{"swagger":"2.0","paths":"not an object"}`)

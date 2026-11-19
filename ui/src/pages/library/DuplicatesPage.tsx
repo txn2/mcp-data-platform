@@ -12,6 +12,7 @@ import { useAuthStore } from "@/stores/auth";
 import { errorMessage } from "@/lib/utils";
 import { EveryoneSwitch } from "./EveryoneSwitch";
 import { StatusPill } from "./StatusPill";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
 interface Props {
   onNavigate: (path: string) => void;
@@ -96,6 +97,25 @@ function Group({
   const trash = useTrashAsset();
   const keptName = group.members.find((m) => m.id === kept)?.name ?? "";
   const failure = deprecate.error ?? trash.error;
+  const phone = useIsMobile();
+  const actions = (id: string, wide: boolean) => (
+    <div className={wide ? "flex gap-2 [&>button]:h-11 [&>button]:flex-1" : "inline-flex gap-2"}>
+      <Button variant={kept === id ? "secondary" : "outline"} size="sm" aria-pressed={kept === id} onClick={() => setKept(id)}>
+        Keep
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={kept === id || deprecate.isPending}
+        onClick={() => deprecate.mutate({ id, note: `Duplicate of ${keptName}` })}
+      >
+        Deprecate
+      </Button>
+      <Button variant="outline" size="sm" className="text-destructive" disabled={kept === id || trash.isPending} onClick={() => trash.mutate(id)}>
+        Delete
+      </Button>
+    </div>
+  );
   return (
     <section
       aria-label={`${group.members.length} assets, ${group.similarity}% similar`}
@@ -107,6 +127,22 @@ function Group({
         </h2>
         <Button variant="outline" size="sm" onClick={onDismiss}>Dismiss group</Button>
       </div>
+      {phone ? (
+        // On a phone each asset is a block with its actions full width (#2723).
+        <ul className="flex flex-col" data-testid="duplicate-members">
+          {group.members.map((m) => (
+            <li key={m.id} className="flex flex-col gap-1.5 border-t py-2.5">
+              <button type="button" className="text-left text-[15px] leading-snug font-medium" onClick={() => onNavigate(`/assets/${m.id}`)}>
+                {m.name}
+              </button>
+              <span className="text-xs text-muted-foreground">
+                {[showOwner ? m.owner_email : "", `${m.opens} ${m.opens === 1 ? "open" : "opens"}`, `Updated ${new Date(m.updated_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`, `v${m.version}`].filter(Boolean).join(" · ")}
+              </span>
+              {actions(m.id, true)}
+            </li>
+          ))}
+        </ul>
+      ) : (
       <div className="overflow-x-auto">
         <table className="w-full min-w-[560px] text-sm">
           <thead>
@@ -132,40 +168,13 @@ function Group({
                   {new Date(m.updated_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })} · v{m.version}
                 </td>
                 <td className="px-2 py-2 text-right">{m.opens}</td>
-                <td className="whitespace-nowrap px-2 py-2 text-right">
-                  <div className="inline-flex gap-2">
-                    <Button
-                      variant={kept === m.id ? "secondary" : "outline"}
-                      size="sm"
-                      aria-pressed={kept === m.id}
-                      onClick={() => setKept(m.id)}
-                    >
-                      Keep
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={kept === m.id || deprecate.isPending}
-                      onClick={() => deprecate.mutate({ id: m.id, note: `Duplicate of ${keptName}` })}
-                    >
-                      Deprecate
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-destructive"
-                      disabled={kept === m.id || trash.isPending}
-                      onClick={() => trash.mutate(m.id)}
-                    >
-                      Delete
-                    </Button>
-                  </div>
-                </td>
+                <td className="whitespace-nowrap px-2 py-2 text-right">{actions(m.id, false)}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      )}
       {failure && <p role="alert" className="text-sm text-destructive">{errorMessage(failure)}</p>}
       <p className="text-xs text-muted-foreground">
         Keep marks the one to keep and leaves it unchanged. Deprecate sets the status to Deprecated with the note

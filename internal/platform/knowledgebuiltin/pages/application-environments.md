@@ -148,11 +148,18 @@ The run role's grants come from the platform: after a release or a promote
 applies migrations to an environment's schema, that environment's run role is
 granted `USAGE` on the schema and `SELECT`, `INSERT`, `UPDATE` and `DELETE` on
 every table, sequence and routine in it, and nothing elsewhere. A migration
-that names a role (`CREATE ROLE`, `GRANT ... TO`, `REVOKE`, `ALTER DEFAULT
-PRIVILEGES`) or a name qualified by its own schema, in a statement or in a
-function's body, is refused when it is added. A function that must keep its
-schema pins it with `SET search_path FROM CURRENT`, which keeps the schema it
-was created in; `manage_schema template=outbox` writes its function that way.
+that creates, alters, drops or grants to a role, `PUBLIC` included (`CREATE
+ROLE`, `GRANT ... TO`, `ALTER DEFAULT PRIVILEGES`, a `REVOKE ... FROM` a named
+role), or names a name qualified by its own schema, in a statement or in a
+function's body, is refused when it is added. `REVOKE ... FROM PUBLIC` is
+accepted, and is what `security_definer_public_execute` asks of a `SECURITY
+DEFINER` function. A function that must keep its schema pins it with `SET
+search_path FROM CURRENT`: a migration runs with its schema then `pg_temp` on
+the search path, so the function keeps its schema with `pg_temp` last, and an
+environment's copy keeps the environment's schema. Leave `search_path` alone in
+the migration: a function pinned after a `SET search_path` keeps that path, and
+the review warns. `manage_schema
+template=outbox` writes its function that way.
 
 `release` applies the pending migrations to the first environment's schema. A
 `promote` applies the ones the promoted release recorded to the target's

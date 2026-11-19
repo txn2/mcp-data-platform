@@ -277,7 +277,16 @@ Someone who does not manage a site sees, in the portal and in the site's API
 answers, only the environments they can open and the domains on them.
 
 The Sites area is a persona's `portal.sites` switch. Unset, it is on for a persona
-holding `manage_site`.
+holding `manage_site`. An external persona never has it: its stored switch is kept
+and reported in the persona editor's capped areas (`capped_by_external`).
+
+Anyone a share names finds those environments on the portal's Home, under
+**Sites shared with you** (#2718), external people included: each environment a
+share to their verified email or to their persona opens, with its address and an
+Open link, an offline one marked Offline with its message and no link. Nothing
+else of the site is listed: not its other environments, not who else it is
+shared with, not who shared it. A person no share names sees no section. The list
+is `GET /api/v1/portal/shared-sites`, which every signed-in person may read.
 
 ## Making a domain public
 
@@ -833,6 +842,7 @@ part `<site>/default` is added as `<site>/dev`.
 
 | Route | What it does |
 |---|---|
+| `GET /api/v1/portal/shared-sites` | The environments a share to the caller's verified email or persona opens, each `{site, environment, address, online, message?}`, in site name order; `[]` for none. Every signed-in person, external included; nothing else of those sites is named (#2718) |
 | `GET /api/v1/portal/sites?q=&limit=&offset=` | The sites `q` names (a part of a name, description, owner or domain hostname, any case), `limit` at a time (at most 200, every match without it) from `offset`; `total` counts every match. The query and page are applied before anything is read per site (#2658) |
 | `GET /api/v1/portal/sites/{site}/environments/{name}/tile` | The environment's tile, a PNG of the release it serves, to someone who may open the environment; 404 for none drawn yet for its current release, no release, offline or redirecting, or one the caller may not open (#2658) |
 | `PUT /api/v1/portal/sites/{site}/environments/{name}` | Creates, places or changes an environment. Body `{requires_approval?, internal_view?, keep_releases?, after?, agents_may_promote?, status?, message?, back_at?, redirect_to?, keep_path?, reason?, rename_to?}`, a field left out left alone; `keep_releases` is a number or `"default"`, `agents_may_promote` is an administrator's, and `public` is refused. Answers `{site, status, note?, approval?}` |

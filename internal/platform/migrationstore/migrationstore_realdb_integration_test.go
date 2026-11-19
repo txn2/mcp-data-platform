@@ -73,3 +73,46 @@ func TestStoreRoundTrip_RealDB(t *testing.T) {
 	require.Error(t, s.Record(ctx, postgres.MigrationEvent{Connection: "orders", Schema: "public", Version: 1, Event: "renamed"}),
 		"the table holds only the events it knows")
 }
+
+// #2720: an application environment's schema lists its application's
+// migrations, which are kept under the application's schema; a schema no
+// environment holds lists its own, and another connection's environment of
+// the same name is not followed.
+func TestEnvironmentSchemaListsTheApplicationsMigrations_RealDB(t *testing.T) {
+	ctx := context.Background()
+	db := testdb.New(t)
+	s := migrationstore.New(db)
+	for _, stmt := range []string{
+		`INSERT INTO applications (id, name, owner_email, connection, schema_name, created_by)
+			VALUES ('app-2720', 'shop-2720', 'o@example.com', 'shop', 'shop', 'o@example.com')`,
+		`INSERT INTO application_environments (application_id, name, position, schema_name)
+			VALUES ('app-2720', 'dev', 0, 'shop_dev'), ('app-2720', 'prod', 1, 'shop')`,
+	} {
+		_, err := db.ExecContext(ctx, stmt)
+		require.NoError(t, err)
+	}
+	for v := 1; v <= 2; v++ {
+		_, err := s.Put(ctx, postgres.Migration{Connection: "shop", Schema: "shop", Version: v, Name: "m", Up: "SELECT 1", Checksum: "c"})
+		require.NoError(t, err)
+	}
+	_, err := s.Put(ctx, postgres.Migration{Connection: "shop", Schema: "loose", Version: 1, Name: "own", Up: "SELECT 1", Checksum: "c"})
+	require.NoError(t, err)
+
+	dev, err := s.List(ctx, "shop", "shop_dev")
+	require.NoError(t, err)
+	require.Len(t, dev, 2, "the environment's schema reads its application's migrations")
+	assert.Equal(t, "shop_dev", dev[0].Schema, "under its own name, the schema they apply to")
+
+	prod, err := s.List(ctx, "shop", "shop")
+	require.NoError(t, err)
+	assert.Len(t, prod, 2)
+
+	loose, err := s.List(ctx, "shop", "loose")
+	require.NoError(t, err)
+	require.Len(t, loose, 1, "a schema no environment holds reads its own")
+	assert.Equal(t, "own", loose[0].Name)
+
+	other, err := s.List(ctx, "warehouse", "shop_dev")
+	require.NoError(t, err)
+	assert.Empty(t, other, "another connection's schema of that name is not an environment of this application")
+}

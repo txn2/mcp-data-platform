@@ -89,11 +89,18 @@ func (c *conn) prepareMigration(ctx context.Context, tx pgx.Tx, schema string, t
 	if _, err := tx.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS "+schema); err != nil {
 		return err //nolint:wrapcheck // read by its type
 	}
-	if _, err := tx.Exec(ctx, "SELECT set_config('search_path', $1, true)", schema); err != nil {
+	if _, err := tx.Exec(ctx, "SELECT set_config('search_path', $1, true)", migrationSearchPath(schema)); err != nil {
 		return fmt.Errorf("setting the search path: %w", err)
 	}
 	return nil
 }
+
+// migrationSearchPath is the search_path a migration runs under: its schema,
+// then pg_temp last (#2719). A function a migration pins with SET search_path
+// FROM CURRENT, the form an application's migrations are told to use because
+// they may not name their schema, then keeps pg_temp last, and an
+// environment's clone rewrites the schema entry.
+func migrationSearchPath(schema string) string { return schema + ", pg_temp" }
 
 // Apply applies the pending migrations in version order, each in a
 // transaction of its own that also writes its ledger row, so a migration that
@@ -333,7 +340,7 @@ func (c *conn) prepareAlone(ctx context.Context, pc session, o ApplyOptions) err
 		timeout = c.cfg.StatementTimeout
 	}
 	_, err := pc.Exec(ctx, "SELECT set_config('lock_timeout', $1, false), set_config('statement_timeout', $2, false), "+
-		"set_config('search_path', $3, false)", millis(migrationLockTimeout), millis(timeout), o.Schema)
+		"set_config('search_path', $3, false)", millis(migrationLockTimeout), millis(timeout), migrationSearchPath(o.Schema))
 	return err //nolint:wrapcheck // read by its type
 }
 

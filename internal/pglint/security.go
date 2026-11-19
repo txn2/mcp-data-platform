@@ -77,6 +77,11 @@ type securityState struct {
 	views   map[string]viewRead
 	invoker map[string]bool
 	virtual map[string]map[string]bool
+	// pathMoved is set once a statement other than a function's own SET
+	// clause changes search_path: SET, RESET or set_config, a DO block's
+	// included. A function pinned FROM CURRENT after it pins whatever that
+	// statement set, not the applier's "<schema>, pg_temp" (#2719).
+	pathMoved bool
 }
 
 type viewRead struct {
@@ -125,6 +130,7 @@ func (l *linter) securityStatement(n int, stmt string, ts toks) {
 		return
 	}
 	l.passwordLiteral(n, stmt)
+	l.notePathMoves(stmt, ts)
 	l.rolesNamed(n, ts)
 	if ts[0].word == "do" {
 		l.rolesInDo(n, stmt)
@@ -223,14 +229,53 @@ func (l *linter) createFunction(n int, ts toks, k int) {
 		return
 	}
 	l.sec.definers[name] = n
-	if !ts.searchPathEndsInTemp() {
+	if ts.searchPathFromCurrent() && l.sec.pathMoved {
+		l.add(Finding{
+			Rule: ruleDefinerSearchPath, Severity: SeverityWarning, Statement: n, Object: name,
+			Effect: name + " pins search_path FROM CURRENT after an earlier statement of this migration changed it, " +
+				"so it keeps that path rather than the migration's schema with pg_temp last, and a path without pg_temp " +
+				"searches pg_temp first, where any caller can create an object",
+			Safe: "leave search_path alone in the migration: it runs with its schema then pg_temp on the path, which FROM CURRENT keeps",
+		})
+		return
+	}
+	if !ts.searchPathEndsInTemp() && !ts.searchPathFromCurrent() {
 		l.add(Finding{
 			Rule: ruleDefinerSearchPath, Severity: SeverityWarning, Statement: n, Object: name,
 			Effect: name + " runs with its owner's privileges and resolves names through the caller's search_path, " +
 				"so a caller who can create an object in a schema on that path runs their own code as the owner",
-			Safe: "SET search_path = <the schemas it uses>, pg_temp on the function, with pg_temp last",
+			Safe: "SET search_path FROM CURRENT on the function, or SET search_path = <the schemas it uses>, pg_temp, with pg_temp last",
 		})
 	}
+}
+
+// notePathMoves records a statement that changes the session's search_path:
+// any but a function or procedure's own CREATE that names search_path (SET,
+// SET LOCAL, RESET, set_config in a SELECT or a DO block's body), RESET ALL
+// and DISCARD. A function's body runs when it is called, not as the
+// migration applies, so the text of one is not a move.
+func (l *linter) notePathMoves(stmt string, ts toks) {
+	if createsRoutine(ts) {
+		return
+	}
+	if strings.Contains(strings.ToLower(stmt), "search_path") ||
+		(ts[0].word == "reset" && ts.at(1, "all")) || ts[0].word == "discard" {
+		l.sec.pathMoved = true
+	}
+}
+
+// createsRoutine reports whether a statement is CREATE [OR REPLACE] FUNCTION
+// or PROCEDURE.
+func createsRoutine(ts toks) bool {
+	if ts[0].word != kwCreate {
+		return false
+	}
+	for i := 1; i < len(ts) && i <= maxCreateKindWord; i++ {
+		if ts[i].word == kwFunction || ts[i].word == kwProcedure {
+			return true
+		}
+	}
+	return false
 }
 
 // revoke notes the functions a REVOKE ... FROM PUBLIC takes EXECUTE from.
@@ -435,9 +480,18 @@ func (ts toks) languageOf() string {
 	return strings.ToLower(ts[i+1].text)
 }
 
+// searchPathFromCurrent reports whether a function pins search_path FROM
+// CURRENT: the path the migration runs under, which the applier sets to the
+// migration's schema then pg_temp (#2719), and the form an application's
+// migrations are told to use, since they may not name their schema. It holds
+// only while no earlier statement of the migration moved the path.
+func (ts toks) searchPathFromCurrent() bool {
+	i := ts.findPair("set", "search_path")
+	return i >= 0 && ts.at(i+2, "from") && ts.at(i+3, "current")
+}
+
 // searchPathEndsInTemp reports whether a function pins search_path with SET
-// and puts pg_temp last. FROM CURRENT pins whatever the migration's path is,
-// which the review cannot read, and is not taken as pinned.
+// and puts pg_temp last.
 func (ts toks) searchPathEndsInTemp() bool {
 	i := ts.findPair("set", "search_path")
 	if i < 0 || i+2 >= len(ts) {

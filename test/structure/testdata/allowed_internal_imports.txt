@@ -1,5 +1,6 @@
 cmd/dev-mcp-mock -> internal/logsan
 cmd/dev-soap-mock -> internal/logsan
+cmd/mcp-data-platform -> internal/bgloop
 cmd/mcp-data-platform -> internal/buildinfo
 cmd/mcp-data-platform -> internal/httpserver
 cmd/mcp-data-platform -> internal/procload
@@ -942,6 +943,7 @@ internal/httpserver/sitehttp -> internal/site/sitecrawl
 internal/httpserver/sitehttp -> internal/site/siteenv
 internal/httpserver/sitehttp -> internal/site/sitegw
 internal/httpserver/sitehttp -> internal/site/siteprune
+internal/httpserver/sitehttp -> internal/site/siteshared
 internal/httpserver/sitehttp -> internal/site/sitestore
 internal/httpserver/sitehttp -> internal/site/sitesvc
 internal/httpserver/sitehttp -> internal/site/sitetile
@@ -2308,6 +2310,11 @@ internal/site/siterouting -> internal/application
 internal/site/siterouting -> internal/logsan
 internal/site/siterouting -> internal/platform/integration
 internal/site/siterouting -> internal/site
+internal/site/siteshared -> internal/httpjson
+internal/site/siteshared -> internal/logsan
+internal/site/siteshared -> internal/site
+internal/site/siteshared -> internal/site/sitesvc
+internal/site/siteshared -> internal/wirejson
 internal/site/sitestatus -> internal/site
 internal/site/sitestatus -> internal/untrusted
 internal/site/sitestore -> internal/site

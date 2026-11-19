@@ -23,10 +23,21 @@ func New(db *sql.DB) *Store { return &Store{db: db} }
 
 // List implements postgres.MigrationStore. An empty schema lists every
 // schema of the connection, in schema order.
+//
+// The schema of an application environment (#2709) holds no migrations of
+// its own: they are kept under the application's schema and applied to each
+// environment's. Such a schema lists its application's migrations under its
+// own name, the schema they are applied to, so status, pending and drift read
+// an environment's schema as they read the application's (#2720).
 func (s *Store) List(ctx context.Context, connection, schema string) ([]postgres.Migration, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT connection, schema_name, version, name, up_sql, down_sql, transactional,
+	rows, err := s.db.QueryContext(ctx, `SELECT connection, CASE WHEN $2 = '' THEN schema_name ELSE $2 END, version, name, up_sql, down_sql, transactional,
 		checksum, author, created_at, updated_at FROM appdb_migrations
-		WHERE connection = $1 AND ($2 = '' OR schema_name = $2) ORDER BY schema_name, version`, connection, schema)
+		WHERE connection = $1 AND ($2 = '' OR schema_name = COALESCE((
+			SELECT a.schema_name FROM application_environments e
+			JOIN applications a ON a.id = e.application_id
+			WHERE a.connection = $1 AND e.schema_name = $2 AND a.schema_name <> ''
+			LIMIT 1), $2))
+		ORDER BY schema_name, version`, connection, schema)
 	if err != nil {
 		return nil, fmt.Errorf("listing migrations: %w", err)
 	}

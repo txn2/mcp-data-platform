@@ -26,7 +26,9 @@ var migrationColumns = []string{"connection", "schema_name", "version", "name", 
 func TestList(t *testing.T) {
 	s, mock := newMock(t)
 	now := time.Now()
-	mock.ExpectQuery("SELECT connection, schema_name, version").WithArgs("orders", "public").
+	// An environment's schema lists its application's migrations under its own
+	// name (#2720): the schema is reported as the one asked for.
+	mock.ExpectQuery(`SELECT connection, CASE WHEN \$2 = '' THEN schema_name ELSE \$2 END, version`).WithArgs("orders", "public").
 		WillReturnRows(sqlmock.NewRows(migrationColumns).AddRow("orders", "public", 1, "orders", "CREATE TABLE o ()", "", true, "c", "a@example.com", now, now))
 	got, err := s.List(context.Background(), "orders", "public")
 	require.NoError(t, err)

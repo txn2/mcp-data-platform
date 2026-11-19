@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -27,6 +27,10 @@ vi.mock("@/api/portal/hooks/library", () => {
     useTrashAsset: mutation,
   };
 });
+const shared = vi.hoisted(() => ({ envs: [] as unknown[] }));
+vi.mock("@/api/portal/hooks/sharedSites", () => ({
+  useSharedSites: () => ({ data: shared.envs, isLoading: false }),
+}));
 vi.mock("@/api/portal/hooks/threads", () => ({
   usePractitionerWorklist: () => ({ data: { data: [{ id: "t1", asset_id: "a9", target_label: "Churn dashboard", first_message: "Sign-off requested" }] }, isLoading: false }),
   useSMEWorklist: () => ({ data: { data: [] }, isLoading: false }),
@@ -56,6 +60,7 @@ beforeEach(() => {
   lib.trash = { items: [], total: 0, retention_days: 30 };
   lib.unused = { items: [], total: 0, days: 90 };
   lib.groups = [];
+  shared.envs = [];
   useAuthStore.setState({ user: { user_id: "u", roles: [], is_admin: false } });
 });
 
@@ -80,6 +85,33 @@ describe("HomePage (#2504)", () => {
     renderWith(<HomePage onNavigate={vi.fn()} />);
     expect(screen.getByText(/Nothing opened yet/)).toBeTruthy();
     expect(screen.getByText(/Star an asset or collection/)).toBeTruthy();
+  });
+
+  it("lists the site environments shared with the reader, an offline one without a link (#2718)", () => {
+    shared.envs = [
+      { site: "partner-review", environment: "dev", address: "https://partner-review--dev.pages.example.net", online: true },
+      { site: "partner-review", environment: "staging", address: "https://staging.partner.example.com", online: false, message: "Back Monday" },
+    ];
+    renderWith(<HomePage onNavigate={vi.fn()} />);
+    const section = screen.getByRole("region", { name: "Sites shared with you" });
+    const open = section.querySelector('a[href="https://partner-review--dev.pages.example.net"]');
+    expect(open?.getAttribute("target")).toBe("_blank");
+    expect(open?.getAttribute("rel")).toContain("noopener");
+    expect(screen.getByText("Back Monday")).toBeTruthy();
+    expect(screen.getByText("Offline")).toBeTruthy();
+    expect(section.querySelector('a[href="https://staging.partner.example.com"]')).toBeNull();
+  });
+
+  it("shows no sites section to a reader with nothing shared", () => {
+    renderWith(<HomePage onNavigate={vi.fn()} />);
+    expect(screen.queryByRole("region", { name: "Sites shared with you" })).toBeNull();
+  });
+
+  it("leaves My drafts out for a reader who owns no assets (#2724)", () => {
+    useAuthStore.setState({ user: { user_id: "u", roles: [], is_admin: false, portal: { assets: "shared", external: true } } });
+    renderWith(<HomePage onNavigate={vi.fn()} />);
+    expect(screen.queryByRole("region", { name: "My drafts" })).toBeNull();
+    expect(screen.getByRole("region", { name: "Recent" })).toBeTruthy();
   });
 
   it("opens an entry by its kind", () => {
@@ -155,5 +187,45 @@ describe("DuplicatesPage (#2509)", () => {
   it("says when nothing looks alike", () => {
     renderWith(<DuplicatesPage onNavigate={vi.fn()} />);
     expect(screen.getByText(/no two of your assets look alike/)).toBeTruthy();
+  });
+});
+
+describe("Unused and Possible duplicates on a phone (#2723)", () => {
+  const wide = window.innerWidth;
+  beforeEach(() => Object.defineProperty(window, "innerWidth", { configurable: true, value: 375 }));
+  afterEach(() => Object.defineProperty(window, "innerWidth", { configurable: true, value: wide }));
+
+  it("lists unused assets as rows, picks the period from buttons and docks the actions", async () => {
+    lib.unused = {
+      items: [{ id: "a1", name: "Lead scoring experiment", opens: 3, last_opened: now, created_at: now }],
+      total: 1,
+      days: 90,
+    };
+    renderWith(<UnusedPage onNavigate={vi.fn()} />);
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.getByTestId("unused-rows").textContent).toMatch(/3 opens · Last opened/);
+    expect(screen.getByRole("button", { name: "90 days" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByLabelText("Select Lead scoring experiment"));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await vi.waitFor(() => expect(lib.mutateAsync).toHaveBeenCalledWith("a1"));
+  });
+
+  it("shows each duplicate as a block with its own full-width actions", () => {
+    lib.groups = [
+      {
+        digest: "e".repeat(64),
+        similarity: 95,
+        members: [
+          { id: "a1", name: "Weekly sales summary", version: 3, updated_at: now, opens: 42 },
+          { id: "a2", name: "Weekly sales summary (copy)", version: 1, updated_at: now, opens: 3 },
+        ],
+      },
+    ];
+    renderWith(<DuplicatesPage onNavigate={vi.fn()} />);
+    expect(screen.queryByRole("table")).toBeNull();
+    const members = screen.getByTestId("duplicate-members");
+    expect(members.textContent).toMatch(/42 opens · Updated .* · v3/);
+    fireEvent.click(screen.getAllByRole("button", { name: "Deprecate" })[1]!);
+    expect(lib.mutate).toHaveBeenCalledWith({ id: "a2", note: "Duplicate of Weekly sales summary" });
   });
 });

@@ -16,6 +16,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/selfcall"
 	"github.com/txn2/mcp-data-platform/internal/site"
 	"github.com/txn2/mcp-data-platform/internal/site/siteenv"
+	"github.com/txn2/mcp-data-platform/internal/site/siteshared"
 	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
 	"github.com/txn2/mcp-data-platform/internal/site/sitetool"
 	"github.com/txn2/mcp-data-platform/internal/site/sitewire"
@@ -72,6 +73,13 @@ func PortalRegistrar(d PortalDeps) func(*http.ServeMux) {
 func (a *portalAPI) register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/portal/application-addresses/{name}", a.applicationAddresses)
 	mux.HandleFunc("GET "+portalSites, a.list)
+	mux.HandleFunc(siteshared.Route, siteshared.Handler(a.d.Runtime.Store, a.svc().Addressing, func(w http.ResponseWriter, r *http.Request) (sitesvc.Actor, bool) {
+		c, _, ok := a.who(w, r)
+		if !ok {
+			return sitesvc.Actor{}, false
+		}
+		return c.actor, true
+	}))
 	mux.HandleFunc("POST "+portalSites, a.create)
 	mux.HandleFunc("POST "+portalSites+"/check-name", a.checkName)
 	mux.HandleFunc("GET "+pathSite, a.get)

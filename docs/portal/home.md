@@ -6,11 +6,12 @@ description: "Home in the portal: what you opened, what you starred, your drafts
 
 Home is the portal's landing page, at `/`. It brings back what you were working on: the assets and collections you opened recently, the ones you starred, your drafts, and what is waiting on you. The Assets gallery has its own page at `/assets`; every asset and collection address that worked before still opens the same page.
 
-Home has four sections, one column on a phone:
+Home has up to five sections, one column on a phone:
 
+- **Sites shared with you** — The site environments shared with you, by your address or your persona, each with its address and an **Open** link that opens it in a new tab, where the site signs you in. An environment its managers took offline is marked **Offline** with their message and no link. Only what a share opens for you is listed: not a site's other environments and not who else it is shared with. With nothing shared, the section is not shown. It is how an external person, who has no Sites area, finds a site they were given (#2718).
 - **Recent** — The assets and collections you opened in the portal, newest first. Opening an asset or collection page records it; an open is counted once even if the page reports it twice while it loads.
 - **Favorites** — What you starred. The same list sits at the bottom of the sidebar (and of the menu drawer on a phone).
-- **My drafts** — Your assets whose status is Draft, with a link to all of them in Assets.
+- **My drafts** — Your assets whose status is Draft, with a link to all of them in Assets. A person who owns no assets (an external person, whose assets are the ones shared with them) does not get this section (#2724).
 - **Waiting on you** — The feedback threads that need your answer or your sign-off, from the same lists as the Inbox.
 
 Each section says what belongs in it when it is empty.
@@ -19,11 +20,13 @@ Each section says what belongs in it when it is empty.
 
 The star is the same control everywhere an asset or collection is shown: the round button on an asset card, **Star** in the asset viewer's action row, and **Star** in a collection's header. A filled amber star means the item is in your favorites; select it again to remove it.
 
-Favorites and Recent are yours alone and grant nothing. Every read is made under your own access, so an item you can no longer open, because its share was revoked or it was deleted, is simply left out: no title, no placeholder, no count. If the share comes back, so does the entry. You cannot star or record an item you cannot open; the portal answers as if it did not exist.
+Favorites and Recent are yours alone and grant nothing, and an external person has both for what is shared with them (#2724). Every read is made under your own access, so an item you can no longer open, because its share was revoked or it was deleted, is simply left out: no title, no placeholder, no count. If the share comes back, so does the entry. You cannot star or record an item you cannot open; the portal answers as if it did not exist.
 
 ## Unused, Possible duplicates and Trash
 
 Three tabs sit beside Assets and Collections for tidying your library. Each lists only your own assets; an administrator also gets an **Everyone's** switch, which spans every owner and adds an Owner column. Anyone else who asks for everyone's is refused.
+
+On a phone (below 768 pixels) each of these lists is a column of rows or cards rather than a table, with every action a full-width button (#2723).
 
 ### Unused
 
