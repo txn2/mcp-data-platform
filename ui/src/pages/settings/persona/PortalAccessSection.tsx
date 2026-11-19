@@ -6,7 +6,7 @@ import { EditorSection } from "./sections";
 import type { PersonaDraft } from "./types";
 
 type Leveled = "assets" | "resources" | "knowledge" | "catalog" | "apis" | "scratch_tables" | "external_files";
-type Switch = "feedback" | "prompts" | "automations" | "sites" | "search" | "memory" | "download" | "history";
+type Switch = "feedback" | "prompts" | "automations" | "sites" | "search" | "memory" | "download" | "history" | "verify_assets";
 
 // The leveled areas, each with the choices its dropdown offers, lowest first,
 // and the line naming what governs the AI side of it (#2225, #2257).
@@ -93,6 +93,11 @@ const SWITCHES: { key: Switch; label: string; help: string }[] = [
     key: "history",
     label: "Earlier versions",
     help: "An asset's earlier versions, for people it is shared with as viewer. Its owner, its editors and administrators always see them.",
+  },
+  {
+    key: "verify_assets",
+    label: "Can verify assets",
+    help: "Members can mark an asset they can open as Verified, and remove verification. Administrators can always verify.",
   },
 ];
 

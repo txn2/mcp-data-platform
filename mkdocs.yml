@@ -195,6 +195,7 @@ nav:
   - Portal:
     - The Portal: portal/index.md
     - Your Work:
+      - Home: portal/home.md
       - Assets: portal/assets.md
       - Collections: portal/collections.md
       - Shared With Me: portal/shared.md

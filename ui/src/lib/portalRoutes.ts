@@ -40,6 +40,10 @@ export const SITE_ROUTES = {
 // with a detail view lists its index here and its detail pattern below.
 const KNOWN_ROUTES: readonly string[] = [
   "/",
+  "/assets",
+  "/unused",
+  "/duplicates",
+  "/trash",
   "/activity",
   "/apis",
   "/activity/sessions",
@@ -84,6 +88,7 @@ const KNOWN_ROUTES: readonly string[] = [
   "/admin/changelog",
   "/admin/settings",
   "/admin/storage",
+  "/admin/tags",
 ];
 
 // KNOWN_PATTERNS are the detail routes: an index above plus an identifier. The
@@ -152,15 +157,14 @@ const KNOWN_PATTERNS: readonly RegExp[] = [
 // settled, and a guessed plural all land on the page the reader meant.
 //
 // The knowledge entries are the IA unification (#661): three surfaces became
-// one hub with three tabs. The assets entries are the guess: the section is
-// mounted at the portal root, so the name it is called everywhere else in the
-// product is a path nobody had any reason to think was wrong.
+// one hub with three tabs. "/shared" was the Shared With Me page, folded into
+// the Assets scope filter; Assets has its own path since Home took the portal
+// root (#2504).
 // A Map rather than an object: this is looked up with a path off the address
 // bar, and an object would answer "/constructor" or "/__proto__" out of its
 // prototype if either ever became a route shape.
 const ALIASES: ReadonlyMap<string, string> = new Map([
-  ["/assets", "/"],
-  ["/shared", "/"],
+  ["/shared", "/assets"],
   ["/knowledge-pages", "/knowledge#knowledge"],
   ["/my-knowledge", "/knowledge#insights"],
   ["/admin/knowledge", "/knowledge#insights"],

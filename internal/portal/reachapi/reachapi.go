@@ -28,6 +28,9 @@ const (
 	paramQuery  = "q"
 	paramLimit  = "limit"
 	paramOffset = "offset"
+	// paramStatus and paramVerified filter by an asset's marks.
+	paramStatus   = "status"
+	paramVerified = "verified"
 )
 
 // Refusals the routes answer with.
@@ -76,6 +79,18 @@ func (h *Handler) Register(mux *http.ServeMux) {
 func Reach(r *http.Request, user *access.User, fallback portaldomain.Scope) *portaldomain.Reach {
 	scope := portaldomain.ParseScope(r.URL.Query().Get(paramScope), fallback)
 	return portaldomain.NewReach(user.UserID, user.Email, portaldomain.CallerPersona(r.Context()), scope)
+}
+
+// Marks is the status and verified filters (#2502, #2503): status is draft,
+// published, deprecated or none (an unknown value filters nothing), and
+// verified=true keeps only assets carrying an unexpired verification.
+func Marks(r *http.Request) (status string, verified bool) {
+	q := r.URL.Query()
+	status = strings.ToLower(strings.TrimSpace(q.Get(paramStatus)))
+	if !portaldomain.ValidStatusFilter(status) {
+		status = ""
+	}
+	return status, q.Get(paramVerified) == "true"
 }
 
 // Owners is the author filter: owner addresses, repeated or comma-separated.
@@ -228,6 +243,8 @@ func (h *Handler) embed(ctx context.Context, query string) []float32 {
 // @Param        content_type  query  string   false  "Filter by content type"
 // @Param        tag           query  []string false  "Filter by tag; repeat it to require every one"  collectionFormat(multi)
 // @Param        owner         query  []string false  "Filter by owner address; repeat it for several"  collectionFormat(multi)
+// @Param        status        query  string   false  "Filter by status, or none for assets without one"  Enums(draft, published, deprecated, none)
+// @Param        verified      query  boolean  false  "Only assets carrying an unexpired verification"
 // @Param        limit         query  integer  false  "Results per page (default: 20, max: 100)"
 // @Param        offset        query  integer  false  "Offset into the ranked results (default: 0)"
 // @Success      200  {object}  page
@@ -251,6 +268,7 @@ func (h *Handler) searchAssets(w http.ResponseWriter, r *http.Request) {
 	}
 	user, reach, query := c.user, c.reach, c.query
 	limit, offset := portaldomain.RankedPage(intParam(r, paramLimit, portaldomain.DefaultSearchLimit), intParam(r, paramOffset, 0))
+	status, verified := Marks(r)
 	scored, total, err := searcher.SearchReach(r.Context(), portaldomain.RankedAssetQuery{
 		Embedding:   h.embed(r.Context(), query),
 		QueryText:   query,
@@ -258,6 +276,8 @@ func (h *Handler) searchAssets(w http.ResponseWriter, r *http.Request) {
 		ContentType: r.URL.Query().Get("content_type"),
 		Tags:        r.URL.Query()["tag"],
 		Owners:      Owners(r),
+		Status:      status,
+		Verified:    verified,
 		Limit:       limit,
 		Offset:      offset,
 	})
@@ -355,6 +375,8 @@ type assetFacetsResponse struct {
 // @Param        content_type  query  string   false  "Filter by content type"
 // @Param        tag           query  []string false  "Filter by tag; repeat it to require every one"  collectionFormat(multi)
 // @Param        owner         query  []string false  "Filter by owner address; repeat it for several"  collectionFormat(multi)
+// @Param        status        query  string   false  "Filter by status, or none for assets without one"  Enums(draft, published, deprecated, none)
+// @Param        verified      query  boolean  false  "Only assets carrying an unexpired verification"
 // @Success      200  {object}  assetFacetsResponse
 // @Failure      401  {object}  httpjson.ProblemDetail
 // @Failure      500  {object}  httpjson.ProblemDetail
@@ -373,11 +395,14 @@ func (h *Handler) assetFacets(w http.ResponseWriter, r *http.Request) {
 		httpjson.WriteJSON(w, http.StatusOK, resp)
 		return
 	}
+	status, verified := Marks(r)
 	facets, err := faceter.AssetFacets(r.Context(), portaldomain.AssetFilter{
 		Reach:       Reach(r, user, portaldomain.ScopeAll),
 		Owners:      Owners(r),
 		ContentType: r.URL.Query().Get("content_type"),
 		Tags:        r.URL.Query()["tag"],
+		Status:      status,
+		Verified:    verified,
 	})
 	if err != nil {
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to compute asset facets")

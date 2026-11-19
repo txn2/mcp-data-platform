@@ -123,6 +123,69 @@ type Asset struct {
 	CreatedAt   time.Time            `json:"created_at"`
 	UpdatedAt   time.Time            `json:"updated_at"`
 	DeletedAt   *time.Time           `json:"deleted_at,omitempty"`
+	// Status is how far along the asset is (#2502): draft, published or
+	// deprecated. Nil is no status, which every asset has until someone sets
+	// one. It is informational and changes no access.
+	Status *AssetStatus `json:"status,omitempty"`
+	// Verification is the Verified badge (#2503): who checked the asset, the
+	// version they checked and until when. Nil when it was never verified, was
+	// unverified, or its expiry has passed.
+	Verification *AssetVerification `json:"verification,omitempty"`
+}
+
+// The statuses an asset may carry (#2502). A status grants nothing: who can
+// open an asset is decided by ownership and shares alone.
+const (
+	StatusDraft      = "draft"
+	StatusPublished  = "published"
+	StatusDeprecated = "deprecated"
+	// StatusNone is the filter value for assets that carry no status.
+	StatusNone = "none"
+)
+
+// ValidStatus reports whether s is a status an asset may be set to.
+func ValidStatus(s string) bool {
+	return s == StatusDraft || s == StatusPublished || s == StatusDeprecated
+}
+
+// ValidStatusFilter reports whether s is a status listing filter: empty (any),
+// "none" or a status.
+func ValidStatusFilter(s string) bool {
+	return s == "" || s == StatusNone || ValidStatus(s)
+}
+
+// MaxMarkNoteLen bounds a status or verification note.
+const MaxMarkNoteLen = 500
+
+// AssetStatus is an asset's status and who set it.
+type AssetStatus struct {
+	Value string    `json:"value" example:"deprecated"`
+	Note  string    `json:"note,omitempty" example:"Replaced by the Q4 report"`
+	SetBy string    `json:"set_by" example:"alice@example.com"`
+	SetAt time.Time `json:"set_at"`
+}
+
+// AssetVerification is an asset's Verified badge.
+type AssetVerification struct {
+	VerifiedBy      string     `json:"verified_by" example:"carol@example.com"`
+	VerifiedAt      time.Time  `json:"verified_at"`
+	VerifiedVersion int        `json:"verified_version" example:"3"`
+	Note            string     `json:"note,omitempty" example:"Numbers checked against the ledger"`
+	ExpiresAt       *time.Time `json:"expires_at,omitempty"`
+	// ChangedSinceVerified is true when the asset has a version newer than the
+	// one that was verified. Derived on read.
+	ChangedSinceVerified bool `json:"changed_since_verified"`
+}
+
+// FinishMarks derives what an asset's marks report from its current version.
+// A stored status this release does not know reads as none.
+func (a *Asset) FinishMarks() {
+	if a.Status != nil && !ValidStatus(a.Status.Value) {
+		a.Status = nil
+	}
+	if a.Verification != nil {
+		a.Verification.ChangedSinceVerified = a.Verification.VerifiedVersion < a.CurrentVersion
+	}
 }
 
 // AssetVersion records a single version of an asset's content.
@@ -566,8 +629,13 @@ type AssetFilter struct {
 	Tags     []string          `json:"tags,omitempty"`
 	Metadata map[string]string `json:"metadata,omitempty"`
 	Search   string            `json:"search,omitempty"`
-	Limit    int               `json:"limit,omitempty"`
-	Offset   int               `json:"offset,omitempty"`
+	// Status narrows to assets with this status, "none" to those with none
+	// (#2502); empty is any.
+	Status string `json:"status,omitempty"`
+	// Verified narrows to assets carrying an unexpired verification (#2503).
+	Verified bool `json:"verified,omitempty"`
+	Limit    int  `json:"limit,omitempty"`
+	Offset   int  `json:"offset,omitempty"`
 	// SortBy names the ordering column. It must be a key of
 	// AssetSortColumns; anything else falls back to SortUpdatedAt.
 	SortBy string `json:"sort_by,omitempty"`

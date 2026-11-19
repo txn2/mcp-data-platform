@@ -1,9 +1,9 @@
-import { lazy, Suspense, useCallback } from "react";
+import { lazy, Suspense, useCallback, useContext } from "react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
 import { EntityChip } from "@/components/knowledge/EntityChip";
-import { externalLinkProps } from "@/lib/assetLinks";
+import { AssetLinkContext, assetLinkId, externalLinkProps, portalAssetHref } from "@/lib/assetLinks";
 import { isRefUrn, REF_TOKEN_SOURCE, trimRefToken, type ResolvedRef } from "@/lib/entityRefs";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -70,11 +70,32 @@ export function MarkdownRenderer({
   refs?: Map<string, ResolvedRef>;
   onNavigate?: (path: string) => void;
 }) {
+  const follower = useContext(AssetLinkContext);
   const components: Components = {
     // Render mcp:/urn: links as entity chips; ordinary links are unchanged.
     a: useCallback(
       ({ href, children, node: _node, ...rest }:
         React.ComponentProps<"a"> & { node?: unknown }) => {
+        // A link between assets in an asset's own content (#2432): a plain
+        // link with the author's text that opens the target's portal page.
+        // Nothing about the target is read or shown before the click; its
+        // page decides what the reader sees. A knowledge page, which resolves
+        // its references, keeps its chips.
+        const linked = refs ? null : assetLinkId(href);
+        if (linked) {
+          return (
+            <a
+              href={portalAssetHref(linked)}
+              onClick={(e) => {
+                if (!follower || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                e.preventDefault();
+                follower.open(linked);
+              }}
+            >
+              {children}
+            </a>
+          );
+        }
         if (isRefUrn(href)) {
           const resolved = refs?.get(href as string);
           // A reference the viewer cannot access is shown as the author's link
@@ -92,7 +113,7 @@ export function MarkdownRenderer({
           </a>
         );
       },
-      [refs, onNavigate],
+      [refs, onNavigate, follower],
     ),
     code: useCallback(
       // react-markdown passes `node` (hast AST) — destructure it out so it

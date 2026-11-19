@@ -171,14 +171,15 @@ func TestIssue2127_ADownloadAnchorToADeclaredFileIsAcceptedAndServesTheFile(t *t
 }
 
 // TestIssue2127_APlainLinkToAReferenceIsStillRefused: without a download
-// attribute an anchor to a reference is a link between assets, refused as
-// before, and nothing is stored.
+// attribute an anchor to a managed resource is a link to a file's bytes,
+// refused as before, and nothing is stored. (An anchor to mcp:asset:<id> is a
+// link between assets since #2432.)
 func TestIssue2127_APlainLinkToAReferenceIsStillRefused(t *testing.T) {
 	c := connect(t)
-	_, assetRef := dataFiles2127(t, c)
+	resourceURI, _ := dataFiles2127(t, c)
 	name := "acc-2127-link-" + unique1794()
-	refused, text := save1875(t, c, name, "text/html", `<p><a href="`+assetRef+`">the data</a></p>`)
-	if !refused || !strings.Contains(text, "links between assets are not supported") {
+	refused, text := save1875(t, c, name, "text/html", `<p><a href="`+resourceURI+`">the data</a></p>`)
+	if !refused || !strings.Contains(text, "cannot be a link target") {
 		t.Fatalf("a plain link to a reference was not refused: %s", text)
 	}
 	if !strings.Contains(text, "download") {

@@ -208,6 +208,24 @@ func (r *Registry) HistoryAllowed(name string) bool {
 	return ok && On(p.PortalPermissions(nil).History)
 }
 
+// VerifyAllowed reports whether the persona's people may mark an asset
+// Verified (#2503): its portal block sets verify_assets. Unset is off, and an
+// external persona never may.
+func (r *Registry) VerifyAllowed(name string) bool {
+	if r == nil {
+		return false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	p, ok := r.personas[name]
+	if !ok {
+		return false
+	}
+	v := p.PortalPermissions(nil).VerifyAssets
+	return v != nil && *v
+}
+
 // IsExternalRoles reports whether roles resolve to a persona marked external
 // (#2290).
 func (r *Registry) IsExternalRoles(roles []string) bool {

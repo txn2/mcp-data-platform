@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { sanitizeMermaidSvg } from "./MermaidBlock";
 
 // Mermaid v11 emits node labels as HTML inside an SVG <foreignObject> (the
@@ -116,18 +116,57 @@ describe("sanitizeMermaidSvg", () => {
   });
 });
 
-import { render } from "@testing-library/react";
+import { fireEvent, render } from "@testing-library/react";
 import { MarkdownRenderer } from "./MarkdownRenderer";
+import { AssetLinkContext } from "@/lib/assetLinks";
 import type { ResolvedRef } from "@/lib/entityRefs";
 
 describe("MarkdownRenderer entity chips", () => {
   it("renders an mcp: link as a chip (urlTransform must preserve the ref href)", () => {
     const { container } = render(
-      <MarkdownRenderer content="See [Sales](mcp:asset:asset-001) here." />,
+      <MarkdownRenderer content="See [Sales](mcp:collection:coll-001) here." />,
     );
     // The fallback label (the id) appears, and it is NOT a raw mcp: anchor.
-    expect(container.textContent).toContain("asset-001");
+    expect(container.textContent).toContain("coll-001");
     expect(container.querySelector('a[href^="mcp:"]')).toBeNull();
+  });
+
+  // A link between assets in an asset's own content (#2432) is a plain link
+  // with the author's text to the target's portal page: nothing about the
+  // target is shown before the click.
+  it("renders an mcp:asset link in asset content as a plain portal link with the author's text", () => {
+    const { container } = render(
+      <MarkdownRenderer content="See [the Q3 regional report](mcp:asset:asset-001) here." />,
+    );
+    const a = container.querySelector("a");
+    expect(a?.getAttribute("href")).toBe("/portal/assets/asset-001");
+    expect(a?.textContent).toBe("the Q3 regional report");
+    expect(container.textContent).not.toContain("asset-001");
+    expect(container.querySelector('a[href^="mcp:"]')).toBeNull();
+  });
+
+  it("opens a linked asset through the page's follower on a plain click", () => {
+    const open = vi.fn();
+    const { container } = render(
+      <AssetLinkContext.Provider value={{ links: [], open }}>
+        <MarkdownRenderer content="[guide](mcp:asset:ast-b)" />
+      </AssetLinkContext.Provider>,
+    );
+    const a = container.querySelector("a")!;
+    fireEvent.click(a, { button: 0 });
+    expect(open).toHaveBeenCalledWith("ast-b");
+    open.mockClear();
+    fireEvent.click(a, { button: 0, metaKey: true });
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it("keeps a knowledge page's resolved asset reference as a chip", () => {
+    const refs = new Map<string, ResolvedRef>([
+      ["mcp:asset:asset-001", { urn: "mcp:asset:asset-001", type: "asset", label: "Sales", exists: true, accessible: true }],
+    ]);
+    const { container } = render(<MarkdownRenderer content="See [x](mcp:asset:asset-001)." refs={refs} />);
+    expect(container.querySelector('a[href="/portal/assets/asset-001"]')).toBeNull();
+    expect(container.textContent).toContain("Sales");
   });
 
   it("chips a BARE mcp: token in body text (not just markdown links) (#678)", () => {

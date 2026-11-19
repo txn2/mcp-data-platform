@@ -21,6 +21,8 @@ import { AssetViewerModals } from "./assetviewer/AssetViewerModals";
 import { AddToCollection, useAddToCollectionAction } from "./assetviewer/AddToCollectionDialog";
 import { ViewerLayout } from "./viewer/ViewerLayout";
 import { IncompleteBadge } from "@/components/IncompleteBadge";
+import { AssetMarkBadges } from "@/components/assetmarks/AssetMarkBadges";
+import { AssetMarkBanner } from "@/components/assetmarks/AssetMarkBanner";
 import { isTruncated } from "@/lib/truncation";
 import { useAuthStore } from "@/stores/auth";
 import { usePortalAccess } from "@/hooks/usePortalAccess";
@@ -49,6 +51,7 @@ export function AssetViewer({
   sharePermission,
   toolbarExtra,
   phoneToolbarExtra,
+  phoneMarkControls,
   collectable,
   detailRows,
   sessionPath,
@@ -289,6 +292,7 @@ export function AssetViewer({
             sessionPath={sessionPath}
             resourcePath={resourcePath}
             assetPath={assetPath}
+            markControls={isMobile ? phoneMarkControls : undefined}
             scriptPath={scriptPath}
             assetApiBase={assetApiBase}
             onNavigate={onNavigate}
@@ -297,6 +301,11 @@ export function AssetViewer({
           />
         }
       >
+        <AssetMarkBanner
+          asset={asset}
+          compact={isMobile}
+          onViewVersion={versions && onSelectVersion ? (v) => onSelectVersion(v) : undefined}
+        />
         <AssetContentView
           asset={asset}
           content={content}
@@ -372,11 +381,13 @@ export function AssetViewer({
 /** AssetTitle is the asset's name, with the Incomplete mark beside it for a cut
  * export: marked where the file is opened, not only in the details panel,
  * which starts closed (#2057). */
-function AssetTitle({ asset }: { asset: Pick<Asset, "name" | "tags"> }) {
+function AssetTitle({ asset }: { asset: Pick<Asset, "name" | "tags" | "status" | "verification"> }) {
   return (
     <>
       {asset.name}
       {isTruncated(asset.tags) && <IncompleteBadge className="ml-2 align-middle" />}
+      {/* Status and Verified (#2502, #2503): every reader sees them. */}
+      <AssetMarkBadges asset={asset} className="ml-2" />
     </>
   );
 }

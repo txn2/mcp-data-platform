@@ -9,6 +9,8 @@ vi.mock("@/api/portal/hooks", () => ({
 vi.mock("./sidebar/useNavBadges", () => ({
   useNavBadges: () => ({}),
 }));
+// The favorites list reads the server; its own test covers it.
+vi.mock("./sidebar/FavoritesNav", () => ({ FavoritesNav: () => null }));
 
 import { Sidebar } from "./Sidebar";
 import { useAuthStore } from "@/stores/auth";
@@ -98,11 +100,11 @@ describe("Sidebar brand mark", () => {
 });
 
 describe("Sidebar portal sections", () => {
-  it("sets Assets and Resources apart above the other sections, in that order", () => {
+  it("sets Home, Assets and Resources apart above the other sections, in that order", () => {
     renderSidebar();
     const nav = screen.getByRole("navigation");
     const names = Array.from(nav.querySelectorAll("button")).map((b) => b.textContent?.trim());
-    expect(names.slice(0, 2)).toEqual(["Assets", "Resources"]);
+    expect(names.slice(0, 3)).toEqual(["Home", "Assets", "Resources"]);
     const brk = screen.getByTestId("portal-nav-group-break");
     const resources = screen.getByRole("button", { name: /Resources/ });
     const activity = screen.getByRole("button", { name: /Activity/ });

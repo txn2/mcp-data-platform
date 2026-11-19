@@ -23,6 +23,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/accessreqwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/apiwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/applicationwire"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/assetwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/attachhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/changesethttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/embedwire"
@@ -173,6 +174,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	personashare.Wire(&deps, p.PersonaRegistry(), p.UserStore())
 
 	userkeywire.Wire(&deps, p)
+	assetwire.Wire(&deps, p)
 
 	// Signed content URLs (#1848) are keyed off the browser-session signing
 	// key, as the guest and unsubscribe links are; without it they are off.
@@ -300,7 +302,7 @@ func mountScriptPortalAPI(mux *http.ServeMux, p *platform.Platform, portalWrap f
 	if pr := p.PersonaRegistry(); pr != nil {
 		resolver = buildPersonaResolver(pr, p.ToolkitRegistry())
 	}
-	deps.PortalUser = scriptPortalIdentity(isAdmin, resolver)
+	deps.PortalUser = scripthttp.PortalIdentityOf(isAdmin, resolver)
 	// Who other than the owner may run a script (#1846). Portal-only: the
 	// admin surface is every script's already.
 	deps.Grants = scriptgrant.NewPostgres(p.DB())
@@ -378,29 +380,6 @@ func contentURLKey(p *platform.Platform) []byte {
 		return nil
 	}
 	return shareguest.DeriveKey(master, contenturl.KeyLabel)
-}
-
-// scriptPortalIdentity resolves the portal caller for the script routes: who
-// they are, the persona they resolved to, and whether they hold the admin
-// roles that make the surface unrestricted for them.
-func scriptPortalIdentity(isAdmin func([]string) bool, resolver portal.PersonaResolver) func(r *http.Request) *scripthttp.PortalIdentity {
-	return func(r *http.Request) *scripthttp.PortalIdentity {
-		user := portal.GetUser(r.Context())
-		if user == nil {
-			return nil
-		}
-		id := &scripthttp.PortalIdentity{
-			UserID: user.UserID, Email: user.Email, Roles: user.Roles,
-			AuthType: user.AuthType, Claims: user.Claims,
-			IsAdmin: isAdmin(user.Roles),
-		}
-		if resolver != nil {
-			if pi := resolver(user.Roles); pi != nil {
-				id.Persona = pi.Name
-			}
-		}
-		return id
-	}
 }
 
 // mountPromptVersionPortalAPI registers the portal prompt-version routes.

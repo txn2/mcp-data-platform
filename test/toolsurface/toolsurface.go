@@ -117,6 +117,8 @@ var ActionEnums = map[string][]string{
 		"locate", "get_content", "outline", "stats", "diff", "share", "list_shares", "revoke_share",
 		"create_collection", "list_collections", "get_collection", "update_collection",
 		"delete_collection", "set_sections",
+		// The caller's library (#2504, #2509) and the Verified badge (#2503).
+		"list_recents", "list_favorites", "list_trash", "restore", "verify", "unverify",
 	},
 	"manage_feedback": {"create", verbList, verbGet, "reply", "resolve", "request_validation", "respond_validation", "edit", verbDelete},
 	toolMemoryManage:  {"update", "forget", verbList, "review_stale", "review_duplicates", "consolidate"},

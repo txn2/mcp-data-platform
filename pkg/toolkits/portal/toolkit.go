@@ -17,6 +17,8 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/exporttrunc"
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
+	"github.com/txn2/mcp-data-platform/internal/portal/assetsimilar"
+	"github.com/txn2/mcp-data-platform/internal/portal/assettags"
 	"github.com/txn2/mcp-data-platform/internal/portal/contentrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
@@ -173,6 +175,9 @@ type saveAssetInput struct {
 	// managed resource by its mcp:// URI, another asset by its mcp:asset:<id>
 	// reference. Absent declares none.
 	References []string `json:"references,omitempty"`
+	// Status and StatusNote give the new asset a status (#2502); without them
+	// it has none.
+	statusArgs
 
 	// contentStructured reports that content arrived as a JSON object or
 	// array rather than a string (#2296); see decodeContent.
@@ -181,8 +186,14 @@ type saveAssetInput struct {
 
 // manageAssetInput defines the input for manage_asset.
 type manageAssetInput struct {
-	Action      string   `json:"action"`
-	AssetID     string   `json:"asset_id,omitempty"`
+	Action  string `json:"action"`
+	AssetID string `json:"asset_id,omitempty"`
+	// AssetIDs applies update, delete or share to several assets at once
+	// (#2507), each authorized as its own call is; AddTags and RemoveTags
+	// change tags on update without replacing them.
+	AssetIDs    []string `json:"asset_ids,omitempty"`
+	AddTags     []string `json:"add_tags,omitempty"`
+	RemoveTags  []string `json:"remove_tags,omitempty"`
 	Content     string   `json:"content,omitempty"`
 	Name        string   `json:"name,omitempty"`
 	Description string   `json:"description,omitempty"`
@@ -244,6 +255,12 @@ type manageAssetInput struct {
 	ContextBytes  int              `json:"context_bytes,omitempty"`
 	FromVersion   int              `json:"from_version,omitempty"`
 	ToVersion     int              `json:"to_version,omitempty"`
+
+	// Status and StatusNote set the asset's status (update action, #2502).
+	statusArgs
+	// Note and ExpiresAt describe a verification (verify action, #2503).
+	Note      string `json:"note,omitempty"`
+	ExpiresAt string `json:"expires_at,omitempty"`
 
 	// contentStructured reports that content arrived as a JSON object or
 	// array rather than a string (#2296); see decodeContent.
@@ -314,6 +331,12 @@ type saveAssetOutput struct {
 	// save did not declare (#1875), each served as written and resolving to
 	// nothing. Omitted when there are none.
 	UndeclaredReferences []string `json:"undeclared_references,omitempty"`
+	// ExistingTags and SimilarAssets are what the save found already there
+	// (#2508): tags on assets the caller can open that are a case or spelling
+	// variant of one given, and assets the caller can open that look like the
+	// same work. Omitted when there are none.
+	ExistingTags  []assettags.Variant  `json:"existing_tags,omitempty"`
+	SimilarAssets []assetsimilar.Match `json:"similar_assets,omitempty"`
 }
 
 // Config holds configuration for creating a portal toolkit.
@@ -379,6 +402,7 @@ type Toolkit struct {
 	baseURL         string
 	maxContentSize  int
 	embedder        embedding.Provider
+	hints           *saveHints
 	// notifier and mentions are installed by SetFeedbackNotifications, which
 	// the composition root calls once the notification substrate exists. Both
 	// nil (stdio deployments, no database) leaves an agent-authored reply
@@ -390,6 +414,11 @@ type Toolkit struct {
 	self            selfcall.Handler
 	actions         map[string]manageActionHandler
 	feedbackActions map[string]feedbackActionHandler
+	// library is a person's recents, favorites and trash (#2504, #2509);
+	// nil until SetLibrary, which leaves those actions unknown.
+	library *libraryAccess
+	// marks writes an asset's status and Verified badge (#2502, #2503).
+	marks Marks
 
 	captureProvenance portal.ProvenanceCapturer
 	directory         DirectoryReader
@@ -490,6 +519,16 @@ const saveToolDescription = "Saves AI-generated content (JSX dashboard, HTML rep
 	"In an HTML, JSX or Markdown asset, a link to a website (http:, https:) or an email address (mailto:) " +
 	"opens in a new tab when the reader clicks it, as does window.open with one; write ordinary links. " +
 	"Other schemes do not open. " +
+	"To link another saved asset, write mcp:asset:<id> as the link target (<a href=\"mcp:asset:<id>\">, " +
+	"[text](mcp:asset:<id>)): the portal opens that asset's page when the reader clicks. A link grants the " +
+	"reader no access; a reader who cannot open the target sees the request-access page. " +
+	"An optional status tells readers how far along the asset is: draft, published, or deprecated with a " +
+	"status_note saying what replaced it. A status is informational and changes no access. " +
+	"Reuse the tags the library already has: the result's existing_tags names any existing tag close to one " +
+	"you gave (Finance for finance, finance-report for finance-reports); correct yours with manage_asset " +
+	"update unless it is meant to differ. Check similar_assets before leaving a near-duplicate: it names " +
+	"assets the person can open that look like the same work; tell them, and offer to save a new version " +
+	"of that asset instead. " +
 	"IMPORTANT: When creating content that should be saved, call this tool directly with the content " +
 	"rather than first outputting it to the conversation and then saving separately - " +
 	"this avoids regenerating the whole asset. " +
@@ -503,6 +542,18 @@ const manageToolDescription = "Manages saved assets and collections. " +
 	"Sharing actions: share, list_shares, revoke_share. " +
 	"Collection actions: create_collection, list_collections, get_collection, " +
 	"update_collection, delete_collection, set_sections. " +
+	"Library actions: list_recents (what you opened in the portal, newest first), " +
+	"list_favorites (what you starred), list_trash (what you deleted, with the day each is purged) " +
+	"and restore (asset_id or collection_id back out of the trash with its shares and collection places). " +
+	"Bulk: update, delete and share take asset_ids (up to 500) in place of asset_id, each asset checked as " +
+	"its own call would be; the result lists applied and skipped with why. add_tags and remove_tags change " +
+	"tags on update without replacing them. " +
+	"Status: update with status draft, published or deprecated (status_note says why), or none to clear " +
+	"it; get and list return it. A status is informational and changes no access. " +
+	"Verified badge: verify (asset_id, optional note and expires_at) marks an asset you can open as checked " +
+	"at its current version, and needs the Can verify assets permission (verify_assets) or an administrator; " +
+	"unverify removes it. A verified asset ranks above an unverified one in search, a newer version reads " +
+	"changed_since_verified, and the badge grants nothing. " +
 	"Use 'share' to give a person access to an asset you own — name them with " +
 	"'recipient' (their email, or a name resolved against the user directory) " +
 	"and they get an email with the link; omit 'recipient' for a link instead, " +
@@ -789,6 +840,9 @@ func (t *Toolkit) handleSaveAsset(ctx context.Context, _ *mcp.CallToolRequest, i
 	if err := t.validateAndCheckSize(input); err != nil {
 		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
+	if refusal := checkStatus(input.Status, false); refusal != "" {
+		return toolkit.ErrorResult(refusal), nil, nil
+	}
 
 	// The declaration is checked before anything is created: a save naming a
 	// resource its author cannot read must leave no asset behind. The asset id
@@ -889,6 +943,9 @@ func (t *Toolkit) handleSaveAsset(ctx context.Context, _ *mcp.CallToolRequest, i
 	if _, err := t.versionStore.CreateVersion(ctx, v1); err != nil {
 		return toolkit.ErrorResult("failed to create initial version record: " + err.Error()), nil, nil
 	}
+	if refused := t.applyStatus(ctx, assetID, input.statusArgs); refused != nil {
+		return refused, nil, nil
+	}
 
 	out := t.buildSaveOutput(assetID, prov, len(input.Sources))
 	if refCount > 0 {
@@ -899,6 +956,7 @@ func (t *Toolkit) handleSaveAsset(ctx context.Context, _ *mcp.CallToolRequest, i
 		out.UndeclaredReferences = undeclared
 		out.Message += undeclaredNotice(undeclared)
 	}
+	t.addSaveHints(ctx, &asset, &out) // existing_tags, similar_assets (#2508)
 	return toolkit.JSONResultTyped(out)
 }
 
@@ -945,6 +1003,8 @@ func (t *Toolkit) buildActions() map[string]manageActionHandler {
 		actionShare:            t.handleShare,
 		actionListShares:       t.handleListShares,
 		actionRevokeShare:      t.handleRevokeShare,
+		actionVerify:           t.handleVerify,
+		actionUnverify:         t.handleUnverify,
 	}
 }
 
@@ -968,13 +1028,17 @@ func (t *Toolkit) handleManageAsset(ctx context.Context, _ *mcp.CallToolRequest,
 	if namesSite(input.AssetID) {
 		return t.handleSiteTarget(ctx, input)
 	}
+	if wantsBulk(input) {
+		return t.handleBulk(ctx, input)
+	}
 	handler, ok := t.actions[input.Action]
 	if !ok {
 		return toolkit.ErrorResult(fmt.Sprintf(
 			"invalid action %q: must be one of: list, get, update, delete, list_versions, revert, search, provenance, "+
 				"patch, locate, get_content, outline, stats, diff, "+
 				"share, list_shares, revoke_share, "+
-				"create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections",
+				"create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections, "+
+				"list_recents, list_favorites, list_trash, restore, verify, unverify",
 			input.Action)), nil, nil
 	}
 	return handler(ctx, input)
@@ -1097,9 +1161,12 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageAssetInput) (*mc
 	updates, hasMetadata := metadataUpdate(input)
 	hasContent := input.Content != ""
 
-	if !hasContent && !hasMetadata && !hasRefs {
+	if !hasContent && !hasMetadata && !hasRefs && input.Status == "" {
 		return toolkit.ErrorResult(
-			"no fields to update: provide content, name, description, tags, max_versions, or references"), nil, nil
+			"no fields to update: provide content, name, description, tags, max_versions, references, or status"), nil, nil
+	}
+	if refusal := checkStatus(input.Status, true); refusal != "" {
+		return toolkit.ErrorResult(refusal), nil, nil
 	}
 
 	if updates.MaxVersions != nil {
@@ -1126,6 +1193,9 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageAssetInput) (*mc
 		if err := t.assetStore.Update(ctx, input.AssetID, updates); err != nil {
 			return toolkit.ErrorResult("failed to update asset: " + err.Error()), nil, nil
 		}
+	}
+	if refused := t.applyStatus(ctx, input.AssetID, input.statusArgs); refused != nil {
+		return refused, nil, nil
 	}
 
 	var followed map[string]any

@@ -80,6 +80,9 @@ type Toolkit struct {
 	metrics      *observability.Metrics
 	memBudget    *membudget.Budget
 	exportDeps   *ExportDeps
+	// schemaWait bounds how long a call waits for a connection's first
+	// schema read (#2707); zero is defaultSchemaWait.
+	schemaWait time.Duration
 
 	// changes serializes, per connection name, everything that replaces a
 	// served connection or changes the schema it holds.

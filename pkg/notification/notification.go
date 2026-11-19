@@ -81,6 +81,13 @@ const (
 	// including through the unsubscribe link, remains that person's own
 	// opt-out.
 	CategoryChannel = "channel"
+	// CategoryVerification covers the reminder that an asset's Verified badge
+	// expires within a week (#2503), sent to the person who verified it and
+	// the asset's owner. Like the four above it carries no per-user toggle:
+	// it is addressed to a responsibility, the badge they put or own. ModeOff,
+	// including through the unsubscribe link, remains each recipient's own
+	// opt-out.
+	CategoryVerification = "verification"
 )
 
 // Delivery modes for user preferences.
@@ -157,6 +164,10 @@ const (
 	// channel that it was sent to the people who handle feedback (#2603),
 	// without naming them. ItemTitle is the thread's title.
 	KindFeedbackReceived = "feedback_received"
+	// KindVerificationExpiring marks the reminder that an asset's
+	// verification expires soon (#2503). ItemTitle names the asset and
+	// Message carries the expiry date.
+	KindVerificationExpiring = "verification_expiring"
 )
 
 // ReviewQueue is the pending-review rollup a KindReviewQueue notification

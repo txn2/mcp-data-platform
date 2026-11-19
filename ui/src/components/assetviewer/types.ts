@@ -44,6 +44,11 @@ export interface AssetViewerProps {
    */
   phoneToolbarExtra?: ReactNode;
   /**
+   * The status and Verified controls on a phone (#2502, #2503): a row of their
+   * own under the title, where the one-row toolbar has no room for them.
+   */
+  phoneMarkControls?: ReactNode;
+  /**
    * The reader may put this asset into a collection from the viewer (#2260).
    * The portal's own viewer sets it; the admin viewer reads assets it does not
    * file.

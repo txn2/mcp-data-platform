@@ -4,7 +4,7 @@ import {
   useInfiniteSearchAssets,
   useThreadCounts,
 } from "@/api/portal/hooks";
-import type { AssetQueryFilters } from "@/api/portal/hooks/assets";
+import type { AssetQueryFilters, AssetStatusFilter } from "@/api/portal/hooks/assets";
 import type {
   Asset,
   AssetFacets,
@@ -28,6 +28,10 @@ export interface AssetBrowseFilters {
   /** Owner addresses an asset must have one of: the Author filter. */
   owners: string[];
   sort: ListSort<AssetSortKey>;
+  /** A status, or "none"; absent is any (#2502). */
+  status?: AssetStatusFilter;
+  /** Only Verified assets (#2503). */
+  verified?: boolean;
 }
 
 export interface AssetBrowse {
@@ -49,6 +53,8 @@ export interface AssetBrowse {
   canLoadMore: boolean;
   loadingMore: boolean;
   loadMore: () => void;
+  /** The server-side filters in force, which "Select all matching" reads by (#2507). */
+  filters: AssetQueryFilters;
 }
 
 /**
@@ -66,12 +72,14 @@ export function useAssetBrowse({
   tag,
   owners,
   sort,
+  status,
+  verified,
 }: AssetBrowseFilters): AssetBrowse {
   const debouncedSearch = useDebounced(search, 300);
   const query = debouncedSearch.trim();
   const searching = query.length > 0;
 
-  const filters = queryFilters(scope, owners, contentType, tag);
+  const filters = { ...queryFilters(scope, owners, contentType, tag), ...markFilters(status, verified) };
   // The listing stays mounted while a search runs, so clearing the box returns
   // to the page already loaded.
   const listQuery = useInfiniteAssets({ ...filters, sort: sort.key, dir: sort.dir });
@@ -99,6 +107,7 @@ export function useAssetBrowse({
     searching,
     query,
     ...loadMoreState([active]),
+    filters,
   };
 }
 
@@ -115,6 +124,11 @@ function queryFilters(
     content_type: contentType || undefined,
     tag: tag || undefined,
   };
+}
+
+/** The status and Verified filters, with the unset ones left out (#2502, #2503). */
+function markFilters(status: AssetStatusFilter | undefined, verified: boolean | undefined): AssetQueryFilters {
+  return { ...(status ? { status } : {}), ...(verified ? { verified: true } : {}) };
 }
 
 function rankedRows(data: PaginatedResponse<ScoredAsset> | undefined): Asset[] {

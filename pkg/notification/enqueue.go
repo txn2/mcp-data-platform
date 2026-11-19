@@ -208,7 +208,7 @@ func wantsCategory(prefs Prefs, category string) bool {
 		return prefs.CommentsEnabled
 	case CategoryMention:
 		return prefs.MentionsEnabled
-	case CategoryReviewQueue, CategoryScriptRun, CategoryConnectionAuth, CategoryChannel:
+	case CategoryReviewQueue, CategoryScriptRun, CategoryConnectionAuth, CategoryChannel, CategoryVerification:
 		// Addressed by responsibility rather than by interest, so none has a
 		// per-user category toggle: the recipients are named by the admin
 		// settings (the review queue), by owning the automation (script run),

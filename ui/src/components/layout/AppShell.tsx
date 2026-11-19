@@ -25,6 +25,11 @@ const ActivityRoutes = lazy(() =>
 const MyAssetsPage = lazy(() =>
   import("@/pages/assets/MyAssetsPage").then((m) => ({ default: m.MyAssetsPage })),
 );
+// Home and the tidying views (#2504, #2509).
+const HomePage = lazy(() => import("@/pages/library/HomePage").then((m) => ({ default: m.HomePage })));
+const TrashPage = lazy(() => import("@/pages/library/TrashPage").then((m) => ({ default: m.TrashPage })));
+const UnusedPage = lazy(() => import("@/pages/library/UnusedPage").then((m) => ({ default: m.UnusedPage })));
+const DuplicatesPage = lazy(() => import("@/pages/library/DuplicatesPage").then((m) => ({ default: m.DuplicatesPage })));
 const KnowledgeHub = lazy(() =>
   import("@/pages/knowledge/KnowledgeHub").then((m) => ({ default: m.KnowledgeHub })),
 );
@@ -92,55 +97,7 @@ import {
 } from "@/lib/portalRoutes";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { confirmLeave } from "@/lib/navigationGuard";
-
-const pageTitles: Record<string, string> = {
-  "/activity": "Activity",
-  "/activity/sessions": "Activity",
-  "/activity/calls": "Activity",
-  "/": "Assets",
-  "/apis": "APIs",
-  "/applications": "Applications",
-  "/sites": "Sites",
-  "/approvals": "Approvals",
-  "/collections": "Collections",
-  "/resources": "Resources",
-  "/scratch-tables": "Scratch Tables",
-  "/scratch-tables/reconcile": "Scratch Tables",
-  "/feedback": "Inbox",
-  "/knowledge": "Knowledge",
-  "/prompts": "Prompts",
-  "/automations": "Automations",
-  "/settings": "Settings",
-  "/profile": "Profile",
-  "/admin": "Dashboard",
-  "/admin/assets": "Assets",
-  "/admin/collections": "Collections",
-  "/admin/tools": "Tools",
-  "/admin/audit": "Dashboard",
-  "/admin/description": "Description",
-  "/admin/domains": "Domains",
-  "/admin/agent-instructions": "Agent Instructions",
-  "/admin/api-catalogs": "API Catalogs",
-  "/admin/api-reference": "API Reference",
-  "/admin/apis": "APIs",
-  "/admin/connections": "Connections",
-  "/admin/personas": "Personas",
-  "/admin/prompts": "Prompts",
-  "/admin/resources": "Resources",
-  "/admin/automations": "Automations",
-  "/admin/automations/endpoints": "Endpoints",
-  "/admin/automations/handlers": "Handlers",
-  "/admin/sessions": "Sessions",
-  "/admin/calls": "Calls",
-  "/admin/keys": "Keys",
-  "/admin/users": "Users",
-  "/admin/secrets": "Secrets",
-  "/admin/webhooks": "Webhooks",
-  "/admin/catalog": "Catalog",
-  "/admin/changelog": "Change Log",
-  "/admin/settings": "Settings",
-  "/admin/storage": "Storage",
-};
+import { pageTitles } from "./pageTitles";
 
 // detailTitles names what a section's detail route is showing, keyed by the
 // prefix such a route starts with. A table rather than a run of conditions:
@@ -500,9 +457,13 @@ export function AppShell() {
           {!adminRoute && isInSection(route, "/activity") && (
             <ActivityRoutes route={route} onNavigate={navigate} />
           )}
-          {!adminRoute && route === "/" && (
+          {!adminRoute && route === "/" && <HomePage onNavigate={navigate} />}
+          {!adminRoute && route === "/assets" && (
             <MyAssetsPage onNavigate={navigate} />
           )}
+          {!adminRoute && route === "/unused" && <UnusedPage onNavigate={navigate} />}
+          {!adminRoute && route === "/duplicates" && <DuplicatesPage onNavigate={navigate} />}
+          {!adminRoute && route === "/trash" && <TrashPage onNavigate={navigate} />}
           {!adminRoute && route === "/collections" && (
             <CollectionsPage onNavigate={navigate} />
           )}
@@ -568,10 +529,10 @@ export function AppShell() {
             <AssetViewerPage assetId={collectionAssetMatch[2]!} onNavigate={navigate} onBack={() => navigate(`/collections/${collectionAssetMatch[1]!}`)} />
           )}
           {sharedAssetMatch && (
-            <AssetViewerPage assetId={sharedAssetMatch[1]!} onNavigate={navigate} onBack={() => navigate("/")} />
+            <AssetViewerPage assetId={sharedAssetMatch[1]!} onNavigate={navigate} onBack={() => navigate("/assets")} />
           )}
           {assetMatch && (
-            <AssetViewerPage assetId={assetMatch[1]!} onNavigate={navigate} onBack={() => navigate("/")} />
+            <AssetViewerPage assetId={assetMatch[1]!} onNavigate={navigate} onBack={() => navigate("/assets")} />
           )}
 
           {/* Admin routes — admin only (defense in depth) */}

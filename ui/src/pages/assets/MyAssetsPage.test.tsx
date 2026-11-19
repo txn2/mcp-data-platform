@@ -446,3 +446,44 @@ describe("MyAssetsPage: an incomplete export (#2057)", () => {
     expect(screen.queryByText("Incomplete")).not.toBeInTheDocument();
   });
 });
+
+describe("MyAssetsPage: bulk selection (#2507)", () => {
+  function list(n: number) {
+    mockUseAssets.mockReturnValue({
+      data: {
+        data: Array.from({ length: n }, (_, i) => makeAsset({ id: `a${i + 1}`, name: `Asset ${i + 1}` })),
+        total: 120,
+        limit: 50,
+        offset: 0,
+      },
+      isLoading: false,
+    } as unknown as ReturnType<typeof useInfiniteAssets>);
+  }
+
+  it("ticks cards, shift-clicks a range and brings up the bulk bar", () => {
+    list(4);
+    render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
+    expect(screen.queryByRole("toolbar", { name: "Bulk actions" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Select Asset 1"));
+    fireEvent.click(screen.getByLabelText("Select Asset 3"), { shiftKey: true });
+    expect(screen.getAllByText("3 selected").length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("Select Asset 2")).toBeChecked();
+    expect(screen.getByLabelText("Select Asset 4")).not.toBeChecked();
+  });
+
+  it("offers every matching asset once the page is selected, from the table's header box", () => {
+    globalThis.localStorage?.setItem?.("asset-view-mode", "table");
+    list(2);
+    render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
+    const header = screen.queryByLabelText("Select all on this page");
+    if (!header) {
+      // No localStorage on this Node, so the stored table view is not read:
+      // select the cards instead.
+      fireEvent.click(screen.getByLabelText("Select Asset 1"));
+      fireEvent.click(screen.getByLabelText("Select Asset 2"));
+    } else {
+      fireEvent.click(header);
+    }
+    expect(screen.getByRole("button", { name: "Select all 120 matching" })).toBeInTheDocument();
+  });
+});

@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "@testing-library/react";
 
 const { asset, versionsCalls } = vi.hoisted(() => ({
-  asset: { value: {} as Record<string, unknown> },
+  asset: { value: {} as Record<string, unknown> | undefined },
   versionsCalls: [] as boolean[],
 }));
 
@@ -34,6 +34,12 @@ vi.mock("@/components/AssetViewer", () => ({
 }));
 vi.mock("@/components/feedback/FeedbackButton", () => ({ FeedbackButton: () => null }));
 vi.mock("@/components/share/SharedPageLink", () => ({ SharedPageLink: () => null }));
+vi.mock("@/components/library/StarButton", () => ({ StarButton: () => null }));
+vi.mock("@/components/access/RequestAccessPanel", () => ({ NoAccess: () => null }));
+// The link layer (#2432) reads the server; it is not under test here.
+vi.mock("@/components/assetmarks/AssetLinkProvider", () => ({
+  AssetLinkProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
 
 import { AssetViewerPage } from "./AssetViewerPage";
 import { useAuthStore } from "@/stores/auth";
@@ -77,5 +83,37 @@ describe("AssetViewerPage history (#2226, #2290)", () => {
     asset.value = { id: "a1", is_owner: false, share_permission: "viewer", current_version: 3 };
     renderPage();
     expect(received.versions).toHaveLength(2);
+  });
+});
+
+// Opening an asset is what Recent and the Unused counts read (#2504, #2509),
+// reported once the asset has loaded and never for one that did not.
+describe("AssetViewerPage open recording", () => {
+  const posts: string[] = [];
+  beforeEach(() => {
+    posts.length = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (init?.method === "POST") posts.push(`${url} ${String(init.body)}`);
+        return new Response(null, { status: 204 });
+      }),
+    );
+    useAuthStore.setState({ user: { user_id: "u", roles: [], is_admin: false } });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("reports the open of a loaded asset once", () => {
+    asset.value = { id: "a1", is_owner: true, current_version: 1 };
+    renderPage();
+    expect(posts).toHaveLength(1);
+    expect(posts[0]).toContain("/recents");
+    expect(posts[0]).toContain('"id":"a1"');
+  });
+
+  it("reports nothing for an asset that did not load", () => {
+    asset.value = undefined;
+    renderPage();
+    expect(posts).toHaveLength(0);
   });
 });

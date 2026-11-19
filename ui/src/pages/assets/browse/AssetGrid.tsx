@@ -13,8 +13,12 @@ import { assetThumbnailSrc } from "@/lib/thumbnailSupport";
 import { dateLabelFor, type DateColumn } from "@/components/listSort";
 import type { DisplayAsset } from "./types";
 import { IncompleteBadge } from "@/components/IncompleteBadge";
+import { AssetMarkBadges } from "@/components/assetmarks/AssetMarkBadges";
 import { isTruncated } from "@/lib/truncation";
 import { sharedLine } from "@/lib/sharedLine";
+import { StarButton } from "@/components/library/StarButton";
+import { SelectBox } from "./bulk/SelectBox";
+import type { RowSelection } from "./bulk/AssetBulk";
 
 /** The Assets list as a gallery of thumbnails. */
 export function AssetGrid({
@@ -24,6 +28,7 @@ export function AssetGrid({
   isDark,
   dateKey,
   onNavigate,
+  selection,
 }: {
   items: DisplayAsset[];
   shareSummaries?: Record<string, ShareSummary>;
@@ -33,20 +38,32 @@ export function AssetGrid({
   /** The timestamp the list is ordered by, which is the one each card shows. */
   dateKey: DateColumn;
   onNavigate: (path: string) => void;
+  /** The bulk selection (#2507); omitted, the cards carry no box. */
+  selection?: RowSelection;
 }) {
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
       {items.map(({ asset, share }) => (
-        <AssetCard
-          key={asset.id}
-          asset={asset}
-          share={share}
-          summary={shareSummaries?.[asset.id]}
-          threadCount={threadCounts?.[asset.id]}
-          isDark={isDark}
-          dateKey={dateKey}
-          onNavigate={onNavigate}
-        />
+        <div key={asset.id} className="relative">
+          <AssetCard
+            asset={asset}
+            share={share}
+            summary={shareSummaries?.[asset.id]}
+            threadCount={threadCounts?.[asset.id]}
+            isDark={isDark}
+            dateKey={dateKey}
+            onNavigate={onNavigate}
+            selected={selection?.has(asset.id)}
+          />
+          {selection && (
+            <SelectBox
+              label={`Select ${asset.name}`}
+              checked={selection.has(asset.id)}
+              onToggle={(shift) => selection.onToggle(asset.id, shift)}
+              className="absolute top-2 left-2 size-11 rounded-md bg-background/90 shadow-sm sm:size-8"
+            />
+          )}
+        </div>
       ))}
     </div>
   );
@@ -60,6 +77,7 @@ function AssetCard({
   isDark,
   dateKey,
   onNavigate,
+  selected,
 }: {
   asset: DisplayAsset["asset"];
   share?: DisplayAsset["share"];
@@ -68,6 +86,7 @@ function AssetCard({
   isDark: boolean;
   dateKey: DateColumn;
   onNavigate: (path: string) => void;
+  selected?: boolean;
 }) {
   const Icon = contentTypeIcon(asset.content_type);
   const collections = asset.collections ?? [];
@@ -76,15 +95,19 @@ function AssetCard({
       onClick={() => onNavigate(`/assets/${asset.id}`)}
       thumbnailSrc={assetThumbnailSrc(asset, isDark)}
       fallbackIcon={Icon}
+      className={selected ? "border-primary ring-2 ring-primary" : undefined}
       overlay={
-        // Share state belongs to the owner's own view of an asset; on one
-        // shared *with* the reader the permission pill below says it instead.
-        share ? undefined : (
-          <ShareIndicators
-            summary={summary}
-            className="absolute top-2 right-2 rounded-full bg-background/80 px-1.5 py-0.5"
-          />
-        )
+        <>
+          {/* Share state belongs to the owner's own view of an asset; on one
+              shared *with* the reader the permission pill below says it instead. */}
+          {share ? undefined : (
+            <ShareIndicators
+              summary={summary}
+              className="absolute top-2 right-2 rounded-full bg-background/80 px-1.5 py-0.5"
+            />
+          )}
+          <StarButton kind="asset" id={asset.id} variant="icon" className="absolute right-2 bottom-2" />
+        </>
       }
     >
       <div className="mb-2 flex w-full items-center gap-2">
@@ -99,6 +122,8 @@ function AssetCard({
         </p>
       )}
       <div className="mb-2 flex flex-wrap gap-1.5">
+        {/* Status and Verified (#2502, #2503). */}
+        <AssetMarkBadges asset={asset} small />
         <ContentTypeBadge contentType={asset.content_type} />
         {(asset.tags ?? []).slice(0, 3).map((t) => (
           <Badge key={t} variant="muted" className="px-1.5">

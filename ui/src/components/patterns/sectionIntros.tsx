@@ -120,10 +120,11 @@ function KnowledgeAbout() {
  * One intro per reader-facing section, in nav order.
  *
  * Settings is deliberately absent: it is controls, not a place things live.
+ * Home is absent too: the landing page says what it is in its own heading.
  */
 export const SECTION_INTROS: SectionIntroCopy[] = [
   {
-    path: "/",
+    path: "/assets",
     summary: "Reports, dashboards, data exports and documents your agents and scripts produced.",
     about:
       "Every asset keeps its versions, so one an agent or a scheduled script rewrites can still be read as it stood. Assets are shared with people or by link, grouped into collections, and cited by other work.",
@@ -223,7 +224,10 @@ export function sectionIntroFor(path: string): SectionIntroCopy | undefined {
  * Routes that belong to a section they are not named after.
  */
 const ALIASED_ROUTES: Record<string, string> = {
-  "/collections": "/",
+  "/collections": "/assets",
+  "/unused": "/assets",
+  "/duplicates": "/assets",
+  "/trash": "/assets",
   "/knowledge/pages": "/knowledge",
   "/knowledge/catalog": "/knowledge",
   "/activity/sessions": "/activity",

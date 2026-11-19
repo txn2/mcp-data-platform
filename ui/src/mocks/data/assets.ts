@@ -564,6 +564,36 @@ if ((globalThis as { __REF_CAPTURE_ASSETS__?: boolean }).__REF_CAPTURE_ASSETS__)
   mockAssets.push(...REF_CAPTURE_ASSETS);
 }
 
+// Status and Verified on a few of the library's assets (#2502, #2503), so the
+// badges, the filters and the Deprecated banner show in the mock portal. The
+// Q3 deck was verified at version 1 and has a version 2: Changed since verified.
+const MOCK_MARKS: Record<string, Pick<Asset, "status" | "verification">> = {
+  "ast-001": {
+    status: { value: "published", set_by: "alice@example.com", set_at: daysAgo(6) },
+    verification: {
+      verified_by: "maria@example.com",
+      verified_at: daysAgo(5),
+      verified_version: 5,
+      note: "Checked against the finance close.",
+      changed_since_verified: false,
+    },
+  },
+  "ast-deck": {
+    status: { value: "published", set_by: "alice@example.com", set_at: daysAgo(2) },
+    verification: { verified_by: "maria@example.com", verified_at: daysAgo(2), verified_version: 1, changed_since_verified: true },
+  },
+  "ast-002": { status: { value: "draft", set_by: "alice@example.com", set_at: daysAgo(4) } },
+  "ast-004": {
+    status: {
+      value: "deprecated",
+      note: "Replaced by the KPI scorecard dashboard",
+      set_by: "alice@example.com",
+      set_at: daysAgo(3),
+    },
+  },
+};
+for (const asset of mockAssets) Object.assign(asset, MOCK_MARKS[asset.id] ?? {});
+
 export const mockShares: Record<string, Share[]> = {
   "ast-001": [
     {

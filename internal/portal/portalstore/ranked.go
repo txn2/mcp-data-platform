@@ -47,16 +47,24 @@ func (s *postgresAssetStore) SearchReach(ctx context.Context, q portaldomain.Ran
 	if !q.Reach.Identified() || strings.TrimSpace(q.QueryText) == "" {
 		return []portaldomain.ScoredAsset{}, 0, nil
 	}
-	filter := portaldomain.AssetFilter{Reach: q.Reach, ContentType: q.ContentType, Tags: q.Tags, Owners: q.Owners}
+	filter := portaldomain.AssetFilter{
+		Reach: q.Reach, ContentType: q.ContentType, Tags: q.Tags, Owners: q.Owners,
+		Status: q.Status, Verified: q.Verified,
+	}
 	return s.rank(ctx, filter, rankQuery{text: q.QueryText, emb: q.Embedding, limit: q.Limit, offset: q.Offset})
 }
 
 // rankedCandidates is the listing's own statement over filter, selecting what
 // a ranking reads: a row is ranked exactly when the listing would return it.
 func rankedCandidates(filter portaldomain.AssetFilter) (query string, args []any, err error) {
-	return applyAssetFilter(psq.Select(rankedColumns...).From("portal_assets"), filter). //nolint:wrapcheck // the caller wraps
-												Where("deleted_at IS NULL").ToSql()
+	cols := append(append([]string{}, rankedColumns...), verifiedPredicate+" AS "+preferredColumn)
+	return applyAssetFilter(psq.Select(cols...).From("portal_assets"), filter). //nolint:wrapcheck // the caller wraps
+											Where("deleted_at IS NULL").ToSql()
 }
+
+// preferredColumn is the candidate column a ranking orders by after the score:
+// a verified asset ranks above an unverified one at equal relevance (#2503).
+const preferredColumn = "preferred"
 
 // rank scores the listing's candidates for filter and reads the page's rows
 // through the listing itself, so a ranked row carries what a listed row does.
@@ -65,7 +73,9 @@ func (s *postgresAssetStore) rank(ctx context.Context, filter portaldomain.Asset
 	if err != nil {
 		return nil, 0, fmt.Errorf("building ranked candidates: %w", err)
 	}
-	return rankPage(ctx, s.db, q.ranking(inner, args), pageRows[portaldomain.Asset, portaldomain.ScoredAsset]{
+	ranking := q.ranking(inner, args)
+	ranking.Prefer = preferredColumn
+	return rankPage(ctx, s.db, ranking, pageRows[portaldomain.Asset, portaldomain.ScoredAsset]{
 		load: func(ids []string) ([]portaldomain.Asset, error) {
 			rows, _, err := s.List(ctx, portaldomain.AssetFilter{IDs: ids, Limit: len(ids)})
 			return rows, err

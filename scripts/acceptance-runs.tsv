@@ -1,0 +1,19 @@
+# What the local acceptance recordings cost (#2710), measured: one row per
+# `make acceptance` run that recorded a ticket, appended by
+# scripts/acceptance-evidence.py split (the newest 20 are kept).
+#
+# Rows:
+#   budget  <minutes>  the local gate time a change may require: verify, as
+#                      scripts/verify-steps.tsv measures it, plus the
+#                      recordings acceptance-check requires before it.
+#   run     <UTC time> <tickets> <minutes>  one recording.
+#
+# TestLocalGateTimeIsWithinBudget (test/gates/acceptance_budget_test.go)
+# fails, naming each step and its minutes, when verify's measured wall clock
+# plus the newest run exceeds the budget. acceptance-check estimates a
+# change's recording time from these rows' minutes per ticket.
+budget	45
+run	2026-11-19T10:46:13Z	10	0.9
+run	2026-11-19T10:53:34Z	5	2.4
+run	2026-11-19T10:55:24Z	1	1.4
+run	2026-11-19T11:13:01Z	10	2.4

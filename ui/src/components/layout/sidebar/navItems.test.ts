@@ -10,14 +10,25 @@ import {
 describe("isNavActive", () => {
   it("lights Assets across the collections and viewer routes it owns", () => {
     for (const route of [
-      "/",
+      "/assets",
       "/collections",
       "/collections/col-1",
       "/assets/ast-1",
       "/shared/assets/ast-1",
+      "/unused",
+      "/duplicates",
+      "/trash",
     ]) {
-      expect(isNavActive("/", route), route).toBe(true);
+      expect(isNavActive("/assets", route), route).toBe(true);
     }
+  });
+
+  // Home is the portal root alone (#2504): a deeper path is another section.
+  it("lights Home only on the portal root", () => {
+    expect(isNavActive("/", "/")).toBe(true);
+    expect(isNavActive("/", "/?x=1")).toBe(true);
+    expect(isNavActive("/", "/assets")).toBe(false);
+    expect(isNavActive("/", "/collections")).toBe(false);
   });
 
   it("lights admin Assets across the admin collection routes (#1292)", () => {
@@ -79,8 +90,8 @@ describe("isNavActive", () => {
 });
 
 describe("the portal rail", () => {
-  it("opens with Assets and Resources, then every other section alphabetized", () => {
-    expect(portalPinnedNavItems.map((i) => i.label)).toEqual(["Assets", "Resources"]);
+  it("opens with Home, Assets and Resources, then every other section alphabetized", () => {
+    expect(portalPinnedNavItems.map((i) => i.label)).toEqual(["Home", "Assets", "Resources"]);
     const labels = portalMoreNavItems.map((i) => i.label.toLowerCase());
     expect(labels).toEqual([...labels].sort());
     expect(portalNavItems).toEqual([...portalPinnedNavItems, ...portalMoreNavItems]);

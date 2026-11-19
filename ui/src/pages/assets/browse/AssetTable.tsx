@@ -4,6 +4,7 @@ import type { Asset, ShareSummary } from "@/api/portal/types";
 import { contentTypeIcon, ContentTypeBadge } from "@/components/ContentTypeBadge";
 import { FeedbackCountBadge } from "@/components/feedback/FeedbackCountBadge";
 import { IncompleteBadge } from "@/components/IncompleteBadge";
+import { AssetMarkBadges } from "@/components/assetmarks/AssetMarkBadges";
 import { SortableHead } from "@/components/patterns/SortableHead";
 import { ShareIndicators } from "@/components/ShareIndicators";
 import { SharePermissionBadge } from "@/components/SharePermissionBadge";
@@ -17,6 +18,8 @@ import { isTruncated } from "@/lib/truncation";
 import { dateColumnFor, type AssetSortKey, type ListSort } from "@/components/listSort";
 import type { DisplayAsset } from "./types";
 import { sharedLine } from "@/lib/sharedLine";
+import { SelectBox } from "./bulk/SelectBox";
+import type { RowSelection } from "./bulk/AssetBulk";
 
 /** The Assets list as a dense table. */
 export function AssetTable({
@@ -27,6 +30,7 @@ export function AssetTable({
   onSort,
   onNavigate,
   onPreview,
+  selection,
 }: {
   items: DisplayAsset[];
   shareSummaries?: Record<string, ShareSummary>;
@@ -37,22 +41,36 @@ export function AssetTable({
   onSort?: (key: AssetSortKey) => void;
   onNavigate: (path: string) => void;
   onPreview: (asset: Asset) => void;
+  /** The bulk selection (#2507); omitted, the rows carry no box. */
+  selection?: RowSelection;
 }) {
   const dateKey = dateColumnFor(sort.key);
+  const someSelected = !!selection && items.some(({ asset }) => selection.has(asset.id));
   return (
     <Card className="gap-0 overflow-hidden py-0">
       <Table className="table-fixed">
         <TableHeader>
           <TableRow className="bg-muted/50">
+            {selection && (
+              <TableHead className="w-11 px-2">
+                <SelectBox
+                  label="Select all on this page"
+                  checked={selection.pageAllSelected}
+                  indeterminate={someSelected}
+                  onToggle={() => selection.onTogglePage()}
+                />
+              </TableHead>
+            )}
             <SortableHead
               label="Name"
               sortKey="name"
               sortBy={sort.key}
               sortDir={sort.dir}
               onSort={onSort}
-              className="w-[28%]"
+              className="w-[24%]"
             />
             <TableHead className="w-[10%] text-muted-foreground">Type</TableHead>
+            <TableHead className="w-[10%] text-muted-foreground">Status</TableHead>
             <TableHead className="w-[15%] text-muted-foreground">Tags</TableHead>
             <TableHead className="w-[15%] text-muted-foreground">Collections</TableHead>
             <SortableHead
@@ -80,11 +98,20 @@ export function AssetTable({
             <TableRow
               key={asset.id}
               onClick={() => onNavigate(`/assets/${asset.id}`)}
-              className="cursor-pointer"
+              {...selectedRow(selection, asset.id)}
             >
+              <SelectCell selection={selection} asset={asset} />
               <NameCell asset={asset} share={share} threadCount={threadCounts?.[asset.id]} />
               <TableCell>
                 <ContentTypeBadge contentType={asset.content_type} />
+              </TableCell>
+              {/* Status and Verified (#2502, #2503); a dash for neither. */}
+              <TableCell data-testid="asset-row-status">
+                {asset.status || asset.verification ? (
+                  <AssetMarkBadges asset={asset} small />
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
               </TableCell>
               <TagsCell tags={asset.tags ?? []} />
               <CollectionsCell asset={asset} onNavigate={onNavigate} />
@@ -121,6 +148,29 @@ export function AssetTable({
         </TableBody>
       </Table>
     </Card>
+  );
+}
+
+/** The row's look and state under a bulk selection (#2507). */
+function selectedRow(selection: RowSelection | undefined, id: string) {
+  const on = !!selection?.has(id);
+  return {
+    className: on ? "cursor-pointer bg-primary/5" : "cursor-pointer",
+    "aria-selected": selection ? on : undefined,
+  };
+}
+
+/** A row's box, beside its link: ticking it never opens the asset. */
+function SelectCell({ selection, asset }: { selection?: RowSelection; asset: Asset }) {
+  if (!selection) return null;
+  return (
+    <TableCell className="px-2" onClick={(e) => e.stopPropagation()}>
+      <SelectBox
+        label={`Select ${asset.name}`}
+        checked={selection.has(asset.id)}
+        onToggle={(shift) => selection.onToggle(asset.id, shift)}
+      />
+    </TableCell>
   );
 }
 

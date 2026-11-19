@@ -6,6 +6,7 @@ import { SortControl } from "@/components/patterns/SortControl";
 import { ScopeFilter, type Scope } from "@/components/ScopeFilter";
 import { AuthorPicker, tagOptions } from "@/components/patterns/AuthorPicker";
 import type { FacetCount } from "@/api/portal/types";
+import type { AssetStatusFilter } from "@/api/portal/hooks/assets";
 import { ASSET_SORT_OPTIONS, type AssetSortKey, type ListSort } from "@/components/listSort";
 import type { ViewMode } from "@/components/listView";
 
@@ -17,6 +18,15 @@ const CONTENT_TYPES = [
   { value: "image/svg+xml", label: "SVG" },
   { value: "text/markdown", label: "Markdown" },
   { value: "text/csv", label: "CSV" },
+];
+
+/** The Status filter's choices (#2502); "" is any status or none. */
+const STATUS_OPTIONS = [
+  { value: "", label: "Any status" },
+  { value: "none", label: "No status" },
+  { value: "draft", label: "Draft" },
+  { value: "published", label: "Published" },
+  { value: "deprecated", label: "Deprecated" },
 ];
 
 const VIEW_OPTIONS = [
@@ -38,6 +48,10 @@ export function AssetFilterBar({
   owners,
   onOwnersChange,
   authorFacets,
+  status = "",
+  onStatusChange,
+  verified = false,
+  onVerifiedChange,
   sort,
   onSortChange,
   sortDisabled,
@@ -56,6 +70,12 @@ export function AssetFilterBar({
   owners: string[];
   onOwnersChange: (owners: string[]) => void;
   authorFacets: FacetCount[];
+  /** The Status filter (#2502): a status, "none", or "" for any. */
+  status?: AssetStatusFilter | "";
+  onStatusChange?: (status: AssetStatusFilter | "") => void;
+  /** Verified only (#2503). */
+  verified?: boolean;
+  onVerifiedChange?: (verified: boolean) => void;
   sort: ListSort<AssetSortKey>;
   onSortChange: (sort: ListSort<AssetSortKey>) => void;
   /** True while relevance ranking, not a column, decides the order. */
@@ -88,6 +108,21 @@ export function AssetFilterBar({
         className="w-[10rem]"
       />
       <AuthorPicker authors={authorFacets} value={owners} onChange={onOwnersChange} className="w-[11rem]" />
+      {onStatusChange && (
+        <FilterSelect
+          label="Filter by status"
+          value={status}
+          onChange={(v) => onStatusChange(v as AssetStatusFilter | "")}
+          options={STATUS_OPTIONS}
+          className="w-[9.5rem]"
+        />
+      )}
+      {onVerifiedChange && (
+        <label className="flex h-9 items-center gap-2 rounded-md border px-3 text-sm" data-testid="verified-only">
+          <input type="checkbox" checked={verified} onChange={(e) => onVerifiedChange(e.target.checked)} />
+          Verified only
+        </label>
+      )}
       <SortControl
         value={sort}
         onChange={onSortChange}

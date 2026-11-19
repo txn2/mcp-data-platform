@@ -33,8 +33,13 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
+	"github.com/txn2/mcp-data-platform/internal/portal/assetlinks"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefstore"
+	"github.com/txn2/mcp-data-platform/internal/portal/assetsimilar"
+	"github.com/txn2/mcp-data-platform/internal/portal/assetstatus"
+	"github.com/txn2/mcp-data-platform/internal/portal/assettags"
+	"github.com/txn2/mcp-data-platform/internal/portal/assetverify"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
@@ -179,9 +184,12 @@ func New(db *sql.DB, s3Client portal.S3Client, embedder embedding.Provider, cfg 
 	producers := producedby.NewPostgres(db)
 
 	h := NewFromStores(Stores{
-		Asset:         portal.NewPostgresAssetStore(db, producers, indexjobs.WithProducer(assets)),
-		Share:         portal.NewPostgresShareStore(db),
-		Version:       portal.NewPostgresVersionStore(db, s3Client, cfg.MaxVersions, producers),
+		Asset: portal.NewPostgresAssetStore(db, producers, indexjobs.WithProducer(assets)),
+		Share: portal.NewPostgresShareStore(db),
+		// Every version written records the assets its content links to
+		// (#2432), whichever path wrote it.
+		Version: assetlinks.NewIndexed(
+			portal.NewPostgresVersionStore(db, s3Client, cfg.MaxVersions, producers), assetlinks.New(db), s3Client),
 		Collection:    portal.NewPostgresCollectionStore(db, producers, indexjobs.WithProducer(collections)),
 		Thread:        portal.NewPostgresThreadStore(db),
 		KnowledgePage: knowledgepage.NewPostgresStore(db, indexjobs.WithProducer(pages)),
@@ -190,11 +198,19 @@ func New(db *sql.DB, s3Client portal.S3Client, embedder embedding.Provider, cfg 
 		Producers:     producers,
 	}, embedder, cfg)
 	h.indexProducers = []*indexjobs.Producer{assets, collections, pages}
+	// What save_asset reports beside a save (#2508): the existing tags a new
+	// one is a variant of, and the assets that look like the same work.
+	h.toolkit.SetSaveHints(assettags.New(db), assetsimilar.New(db))
 	// The briefing names the caller's failing automations (#1934), read
 	// straight from the script tables: a store over the pool, as the HTTP
 	// mounts build their own.
 	h.notices = notices.New(db, h.assetStore, h.shareStore, h.threadStore, scriptstore.New(db))
 	h.db = db
+	// An asset's status and Verified badge (#2502, #2503), written by
+	// save_asset and manage_asset through the same stores the portal uses.
+	h.toolkit.SetMarks(portalkit.Marks{
+		Status: assetstatus.New(db), Verify: assetverify.New(db), VerifyAllowed: cfg.Personas.VerifyAllowed,
+	})
 	return h
 }
 

@@ -101,12 +101,54 @@ func Undeclared(body string, declared []string) []string {
 		listed[strings.TrimSpace(d)] = true
 	}
 	var out []string
-	for _, uri := range Named(body) {
+	for _, uri := range Named(withoutAssetLinks(body)) {
 		if !listed[uri] {
 			out = append(out, uri)
 		}
 	}
 	return out
+}
+
+// withoutAssetLinks is body with every mcp:asset:<id> link target removed: a
+// link between assets is not a reference (#2432), so an asset named only as
+// one is not undeclared. The same asset loaded elsewhere in the body (a fetch,
+// an <img src>) is still read, and still reported when undeclared.
+func withoutAssetLinks(body string) string {
+	body = anchorTag.ReplaceAllStringFunc(body, func(tag string) string {
+		if IsDownloadAnchor(tag) {
+			return tag
+		}
+		return cutAssetRefs(tag, hrefValue.FindAllStringIndex(tag, -1), nil)
+	})
+	isImage := func(loc []int) bool { return body[loc[0]] == '!' }
+	return cutAssetRefs(body, markdownLink.FindAllStringIndex(body, -1), isImage)
+}
+
+// cutAssetRefs removes the mcp:asset:<id> reference that starts at the end of
+// each match in s, leaving every other reference and the matches skip
+// reports as they are.
+func cutAssetRefs(s string, matches [][]int, skip func(loc []int) bool) string {
+	var out strings.Builder
+	last := 0
+	for _, loc := range matches {
+		if loc[1] < last || (skip != nil && skip(loc)) {
+			continue
+		}
+		_, _ = out.WriteString(s[last:loc[1]])
+		last = loc[1] + assetRefLen(s[loc[1]:])
+	}
+	_, _ = out.WriteString(s[last:])
+	return out.String()
+}
+
+// assetRefLen is the length of the mcp:asset:<id> reference s starts with, 0
+// when it starts with none or with another kind of reference.
+func assetRefLen(s string) int {
+	ref := refAt(s)
+	if _, ok := AssetID(ref); !ok {
+		return 0
+	}
+	return len(ref)
 }
 
 // refAt returns the reference string s starts with, or "" when s does not
@@ -161,11 +203,11 @@ var (
 // A reference is served as the bytes of what it names, so it can be loaded
 // (an <img src>, a stylesheet, a fetch) and it cannot be followed: the frame a
 // document renders in blocks navigation, and a destination that is a file's
-// raw bytes is not a page. The platform has no link between assets, and a
-// write that makes one is refused rather than stored as a link that goes
-// nowhere (#1875). A Markdown image, ![alt](ref), loads its destination and is
+// raw bytes is not a page, so a write linking one is refused rather than
+// stored as a link that goes nowhere (#1875). A Markdown image, ![alt](ref), loads its destination and is
 // not a link, and neither is an anchor with a download attribute, which saves
-// the file (#2127).
+// the file (#2127). An mcp:asset:<id> link target is a link between assets
+// (#2432): LinkedAssets reads those and RefusedLinks the rest.
 func Linked(body, contentType string) []string {
 	switch contenttype.Normalize(contentType) {
 	case contenttype.HTML, contenttype.XHTML, contenttype.JSX, contenttype.SVG:
@@ -176,6 +218,48 @@ func Linked(body, contentType string) []string {
 	default:
 		return nil
 	}
+}
+
+// LinkedAssets returns the ids of the assets a body links to (#2432): each
+// link target written as mcp:asset:<id>, in the order they first appear. A
+// link between assets is a pointer: saving one grants nothing and checks
+// nothing, and following it opens the target in the portal, whose own access
+// check decides what the reader sees.
+func LinkedAssets(body, contentType string) []string {
+	var ids []string
+	for _, ref := range Linked(body, contentType) {
+		if id, ok := AssetID(ref); ok {
+			ids = append(ids, id)
+		}
+	}
+	return dedupe(ids)
+}
+
+// RefusedLinks returns the link targets a write is refused for: every one
+// except an mcp:asset:<id> link, which #2432 made a link between assets. A
+// managed resource (mcp://) or a form used as a link target still goes
+// nowhere: its reference is served as bytes, not as a page.
+func RefusedLinks(body, contentType string) []string {
+	var out []string
+	for _, ref := range Linked(body, contentType) {
+		if _, ok := AssetID(ref); !ok {
+			out = append(out, ref)
+		}
+	}
+	return out
+}
+
+// AssetID returns the asset id an mcp:asset:<id> reference names, without a
+// fragment or query, and whether ref is one.
+func AssetID(ref string) (string, bool) {
+	id, ok := strings.CutPrefix(ref, namedAssetPrefix)
+	if !ok {
+		return "", false
+	}
+	if i := strings.IndexAny(id, "#?/"); i >= 0 {
+		id = id[:i]
+	}
+	return id, id != ""
 }
 
 // anchorRefs returns the reference each anchor in body links to. An anchor

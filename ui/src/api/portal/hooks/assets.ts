@@ -185,14 +185,27 @@ export interface AssetQueryFilters {
   owners?: string[];
   content_type?: string;
   tag?: string;
+  /** A status, or "none" for assets with no status (#2502). */
+  status?: AssetStatusFilter;
+  /** Only assets carrying an unexpired Verified badge (#2503). */
+  verified?: boolean;
 }
+
+/** The Status filter's values: any status named, or none at all (#2502). */
+export type AssetStatusFilter = "draft" | "published" | "deprecated" | "none";
 
 /** The query-string form of AssetQueryFilters. */
 export function assetFilterParams(f: AssetQueryFilters | undefined, sp: URLSearchParams) {
-  if (f?.scope) sp.set("scope", f.scope);
-  for (const o of f?.owners ?? []) sp.append("owner", o);
-  if (f?.content_type) sp.set("content_type", f.content_type);
-  if (f?.tag) sp.set("tag", f.tag);
+  if (!f) return;
+  const single: [string, string | undefined][] = [
+    ["scope", f.scope],
+    ["content_type", f.content_type],
+    ["tag", f.tag],
+    ["status", f.status],
+    ["verified", f.verified ? "true" : undefined],
+  ];
+  for (const [key, value] of single) if (value) sp.set(key, value);
+  for (const o of f.owners ?? []) sp.append("owner", o);
 }
 
 export function useInfiniteAssets(

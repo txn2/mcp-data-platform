@@ -4,6 +4,7 @@ import { useAuthStore } from "@/stores/auth";
 import { initials } from "@/lib/initials";
 import { NavButton } from "./sidebar/NavButton";
 import { NavSection } from "./sidebar/NavSection";
+import { FavoritesNav } from "./sidebar/FavoritesNav";
 import { adminNavItems, portalMoreNavItems, portalPinnedNavItems } from "./sidebar/navItems";
 import { useNavBadges } from "./sidebar/useNavBadges";
 import { useSidebarBrand } from "./sidebar/useSidebarBrand";
@@ -147,6 +148,7 @@ export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse, 
           badges={badges}
           onNavigate={handleNavigate}
         />
+        {!effectiveCollapsed && <FavoritesNav onNavigate={handleNavigate} />}
 
         {isAdmin && (
           <>

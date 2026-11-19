@@ -28,7 +28,7 @@ test.describe("A path the portal has no page for", () => {
     await page.goto("/portal/nonesuch");
 
     await page.getByRole("button", { name: "Go to your assets" }).click();
-    await expect(page).toHaveURL(/\/portal\/$/);
+    await expect(page).toHaveURL(/\/portal\/assets$/);
     await expect(page.getByRole("heading", { name: "Assets", level: 1 })).toBeVisible();
   });
 
@@ -39,7 +39,7 @@ test.describe("A path the portal has no page for", () => {
     await authenticate(page);
     await page.goto("/portal/assets/");
 
-    await expect(page).toHaveURL(/\/portal\/$/);
+    await expect(page).toHaveURL(/\/portal\/assets$/);
     await expect(page.getByRole("heading", { name: "Assets", level: 1 })).toBeVisible();
     await expect(page.getByText("There is no page at this address.")).toHaveCount(0);
   });
@@ -53,7 +53,7 @@ test.describe("A path the portal has no page for", () => {
     await expect(page.getByRole("heading", { name: "Collections", level: 1 })).toBeVisible();
 
     await page.goto("/portal/assets/");
-    await expect(page).toHaveURL(/\/portal\/$/);
+    await expect(page).toHaveURL(/\/portal\/assets$/);
 
     await page.goBack();
     await expect(page).toHaveURL(/\/portal\/collections$/);

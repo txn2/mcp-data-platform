@@ -1,4 +1,4 @@
-import { useEffect, type RefObject } from "react";
+import { createContext, useContext, useEffect, type RefObject } from "react";
 import { OPEN_VIDEO_MESSAGE, videoWatchURL } from "./videoCards";
 
 /**
@@ -83,15 +83,119 @@ export function openFromFrame(e: MessageEvent, frame: Window | null | undefined)
   return true;
 }
 
-/** Listens for the frame's requests to open a video or a link. */
+/**
+ * Links between assets (#2432). An author links another asset by writing
+ * `mcp:asset:<id>` as a link target. A link grants nothing: following it opens
+ * the target's portal page, whose own access check decides what the reader
+ * sees, and nothing about the target is shown before the click.
+ *
+ * In an HTML or JSX asset the frame's handler posts {type: ASSET_LINK_MESSAGE,
+ * id} for a click on such a link, and the page navigates only when the message
+ * comes from the frame it rendered, names an id the displayed asset's current
+ * content links to, and arrives while the reader's click is current.
+ */
+export const ASSET_LINK_MESSAGE = "mcp-asset-link";
+
+/** The link target form an asset links another asset by. */
+export const ASSET_LINK_PREFIX = "mcp:asset:";
+
+/** The longest asset id a link may name. */
+const MAX_ASSET_ID = 200;
+
+/**
+ * The asset id an `mcp:asset:<id>` link target names, without a fragment,
+ * query or path after it, or null for anything else.
+ */
+export function assetLinkId(href: string | null | undefined): string | null {
+  if (typeof href !== "string") return null;
+  const ref = href.trim();
+  if (!ref.startsWith(ASSET_LINK_PREFIX)) return null;
+  const id = ref.slice(ASSET_LINK_PREFIX.length).split(/[#?/]/)[0] ?? "";
+  return id.length > 0 && id.length <= MAX_ASSET_ID ? id : null;
+}
+
+/** The portal page an asset opens on. */
+export function portalAssetHref(id: string): string {
+  return `/portal/assets/${encodeURIComponent(id)}`;
+}
+
+/** Who follows a link between assets on this page, and which ids it may follow. */
+export interface AssetLinkFollower {
+  /**
+   * The ids the displayed asset's current content links to. Undefined while
+   * unknown, which follows nothing from a frame.
+   */
+  links: readonly string[] | undefined;
+  /** Opens the asset's portal page. */
+  open: (id: string) => void;
+}
+
+/** The page's follower of links between assets; absent, a frame's link is ignored. */
+export const AssetLinkContext = createContext<AssetLinkFollower | null>(null);
+
+/**
+ * The asset a frame's message asks the page to open: only from the frame the
+ * page rendered, only an ASSET_LINK_MESSAGE naming one of links.
+ */
+export function linkedAssetFromFrame(
+  e: MessageEvent,
+  frame: Window | null | undefined,
+  links: readonly string[] | undefined,
+): string | null {
+  if (!frame || e.source !== frame || !links) return null;
+  const data = e.data as { type?: unknown; id?: unknown } | null;
+  if (typeof data !== "object" || data === null || data.type !== ASSET_LINK_MESSAGE) return null;
+  if (typeof data.id !== "string" || !links.includes(data.id)) return null;
+  return data.id;
+}
+
+/**
+ * Follows a frame's link to another asset when it may. Returns whether it
+ * did. A message with no current click is ignored, so a script cannot move the
+ * reader on its own.
+ */
+export function followAssetLink(
+  e: MessageEvent,
+  frame: Window | null | undefined,
+  follower: AssetLinkFollower | null,
+): boolean {
+  if (!follower) return false;
+  const id = linkedAssetFromFrame(e, frame, follower.links);
+  if (!id || !activationCurrent()) return false;
+  follower.open(id);
+  return true;
+}
+
+/**
+ * Every asset an HTML, JSX or Markdown body links to: `mcp:asset:<id>` as an
+ * anchor's href or a Markdown link's destination. The public viewer, which has
+ * no route to ask, follows a frame's link only to one of these.
+ */
+export function contentAssetLinks(content: string): string[] {
+  const out = new Set<string>();
+  const re = /(?:href\s*=\s*\{?\s*["'`]?\s*|\]\(\s*<?)(mcp:asset:[^\s"'`<>()[\]{}\\]+)/gi;
+  for (const m of content.matchAll(re)) {
+    const id = assetLinkId(m[1]);
+    if (id) out.add(id);
+  }
+  return [...out];
+}
+
+/**
+ * Listens for the frame's requests to open a video or a link, and to follow a
+ * link to another asset when the page has a follower (#2432).
+ */
 export function useFrameOpener(frameRef: RefObject<HTMLIFrameElement | null>): void {
+  const follower = useContext(AssetLinkContext);
   useEffect(() => {
     function onMessage(e: MessageEvent) {
-      openFromFrame(e, frameRef.current?.contentWindow);
+      const frame = frameRef.current?.contentWindow;
+      if (followAssetLink(e, frame, follower)) return;
+      openFromFrame(e, frame);
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [frameRef]);
+  }, [frameRef, follower]);
 }
 
 /**
@@ -108,13 +212,16 @@ export function useFrameOpener(frameRef: RefObject<HTMLIFrameElement | null>): v
 export const LINK_SCRIPT_SOURCE =
   `(function(){` +
   `var T=${JSON.stringify(OPEN_LINK_MESSAGE)},S={"http:":1,"https:":1,"mailto:":1},X="http://www.w3.org/1999/xlink";` +
+  `var M=${JSON.stringify(ASSET_LINK_MESSAGE)},A=${JSON.stringify(ASSET_LINK_PREFIX)};` +
   `function u(r){try{var x=new URL(String(r),document.baseURI);return S[x.protocol]===1?x.href:null}catch(e){return null}}` +
   `function p(h){parent.postMessage({type:T,url:h},"*")}` +
   `function f(e){var q=e.composedPath?e.composedPath():[e.target];for(var i=0;i<q.length;i++){var n=q[i];` +
   `if(n&&n.nodeType===1&&(n.localName==="a"||n.localName==="area")&&(n.hasAttribute("href")||n.hasAttributeNS(X,"href")))return n}return null}` +
   `window.addEventListener("click",function(e){if(e.defaultPrevented||e.button!==0)return;var a=f(e);` +
   `if(!a||a.hasAttribute("download"))return;var r=a.getAttribute("href");if(r===null)r=a.getAttributeNS(X,"href");` +
-  `r=String(r).trim();if(r==="")return;if(r.charAt(0)==="#"){e.preventDefault();location.hash=r;return}var h=u(r);if(!h)return;e.preventDefault();p(h)});` +
+  `r=String(r).trim();if(r==="")return;if(r.charAt(0)==="#"){e.preventDefault();location.hash=r;return}` +
+  `if(r.indexOf(A)===0){e.preventDefault();parent.postMessage({type:M,id:r.slice(A.length).split(/[#?\\/]/)[0]},"*");return}` +
+  `var h=u(r);if(!h)return;e.preventDefault();p(h)});` +
   `var o=window.open;window.open=function(r){if(r===undefined||r===null||String(r).trim()==="")return o.apply(window,arguments);` +
   `var h=u(r);if(h){p(h);return null}return o.apply(window,arguments)};` +
   `})();`;

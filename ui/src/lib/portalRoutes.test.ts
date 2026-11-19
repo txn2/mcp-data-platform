@@ -14,7 +14,7 @@ describe("isKnownRoute", () => {
 
   // The bug this module exists for: a path that renders no page and no request.
   it("refuses a path the shell renders nothing for", () => {
-    expect(isKnownRoute("/assets")).toBe(false);
+    expect(isKnownRoute("/nonesuch")).toBe(false);
     expect(isKnownRoute("/knowledge/tags")).toBe(false);
     expect(isKnownRoute("/admin/nonesuch")).toBe(false);
   });
@@ -53,17 +53,24 @@ describe("isKnownRoute", () => {
 
 describe("canonicalRoute", () => {
   it("sends a surface that moved to where it lives now", () => {
-    expect(canonicalRoute("/shared")).toBe("/");
+    expect(canonicalRoute("/shared")).toBe("/assets");
     expect(canonicalRoute("/knowledge-pages")).toBe("/knowledge#knowledge");
     expect(canonicalRoute("/my-knowledge")).toBe("/knowledge#insights");
     expect(canonicalRoute("/admin/knowledge")).toBe("/knowledge#insights");
   });
 
-  // The reported path (#1359). Assets are mounted at the portal root, so the
-  // name the section carries everywhere else is a URL somebody will type.
+  // The reported path (#1359). Assets have their own path since Home took the
+  // portal root (#2504), and the typed form with a trailing slash lands there.
   it("sends the guessed assets path to the page the assets are on", () => {
-    expect(canonicalRoute("/assets")).toBe("/");
-    expect(canonicalRoute("/assets/")).toBe("/");
+    expect(isKnownRoute("/assets")).toBe(true);
+    expect(canonicalRoute("/assets")).toBeNull();
+    expect(canonicalRoute("/assets/")).toBe("/assets");
+  });
+
+  it("knows Home and the tidying views (#2504, #2509)", () => {
+    for (const route of ["/", "/unused", "/duplicates", "/trash"]) {
+      expect(isKnownRoute(route), route).toBe(true);
+    }
   });
 
   it("drops a trailing slash from a route that exists without one", () => {

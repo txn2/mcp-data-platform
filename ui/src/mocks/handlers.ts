@@ -44,12 +44,15 @@ import { assetRefHandlers, rewriteRefs } from "./handlers/assetRefs";
 import { producerHandlers } from "./handlers/producers";
 import { secretHandlers } from "./handlers/secrets";
 import { personaAccessHandlers } from "./handlers/personaAccess";
+import { libraryHandlers } from "./handlers/library";
+import { bulkHandlers } from "./handlers/bulk";
 import { webhookHandlers } from "./handlers/webhooks";
 import { endpointHandlers } from "./handlers/endpoints";
 import { storageHandlers } from "./handlers/storage";
 import { tableReconcileHandlers } from "./handlers/tableReconcile";
 import { catalogScanHandlers } from "./handlers/catalogScan";
 import { platformCatalogHandlers } from "./handlers/catalog";
+import { assetMarkHandlers, filterByMarks, lockedAssetHandlers } from "./handlers/assetMarks";
 import {
   mockKnowledgePages,
   pageRefs,
@@ -1315,6 +1318,12 @@ export const handlers = [
   // Persona effective access and file shares (#2257, #2258). First, because
   // /api/v1/resources/shared-with-me would otherwise be read as a resource id.
   ...personaAccessHandlers,
+  // An asset the reader cannot open, for links to one (#2432).
+  ...lockedAssetHandlers,
+  // A person's library (#2504, #2509).
+  ...libraryHandlers,
+  // Bulk actions and the tag list (#2507, #2508), ahead of /assets/:id.
+  ...bulkHandlers,
 
   // =========================================================================
   // Public (unauthenticated)
@@ -2427,7 +2436,7 @@ export const handlers = [
     const limit = parseInt(url.searchParams.get("limit") ?? "50", 10);
     const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
 
-    let filtered = portalAssets.filter((a) => !a.deleted_at);
+    let filtered = filterByMarks(portalAssets.filter((a) => !a.deleted_at), url);
     if (contentType) {
       filtered = filtered.filter((a) => a.content_type === contentType);
     }
@@ -4890,4 +4899,6 @@ export const handlers = [
   ...tableReconcileHandlers,
   ...catalogScanHandlers,
   ...platformCatalogHandlers,
+  // Status, Verified and links between assets (#2502, #2503, #2432).
+  ...assetMarkHandlers({ assets: portalAssets, content: mockContent, permissions: sharedPermissions }),
 ];

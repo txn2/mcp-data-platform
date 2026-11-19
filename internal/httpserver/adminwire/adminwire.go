@@ -16,6 +16,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/admin/resindexapi"
 	"github.com/txn2/mcp-data-platform/internal/admin/secretapi"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/personaaccesswire"
+	"github.com/txn2/mcp-data-platform/internal/portal/assettags"
 	"github.com/txn2/mcp-data-platform/internal/secretstore"
 	"github.com/txn2/mcp-data-platform/pkg/admin"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
@@ -45,8 +46,8 @@ func StoreDeps(deps *admin.Deps, p *platform.Platform) {
 // MountDatabaseAPIs registers the admin routes over database rows, behind the
 // admin API's authentication (auth): what a persona reaches (#2257), which
 // reads references from the database when there is one, the stored secrets
-// (#2051), and how managed resources are indexed (#2111) where there are
-// resources. author resolves the acting administrator.
+// (#2051), the tags on every asset (#2508), and how managed resources are
+// indexed (#2111) where there are resources. author resolves the acting administrator.
 func MountDatabaseAPIs(mux *http.ServeMux, p *platform.Platform,
 	auth func(*platform.Platform) func(http.Handler) http.Handler, author func(*http.Request) string,
 ) {
@@ -59,6 +60,8 @@ func MountDatabaseAPIs(mux *http.ServeMux, p *platform.Platform,
 	}
 	secretapi.Register(mux, auth(p), secretapi.Config{Store: secretstore.NewStore(p.DB(), p.RestEncryptor()), Author: author})
 	slog.Info("Stored secret admin API enabled on /api/v1/admin/secrets")
+	// The tag list over every asset, with rename and merge (#2508).
+	assettags.RegisterAdmin(mux, auth(p), assettags.AdminConfig{Store: assettags.New(p.DB()), Author: author, Audit: p.Audit().Logger()})
 	if p.ResourceStore() != nil {
 		resindexapi.Mount(mux, auth(p), p.DB(), p.Config().Resources.Index.Resolver(), embedding.IsConfigured(p.EmbeddingProvider()))
 	}

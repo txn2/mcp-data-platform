@@ -114,8 +114,11 @@ type RankedAssetQuery struct {
 	ContentType string
 	Tags        []string
 	Owners      []string
-	Limit       int
-	Offset      int
+	// Status and Verified narrow as AssetFilter's do (#2502, #2503).
+	Status   string
+	Verified bool
+	Limit    int
+	Offset   int
 }
 
 // RankedCollectionQuery is RankedAssetQuery for collections.

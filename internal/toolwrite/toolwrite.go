@@ -283,9 +283,11 @@ var actionTools = map[string]actionRule{
 		"list", "get", "list_versions", "search", "provenance",
 		"locate", "get_content", "outline", "stats", "diff",
 		"list_shares", "list_collections", "get_collection",
+		"list_recents", "list_favorites", "list_trash",
 	), writes: set(
 		"update", "delete", "revert", "patch", "share", "revoke_share",
 		"create_collection", "update_collection", "delete_collection", "set_sections",
+		"restore", "verify", "unverify",
 	)},
 	// manage_table: the tables registered over a managed file.
 	"manage_table": {arg: "action", reads: set("list", "check"), writes: set("register", "unregister")},

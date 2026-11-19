@@ -145,7 +145,8 @@ func (s *postgresAssetStore) Get(ctx context.Context, id string) (*portaldomain.
 		       thumbnail_s3_key, thumbnail_dark_s3_key, thumbnail_version, thumbnail_dark_version,
 		       thumbnail_renderer, thumbnail_failure, thumbnail_failed_version,
 		       size_bytes, tags, provenance, session_id, current_version,
-		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, ''), max_versions, COALESCE(released_version, 0)
+		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, ''), max_versions, COALESCE(released_version, 0),
+		       ` + assetMarkColumns + `
 		FROM portal_assets WHERE id = $1
 	`
 	var asset portaldomain.Asset
@@ -173,7 +174,8 @@ func (s *postgresAssetStore) GetByIdempotencyKey(ctx context.Context, ownerID, k
 		       thumbnail_s3_key, thumbnail_dark_s3_key, thumbnail_version, thumbnail_dark_version,
 		       thumbnail_renderer, thumbnail_failure, thumbnail_failed_version,
 		       size_bytes, tags, provenance, session_id, current_version,
-		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, ''), max_versions, COALESCE(released_version, 0)
+		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, ''), max_versions, COALESCE(released_version, 0),
+		       ` + assetMarkColumns + `
 		FROM portal_assets
 		WHERE owner_id = $1 AND idempotency_key = $2 AND deleted_at IS NULL
 	`
@@ -206,7 +208,8 @@ func (s *postgresAssetStore) GetByIDs(ctx context.Context, ids []string) (map[st
 		       thumbnail_s3_key, thumbnail_dark_s3_key, thumbnail_version, thumbnail_dark_version,
 		       thumbnail_renderer, thumbnail_failure, thumbnail_failed_version,
 		       size_bytes, tags, provenance, session_id, current_version,
-		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, ''), max_versions, COALESCE(released_version, 0)
+		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, ''), max_versions, COALESCE(released_version, 0),
+		       ` + assetMarkColumns + `
 		FROM portal_assets WHERE id = ANY($1) AND deleted_at IS NULL
 	`
 	rows, err := s.db.QueryContext(ctx, query, pq.Array(ids))
@@ -282,8 +285,22 @@ func assetListColumns() []string {
 		"thumbnail_renderer", "thumbnail_failure", "thumbnail_failed_version",
 		"size_bytes", "tags", provenanceSummaryExpr("provenance"), "session_id", "current_version",
 		"created_at", "updated_at", "deleted_at", "COALESCE(idempotency_key, '')", "max_versions", "COALESCE(released_version, 0)",
+		assetStatusColumn, assetVerificationColumn,
 	}
 }
+
+// assetStatusColumn and assetVerificationColumn read an asset's status and its
+// unexpired verification (#2502, #2503) as JSON beside its row, so every read
+// that scans an asset carries both. A verification past its expiry reads as
+// none: that is the badge being removed when the date passes.
+const (
+	assetStatusColumn = `(SELECT json_build_object('value', st.status, 'note', st.note, 'set_by', st.set_by, 'set_at', st.set_at)` +
+		` FROM portal_asset_status st WHERE st.asset_id = portal_assets.id)`
+	assetVerificationColumn = `(SELECT json_build_object('verified_by', v.verified_by, 'verified_at', v.verified_at,` +
+		` 'verified_version', v.verified_version, 'note', v.note, 'expires_at', v.expires_at)` +
+		` FROM portal_asset_verifications v WHERE v.asset_id = portal_assets.id AND (v.expires_at IS NULL OR v.expires_at > NOW()))`
+	assetMarkColumns = assetStatusColumn + ", " + assetVerificationColumn
+)
 
 // buildAssetSelect renders the listing's page statement, for the same reason.
 func buildAssetSelect(filter portaldomain.AssetFilter) (query string, args []any, err error) {
@@ -1486,6 +1503,7 @@ func applyAssetFilter(qb sq.SelectBuilder, filter portaldomain.AssetFilter) sq.S
 		metaJSON, _ := json.Marshal(filter.Metadata)
 		qb = qb.Where(sq.Expr("portal_assets.metadata @> ?::jsonb", string(metaJSON)))
 	}
+	qb = applyMarkFilter(qb, filter)
 	if filter.Search != "" {
 		like := "%" + filter.Search + "%"
 		qb = qb.Where(sq.Or{
@@ -1497,6 +1515,25 @@ func applyAssetFilter(qb sq.SelectBuilder, filter portaldomain.AssetFilter) sq.S
 	}
 	return qb
 }
+
+// applyMarkFilter narrows to a status (or to no status) and to verified
+// assets (#2502, #2503).
+func applyMarkFilter(qb sq.SelectBuilder, filter portaldomain.AssetFilter) sq.SelectBuilder {
+	switch {
+	case filter.Status == portaldomain.StatusNone:
+		qb = qb.Where("NOT EXISTS (SELECT 1 FROM portal_asset_status st WHERE st.asset_id = portal_assets.id)")
+	case portaldomain.ValidStatus(filter.Status):
+		qb = qb.Where(sq.Expr("EXISTS (SELECT 1 FROM portal_asset_status st WHERE st.asset_id = portal_assets.id AND st.status = ?)", filter.Status))
+	}
+	if filter.Verified {
+		qb = qb.Where(verifiedPredicate)
+	}
+	return qb
+}
+
+// verifiedPredicate matches an asset carrying an unexpired verification.
+const verifiedPredicate = "EXISTS (SELECT 1 FROM portal_asset_verifications v WHERE v.asset_id = portal_assets.id" +
+	" AND (v.expires_at IS NULL OR v.expires_at > NOW()))"
 
 // thumbnailOwedPredicate matches the assets the renderer owes a tile: one it
 // can draw, small enough to be worth drawing twice, and carrying a tile that
@@ -1573,7 +1610,32 @@ func assetScanDest(a *portaldomain.Asset, tags, prov *[]byte, deletedAt *sql.Nul
 		&a.ThumbnailRenderer, &a.ThumbnailFailure, &a.ThumbnailFailedVersion, &a.SizeBytes,
 		tags, prov, &a.SessionID, &a.CurrentVersion, &a.CreatedAt, &a.UpdatedAt, deletedAt,
 		&a.IdempotencyKey, maxVersions, &a.ReleasedVersion,
+		jsonInto{&a.Status},
+		jsonInto{&a.Verification},
 	}
+}
+
+// jsonInto scans a nullable JSON column into the pointer it holds: NULL leaves
+// it nil.
+type jsonInto struct{ dest any }
+
+// Scan implements sql.Scanner.
+func (j jsonInto) Scan(src any) error {
+	var raw []byte
+	switch v := src.(type) {
+	case nil:
+		return nil
+	case []byte:
+		raw = v
+	case string:
+		raw = []byte(v)
+	default:
+		return fmt.Errorf("scanning JSON column: unexpected %T", src)
+	}
+	if err := json.Unmarshal(raw, j.dest); err != nil {
+		return fmt.Errorf("decoding JSON column: %w", err)
+	}
+	return nil
 }
 
 // finishScannedAsset applies the nullable deleted_at and unmarshals the tags +
@@ -1593,6 +1655,7 @@ func finishScannedListAsset(asset *portaldomain.Asset, tags, summary []byte, del
 }
 
 func applyScannedNullables(asset *portaldomain.Asset, deletedAt sql.NullTime, maxVersions sql.NullInt64) {
+	asset.FinishMarks()
 	applyThumbnailSkip(asset)
 	if deletedAt.Valid {
 		asset.DeletedAt = &deletedAt.Time

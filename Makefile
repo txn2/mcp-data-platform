@@ -911,11 +911,11 @@ release-tag-check:
 
 ## release-check: Validate build, Docker, and release config
 release-check:
-	@echo "Running GoReleaser dry-run..."
-	@# A GITLAB_TOKEN or GITEA_TOKEN in the shell makes GoReleaser pick that
-	@# forge's client, and its homebrew step then blocks with no CPU and no
-	@# output; CI's runners carry neither. The dry run publishes nothing.
-	env -u GITLAB_TOKEN -u GITEA_TOKEN goreleaser release --snapshot --clean --skip=publish,sign,sbom
+	@echo "Running GoReleaser dry-run on an export of the working tree..."
+	@# The dry run's before hook rewrites internal/ui/dist, which the other
+	@# lanes compile; on an export it writes a dist nothing else reads (#2711).
+	@# TestNoLaneWritesTheUIEmbedDirectory pins it.
+	bash scripts/release-check-isolated.sh
 
 ## swagger: Generate OpenAPI/Swagger documentation from annotations
 swagger:

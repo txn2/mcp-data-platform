@@ -10,6 +10,10 @@ import { SharedPageLink } from "@/components/share/SharedPageLink";
 import { mySessionPath } from "@/pages/activity/routes";
 import { useAuthStore } from "@/stores/auth";
 import { usePortalAccess } from "@/hooks/usePortalAccess";
+import { useRecordOpen } from "@/api/portal/hooks/library";
+import { StarButton } from "@/components/library/StarButton";
+import { AssetMarkControls } from "@/components/assetmarks/AssetMarkControls";
+import { AssetLinkProvider } from "@/components/assetmarks/AssetLinkProvider";
 
 interface Props {
   assetId: string;
@@ -45,6 +49,11 @@ export function AssetViewerPage({ assetId, onNavigate, onBack }: Props) {
   const isOwner = asset?.is_owner ?? true;
   const sharePermission = asset?.share_permission;
 
+  // Opening the asset is what Recent and the Unused counts read (#2504,
+  // #2509). Reported once the asset has loaded, so an id the reader cannot
+  // open records nothing.
+  useRecordOpen("asset", asset?.id);
+
   // An asset this reader cannot open offers a request to its owner (#2090).
   if (!isLoading && !asset) {
     return (
@@ -60,63 +69,76 @@ export function AssetViewerPage({ assetId, onNavigate, onBack }: Props) {
     );
   }
 
+  const canEditMarks = isOwner || sharePermission === "editor" || isAdmin;
+  const markControls = asset ? <AssetMarkControls asset={asset} canEdit={canEditMarks} /> : null;
+
   return (
-    <AssetViewer
-      asset={asset}
-      content={content}
-      contentError={contentError}
-      onRetryContent={() => void refetchContent()}
-      isLoading={isLoading}
-      contentUrl={`/api/v1/portal/assets/${assetId}/content`}
-      onBack={onBack}
-      onNavigate={onNavigate}
-      updateMutation={updateMutation}
-      deleteMutation={deleteMutation}
-      contentUpdateMutation={isOwner || sharePermission === "editor" ? contentUpdateMutation : undefined}
-      copyMutation={!isOwner ? copyMutation : undefined}
-      isOwner={isOwner}
-      sharePermission={sharePermission}
-      // Only the owner is offered the session: a session refuses everyone but
-      // its own caller, so on a shared asset this link would lead to a
-      // not-found (#1319).
-      sessionPath={isOwner ? mySessionPath : undefined}
-      // A referenced file opens in the reader's own resource library. The panel
-      // only links the ones the server said this reader can open on their own.
-      resourcePath={(resourceId) => `/resources/${encodeURIComponent(resourceId)}`}
-      // A referenced asset, and an asset referencing this one, open in the
-      // reader's own asset library. Both lists only link the ones the server
-      // said this reader can open on their own.
-      assetPath={(id) => `/assets/${encodeURIComponent(id)}`}
-      // A script that wrote this asset opens on the reader's own scripts
-      // section, which shows it to its owner and to an administrator and
-      // answers everybody else not-found -- the same rule its page applies.
-      scriptPath={(id) => `/automations/${encodeURIComponent(id)}`}
-      collectable
-      versions={seesHistory ? versionsData?.data : undefined}
-      versionsLoading={seesHistory && versionsLoading}
-      revertMutation={revertMutation}
-      selectedVersion={selectedVersion}
-      onSelectVersion={setSelectedVersion}
-      versionContent={needsVersionContent ? versionContent : undefined}
-      versionContentLoading={needsVersionContent ? versionContentLoading : false}
-      toolbarExtra={
-        <>
-          <SharedPageLink />
-          <FeedbackButton
-            target={{ type: "asset", id: assetId, version: asset?.current_version }}
-            canModerate={isOwner || sharePermission === "editor"}
-          />
-        </>
-      }
-      // A phone's one-row toolbar takes Feedback as an icon with its count;
-      // the shared page is an item of its More menu there (#2601).
-      phoneToolbarExtra={
-        <FeedbackButton
-          target={{ type: "asset", id: assetId, version: asset?.current_version }}
-          canModerate={isOwner || sharePermission === "editor"}
-          compact
-        />
-      }
-    />
+    // Links to other assets in the content open their pages here (#2432).
+    <AssetLinkProvider assetId={assetId} onNavigate={onNavigate}>
+      <AssetViewer
+        asset={asset}
+        content={content}
+        contentError={contentError}
+        onRetryContent={() => void refetchContent()}
+        isLoading={isLoading}
+        contentUrl={`/api/v1/portal/assets/${assetId}/content`}
+        onBack={onBack}
+        onNavigate={onNavigate}
+        updateMutation={updateMutation}
+        deleteMutation={deleteMutation}
+        contentUpdateMutation={isOwner || sharePermission === "editor" ? contentUpdateMutation : undefined}
+        copyMutation={!isOwner ? copyMutation : undefined}
+        isOwner={isOwner}
+        sharePermission={sharePermission}
+        // Only the owner is offered the session: a session refuses everyone but
+        // its own caller, so on a shared asset this link would lead to a
+        // not-found (#1319).
+        sessionPath={isOwner ? mySessionPath : undefined}
+        // A referenced file opens in the reader's own resource library. The panel
+        // only links the ones the server said this reader can open on their own.
+        resourcePath={(resourceId) => `/resources/${encodeURIComponent(resourceId)}`}
+        // A referenced asset, and an asset referencing this one, open in the
+        // reader's own asset library. Both lists only link the ones the server
+        // said this reader can open on their own.
+        assetPath={(id) => `/assets/${encodeURIComponent(id)}`}
+        // A script that wrote this asset opens on the reader's own scripts
+        // section, which shows it to its owner and to an administrator and
+        // answers everybody else not-found -- the same rule its page applies.
+        scriptPath={(id) => `/automations/${encodeURIComponent(id)}`}
+        collectable
+        versions={seesHistory ? versionsData?.data : undefined}
+        versionsLoading={seesHistory && versionsLoading}
+        revertMutation={revertMutation}
+        selectedVersion={selectedVersion}
+        onSelectVersion={setSelectedVersion}
+        versionContent={needsVersionContent ? versionContent : undefined}
+        versionContentLoading={needsVersionContent ? versionContentLoading : false}
+        toolbarExtra={
+          <>
+            <StarButton kind="asset" id={assetId} />
+            {markControls}
+            <SharedPageLink />
+            <FeedbackButton
+              target={{ type: "asset", id: assetId, version: asset?.current_version }}
+              canModerate={isOwner || sharePermission === "editor"}
+            />
+          </>
+        }
+        // A phone's one-row toolbar takes Feedback as an icon with its count;
+        // the shared page is an item of its More menu there (#2601).
+        phoneToolbarExtra={
+          <>
+            <StarButton kind="asset" id={assetId} variant="icon" />
+            <FeedbackButton
+              target={{ type: "asset", id: assetId, version: asset?.current_version }}
+              canModerate={isOwner || sharePermission === "editor"}
+              compact
+            />
+          </>
+        }
+        // Status and Verify take a row of their own on a phone (#2502, #2503).
+        phoneMarkControls={markControls}
+      />
+    </AssetLinkProvider>
   );
 }

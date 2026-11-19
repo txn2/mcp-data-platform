@@ -323,6 +323,9 @@ func (t *Toolkit) handleExport(ctx context.Context, _ *mcp.CallToolRequest, in e
 			return denial, nil, nil
 		}
 	}
+	if pending := t.schemaPending(ctx, in.Connection); pending != nil {
+		return pending, nil, nil
+	}
 	prepared, errMsg := t.prepare(ctx, in.query())
 	if errMsg != "" {
 		return toolkit.ErrorResult(errMsg), nil, nil

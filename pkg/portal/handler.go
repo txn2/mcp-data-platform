@@ -333,6 +333,10 @@ type Deps struct {
 	// /api/v1/portal/api-keys routes unregistered, which is what a deployment
 	// with no key store should do.
 	APIKeyRegistrar func(*http.ServeMux)
+	// Mounts register the asset organization seams under internal/portal
+	// (#2511) onto the authenticated mux with this handler's authorization
+	// core, so each decides access with the rule every portal route uses.
+	Mounts []func(*http.ServeMux, *access.Checker)
 
 	// ContentRefs records the managed resources an asset's content
 	// references (#1474). Every content read this handler serves rewrites the
@@ -560,6 +564,9 @@ func (h *Handler) registerRoutes() {
 	// authenticated mux.
 	if h.deps.APIKeyRegistrar != nil {
 		h.deps.APIKeyRegistrar(h.mux)
+	}
+	for _, mount := range h.deps.Mounts {
+		mount(h.mux, h.access)
 	}
 	h.mux.HandleFunc("GET /api/v1/portal/assets", h.listAssets)
 	// Search and facets over the caller's reach (#2500); search is mounted
@@ -832,6 +839,8 @@ type paginatedResponse struct {
 // @Param        content_type  query  string   false  "Filter by content type"
 // @Param        tag           query  []string false  "Filter by tag; repeat it to require every one"  collectionFormat(multi)
 // @Param        metadata.key  query  string   false  "Filter by a metadata value, as metadata.<key>=<value>; several are ANDed"
+// @Param        status        query  string   false  "Filter by status, or none for assets without one"  Enums(draft, published, deprecated, none)
+// @Param        verified      query  boolean  false  "Only assets carrying an unexpired verification"
 // @Param        limit         query  integer  false  "Results per page (default: 20)"
 // @Param        offset        query  integer  false  "Offset for pagination (default: 0)"
 // @Param        sort          query  string   false  "Sort column (default: updated_at)"  Enums(updated_at, created_at, name, size_bytes)
@@ -859,8 +868,11 @@ func (h *Handler) listAssets(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sortBy, sortDir := sortParams(r)
+	status, verified := reachapi.Marks(r)
 	filter := AssetFilter{
 		Reach:       reach,
+		Status:      status,
+		Verified:    verified,
 		Owners:      reachapi.Owners(r),
 		ContentType: r.URL.Query().Get("content_type"),
 		Tags:        r.URL.Query()["tag"],

@@ -14,6 +14,11 @@ import (
 
 const linkedTarget = "mcp:asset:ast_data"
 
+// refusedLinkTarget is a managed resource used as a link target, which a
+// write is still refused for: its reference serves bytes and cannot be
+// followed. A link to another asset is a link between assets (#2432).
+const refusedLinkTarget = "mcp://global/data/orders.csv"
+
 // linkToolkit is refToolkit with its version store in hand, so a test can
 // assert that a refused write created no version.
 func linkToolkit(t *testing.T) (*Toolkit, *inMemoryAssetStore, *inMemoryVersionStore) {
@@ -24,13 +29,13 @@ func linkToolkit(t *testing.T) (*Toolkit, *inMemoryAssetStore, *inMemoryVersionS
 	return tk, assets, versions
 }
 
-// TestSaveRefusesAReferenceUsedAsALink covers #1875's refusal on save_asset:
-// an HTML <a href> and a Markdown [text](ref) link to a reference are refused
-// naming the reference, saying links are not supported, and nothing is stored.
+// TestSaveRefusesAReferenceUsedAsALink covers #1875's refusal on save_asset,
+// as #2432 narrowed it: an HTML <a href> and a Markdown [text](ref) link to a
+// managed resource are refused naming it, and nothing is stored.
 func TestSaveRefusesAReferenceUsedAsALink(t *testing.T) {
 	for name, in := range map[string]saveAssetInput{
-		"html anchor":   {Name: "Report", ContentType: "text/html", Content: `<a href="` + linkedTarget + `">data</a>`},
-		"markdown link": {Name: "Notes", ContentType: "text/markdown", Content: "see [the data](" + linkedTarget + ")"},
+		"html anchor":   {Name: "Report", ContentType: "text/html", Content: `<a href="` + refusedLinkTarget + `">data</a>`},
+		"markdown link": {Name: "Notes", ContentType: "text/markdown", Content: "see [the data](" + refusedLinkTarget + ")"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			tk, assets, versions := linkToolkit(t)
@@ -38,11 +43,33 @@ func TestSaveRefusesAReferenceUsedAsALink(t *testing.T) {
 			require.NoError(t, err)
 
 			msg := refusalText(t, result)
-			assert.Contains(t, msg, linkedTarget)
-			assert.Contains(t, msg, "links between assets are not supported")
+			assert.Contains(t, msg, refusedLinkTarget)
+			assert.Contains(t, msg, "cannot be a link target")
 			assert.Contains(t, msg, "name it in text")
+			assert.Contains(t, msg, "To link another asset, write mcp:asset:")
 			assert.Empty(t, assets.assets, "a refused save creates no asset")
 			assert.Empty(t, versions.versions, "a refused save creates no version")
+		})
+	}
+}
+
+// TestSaveAcceptsALinkToAnotherAsset covers #2432: an mcp:asset:<id> link
+// target, in HTML and Markdown, is a link between assets. The save succeeds,
+// writes a version, and declares nothing: a link is not a reference.
+func TestSaveAcceptsALinkToAnotherAsset(t *testing.T) {
+	for name, in := range map[string]saveAssetInput{
+		"html anchor":   {Name: "Index", ContentType: "text/html", Content: `<a href="` + linkedTarget + `">guide</a>`},
+		"markdown link": {Name: "Index", ContentType: "text/markdown", Content: "see [the guide](" + linkedTarget + ")"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			tk, assets, versions := linkToolkit(t)
+			result, _, err := tk.handleSaveAsset(refCtx(""), nil, in)
+			require.NoError(t, err)
+			require.False(t, result.IsError, "a link to another asset is accepted: %v", result.Content)
+			out := decodeSave(t, result)
+			assert.Len(t, assets.assets, 1)
+			assert.Len(t, versions.versions[out.AssetID], 1)
+			assert.Zero(t, out.ReferencesDeclared, "a link declares no reference")
 		})
 	}
 }
@@ -87,10 +114,10 @@ func TestUpdateRefusesALinkAndWritesNothing(t *testing.T) {
 
 	result, _, err := tk.handleUpdate(refCtx(""), manageAssetInput{
 		Action: "update", AssetID: saved.AssetID, Name: "Renamed",
-		Content: `<p><a href='` + linkedTarget + `'>x</a></p>`,
+		Content: `<p><a href='` + refusedLinkTarget + `'>x</a></p>`,
 	})
 	require.NoError(t, err)
-	assert.Contains(t, refusalText(t, result), linkedTarget)
+	assert.Contains(t, refusalText(t, result), refusedLinkTarget)
 	assert.Len(t, versions.versions[saved.AssetID], before)
 	asset, getErr := assets.Get(context.Background(), saved.AssetID)
 	require.NoError(t, getErr)
@@ -149,10 +176,10 @@ func TestPatchRefusesALinkItWrites(t *testing.T) {
 
 		result, _, err := tk.handlePatch(refCtx(""), manageAssetInput{
 			Action: "patch", AssetID: saved.AssetID, DryRun: dryRun,
-			Edits: []textpatch.Edit{{Op: textpatch.OpInsertAfter, Find: "# Q4", Text: "\n[data](" + linkedTarget + ")"}},
+			Edits: []textpatch.Edit{{Op: textpatch.OpInsertAfter, Find: "# Q4", Text: "\n[data](" + refusedLinkTarget + ")"}},
 		})
 		require.NoError(t, err)
-		assert.Contains(t, refusalText(t, result), linkedTarget, "dry_run=%v", dryRun)
+		assert.Contains(t, refusalText(t, result), refusedLinkTarget, "dry_run=%v", dryRun)
 		assert.Len(t, versions.versions[saved.AssetID], before)
 	}
 }

@@ -1,6 +1,8 @@
 import { assetViewerRoutes } from "./route-assets";
 import { channelRoutes } from "./route-channels";
 import { storageRoutes } from "./route-storage";
+import { bulkRoutes } from "./route-bulk";
+import { libraryRoutes } from "./route-library";
 import { accessSettingsRoutes } from "./route-access";
 import { adminResourceRoutes, userResourceRoutes } from "./route-resources";
 import { drawerRoutes } from "./route-drawers";
@@ -57,16 +59,17 @@ export const routes: ScreenshotRoute[] = [
   },
   {
     slug: "my-assets",
-    path: "/portal/",
+    path: "/portal/assets",
     category: "user",
   },
+  ...libraryRoutes,
   {
     // Assets page in the Shared ownership scope (replaces the removed
     // standalone Shared With Me page, consolidated in #616). The clicked
     // scope persists in localStorage (shared with Collections), so clear it
     // after clicking to keep later captures order-independent.
     slug: "assets-shared",
-    path: "/portal/",
+    path: "/portal/assets",
     category: "user",
     beforeCapture: async (page) => {
       // Unconditional click: this capture's whole identity is the Shared
@@ -509,6 +512,7 @@ export const routes: ScreenshotRoute[] = [
     category: "admin",
   },
   ...storageRoutes,
+  ...bulkRoutes,
   {
     // The maps section (#2068): the mock carries a region in each state a
     // fetch moves through (fetching with progress, ready, failed while the

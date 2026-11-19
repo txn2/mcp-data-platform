@@ -333,6 +333,11 @@ func buildItem(n notification.Notification) emailItem {
 		if item.Link != "" {
 			item.LinkText = "Open it"
 		}
+	case notification.KindVerificationExpiring:
+		item.Body, item.Message = item.Message, ""
+		if item.Link != "" {
+			item.LinkText = "Open the asset"
+		}
 	case notification.KindFeedbackReceived:
 		item.Body = feedbackReceivedBody
 		item.Message = ""
@@ -395,6 +400,8 @@ func subjectFor(n notification.Notification) string {
 		return fmt.Sprintf("%s decided your request for approval of %s", n.Payload.Actor, n.Payload.ItemTitle)
 	case notification.KindFeedbackReceived:
 		return fmt.Sprintf("Your feedback was received: %q", n.Payload.ItemTitle)
+	case notification.KindVerificationExpiring:
+		return fmt.Sprintf("The verification of %q expires soon", n.Payload.ItemTitle)
 	default:
 		return fmt.Sprintf("%s commented on %q", n.Payload.Actor, n.Payload.ItemTitle)
 	}
