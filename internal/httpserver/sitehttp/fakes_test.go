@@ -464,8 +464,9 @@ func (m *memStore) StopJob(_ context.Context, id string) error {
 }
 
 type memObjects struct {
-	mu  sync.Mutex
-	put map[string][]byte
+	mu     sync.Mutex
+	put    map[string][]byte
+	getErr error
 }
 
 func (o *memObjects) PutObject(_ context.Context, _, key string, data []byte, _ string) error {
@@ -479,7 +480,14 @@ func (o *memObjects) PutObject(_ context.Context, _, key string, data []byte, _ 
 func (o *memObjects) GetObject(_ context.Context, _, key string) (data []byte, contentType string, err error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	return o.put[key], "", nil
+	if o.getErr != nil {
+		return nil, "", o.getErr
+	}
+	body, ok := o.put[key]
+	if !ok {
+		return nil, "", errors.New("NoSuchKey: the object does not exist")
+	}
+	return body, "", nil
 }
 
 func (o *memObjects) DeleteObject(_ context.Context, _, key string) error {

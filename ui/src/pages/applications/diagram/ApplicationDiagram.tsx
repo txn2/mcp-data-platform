@@ -1,23 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  useApplicationDiagram,
-  type ApplicationDetail,
-  type ApplicationDiagram as Diagram,
-  type ApplicationFinding,
-} from "@/api/portal/hooks/applications";
+import { useApplicationDiagram, type ApplicationDetail, type ApplicationDiagram as Diagram } from "@/api/portal/hooks/applications";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { errorText } from "../applicationFormat";
 import { DiagramCanvas } from "./DiagramCanvas";
 import { DiagramControls } from "./DiagramControls";
+import { DiagramFindings } from "./DiagramFindings";
 import { layoutDiagram, type DiagramLayout } from "./diagramLayout";
 import { defaultCompare, defaultVersion } from "./diagramModel";
 import { DiagramPanel } from "./DiagramPanel";
+import { isLarge } from "./diagramScale";
+import { LargeView } from "./LargeView";
 
 // ApplicationDiagram is the Parts card's Diagram tab (#2540): how the
 // application's parts fit together at one version, drawn from what the server
 // derives from their sources and settings, with what it finds wrong above it.
-// Selecting a node shows what it comes from and goes to.
+// Selecting a node shows what it comes from and goes to. Past LARGE_LINKS
+// links between automations and tables the application is drawn as a large
+// one (#2700): rows, one band, the selection's links, and a Table view.
 
 interface Props {
   detail: ApplicationDetail;
@@ -66,22 +65,30 @@ export function ApplicationDiagram({ detail, onNavigate }: Props) {
   );
 }
 
-function DrawnDiagram({
-  diagram,
-  selected,
-  onSelect,
-  onNavigate,
-}: {
+interface DrawnProps {
   diagram: Diagram;
   selected: string | null;
   onSelect: (id: string | null) => void;
   onNavigate: (path: string) => void;
-}) {
+}
+
+function DrawnDiagram(props: DrawnProps) {
+  const large = useMemo(() => isLarge(props.diagram), [props.diagram]);
+  return (
+    <>
+      <DiagramFindings findings={props.diagram.findings} onSelect={props.onSelect} />
+      {large ? <LargeView {...props} /> : <SmallDiagram {...props} />}
+    </>
+  );
+}
+
+// SmallDiagram is an application drawn card by card, every link routed and
+// labeled (#2540).
+function SmallDiagram({ diagram, selected, onSelect, onNavigate }: DrawnProps) {
   const { layout, failed } = useDiagramLayout(diagram);
   const node = useMemo(() => diagram.nodes.find((n) => n.id === selected) ?? null, [diagram, selected]);
   return (
     <>
-      <Findings findings={diagram.findings} onSelect={onSelect} />
       {failed && (
         <Alert variant="destructive">
           <AlertDescription>The diagram could not be drawn.</AlertDescription>
@@ -121,28 +128,4 @@ function useDiagramLayout(diagram: Diagram) {
     };
   }, [diagram]);
   return { layout: laid?.diagram === diagram ? laid.layout : null, failed };
-}
-
-/** Findings is what the diagram finds wrong; clicking one selects the node it is about. */
-function Findings({ findings, onSelect }: { findings: ApplicationFinding[]; onSelect: (id: string) => void }) {
-  if (findings.length === 0) return null;
-  return (
-    <section aria-label="Findings" className="rounded-md border bg-muted/40 p-3" data-testid="diagram-findings">
-      <h4 className="mb-1.5 text-xs font-medium text-muted-foreground">Findings</h4>
-      <ul className="space-y-1.5">
-        {findings.map((f, i) => (
-          <li key={`${f.node}-${i}`}>
-            <button
-              type="button"
-              className="flex w-full items-start gap-2 text-left text-sm hover:underline"
-              onClick={() => onSelect(f.node)}
-            >
-              <span className="min-w-0 flex-1">{f.message}</span>
-              {f.blocks && <Badge variant="danger">Blocks release</Badge>}
-            </button>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
 }

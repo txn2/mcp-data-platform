@@ -32,6 +32,10 @@ type Identity struct {
 	// holding a schema on the statement's connection. It wins over Persona's
 	// role, and is not a claim.
 	Application string
+	// Environment is the application environment the script runs in, ""
+	// for the last (#2709): its statements log in as the run role of the
+	// schema that environment runs in. It is not a claim.
+	Environment string
 }
 
 // The values Identity.Source takes.

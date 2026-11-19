@@ -43,3 +43,29 @@ describe("ThreadHeader", () => {
     expect(screen.getByRole("button", { name: "Delete thread" })).toBeTruthy();
   });
 });
+
+// #2705: on a phone's sheet the thread's row is the panel's header, with
+// Visibility and Delete in More, the sheet's size button and close.
+describe("ThreadHeader on a phone's sheet", () => {
+  const sheet = { size: "default" as const, setSize: vi.fn() };
+  const showSheet = (mayModerate: boolean) =>
+    render(
+      <ThreadHeader thread={thread} mayModerate={mayModerate} deleting={false} onBack={vi.fn()} onDelete={vi.fn()} sheet={sheet} onClose={vi.fn()} />,
+    );
+
+  it("is one row with More, the size button and close, and no visibility row", () => {
+    showSheet(true);
+    expect(screen.getByTestId("thread-sheet-row")).toBeTruthy();
+    expect(screen.queryByRole("radiogroup")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete thread" })).toBeNull();
+    expect(screen.getByRole("button", { name: "More for this thread" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Make the feedback sheet bigger" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Close feedback" })).toBeTruthy();
+  });
+
+  it("offers no More to someone who may not moderate, and shows the visibility badge", () => {
+    showSheet(false);
+    expect(screen.queryByRole("button", { name: "More" })).toBeNull();
+    expect(screen.getAllByText("Internal")).toHaveLength(1);
+  });
+});

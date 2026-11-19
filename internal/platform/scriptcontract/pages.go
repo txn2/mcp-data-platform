@@ -66,6 +66,13 @@ var KnowledgePages = []KnowledgePage{
 			"with manage_application that pins every part.",
 	},
 	{
+		Slug:      "platform-application-environments",
+		Reference: knowledgePageRefPrefix + "platform-application-environments",
+		Summary: "An application in dev and prod, each with its own schema, variables and release: connections " +
+			"from platform.env, table names without a schema, migrations naming no role, sites calling the " +
+			"environment of their name, what promote moves, and prepare for an application built before.",
+	},
+	{
 		Slug:      "platform-public-applications",
 		Reference: knowledgePageRefPrefix + "platform-public-applications",
 		Summary: "An application for visitors with no platform account: one page endpoint answering " +

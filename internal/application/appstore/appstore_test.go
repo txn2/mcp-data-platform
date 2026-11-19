@@ -52,8 +52,8 @@ func partRows(parts ...[2]string) *sqlmock.Rows {
 func unique(constraint string) error { return &pq.Error{Code: uniqueViolation, Constraint: constraint} }
 
 func envRows() *sqlmock.Rows {
-	return sqlmock.NewRows([]string{"name", "release", "requires_approval", "updated_by", "updated_at"}).
-		AddRow("prod", 0, false, "jane@example.com", now)
+	return sqlmock.NewRows([]string{"name", "release", "requires_approval", "schema_name", "updated_by", "updated_at"}).
+		AddRow("prod", 0, false, "", "jane@example.com", now)
 }
 
 func TestCreate(t *testing.T) {
@@ -104,8 +104,8 @@ func TestGetAndList(t *testing.T) {
 	mock.ExpectQuery("FROM applications ORDER BY name").WillReturnRows(appRow(0))
 	mock.ExpectQuery("WHERE application_id = ANY").WillReturnRows(sqlmock.NewRows([]string{"application_id", "kind", "part_id", "added_by", "added_at", "release_mode"}).
 		AddRow("app_1", "script", "s1", "jane@example.com", now, "").AddRow("app_1", "asset", "a1", "jane@example.com", now, ""))
-	mock.ExpectQuery("FROM application_environments").WillReturnRows(sqlmock.NewRows([]string{"application_id", "name", "release", "requires_approval", "updated_by", "updated_at"}).
-		AddRow("app_1", "prod", 0, false, "jane@example.com", now))
+	mock.ExpectQuery("FROM application_environments").WillReturnRows(sqlmock.NewRows([]string{"application_id", "name", "release", "requires_approval", "schema_name", "updated_by", "updated_at"}).
+		AddRow("app_1", "prod", 0, false, "", "jane@example.com", now))
 	list, err := s.List(ctx)
 	require.NoError(t, err)
 	require.Len(t, list, 1)
@@ -339,7 +339,7 @@ func TestSchemaAndRunRole(t *testing.T) {
 	_, err = s.RunRoleOf(ctx, "app_2")
 	require.ErrorContains(t, err, "read application run role")
 
-	mock.ExpectQuery("WHERE connection = \\$1 AND schema_name").WithArgs("orders", "shop").WillReturnRows(appRow(1))
+	mock.ExpectQuery("WHERE connection = \\$1 AND \\(schema_name = \\$2").WithArgs("orders", "shop").WillReturnRows(appRow(1))
 	mock.ExpectQuery("FROM application_parts").WillReturnRows(partRows())
 	mock.ExpectQuery("FROM application_environments").WillReturnRows(envRows())
 	a, err := s.Holding(ctx, "orders", "shop")
@@ -361,4 +361,75 @@ func TestSchemaAndRunRole(t *testing.T) {
 	mock.ExpectRollback()
 	require.ErrorContains(t, s.ClearSchema(ctx, "app_1"), "remove application run role")
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// The run role of the schema an environment runs in (#2709), and the schemas
+// an application's script may not name.
+func TestRunRoleInAndSchemasOfScript(t *testing.T) {
+	ctx := context.Background()
+	s, mock := newMock(t)
+	mock.ExpectQuery("WITH env AS").WithArgs("app_1", "dev").
+		WillReturnRows(sqlmock.NewRows([]string{"connection", "schema_name", "role_name", "password_sealed"}).AddRow("orders", "shop_dev", "shop_dev_run", "encb:y"))
+	rr, err := s.RunRoleIn(ctx, "app_1", "dev")
+	require.NoError(t, err)
+	assert.Equal(t, "shop_dev_run", rr.Role)
+	mock.ExpectQuery("WITH env AS").WillReturnRows(sqlmock.NewRows([]string{"connection"}))
+	_, err = s.RunRoleIn(ctx, "app_1", "qa")
+	require.ErrorIs(t, err, application.ErrNoRunRole)
+
+	assert.Nil(t, SchemasOfScript(nil))
+	db, mock2, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	of := SchemasOfScript(db)
+	mock2.ExpectQuery("SELECT application_id FROM application_parts").WillReturnRows(sqlmock.NewRows([]string{"application_id"}).AddRow("app_1"))
+	mock2.ExpectQuery("FROM applications").WillReturnRows(appRow(1))
+	mock2.ExpectQuery("FROM application_parts").WillReturnRows(partRows())
+	mock2.ExpectQuery("FROM application_environments").WillReturnRows(sqlmock.NewRows([]string{"name", "release", "requires_approval", "schema_name", "updated_by", "updated_at"}).
+		AddRow("dev", 0, false, "shop_dev", "jane@example.com", now).AddRow("prod", 0, false, "shop", "jane@example.com", now))
+	assert.Equal(t, []string{"shop", "shop_dev"}, of(ctx, "s1"))
+	mock2.ExpectQuery("SELECT application_id FROM application_parts").WillReturnError(errors.New("down"))
+	assert.Nil(t, of(ctx, "s2"), "a script no application holds names no schema of one")
+}
+
+// A draft runs in the first environment's schema (#2709).
+func TestRunRoleIn_ADraftRunsInTheFirstEnvironment(t *testing.T) {
+	s, mock := newMock(t)
+	mock.ExpectQuery("ORDER BY position LIMIT 1").WithArgs("app_1").
+		WillReturnRows(sqlmock.NewRows([]string{"connection", "schema_name", "role_name", "password_sealed"}).AddRow("orders", "shop_dev", "shop_dev_run", "encb:y"))
+	rr, err := s.RunRoleIn(context.Background(), "app_1", appenv.First)
+	require.NoError(t, err)
+	assert.Equal(t, "shop_dev_run", rr.Role)
+}
+
+// DraftIn resolves the application a draft names for its owner and
+// administrators, by name or id, and refuses anyone else (#2709).
+func TestDraftIn(t *testing.T) {
+	assert.Nil(t, DraftIn(nil))
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	in := DraftIn(db)
+	ctx := context.Background()
+	expectApp := func(by string) {
+		mock.ExpectQuery("FROM applications WHERE " + by).WillReturnRows(appRow(1))
+		mock.ExpectQuery("FROM application_parts").WillReturnRows(partRows())
+		mock.ExpectQuery("FROM application_environments").WillReturnRows(envRows())
+	}
+	expectApp("name")
+	id, conn, err := in(ctx, "shop", "jane@example.com", false)
+	require.NoError(t, err)
+	assert.Equal(t, [2]string{"app_1", "orders"}, [2]string{id, conn}, "the owner drafts in it")
+	expectApp("id")
+	_, _, err = in(ctx, "app_1", "ann@example.com", true)
+	require.NoError(t, err, "an administrator drafts in any")
+	expectApp("name")
+	_, _, err = in(ctx, "shop", "bob@example.com", false)
+	require.ErrorContains(t, err, "for its owner and administrators")
+	mock.ExpectQuery("FROM applications WHERE name").WillReturnRows(sqlmock.NewRows(appCols))
+	_, _, err = in(ctx, "nope", "jane@example.com", false)
+	require.ErrorContains(t, err, `no application "nope"`)
+	mock.ExpectQuery("FROM applications WHERE name").WillReturnError(errors.New("down"))
+	_, _, err = in(ctx, "x", "jane@example.com", false)
+	require.ErrorContains(t, err, "reading application")
 }

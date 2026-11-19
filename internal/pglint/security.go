@@ -125,10 +125,11 @@ func (l *linter) securityStatement(n int, stmt string, ts toks) {
 		return
 	}
 	l.passwordLiteral(n, stmt)
-	l.rolesOutsideSchema(n, ts)
+	l.rolesNamed(n, ts)
 	if ts[0].word == "do" {
 		l.rolesInDo(n, stmt)
 	}
+	l.schemaQualified(n, stmt, ts)
 	l.versionFeatures(n, ts)
 	if rule, ok := securityRules[ts[0].word]; ok {
 		rule(l, n, ts)

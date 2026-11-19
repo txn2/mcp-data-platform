@@ -15518,7 +15518,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Adds an environment after another (after; empty puts it first, and none may follow the last, which /endpoints serves). It runs no release until one is promoted or released to it. requires_approval makes an agent's promote or rollback into it a person's to carry out. For administrators.",
+                "description": "Adds an environment after another (after; empty puts it first, and none may follow the last, which /endpoints serves). It runs no release until one is promoted or released to it. requires_approval makes an agent's promote or rollback into it a person's to carry out. On an application holding a schema it runs in a schema of its own (schema, default <schema>_<environment>), built from the last environment's structure with no rows and recorded at its migration version, logged in as a role granted on that schema alone; refused while the application's scripts, libraries or pending migrations name its schema or roles (see prepare). For administrators.",
                 "consumes": [
                     "application/json"
                 ],
@@ -16223,6 +16223,126 @@
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/applications/{app}/prepare": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Each script, library and pending migration of the application that names its schema or its roles, with the text prepare proposes (the schema qualifier and the role statements removed) and, for a script or library, the recorded runs the save gate replayed against it and any difference (#2709). An application whose files name none is ready for an environment of its own. For the owner and administrators.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Applications"
+                ],
+                "summary": "Show what preparing an application changes",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Application name or id",
+                        "name": "app",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/appprepare.Plan"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Saves each change prepare shows as a new version: each library first, then each script loading the libraries' new versions, then each pending migration replaced. Nothing is saved while the save gate refuses a script or library, as when a replayed run answers differently (#2709). Release the new versions to put them live. For administrators.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Applications"
+                ],
+                "summary": "Save what preparing an application changes",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Application name or id",
+                        "name": "app",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/appprepare.Plan"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -39904,6 +40024,14 @@
                         "$ref": "#/definitions/application.PinChange"
                     }
                 },
+                "prepare": {
+                    "description": "Prepare is how many of the application's files name its schema or\nroles (#2709), which refuses a new environment until prepare saves\ntheir change; nil for an application holding no schema.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/appprepare.Counts"
+                        }
+                    ]
+                },
                 "problems": {
                     "description": "Problems are parts a release would refuse (deleted, or unreadable),\nand what the application's diagram finds (#2540).",
                     "type": "array",
@@ -39956,6 +40084,11 @@
                 },
                 "requires_approval": {
                     "type": "boolean"
+                },
+                "schema": {
+                    "description": "Schema is the schema the environment runs in (#2709), built from\nthe last environment's structure; empty gives it\n<schema>_<environment>.",
+                    "type": "string",
+                    "example": "orders_dev"
                 }
             }
         },
@@ -40217,6 +40350,11 @@
                     "description": "RequiresApproval makes an agent's promote or rollback into it wait on a\nperson, as a site environment's does.",
                     "type": "boolean"
                 },
+                "schema": {
+                    "description": "Schema is the schema its runs read and write on the application's\nconnection (#2709), empty for an application holding none. An\nenvironment that existed before #2709 uses the application's schema.",
+                    "type": "string",
+                    "example": "orders_dev"
+                },
                 "updated_at": {
                     "type": "string"
                 },
@@ -40349,6 +40487,133 @@
                 "value": {
                     "type": "string",
                     "example": "https://pay.example.com"
+                }
+            }
+        },
+        "appprepare.Counts": {
+            "type": "object",
+            "properties": {
+                "libraries": {
+                    "type": "integer"
+                },
+                "migrations": {
+                    "type": "integer"
+                },
+                "scripts": {
+                    "type": "integer"
+                }
+            }
+        },
+        "appprepare.File": {
+            "type": "object",
+            "properties": {
+                "after": {
+                    "type": "string"
+                },
+                "before": {
+                    "type": "string"
+                },
+                "differences": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scriptbehavior.Difference"
+                    }
+                },
+                "id": {
+                    "description": "ID is a script's or library's id, a migration's version.",
+                    "type": "string",
+                    "example": "5b0c..."
+                },
+                "kind": {
+                    "type": "string",
+                    "example": "script"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "orders-api"
+                },
+                "names": {
+                    "description": "Names is how many names of the schema or its roles it holds.",
+                    "type": "integer",
+                    "example": 3
+                },
+                "refusal": {
+                    "description": "Refusal is why the save gate refuses the new text, empty when it does\nnot.",
+                    "type": "string"
+                },
+                "replayed": {
+                    "description": "Replayed is the recorded runs the save gate replayed against the new\ntext, and Differences what any of them answered differently.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "saved": {
+                    "description": "Saved is the version saved, 0 until it is.",
+                    "type": "integer"
+                },
+                "version": {
+                    "description": "Version is the version changed: a script's current version, a\nmigration's own.",
+                    "type": "integer",
+                    "example": 4
+                }
+            }
+        },
+        "appprepare.Plan": {
+            "type": "object",
+            "properties": {
+                "application": {
+                    "type": "string",
+                    "example": "shop"
+                },
+                "counts": {
+                    "$ref": "#/definitions/appprepare.Counts"
+                },
+                "files": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/appprepare.File"
+                    }
+                },
+                "ready": {
+                    "description": "Ready is true when nothing names the schema or its roles, so an\nenvironment can be added.",
+                    "type": "boolean"
+                },
+                "saved": {
+                    "description": "Saved is true when the plan's changes were saved.",
+                    "type": "boolean"
+                },
+                "schema": {
+                    "type": "string",
+                    "example": "orders"
+                },
+                "values": {
+                    "description": "Values is each qualified name inside a quoted SQL value: data, such as\nan outbox row's source table, that prepare leaves as written. Each\nenvironment needs its own text there (current_schema() || '.invoices'),\nso a person changes it; it does not block an environment.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/appprepare.Value"
+                    }
+                }
+            }
+        },
+        "appprepare.Value": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "example": "script"
+                },
+                "line": {
+                    "type": "integer",
+                    "example": 86
+                },
+                "name": {
+                    "type": "string",
+                    "example": "orders-api"
+                },
+                "text": {
+                    "type": "string",
+                    "example": "orders.invoices"
                 }
             }
         },
@@ -40680,6 +40945,38 @@
                 }
             }
         },
+        "appsvc.EnvironmentSchema": {
+            "type": "object",
+            "properties": {
+                "environment": {
+                    "type": "string",
+                    "example": "dev"
+                },
+                "migration_version": {
+                    "description": "MigrationVersion is the highest migration applied in it, and Pending\nwhat its next release or promote would apply.",
+                    "type": "integer",
+                    "example": 7
+                },
+                "pending": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "problem": {
+                    "type": "string"
+                },
+                "schema": {
+                    "type": "string",
+                    "example": "orders_dev"
+                },
+                "shared": {
+                    "description": "Shared names another environment running in the same schema, as every\nenvironment did before #2709; empty when the schema is its own.",
+                    "type": "string",
+                    "example": "prod"
+                }
+            }
+        },
         "appsvc.PartSchedule": {
             "type": "object",
             "properties": {
@@ -40762,6 +41059,13 @@
         "appsvc.Promoted": {
             "type": "object",
             "properties": {
+                "applied": {
+                    "description": "Applied is the migrations the promote applied to the target's schema\n(#2709), [] for none.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
                 "from": {
                     "type": "string",
                     "example": "dev"
@@ -40792,6 +41096,13 @@
                 "connection": {
                     "type": "string",
                     "example": "orders"
+                },
+                "environments": {
+                    "description": "Environments is the schema each environment runs in and where its\nmigrations stand there (#2709), in promotion order.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/appsvc.EnvironmentSchema"
+                    }
                 },
                 "migration_version": {
                     "description": "MigrationVersion is the highest migration applied in the database;\nReleasedVersion the one the current release recorded; Pending the\nversions a release would apply.",

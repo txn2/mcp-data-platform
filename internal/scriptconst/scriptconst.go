@@ -119,6 +119,13 @@ func (t Table) Value(id *syntax.Ident) (string, bool) {
 	return v, ok
 }
 
+// Named returns the constant the module binds under name, for a name read
+// from another file: a library's constant a script loads (#2699).
+func (t Table) Named(name string) (string, bool) {
+	v, ok := t.values[name]
+	return v, ok
+}
+
 // Len reports how many constants the table holds.
 func (t Table) Len() int { return len(t.values) }
 

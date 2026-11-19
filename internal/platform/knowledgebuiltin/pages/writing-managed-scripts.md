@@ -125,8 +125,13 @@ branch with `testing.answer(tool, args, error = {...})`.
   statements go straight to the database without a tool call, and
   `platform.execute` there commits one statement. A script that is part of
   an application holding a schema on that database runs its statements, in
-  a draft as in a run, as the application's run role; a table in a schema
-  another application holds is refused naming that application. Statements that must
+  a draft as in a run, as the run role of the schema its environment runs in,
+  with that schema as its search path: name tables without a schema
+  (`invoices`, never `orders.invoices`), and a save that adds a qualified one
+  is refused naming the line. A script written before it is a part drafts
+  in its application with `run_draft application=<name>`. A table in a
+  schema another application holds,
+  or another environment's, is refused by the database. Statements that must
   commit together go in `platform.transaction(connection, fn)`: `fn(tx)`
   runs them with `tx.query`, `tx.execute` and `tx.batch`, and the
   transaction commits when `fn` returns and rolls back when it fails.
@@ -137,6 +142,16 @@ branch with `testing.answer(tool, args, error = {...})`.
   `manage_schema command=describe`. A scheduled script maintains the database
   with `platform.maintain(connection, "analyze" | "vacuum" | "reindex", table)`,
   for the administrator and the personas its `schema_apply_personas` names.
+- **Connections come from variables in an application.** A script that is
+  part of an application runs in every one of its environments, so it never
+  hard-codes what differs between them: a connection name, a base URL, a mode
+  or a key is a variable the application sets per environment
+  (`manage_application set_variable`), read with `platform.env("NAME")`, as
+  `platform.call("api_invoke_endpoint", {"connection": platform.env("PAYMENTS_CONNECTION"), ...})`.
+  A secret is never a variable's value: write `{{secret:<name>}}` and the
+  gateway fills it when the request is sent. `platform.environment()` names
+  the environment for a label or a log line; choose a connection by variable,
+  never by testing the environment's name.
 - **A truncated query result fails the run** rather than returning a partial
   answer. Aggregate in SQL, or narrow the query.
 - **`platform.query` is the read tool.** A statement that modifies state is

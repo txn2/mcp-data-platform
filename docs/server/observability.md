@@ -1027,7 +1027,13 @@ A purpose is read from where an object sits: the managed-resources bucket's
 outputs are `script_outputs`, GraphQL and API exports are `exports`, and
 everything else, Trino exports included (they are written in an asset's own
 shape), is `portal_assets`. The reconcile compares every object key a row
-records; a tile beside a referenced object belongs to it, as the purge treats
+records, a site environment's tile (`site_tiles.tile_key`) among them (#2701);
+a test derives every column a migration declares to hold an object key and
+fails when no reference query reads it, so a new kind of stored file cannot be
+taken for an orphan. A site tile whose object is gone anyway (a deployment
+whose listing reclaimed it before this) is drawn again on the next request
+for it, and every site tile is drawn once more on upgrade; a tile beside a
+referenced object belongs to it, as the purge treats
 it, an archive under `maps/uploads/` is the operator's, and webhook segments,
 which no row records one by one, are left out. An object written in the last
 `MCP_PLATFORM_STORAGE_ORPHAN_GRACE` is not yet an orphan, since a writer stores

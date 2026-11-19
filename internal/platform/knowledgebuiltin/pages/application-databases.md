@@ -260,7 +260,14 @@ index of a generated column declared without `STORED`. `COPY ... PROGRAM`,
 `ALTER SYSTEM`, and a role, user, group or user mapping given a password in
 the migration (`PASSWORD '...'`) are refused, in the up SQL and the down SQL
 alike: a migration is stored, applied and exported as written, so a
-credential never belongs in one. The audit row of the call keeps the SQL with
+credential never belongs in one. Two more refusals follow from an
+application's environments each running in a schema of its own (#2709): a
+statement that creates, alters, drops or grants to a role, `PUBLIC` included
+(`role_named`), and a name qualified by the migration's own schema
+(`schema_qualified`, in a function's or `DO` block's body too). The same
+migration applies to every environment's schema with the search path set to
+it, so a bare name lands in that environment's schema, and the platform
+grants each environment's run role what the migration creates. The audit row of the call keeps the SQL with
 the password replaced by `'[REDACTED]'`.
 
 `status` also reports `schema_drift` for the schema: the applied migrations
@@ -298,8 +305,8 @@ reaches the connection's own database.
 
     def test_a_duplicate_email_is_refused():
         testing.database("shop", schemas = ["app"])
-        platform.execute("INSERT INTO app.users (email) VALUES (:e)", connection = "shop", params = {"e": "a@example.com"})
-        msg = assert.fails(lambda: platform.execute("INSERT INTO app.users (email) VALUES (:e)",
+        platform.execute("INSERT INTO users (email) VALUES (:e)", connection = "shop", params = {"e": "a@example.com"})
+        msg = assert.fails(lambda: platform.execute("INSERT INTO users (email) VALUES (:e)",
                                                     connection = "shop", params = {"e": "a@example.com"}))
         assert.contains(msg, "unique_violation")
 
@@ -321,14 +328,19 @@ which whoever runs the database server grants once (`ALTER ROLE <user>
 CREATEROLE`); without it adding the schema is refused naming that statement.
 Removing the schema from the application drops the role.
 
-The run role holds nothing until the application's migrations define what it
-may do (below); the platform grants it `<schema>_write` when the migrations
-define it, at the next release or `manage_schema apply`. A schema's own scripts
+Each environment of the application runs in a schema of its own with a run
+role of its own (`<environment schema>_run_` and the same eight characters),
+created when the environment is added, its search path set to that schema, so
+a statement naming a table without a schema reads and writes its own
+environment's. The application's first environment keeps the schema and run
+role the application had. What a run role may do is below. A schema's own scripts
 reach it; any other script, of another application or of none, has no grant on
 it, and its statement is refused by the database, with an error naming the
 application that holds the schema: reach that data through the application's
-endpoints and exports. A script that reads or writes a schema another
-application holds is refused when it is added to an application.
+endpoints and exports. A run in one environment is refused the same way on
+another environment's schema (`permission denied for schema shop`). A script
+that reads or writes a schema another application holds is refused when it is
+added to an application.
 
 A script that is a part of no application logs in as the role of the persona
 its author holds, when the connection's `persona_roles` maps that persona to a
@@ -355,50 +367,29 @@ with `platform.query` or `query_iter` instead.
 
 ## What the run role may do
 
-An application defines what its run role may do in its own migrations, with
-roles that cannot log in and whose names start with the schema's: roles belong
-to the whole server, and two applications must not collide. A migration that
-creates, alters, drops or grants to a role whose name does not start with
-`<schema>_`, or grants to `PUBLIC`, is refused when it is added. For most
-applications two roles are enough:
+The platform grants it: after each release or promote applies migrations to
+an environment's schema, that environment's run role is granted `USAGE` on
+the schema and `SELECT`, `INSERT`, `UPDATE` and `DELETE` on every table,
+sequence and routine in it, and nothing on any other schema. A migration names
+no role (it is refused when it is added), since one migration applies to every
+environment's schema and a role belongs to the whole server: a grant written
+for one environment's role would reach another's data or another
+application's. A schema whose migrations defined `<schema>_write` before
+environments had their own schemas keeps the run role a member of it.
 
-    DO $$BEGIN
-      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'shop_read') THEN CREATE ROLE shop_read NOLOGIN; END IF;
-      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'shop_write') THEN CREATE ROLE shop_write NOLOGIN IN ROLE shop_read; END IF;
-    END$$;
-    REVOKE ALL ON SCHEMA shop FROM PUBLIC;
-    GRANT USAGE ON SCHEMA shop TO shop_read;
-    GRANT SELECT ON ALL TABLES IN SCHEMA shop TO shop_read;
-    GRANT INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA shop TO shop_write;
-    GRANT USAGE ON ALL SEQUENCES IN SCHEMA shop TO shop_write;
-    ALTER DEFAULT PRIVILEGES IN SCHEMA shop GRANT SELECT ON TABLES TO shop_read;
-    ALTER DEFAULT PRIVILEGES IN SCHEMA shop GRANT INSERT, UPDATE, DELETE ON TABLES TO shop_write;
-    ALTER DEFAULT PRIVILEGES IN SCHEMA shop GRANT USAGE ON SEQUENCES TO shop_write;
+Narrower when the data calls for it, as ordinary PostgreSQL practice has it,
+without naming a role:
 
-The roles are created only when absent, because the platform applies an
-application's migrations from zero on a throwaway database on the same server
-before saving one, and a role made there is the server's. The down migration
-revokes and drops them: `DROP OWNED BY shop_write, shop_read; DROP ROLE
-shop_write; DROP ROLE shop_read;`. A role is never given a password in a
-migration; that migration is refused.
-
-Narrower when the data calls for it, as ordinary PostgreSQL practice has it:
-
-- Grant per table and per command instead of `ALL TABLES` when some tables are
-  append-only or read-only: an audit or ledger table gets `INSERT` and
-  `SELECT`, never `UPDATE` or `DELETE`.
 - Row-level security with `FORCE` and policies on the `mcp.*` claims (below)
   for data that belongs to a caller.
-- A `SECURITY DEFINER` function with `SET search_path` pinned and `EXECUTE`
-  revoked from `PUBLIC` for the one privileged operation a role otherwise must
-  not have.
-- Never `SUPERUSER`, `BYPASSRLS`, `CREATEROLE` or grants to `PUBLIC` on an
-  application's roles, and no `TRUNCATE`, `REFERENCES` or `TRIGGER` unless the
-  application needs it.
-
-A schema already in use when it is added to an application keeps working: its
-run role is granted `<schema>_write` when the schema defines it, and until a
-migration does, the application's page names the grants its scripts need.
+- A constraint or trigger for a table that is append-only: a ledger row a
+  trigger refuses to update or delete holds whoever writes it.
+- A `SECURITY DEFINER` function with its search path pinned (`SET search_path
+  FROM CURRENT`, which keeps the schema it was created in) and `EXECUTE`
+  revoked from `PUBLIC`, for the one privileged operation a run role otherwise
+  must not have.
+- Never `SUPERUSER`, `BYPASSRLS` or `CREATEROLE` on a run role; the platform
+  creates it without them.
 
 ## The claims a transaction carries
 
@@ -414,7 +405,7 @@ with `current_setting(name, true)`:
 A policy that shows each caller their own rows treats an empty setting as no
 one:
 
-    CREATE POLICY own_orders ON orders TO orders_sales
+    CREATE POLICY own_orders ON orders
       USING (customer_id = nullif(current_setting('mcp.user_id', true), ''));
 
 A claim protects against the person who did not write the SQL, such as an
@@ -429,7 +420,11 @@ function that writes each inserted, updated or deleted row of a captured table
 to it and notifies its channel, and a trigger on each captured table. A
 webhook source with input `postgres` and mode `outbox` then files each row as
 an event and deletes it, and the scripts naming that source run once per row,
-reading it from `run.event["payload"]["row"]`.
+reading it from `run.event["payload"]["row"]`. The template names nothing
+with its schema: the trigger function pins the search path it was created
+with (`SET search_path FROM CURRENT`) and notifies `<schema>.<outbox table>`
+of the schema it runs in, so each environment's outbox fills and notifies on
+its own.
 
 For a table many sessions write at once, add with `notify` set to false. Each
 transaction that notifies takes a lock at commit that every other notifying

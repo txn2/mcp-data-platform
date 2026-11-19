@@ -660,6 +660,22 @@ func TestAddConnection_RecordsItsOwnSettings(t *testing.T) {
 	assert.NoError(t, err, "ParseConfig tolerates a wrong-typed field; the connection is added with defaults")
 }
 
+// HoldsConfig: a connection is held under exactly the configuration it was
+// added with, and forgotten when removed (#2704).
+func TestHoldsConfig(t *testing.T) {
+	tk, err := New("primary", Config{Region: "us-east-1", AccessKeyID: "a", SecretAccessKey: "b", Endpoint: "http://localhost:1"})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = tk.Close() })
+	cfg := map[string]any{"region": "us-east-1", "access_key_id": "a", "secret_access_key": "b", "endpoint": "http://localhost:1"}
+	assert.False(t, tk.HoldsConfig("archive", cfg))
+	require.NoError(t, tk.AddConnection("archive", cfg))
+	assert.True(t, tk.HoldsConfig("archive", cfg))
+	assert.False(t, tk.HoldsConfig("archive", map[string]any{"region": "us-west-2", "access_key_id": "a", "secret_access_key": "b", "endpoint": "http://localhost:1"}))
+	assert.False(t, tk.HoldsConfig("archive", map[string]any{"secret_access_key": "{{secret:missing}}"}), "an unreadable secret is not held")
+	require.NoError(t, tk.RemoveConnection("archive"))
+	assert.False(t, tk.HoldsConfig("archive", cfg))
+}
+
 func TestOperationLabel(t *testing.T) {
 	assert.Equal(t, "put", operationLabel("put"))
 	assert.Equal(t, "unknown", operationLabel("rename"), "a caller-supplied action never mints a metric series")

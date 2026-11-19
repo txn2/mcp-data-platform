@@ -31,7 +31,7 @@ func TestIssue2665_CopyInAndWrappedHandlersAreWrites(t *testing.T) {
 	migration2539(admin, conn2539, schema, 1,
 		"CREATE TABLE photos (id int);\nCREATE TABLE guesses (g int);\nCREATE TABLE unused (id int);\n"+
 			writeRole(schema, "SELECT, INSERT", "photos, guesses, unused"),
-		"DROP TABLE photos, guesses, unused; DROP OWNED BY "+schema+"_write; DROP ROLE "+schema+"_write")
+		"DROP TABLE photos, guesses, unused")
 	admin.call("manage_schema", map[string]any{"command": "apply", "connection": conn2539, "schema": schema})
 
 	loader := "acc2665-loader-" + stamp

@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import { AddPartsDialog } from "./AddPartsDialog";
+import { AddPartsFlow } from "./AddPartsDialog";
 import { ApplicationDiagram } from "./diagram/ApplicationDiagram";
 import { storePartsTab, storedPartsTab, type PartsTab } from "./diagram/diagramModel";
 import { PartTile } from "./PartTile";
@@ -120,13 +120,7 @@ export function ApplicationParts({ detail, canEdit, isAdmin, onNavigate }: Props
         </TabsContent>
       </Tabs>
       {adding && (
-        <AddPartsDialog
-          app={app.id}
-          appName={app.name}
-          heldSchema={app.schema ? `${app.connection}/${app.schema}` : null}
-          onNavigate={onNavigate}
-          onClose={() => setAdding(false)}
-        />
+        <AddPartsFlow detail={detail} isAdmin={isAdmin} onNavigate={onNavigate} onClose={() => setAdding(false)} />
       )}
       {removing && (
         <RemovePartDialog app={app.id} appName={app.name} part={removing} onClose={() => setRemoving(null)} />

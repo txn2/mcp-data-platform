@@ -5,6 +5,7 @@ import type {
   ApplicationDiagramNode,
   ApplicationPartKind,
 } from "@/api/portal/hooks/applications";
+import { warehouseReach } from "./applicationWarehouse";
 
 // An application drawn (#2540), as GET /portal/applications/:app/diagram
 // answers. Every application's parts are drawn from its record; shop also
@@ -104,8 +105,8 @@ function draw(d: ApplicationDetail, version: string, pins: Map<string, number>):
     { id: "outside", label: "Outside the application" },
   ];
   if (a.schema) groups.push({ id: "schema", label: `${a.connection}/${a.schema}`, parent: "application" });
-  if (a.name === "shop") {
-    const reach = shopReach(version, pins);
+  const reach = a.name === "shop" ? shopReach(version, pins) : a.name === "warehouse" ? warehouseReach() : null;
+  if (reach) {
     nodes.push(...reach.nodes);
     links.push(...reach.links);
   }

@@ -1,4 +1,4 @@
-import type { ApplicationVariable } from "@/api/portal/hooks/applicationEnvironments";
+import type { ApplicationPreparePlan, ApplicationVariable } from "@/api/portal/hooks/applicationEnvironments";
 import type {
   Application,
   ApplicationCandidate,
@@ -8,10 +8,13 @@ import type {
   ApplicationRelease,
   ApplicationSchemaView,
 } from "@/api/portal/hooks/applications";
+import { warehouseApplication, warehouseCatalog, warehouseFindings } from "./applicationWarehouse";
 
-// Two applications (#2411): "shop", released twice with a rollback between,
-// made of a schema, two scripts, an asset and a webhook source; and "intake",
-// recorded but never released. The script, asset and source ids are ones the
+// Three applications (#2411): "shop", released twice with a rollback between,
+// made of a schema, two scripts, an asset and a webhook source; "intake",
+// recorded but never released; and "warehouse", twenty automations over a
+// schema of twenty tables, drawn as a large application (#2700,
+// applicationWarehouse.ts). The script, asset and source ids are ones the
 // other mocks serve, so a part reads as something that exists. shop's schema
 // is a part of kind schema (#2539), listed last.
 
@@ -34,10 +37,13 @@ export const mockApplications: Application[] = [
       { kind: "asset", id: "ast-001", added_by: "sarah.chen@example.com", added_at: "2025-01-12T11:00:00Z" },
       { kind: "source", id: "billing-events", added_by: "admin@example.com", added_at: "2025-01-15T14:00:00Z" },
       { kind: "schema", id: "acme-shop/shop", added_by: "sarah.chen@example.com", added_at: "2025-01-10T09:00:00Z" },
+      { kind: "site", id: "shop-web/dev", added_by: "sarah.chen@example.com", added_at: "2025-01-16T09:00:00Z", release_mode: "coupled" },
+      { kind: "site", id: "shop-web/prod", added_by: "sarah.chen@example.com", added_at: "2025-01-16T09:00:00Z", release_mode: "coupled" },
+      { kind: "site", id: "shop-web/staging", added_by: "sarah.chen@example.com", added_at: "2025-01-16T09:00:00Z", release_mode: "linked" },
     ],
     environments: [
-      { name: "dev", release: 3, requires_approval: false, updated_by: "sarah.chen@example.com", updated_at: "2025-01-22T16:30:00Z" },
-      { name: "prod", release: 3, requires_approval: true, updated_by: "admin@example.com", updated_at: "2025-01-22T16:30:00Z" },
+      { name: "dev", release: 3, requires_approval: false, schema: "shop_dev", updated_by: "sarah.chen@example.com", updated_at: "2025-01-22T16:30:00Z" },
+      { name: "prod", release: 3, requires_approval: true, schema: "shop", updated_by: "admin@example.com", updated_at: "2025-01-22T16:30:00Z" },
     ],
   },
   {
@@ -56,9 +62,10 @@ export const mockApplications: Application[] = [
       { kind: "script", id: "script-004", added_by: "j.martinez@example.com", added_at: "2025-01-20T10:02:00Z" },
     ],
     environments: [
-      { name: "prod", release: 0, requires_approval: false, updated_by: "j.martinez@example.com", updated_at: "2025-01-20T10:00:00Z" },
+      { name: "prod", release: 0, requires_approval: false, schema: "", updated_by: "j.martinez@example.com", updated_at: "2025-01-20T10:00:00Z" },
     ],
   },
+  warehouseApplication,
 ];
 
 const shopReleases: ApplicationRelease[] = [
@@ -80,6 +87,8 @@ const shopReleases: ApplicationRelease[] = [
       { kind: "script", part_id: "script-001", version: 4 },
       { kind: "script", part_id: "script-002", version: 2 },
       { kind: "asset", part_id: "ast-001", version: 3 },
+      { kind: "site", part_id: "shop-web/dev", version: 31 },
+      { kind: "site", part_id: "shop-web/prod", version: 31 },
     ],
   },
   {
@@ -162,15 +171,17 @@ export const mockPartCatalog: Record<string, Omit<ApplicationPartView, "state" |
     owner_email: "sarah.chen@example.com", updated_at: "2025-01-23T12:00:00Z",
   },
   "source/billing-events": { kind: "source", id: "billing-events", name: "billing-events", latest_version: null, requests_last_day: 1284 },
+  "site/storefront/dev": { kind: "site", id: "storefront/dev", name: "storefront / dev", latest_version: null },
+  "site/shop-web/preview": { kind: "site", id: "shop-web/preview", name: "shop-web / preview", latest_version: null },
   "source/revenue-events": { kind: "source", id: "revenue-events", name: "revenue-events", latest_version: null, requests_last_day: 312 },
 };
 
 /** partView is a part as the detail route reads it from the catalog; a schema is named by its id. */
 export function partView(p: ApplicationPart): ApplicationPartView {
-  if (p.kind === "schema") {
-    return { kind: "schema", id: p.id, state: "ok", name: p.id, latest_version: null, added_by: p.added_by, added_at: p.added_at };
+  if (p.kind === "schema" || p.kind === "site") {
+    return { kind: p.kind, id: p.id, state: "ok", name: p.id, latest_version: null, added_by: p.added_by, added_at: p.added_at };
   }
-  const known = mockPartCatalog[`${p.kind}/${p.id}`];
+  const known = mockPartCatalog[`${p.kind}/${p.id}`] ?? warehouseCatalog[`${p.kind}/${p.id}`];
   return known
     ? { ...known, state: "ok", added_by: p.added_by, added_at: p.added_at }
     : { kind: p.kind, id: p.id, state: "deleted", latest_version: null, added_by: p.added_by, added_at: p.added_at };
@@ -185,22 +196,14 @@ export function candidateOf(v: Omit<ApplicationPartView, "state" | "added_by" | 
 }
 
 /**
- * schemaNote is what the server says a run role still needs while the
- * schema's migrations define no write role.
+ * schemaViewOf is a newly added schema as the detail route shows it: the
+ * platform grants its run role on it, so nothing is owed (#2709).
  */
-export function schemaNote(schema: string, runRole: string): string {
-  return (
-    `the application's scripts log in as ${runRole}, which reaches no table until a migration defines ${schema}_write ` +
-    `(CREATE ROLE ${schema}_write NOLOGIN, with its grants on schema ${schema}); the next release grants it to ${runRole}`
-  );
-}
-
-/** schemaViewOf is a newly added schema as the detail route shows it. */
 export function schemaViewOf(connection: string, schema: string): ApplicationSchemaView {
-  const runRole = `${schema}_run`;
   return {
     connection, schema, migration_version: 0, released_version: 0, pending: [], adopted_version: 0,
-    run_role: runRole, write_role: "", note: schemaNote(schema, runRole),
+    run_role: `${schema}_run`, write_role: "",
+    environments: [{ environment: "prod", schema, migration_version: 0, pending: [] }],
   };
 }
 
@@ -219,11 +222,21 @@ export const mockApplicationDetails: Record<string, ApplicationDetail> = {
     migrations: { applied: 3, pending: [4] },
     schema: {
       connection: "acme-shop", schema: "shop", migration_version: 3, released_version: 2, pending: [4],
-      adopted_version: 0, run_role: "shop_run", write_role: "", note: schemaNote("shop", "shop_run"),
+      adopted_version: 0, run_role: "shop_run", write_role: "",
+      environments: [
+        { environment: "dev", schema: "shop_dev", migration_version: 3, pending: [4] },
+        { environment: "prod", schema: "shop", migration_version: 3, pending: [4] },
+      ],
     },
     problems: [SHOP_UNWRITTEN],
     findings: [{ kind: "unwritten_table", node: "table:acme-shop/shop.refunds", message: SHOP_UNWRITTEN, blocks: false }],
     releases: shopReleases,
+    site_parts: [
+      { part_id: "shop-web/dev", release_mode: "coupled", serves: 31, step: 32, contract: "", compatible: true },
+      { part_id: "shop-web/prod", release_mode: "coupled", serves: 29, step: 31, contract: "", compatible: true },
+      { part_id: "shop-web/staging", release_mode: "linked", serves: 30, step: 31, contract: "", compatible: true },
+    ],
+    prepare: { scripts: 0, libraries: 0, migrations: 0 },
   },
   "app-intake": {
     application: mockApplications[1]!,
@@ -232,6 +245,23 @@ export const mockApplicationDetails: Record<string, ApplicationDetail> = {
     pending: [{ kind: "script", part_id: "script-004", from: 0, to: 1 }],
     problems: ["script-004 has no saved version that passed its tests"],
     findings: [],
+    releases: [],
+  },
+  "app-warehouse": {
+    application: warehouseApplication,
+    parts: warehouseApplication.parts.map(partView),
+    current_release: null,
+    pending: warehouseApplication.parts
+      .filter((p) => p.kind === "script")
+      .map((p) => ({ kind: p.kind, part_id: p.id, from: 0, to: 1 })),
+    schema: {
+      connection: "acme-shop", schema: "wh", migration_version: 1, released_version: 0, pending: [1],
+      adopted_version: 0, run_role: "wh_run", write_role: "wh_write", note: "",
+      environments: [{ environment: "prod", schema: "wh", migration_version: 1, pending: [] }],
+    },
+    prepare: { scripts: 2, libraries: 1, migrations: 1 },
+    problems: warehouseFindings.map((f) => f.message),
+    findings: warehouseFindings,
     releases: [],
   },
 };
@@ -261,5 +291,41 @@ export const mockApplicationVariables: Record<string, ApplicationVariable[]> = {
     { environment: "prod", name: "API_BASE", value: "https://pay.example.com", updated_by: "admin@example.com", updated_at: "2025-01-21T10:00:00Z" },
     { environment: "dev", name: "PROCESSOR_KEY", value: "{{secret:processor-sandbox}}", updated_by: "sarah.chen@example.com", updated_at: "2025-01-20T10:00:00Z" },
     { environment: "prod", name: "PROCESSOR_KEY", value: "{{secret:processor-live}}", updated_by: "admin@example.com", updated_at: "2025-01-21T10:00:00Z" },
+  ],
+};
+
+/**
+ * What prepare changes in warehouse (#2709): two automations and a library
+ * whose SQL names the schema wh, and a pending migration that also grants a
+ * role. Each changed script replays its recorded runs the same.
+ */
+export const mockWarehousePrepare: ApplicationPreparePlan = {
+  application: "warehouse",
+  schema: "wh",
+  counts: { scripts: 2, libraries: 1, migrations: 1 },
+  ready: false,
+  saved: false,
+  values: [{ kind: "script", name: "Receive stock", line: 31, text: "wh.receipts" }],
+  files: [
+    {
+      kind: "script", id: "wh-01", name: "Receive stock", version: 17, names: 2, replayed: ["run_1001", "run_1002", "run_1003"], differences: [],
+      before: 'def main():\n    rows = platform.query("acme-shop", "SELECT * FROM wh.receipt", {})\n    platform.execute("acme-shop", "INSERT INTO wh.stock (sku) VALUES (:sku)", rows[0])\n',
+      after: 'def main():\n    rows = platform.query("acme-shop", "SELECT * FROM receipt", {})\n    platform.execute("acme-shop", "INSERT INTO stock (sku) VALUES (:sku)", rows[0])\n',
+    },
+    {
+      kind: "script", id: "wh-12", name: "Post refunds", version: 4, names: 1, replayed: ["run_2001", "run_2002"], differences: [],
+      before: 'REFUNDS = "INSERT INTO wh.refund (order_id) VALUES (:o)"\n',
+      after: 'REFUNDS = "INSERT INTO refund (order_id) VALUES (:o)"\n',
+    },
+    {
+      kind: "library", id: "lib-wh-sql", name: "wh-sql", version: 2, names: 1, replayed: [], differences: [],
+      before: 'ORDERS = "SELECT * FROM wh.order_status"\n',
+      after: 'ORDERS = "SELECT * FROM order_status"\n',
+    },
+    {
+      kind: "migration", id: "2", name: "refunds", version: 2, names: 2, replayed: [], differences: [],
+      before: "CREATE TABLE wh.refund_reason (code text PRIMARY KEY);\nGRANT SELECT ON wh.refund_reason TO wh_write;",
+      after: "CREATE TABLE refund_reason (code text PRIMARY KEY);",
+    },
   ],
 };

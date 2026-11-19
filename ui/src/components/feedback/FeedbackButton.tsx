@@ -5,7 +5,7 @@ import { useThreads } from "@/api/portal/hooks";
 import type { FeedbackTarget } from "@/api/portal/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ItemPanelSlot } from "@/components/layout/PageArea";
+import { BESIDE_THE_PAGE_MIN_WIDTH, ItemPanelSlot, usePanelSheet } from "@/components/layout/PageArea";
 import { FeedbackPanel } from "./FeedbackPanel";
 import { filterForTarget } from "./targetFilter";
 import { useDeckArrowKeys } from "./useDeckArrowKeys";
@@ -38,6 +38,8 @@ export function FeedbackButton(props: Props) {
 function FeedbackToggle({ target, canModerate = false, compact = false }: Props) {
   const [open, setOpen] = useState(false);
   const slot = useContext(ItemPanelSlot);
+  // The panel is a sheet only where it is placed under the page (#2705).
+  const sheet = usePanelSheet();
   useDeckArrowKeys(open);
   useLayoutEffect(() => {
     if (open) bringContentAboveSheet();
@@ -57,7 +59,10 @@ function FeedbackToggle({ target, canModerate = false, compact = false }: Props)
         </Button>
       )}
 
-      {open && placePanel(<FeedbackPanel target={target} canModerate={canModerate} onClose={() => setOpen(false)} />, slot)}
+      {open && placePanel(
+          <FeedbackPanel target={target} canModerate={canModerate} onClose={() => setOpen(false)} sheet={slot ? sheet : null} />,
+          slot,
+        )}
     </>
   );
 }
@@ -80,8 +85,6 @@ function CompactButton({ openCount, onOpen }: { openCount: number; onOpen: () =>
     </Button>
   );
 }
-
-const BESIDE_THE_PAGE_MIN_WIDTH = 1024;
 
 /**
  * On a narrow screen the panel takes the lower part of the screen, and the

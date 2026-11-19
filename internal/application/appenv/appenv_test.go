@@ -39,6 +39,9 @@ func TestRunVersionIn(t *testing.T) {
 	v, err = RunVersionIn(ctx, resolver{res: &Script{OK: true, Environment: "dev", Version: 4}}, sc, "dev")
 	require.NoError(t, err)
 	assert.Equal(t, 4, v)
+	v, err = RunVersionIn(ctx, resolver{res: &Script{OK: true, Environment: "prod", Last: true}}, sc, "prod")
+	require.NoError(t, err)
+	assert.Equal(t, 3, v, "the last environment named runs what \"\" does, released or not (#2709)")
 }
 
 func TestForRun(t *testing.T) {

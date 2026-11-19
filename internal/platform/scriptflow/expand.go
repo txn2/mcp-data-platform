@@ -5,6 +5,8 @@ import (
 	"slices"
 
 	"go.starlark.net/syntax"
+
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptflow/stmtlookup"
 )
 
 // invoke expands one call of a user function in place. The function's steps
@@ -103,6 +105,7 @@ func (a *analyzer) enclosing(name string) *frame {
 // passed.
 func (a *analyzer) bindParams(caller, fr *frame, d *syntax.DefStmt, c *syntax.CallExpr) {
 	names := a.bindDefaults(fr, d)
+	callerScope := a.scopeOf(caller)
 	pos := 0
 	for _, arg := range c.Args {
 		pname, val := "", arg
@@ -127,6 +130,9 @@ func (a *analyzer) bindParams(caller, fr *frame, d *syntax.DefStmt, c *syntax.Ca
 		if dict := a.dictIn(caller, val); dict != nil {
 			fr.dicts[pname] = dict
 		}
+		// What the caller passed, scope free, so a statement list built in
+		// the caller is read where the callee runs it (#2699).
+		fr.args[pname] = stmtlookup.Substitute(callerScope, val)
 	}
 }
 

@@ -32,7 +32,7 @@ var (
 	fileCols    = []string{"path", "sha256", "content_type", "size", "gzip_size", "brotli_size", "stored_in"}
 	deployCols  = []string{"environment", "action", "from_release", "to_release", "actor", "detail", "decided_by", "removed", "created_at"}
 	domainCols  = []string{"hostname", "site_id", "name", "environment", "application_id", "application", "created_by", "created_at", "public", "access_changed_at", "is_primary", "mode", "redirects_to", "primary_public"}
-	routeCols   = []string{"id", "name", "env", "number", "private", "part_of", "status", "status_message", "back_at", "redirect_to", "redirect_keep_path"}
+	routeCols   = []string{"id", "name", "env", "number", "private", "part_of", "part_of_environment", "status", "status_message", "back_at", "redirect_to", "redirect_keep_path"}
 )
 
 func newMock(t *testing.T) (*Store, sqlmock.Sqlmock) {
@@ -821,7 +821,7 @@ func TestRouteHost(t *testing.T) {
 		s, mock := newMock(t)
 		domain(mock, domainRow("www.example.com"))
 		mock.ExpectQuery(q("WHERE s.id = $2 AND e.name = $3")).WithArgs(false, "site_1", "prod").
-			WillReturnRows(sqlmock.NewRows(routeCols).AddRow("site_1", "marketing", "prod", 2, false, "", "online", "", nil, "", false))
+			WillReturnRows(sqlmock.NewRows(routeCols).AddRow("site_1", "marketing", "prod", 2, false, "", "", "online", "", nil, "", false))
 		mock.ExpectQuery(q("WHERE site_id = $1 AND number = $2")).WithArgs("site_1", 2).
 			WillReturnRows(sqlmock.NewRows(releaseCols).AddRow(releaseRow(2, `[]`)...))
 		r, err := s.RouteHost(ctx, "www.example.com")
@@ -850,7 +850,7 @@ func TestRouteHost(t *testing.T) {
 	t.Run("an environment serving nothing has no release", func(t *testing.T) {
 		s, mock := newMock(t)
 		domain(mock, domainRow("www.example.com"))
-		mock.ExpectQuery(q("WHERE s.id = $2 AND e.name = $3")).WillReturnRows(sqlmock.NewRows(routeCols).AddRow("site_1", "marketing", "prod", 0, false, "", "online", "", nil, "", false))
+		mock.ExpectQuery(q("WHERE s.id = $2 AND e.name = $3")).WillReturnRows(sqlmock.NewRows(routeCols).AddRow("site_1", "marketing", "prod", 0, false, "", "", "online", "", nil, "", false))
 		r, err := s.RouteHost(ctx, "www.example.com")
 		require.NoError(t, err)
 		assert.Nil(t, r.Release)
@@ -861,7 +861,7 @@ func TestRouteHost(t *testing.T) {
 		row[8] = false
 		domain(mock, row)
 		mock.ExpectQuery(q("WHERE s.id = $2 AND e.name = $3")).WithArgs(true, "site_1", "prod").
-			WillReturnRows(sqlmock.NewRows(routeCols).AddRow("site_1", "marketing", "prod", 0, true, "", "online", "", nil, "", false))
+			WillReturnRows(sqlmock.NewRows(routeCols).AddRow("site_1", "marketing", "prod", 0, true, "", "", "online", "", nil, "", false))
 		r, err := s.RouteHost(ctx, "beta.example.com")
 		require.NoError(t, err)
 		assert.True(t, r.Private)
@@ -880,7 +880,7 @@ func TestRouteOwn(t *testing.T) {
 	s, mock := newMock(t)
 
 	mock.ExpectQuery(q("WHERE s.name = $2 AND e.name = s.main_environment")).WithArgs(true, "marketing").
-		WillReturnRows(sqlmock.NewRows(routeCols).AddRow("site_1", "marketing", site.EnvDev, 1, true, "", "online", "", nil, "", false))
+		WillReturnRows(sqlmock.NewRows(routeCols).AddRow("site_1", "marketing", site.EnvDev, 1, true, "", "", "online", "", nil, "", false))
 	mock.ExpectQuery(q("WHERE site_id = $1 AND number = $2")).WillReturnRows(sqlmock.NewRows(releaseCols).AddRow(releaseRow(1, `[]`)...))
 	r, err := s.RouteOwn(ctx, "marketing")
 	require.NoError(t, err)
@@ -896,7 +896,7 @@ func TestRouteOwn(t *testing.T) {
 	_, err = s.RouteOwn(ctx, "marketing")
 	require.ErrorContains(t, err, "read route")
 
-	mock.ExpectQuery(q("WHERE s.name = $2 AND e.name = s.main_environment")).WillReturnRows(sqlmock.NewRows(routeCols).AddRow("site_1", "marketing", site.EnvDev, 9, true, "", "online", "", nil, "", false))
+	mock.ExpectQuery(q("WHERE s.name = $2 AND e.name = s.main_environment")).WillReturnRows(sqlmock.NewRows(routeCols).AddRow("site_1", "marketing", site.EnvDev, 9, true, "", "", "online", "", nil, "", false))
 	mock.ExpectQuery(q("WHERE site_id = $1 AND number = $2")).WillReturnError(sql.ErrNoRows)
 	_, err = s.RouteOwn(ctx, "marketing")
 	require.ErrorIs(t, err, site.ErrNoRelease, "a pointer at a release that is gone is told as that")

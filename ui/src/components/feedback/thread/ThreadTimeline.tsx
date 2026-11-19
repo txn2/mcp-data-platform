@@ -73,6 +73,7 @@ export function ThreadTimeline({
   undoableId,
   onUndo,
   undoing = false,
+  flow = false,
 }: {
   events: ThreadEvent[] | undefined;
   isLoading: boolean;
@@ -82,6 +83,8 @@ export function ThreadTimeline({
   undoableId?: string | null;
   onUndo?: (eventId: string) => void;
   undoing?: boolean;
+  /** flow lays the timeline into a surface that scrolls as a whole (#2705). */
+  flow?: boolean;
 }) {
   const me = useAuthStore((s) => s.user);
   const myEmail = (me?.email ?? "").toLowerCase();
@@ -90,7 +93,7 @@ export function ThreadTimeline({
   );
   const nameOf = (email: string) => names[email.toLowerCase()] || email;
   return (
-    <div className="flex-1 space-y-3 overflow-auto p-3">
+    <div className={flow ? "space-y-3 p-3" : "flex-1 space-y-3 overflow-auto p-3"} data-testid="thread-timeline">
       {isLoading && (
         <p className="text-xs text-muted-foreground">Loading timeline…</p>
       )}

@@ -112,7 +112,7 @@ type conn struct {
 	explain explainFunc
 	// runPool is the pool an application's run role logs in on (#2539);
 	// nil when no toolkit built the connection.
-	runPool func(ctx context.Context, c *conn, application string) (*pgxpool.Pool, bool, error)
+	runPool func(ctx context.Context, c *conn, application, environment string) (*pgxpool.Pool, bool, error)
 }
 
 // NewMulti builds the toolkit from every configured instance. Building a pool

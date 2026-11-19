@@ -41,6 +41,8 @@ func (f *fakeRoles) QueryRow(_ context.Context, sql string, args ...any) pgx.Row
 		v = f.exists[fmt.Sprint(args[0])]
 	case memberOfSQL:
 		v = f.members[fmt.Sprint(args[0])+">"+fmt.Sprint(args[1])]
+	case schemaExistsSQL:
+		v = f.exists["schema:"+fmt.Sprint(args[0])]
 	}
 	return fakeRow{rows: &fakeRows{rows: [][]any{{v}}}}
 }
@@ -91,11 +93,12 @@ func TestCreateRunRole(t *testing.T) {
 	assert.Equal(t, c.runRoleName("shop"), role)
 	assert.True(t, strings.HasPrefix(role, "shop_run_"))
 	assert.GreaterOrEqual(t, len(password), 40)
-	require.Len(t, f.executed, 2)
+	require.Len(t, f.executed, 3, "a schema not created yet has nothing to grant on")
 	assert.Contains(t, f.executed[0], "PASSWORD 'SCRAM-SHA-256$4096:")
 	assert.NotContains(t, f.executed[0], password, "the statement carries the verifier, never the password")
 	assert.Contains(t, f.executed[0], "NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS")
-	assert.Contains(t, f.executed[1], `GRANT "shop_write" TO "`+role+`"`)
+	assert.Contains(t, f.executed[1], `ALTER ROLE "`+role+`" SET search_path TO "shop"`, "its statements name their own schema's tables without it")
+	assert.Contains(t, f.executed[2], `GRANT "shop_write" TO "`+role+`"`)
 
 	_, _, err = tk.CreateRunRole(ctx, "db", "shop")
 	require.ErrorAs(t, err, &refused)
@@ -186,12 +189,12 @@ func TestRunRolePool(t *testing.T) {
 	c, ok := tk.lookup("db")
 	require.True(t, ok)
 
-	_, ok, err := tk.runRolePool(ctx, c, "app_1")
+	_, ok, err := tk.runRolePool(ctx, c, "app_1", "")
 	require.NoError(t, err)
 	assert.False(t, ok, "no applications installed")
 	tk.SetApplications(
 		func(context.Context, string, string) (string, error) { return "shop", nil },
-		func(_ context.Context, _, app string) (string, string, error) {
+		func(_ context.Context, _, app, _ string) (string, string, error) {
 			switch app {
 			case "app_1":
 				return "shop_run_x", "pw", nil
@@ -266,7 +269,7 @@ func TestSchemaGate(t *testing.T) {
 			}
 			return holders[schema], nil
 		},
-		func(context.Context, string, string) (string, string, error) { return "", "", nil })
+		func(context.Context, string, string, string) (string, string, error) { return "", "", nil })
 
 	for _, cmd := range []string{schemaAdd, schemaPlan, schemaApply, schemaDown} {
 		_, refusal := run(ctx, t, tk, schemaInput{Command: cmd, Schema: "loose", Version: 1, Name: "x", Up: "SELECT 1"})
@@ -344,9 +347,100 @@ func TestApplyGrantsTheRunRole(t *testing.T) {
 	c.roles = &rolePools{pools: map[string]*pgxpool.Pool{}, q: f}
 	tk.SetApplications(
 		func(context.Context, string, string) (string, error) { return "shop", nil },
-		func(context.Context, string, string) (string, string, error) { return "", "", nil })
+		func(context.Context, string, string, string) (string, string, error) { return "", "", nil })
 	admin := mcpcontext.WithCaller(context.Background(), mcpcontext.Caller{UserID: "a", IsAdmin: true})
 	out, refusal := run(admin, t, tk, schemaInput{Command: schemaApply})
 	require.Empty(t, refusal)
 	assert.Equal(t, DefaultSchema+"_write to "+c.runRoleName(DefaultSchema), out["granted"])
+}
+
+// TestGrantRunRole_TheSchemasGrantsFromThePlatform is #2709's run role: a
+// schema whose migrations define no write role has its run role granted
+// USAGE and DML on that schema alone, once the schema exists.
+func TestGrantRunRole_TheSchemasGrantsFromThePlatform(t *testing.T) {
+	ctx := context.Background()
+	f := &fakeRoles{exists: map[string]bool{}, members: map[string]bool{}}
+	tk, c := roleToolkitFake(f)
+	run := c.runRoleName("orders_dev")
+	f.exists[run] = true
+
+	granted, err := tk.GrantRunRole(ctx, "db", "orders_dev")
+	require.NoError(t, err)
+	assert.Empty(t, granted)
+	assert.Equal(t, []string{`/* mcp-data-platform */ ALTER ROLE "` + run + `" SET search_path TO "orders_dev"`}, f.executed,
+		"a schema not created yet has nothing to grant on")
+
+	f.exists["schema:orders_dev"], f.executed = true, nil
+	_, err = tk.GrantRunRole(ctx, "db", "orders_dev")
+	require.NoError(t, err)
+	require.Len(t, f.executed, 5)
+	for _, stmt := range f.executed[1:] {
+		assert.Contains(t, stmt, `"orders_dev"`)
+		assert.Contains(t, stmt, `TO "`+run+`"`)
+	}
+	assert.Contains(t, f.executed[2], "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA")
+
+	f.execErr = map[string]error{"ON ALL SEQUENCES": errors.New("no")}
+	_, err = tk.GrantRunRole(ctx, "db", "orders_dev")
+	require.Error(t, err)
+	f.execErr, f.rowErr = nil, nil
+	f.execErr = map[string]error{"SET search_path": errors.New("no")}
+	_, err = tk.GrantRunRole(ctx, "db", "orders_dev")
+	require.Error(t, err)
+}
+
+// buildSession is a held connection whose transaction answers whether the
+// schema exists and what it reaches (#2709).
+type buildSession struct {
+	*fakeSession
+	exists  bool
+	reaches []string
+	tx      *fakeMigTx
+}
+
+func (b *buildSession) Begin(context.Context) (pgx.Tx, error) {
+	rows := make([][]any, 0, len(b.reaches))
+	for _, r := range b.reaches {
+		rows = append(rows, []any{r})
+	}
+	b.tx = &fakeMigTx{fakeTx: &fakeTx{statements: map[string]fakeStatement{
+		schemaExistsSQL: {rows: [][]any{{b.exists}}},
+		reachesOutSQL:   {rows: rows},
+	}}}
+	return b.tx, nil
+}
+
+// TestBuildSchema builds a schema in one transaction and commits it only
+// when nothing in it reaches the schema it must stay apart from; one that
+// exists is never built over (#2709).
+func TestBuildSchema(t *testing.T) {
+	ctx := context.Background()
+	b := &buildSession{fakeSession: &fakeSession{}}
+	tk := liveToolkit(b.fakeSession, baseConfig())
+	tk.connections["shop"].openSession = func(context.Context) (session, error) { return b, nil }
+
+	require.NoError(t, tk.BuildSchema(ctx, "shop", "orders_dev", "CREATE TABLE t (id int);", []string{"orders"}))
+	assert.True(t, b.tx.committed)
+	assert.Equal(t, []string{"CREATE TABLE t (id int);"}, b.tx.scripts)
+	assert.Contains(t, strings.Join(b.tx.execs, "\n"), "CREATE SCHEMA IF NOT EXISTS orders_dev")
+
+	b.reaches = []string{"view leak"}
+	err := tk.BuildSchema(ctx, "shop", "orders_dev", "CREATE VIEW leak AS SELECT 1;", []string{"orders"})
+	var refused *RefusedError
+	require.ErrorAs(t, err, &refused)
+	assert.Equal(t, codeSchemaReachesOut, refused.Code)
+	assert.Contains(t, err.Error(), "through view leak")
+	assert.False(t, b.tx.committed, "a refused build keeps nothing")
+
+	b.reaches, b.exists = nil, true
+	err = tk.BuildSchema(ctx, "shop", "orders_dev", "SELECT 1;", []string{"orders"})
+	require.ErrorAs(t, err, &refused)
+	assert.Equal(t, codeSchemaExists, refused.Code)
+
+	b.exists = false
+	require.NoError(t, tk.BuildSchema(ctx, "shop", "orders_dev", "SELECT 1;", nil), "nothing to stay apart from checks nothing")
+	require.Error(t, tk.BuildSchema(ctx, "nope", "orders_dev", "SELECT 1;", nil))
+	require.Error(t, tk.BuildSchema(ctx, "shop", "Bad Schema", "SELECT 1;", nil))
+	tk.connections["shop"].openSession = func(context.Context) (session, error) { return nil, errors.New("no pool") }
+	require.Error(t, tk.BuildSchema(ctx, "shop", "orders_dev", "SELECT 1;", nil))
 }

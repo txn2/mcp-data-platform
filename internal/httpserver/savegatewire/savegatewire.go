@@ -5,6 +5,7 @@
 package savegatewire
 
 import (
+	"github.com/txn2/mcp-data-platform/internal/application/appstore"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/handlerhttp"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifylayer"
@@ -31,6 +32,7 @@ func Gate(p *platform.Platform) *scriptsave.Gate {
 		Shared:         scriptstore.New(p.DB()),
 		Resources:      scriptsrc.New(p.ResourceStore(), p.ResourceS3Client(), p.Config().Resources.Managed.S3Bucket, p.Config().Resources.Managed.URIScheme),
 		CannotServe:    scriptsave.PassthroughConnections{Kits: p.ToolkitRegistry()}.CannotServe,
+		AppSchemas:     appstore.SchemasOfScript(p.DB()),
 	}
 	if h := Handlers(p); h != nil {
 		gate.Handlers = h.Check

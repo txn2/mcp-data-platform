@@ -64,7 +64,7 @@ export function ApplicationDetailPage({ app, onNavigate, onBack }: Props) {
       <ApplicationEnvironments detail={data} isAdmin={isAdmin} />
       <ApplicationVariables detail={data} canEdit={canEdit} />
       <ApplicationParts detail={data} canEdit={canEdit} isAdmin={isAdmin} onNavigate={onNavigate} />
-      <ApplicationSiteParts detail={data} canEdit={canEdit} />
+      <ApplicationSiteParts detail={data} canEdit={canEdit} isAdmin={isAdmin} />
       <ApplicationReleases detail={data} isAdmin={isAdmin} />
     </div>
   );

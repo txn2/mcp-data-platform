@@ -10,6 +10,12 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
+// First names the environment a draft runs in (#2709): the application's
+// first, where its releases land, so a draft of a part reads and writes the
+// first environment's schema and never the last's. No environment's name can
+// be it.
+const First = "\x00first"
+
 // ErrNoEnvironment is an environment the application does not have.
 var ErrNoEnvironment = errors.New("the application has no such environment")
 
@@ -22,6 +28,9 @@ type Script struct {
 	Environment string
 	Version     int
 	Variables   map[string]string
+	// Last is true when Environment is the application's last, which runs
+	// what "" does: the script's released version (#2709).
+	Last bool
 }
 
 // Resolver resolves a script's environment ("" for the last).
@@ -31,7 +40,7 @@ type Resolver interface {
 
 // RunVersionIn is the version a run of sc in env executes. The last
 // environment, named "", is what the script's released version already
-// holds, read with no lookup; any other is the version that environment's
+// holds, read with no lookup, and so is the last named; any other is the version that environment's
 // release pins, refused when sc belongs to no application, the application
 // has no such environment, or its release pins no version of sc.
 func RunVersionIn(ctx context.Context, r Resolver, sc *script.Script, env string) (int, error) {
@@ -50,6 +59,9 @@ func RunVersionIn(ctx context.Context, r Resolver, sc *script.Script, env string
 	}
 	if !res.OK {
 		return 0, fmt.Errorf("script %s belongs to no application, so it has no environment %q", sc.Name, env)
+	}
+	if res.Last {
+		return sc.RunVersion(), nil
 	}
 	if res.Version == 0 {
 		return 0, fmt.Errorf("environment %s runs no release that holds script %s; release or promote one to it", res.Environment, sc.Name)

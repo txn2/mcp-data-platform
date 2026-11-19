@@ -3,14 +3,19 @@ package sitehttp
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"slices"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
+	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/objectobs"
 	"github.com/txn2/mcp-data-platform/internal/site"
 	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
+	"github.com/txn2/mcp-data-platform/internal/site/sitetile"
 	"github.com/txn2/mcp-data-platform/internal/site/sitetraffic"
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
 
 // SiteLimits is what a release may hold, shown before an upload.
@@ -326,5 +331,28 @@ func (a *portalAPI) tileOf(ctx context.Context, ss *scopedSite, raw string) ([]b
 		return nil, false
 	}
 	body, _, err := a.svc().Objects.GetObject(ctx, a.svc().Bucket, t.Key)
-	return body, err == nil
+	if err != nil {
+		tileUnread(ctx, tiles, tileRef{site: ss.ID, environment: name, key: t.Key}, err)
+		return nil, false
+	}
+	return body, true
+}
+
+// tileRef names one environment's recorded tile object.
+type tileRef struct{ site, environment, key string }
+
+// tileUnread handles a recorded tile whose object could not be read. One that
+// is gone is forgotten, so the worker draws it again rather than the portal
+// saying "not drawn yet" until the release changes (#2701); any other failure
+// is logged and the row kept.
+func tileUnread(ctx context.Context, tiles *sitetile.Store, t tileRef, err error) {
+	if objectobs.Reason(err) != observability.StorageReasonNotFound {
+		slog.WarnContext(ctx, "sites: reading a tile failed", "site", t.site,
+			"environment", logsan.SanitizeForLog(t.environment), "error", logsan.SanitizeForLog(err.Error()))
+		return
+	}
+	if ferr := tiles.Forget(ctx, t.site, t.environment, t.key); ferr != nil {
+		slog.WarnContext(ctx, "sites: forgetting a missing tile failed", "site", t.site,
+			"environment", logsan.SanitizeForLog(t.environment), "error", logsan.SanitizeForLog(ferr.Error()))
+	}
 }

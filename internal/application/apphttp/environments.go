@@ -4,7 +4,9 @@ import (
 	"net/http"
 
 	"github.com/txn2/mcp-data-platform/internal/application"
+	"github.com/txn2/mcp-data-platform/internal/application/appprepare"
 	"github.com/txn2/mcp-data-platform/internal/application/apptool"
+	"github.com/txn2/mcp-data-platform/internal/httpjson"
 )
 
 // Environments and variables (#2696). The portal is the person: its promote
@@ -27,6 +29,8 @@ func (h *handler) mountEnvironments(mux *http.ServeMux, wrap func(http.Handler) 
 	mux.Handle("GET "+Prefix+"/{app}/variables", wrap(http.HandlerFunc(h.variables)))
 	mux.Handle("PUT "+Prefix+"/{app}/variables/{name}", wrap(http.HandlerFunc(h.setVariable)))
 	mux.Handle("DELETE "+Prefix+"/{app}/variables/{name}", wrap(http.HandlerFunc(h.deleteVariable)))
+	mux.Handle("GET "+Prefix+"/{app}/prepare", wrap(http.HandlerFunc(h.preparePlan)))
+	mux.Handle("POST "+Prefix+"/{app}/prepare", wrap(http.HandlerFunc(h.prepareSave)))
 }
 
 // environmentsNamed is the environments a create names, in order.
@@ -45,6 +49,10 @@ type (
 		// After is the environment the new one follows; empty puts it first.
 		After            string `json:"after" example:"dev"`
 		RequiresApproval bool   `json:"requires_approval"`
+		// Schema is the schema the environment runs in (#2709), built from
+		// the last environment's structure; empty gives it
+		// <schema>_<environment>.
+		Schema string `json:"schema" example:"orders_dev"`
 	}
 	environmentPatch struct {
 		RequiresApproval bool `json:"requires_approval"`
@@ -63,7 +71,7 @@ type (
 // addEnvironment adds an environment.
 //
 // @Summary      Add an application environment
-// @Description  Adds an environment after another (after; empty puts it first, and none may follow the last, which /endpoints serves). It runs no release until one is promoted or released to it. requires_approval makes an agent's promote or rollback into it a person's to carry out. For administrators.
+// @Description  Adds an environment after another (after; empty puts it first, and none may follow the last, which /endpoints serves). It runs no release until one is promoted or released to it. requires_approval makes an agent's promote or rollback into it a person's to carry out. On an application holding a schema it runs in a schema of its own (schema, default <schema>_<environment>), built from the last environment's structure with no rows and recorded at its migration version, logged in as a role granted on that schema alone; refused while the application's scripts, libraries or pending migrations name its schema or roles (see prepare). For administrators.
 // @Param        app   path  string              true  "Application name or id"
 // @Param        body  body  environmentRequest  true  "The environment"
 // @Success      200  {object}  application.Application
@@ -85,8 +93,8 @@ func (h *handler) addEnvironment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a, err := h.cfg.Service.AddEnvironment(r.Context(), actor, r.PathValue(pathApp),
-		application.Environment{Name: req.Name, RequiresApproval: req.RequiresApproval}, req.After)
-	h.record(r, actor, apptool.CmdAddEnvironment, map[string]any{keyApplication: r.PathValue(pathApp), keyEnv: req.Name, "after": req.After}, err)
+		application.Environment{Name: req.Name, RequiresApproval: req.RequiresApproval, Schema: req.Schema}, req.After)
+	h.record(r, actor, apptool.CmdAddEnvironment, map[string]any{keyApplication: r.PathValue(pathApp), keyEnv: req.Name, "after": req.After, "schema": req.Schema}, err)
 	h.answer(w, a, err)
 }
 
@@ -292,4 +300,72 @@ func (h *handler) answerVariables(w http.ResponseWriter, r *http.Request, actor 
 	}
 	vars, err := h.cfg.Service.Variables(r.Context(), actor, r.PathValue(pathApp))
 	h.answer(w, variablesResponse{Variables: vars}, err)
+}
+
+// preparePlan shows what prepare changes.
+//
+// @Summary      Show what preparing an application changes
+// @Description  Each script, library and pending migration of the application that names its schema or its roles, with the text prepare proposes (the schema qualifier and the role statements removed) and, for a script or library, the recorded runs the save gate replayed against it and any difference (#2709). An application whose files name none is ready for an environment of its own. For the owner and administrators.
+// @Param        app  path  string  true  "Application name or id"
+// @Success      200  {object}  appprepare.Plan
+// @Tags         Applications
+// @Produce      json
+// @Failure      401  {object}  httpjson.ProblemDetail
+// @Failure      403  {object}  httpjson.ProblemDetail
+// @Failure      404  {object}  httpjson.ProblemDetail
+// @Failure      422  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/applications/{app}/prepare [get]
+func (h *handler) preparePlan(w http.ResponseWriter, r *http.Request) {
+	actor, ok := h.actor(w, r)
+	if !ok {
+		return
+	}
+	plan, err := h.cfg.Service.Prepare(r.Context(), actor, r.PathValue(pathApp), false)
+	h.answer(w, plan, err)
+}
+
+// prepareSave saves what prepare changes.
+//
+// @Summary      Save what preparing an application changes
+// @Description  Saves each change prepare shows as a new version: each library first, then each script loading the libraries' new versions, then each pending migration replaced. Nothing is saved while the save gate refuses a script or library, as when a replayed run answers differently (#2709). Release the new versions to put them live. For administrators.
+// @Param        app  path  string  true  "Application name or id"
+// @Success      200  {object}  appprepare.Plan
+// @Tags         Applications
+// @Produce      json
+// @Failure      401  {object}  httpjson.ProblemDetail
+// @Failure      403  {object}  httpjson.ProblemDetail
+// @Failure      404  {object}  httpjson.ProblemDetail
+// @Failure      422  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/applications/{app}/prepare [post]
+func (h *handler) prepareSave(w http.ResponseWriter, r *http.Request) {
+	actor, ok := h.actor(w, r)
+	if !ok {
+		return
+	}
+	plan, err := h.cfg.Service.Prepare(r.Context(), actor, r.PathValue(pathApp), true)
+	h.record(r, actor, apptool.CmdPrepare, map[string]any{keyApplication: r.PathValue(pathApp), "save": true}, err)
+	if err != nil && plan != nil {
+		// A refusal still shows the plan, so the page can name each file.
+		h.answerRefused(w, plan, err)
+		return
+	}
+	h.answer(w, plan, err)
+}
+
+// prepareRefusal is a refused save of prepare's changes: the problem and the
+// plan, whose files carry each refusal and difference.
+type prepareRefusal struct {
+	Status int              `json:"status" example:"422"`
+	Detail string           `json:"detail"`
+	Plan   *appprepare.Plan `json:"plan"`
+}
+
+// answerRefused writes a refused save with its plan.
+func (*handler) answerRefused(w http.ResponseWriter, plan *appprepare.Plan, err error) {
+	code := status(err)
+	httpjson.WriteJSON(w, code, prepareRefusal{Status: code, Detail: err.Error(), Plan: plan})
 }

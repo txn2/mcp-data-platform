@@ -24,19 +24,23 @@ func TestOutboxIdentifier(t *testing.T) {
 	assert.Equal(t, "app.outbox", OutboxChannel("app", "outbox"))
 }
 
+// TestOutboxTemplate names nothing in its schema with the schema (#2709):
+// the migration applies to every environment's schema, the function pins the
+// one it was created in and notifies that one's channel.
 func TestOutboxTemplate(t *testing.T) {
 	up, down, err := OutboxTemplate("app", "events", []string{"orders", "billing.invoices"}, true)
 	require.NoError(t, err)
 	for _, want := range []string{
-		`CREATE TABLE "app"."events"`, `CREATE FUNCTION "app"."events_capture"()`, `pg_notify('app.events', '')`,
-		`ON "app"."orders" FOR EACH ROW`, `ON "billing"."invoices" FOR EACH ROW`,
+		`CREATE TABLE "events"`, `CREATE FUNCTION "events_capture"() RETURNS trigger LANGUAGE plpgsql SET search_path FROM CURRENT`,
+		`pg_notify(current_schema() || '.events', '')`, `ON "orders" FOR EACH ROW`, `ON "billing"."invoices" FOR EACH ROW`,
 	} {
 		assert.Contains(t, up, want)
 	}
-	assert.Equal(t, `DROP TRIGGER IF EXISTS "events_capture" ON "app"."orders";
+	assert.NotContains(t, up, `"app".`, "the schema the template is written for is never named")
+	assert.Equal(t, `DROP TRIGGER IF EXISTS "events_capture" ON "orders";
 DROP TRIGGER IF EXISTS "events_capture" ON "billing"."invoices";
-DROP FUNCTION IF EXISTS "app"."events_capture"();
-DROP TABLE IF EXISTS "app"."events";
+DROP FUNCTION IF EXISTS "events_capture"();
+DROP TABLE IF EXISTS "events";
 `, down)
 	require.NoError(t, checkMigrationSQL(up, true), "the template passes the checks every migration does")
 	require.NoError(t, checkMigrationSQL(down, true))
@@ -44,10 +48,10 @@ DROP TABLE IF EXISTS "app"."events";
 	quiet, quietDown, err := OutboxTemplate("app", "events", []string{"orders"}, false)
 	require.NoError(t, err)
 	assert.NotContains(t, quiet, "pg_notify", "notify off writes the row and sends nothing")
-	assert.Contains(t, quiet, `INSERT INTO "app"."events"`)
-	assert.Contains(t, quiet, `ON "app"."orders" FOR EACH ROW`)
+	assert.Contains(t, quiet, `INSERT INTO "events"`)
+	assert.Contains(t, quiet, `ON "orders" FOR EACH ROW`)
 	require.NoError(t, checkMigrationSQL(quiet, true))
-	assert.Contains(t, quietDown, `DROP TABLE IF EXISTS "app"."events"`)
+	assert.Contains(t, quietDown, `DROP TABLE IF EXISTS "events"`)
 
 	_, _, err = OutboxTemplate("app", "events", []string{"Orders"}, true)
 	require.Error(t, err)
@@ -59,13 +63,13 @@ func TestFromTemplate(t *testing.T) {
 	in, err := fromTemplate(schemaInput{Schema: "public", Template: OutboxTemplateName, Capture: []string{"orders"}})
 	require.NoError(t, err)
 	assert.Equal(t, "outbox public.outbox", in.Name)
-	assert.Contains(t, in.Up, `CREATE TABLE "public"."outbox"`)
+	assert.Contains(t, in.Up, `CREATE TABLE "outbox"`)
 	assert.NotEmpty(t, in.Down)
 
 	named, err := fromTemplate(schemaInput{Schema: "app", Template: OutboxTemplateName, OutboxTable: "events", Name: "events outbox"})
 	require.NoError(t, err)
 	assert.Equal(t, "events outbox", named.Name)
-	assert.Contains(t, named.Up, `"app"."events"`)
+	assert.Contains(t, named.Up, `CREATE TABLE "events"`)
 
 	off := false
 	quiet, err := fromTemplate(schemaInput{Schema: "public", Template: OutboxTemplateName, Capture: []string{"orders"}, Notify: &off})
@@ -74,8 +78,8 @@ func TestFromTemplate(t *testing.T) {
 	on := true
 	loud, err := fromTemplate(schemaInput{Schema: "public", Template: OutboxTemplateName, Capture: []string{"orders"}, Notify: &on})
 	require.NoError(t, err)
-	assert.Contains(t, loud.Up, "pg_notify('public.outbox', '')")
-	assert.Contains(t, in.Up, "pg_notify('public.outbox', '')", "notify defaults on")
+	assert.Contains(t, loud.Up, "pg_notify(current_schema() || '.outbox', '')")
+	assert.Contains(t, in.Up, "pg_notify(current_schema() || '.outbox', '')", "notify defaults on")
 
 	plain := schemaInput{Schema: "public", Up: "CREATE TABLE t (id int)"}
 	same, err := fromTemplate(plain)

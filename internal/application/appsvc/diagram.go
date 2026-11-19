@@ -7,6 +7,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/application"
 	"github.com/txn2/mcp-data-platform/internal/application/appdiagram"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -170,6 +171,17 @@ func (r *diagramReader) ScriptVersion(ctx context.Context, id string, version in
 		return nil, nil //nolint:nilnil // no store, no version
 	}
 	return r.s.Scripts.GetVersion(ctx, id, version) //nolint:wrapcheck // the diagram leaves out what it cannot read
+}
+
+// LibrarySource reads one saved version of a library, when the script store
+// reads libraries.
+func (r *diagramReader) LibrarySource(ctx context.Context, name string, version int) (string, bool) {
+	src, ok := r.s.Scripts.(scriptlib.Source)
+	if !ok {
+		return "", false
+	}
+	text, err := src.LibrarySource(ctx, name, version)
+	return text, err == nil
 }
 
 // Schedules reads a script's schedules.

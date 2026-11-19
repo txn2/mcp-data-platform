@@ -3517,6 +3517,13 @@ definitions:
         items:
           $ref: '#/definitions/application.PinChange'
         type: array
+      prepare:
+        allOf:
+        - $ref: '#/definitions/appprepare.Counts'
+        description: |-
+          Prepare is how many of the application's files name its schema or
+          roles (#2709), which refuses a new environment until prepare saves
+          their change; nil for an application holding no schema.
       problems:
         description: |-
           Problems are parts a release would refuse (deleted, or unreadable),
@@ -3558,6 +3565,13 @@ definitions:
         type: string
       requires_approval:
         type: boolean
+      schema:
+        description: |-
+          Schema is the schema the environment runs in (#2709), built from
+          the last environment's structure; empty gives it
+          <schema>_<environment>.
+        example: orders_dev
+        type: string
     type: object
   apphttp.importRequest:
     properties:
@@ -3772,6 +3786,13 @@ definitions:
           RequiresApproval makes an agent's promote or rollback into it wait on a
           person, as a site environment's does.
         type: boolean
+      schema:
+        description: |-
+          Schema is the schema its runs read and write on the application's
+          connection (#2709), empty for an application holding none. An
+          environment that existed before #2709 uses the application's schema.
+        example: orders_dev
+        type: string
       updated_at:
         type: string
       updated_by:
@@ -3870,6 +3891,108 @@ definitions:
         type: string
       value:
         example: https://pay.example.com
+        type: string
+    type: object
+  appprepare.Counts:
+    properties:
+      libraries:
+        type: integer
+      migrations:
+        type: integer
+      scripts:
+        type: integer
+    type: object
+  appprepare.File:
+    properties:
+      after:
+        type: string
+      before:
+        type: string
+      differences:
+        items:
+          $ref: '#/definitions/scriptbehavior.Difference'
+        type: array
+      id:
+        description: ID is a script's or library's id, a migration's version.
+        example: 5b0c...
+        type: string
+      kind:
+        example: script
+        type: string
+      name:
+        example: orders-api
+        type: string
+      names:
+        description: Names is how many names of the schema or its roles it holds.
+        example: 3
+        type: integer
+      refusal:
+        description: |-
+          Refusal is why the save gate refuses the new text, empty when it does
+          not.
+        type: string
+      replayed:
+        description: |-
+          Replayed is the recorded runs the save gate replayed against the new
+          text, and Differences what any of them answered differently.
+        items:
+          type: string
+        type: array
+      saved:
+        description: Saved is the version saved, 0 until it is.
+        type: integer
+      version:
+        description: |-
+          Version is the version changed: a script's current version, a
+          migration's own.
+        example: 4
+        type: integer
+    type: object
+  appprepare.Plan:
+    properties:
+      application:
+        example: shop
+        type: string
+      counts:
+        $ref: '#/definitions/appprepare.Counts'
+      files:
+        items:
+          $ref: '#/definitions/appprepare.File'
+        type: array
+      ready:
+        description: |-
+          Ready is true when nothing names the schema or its roles, so an
+          environment can be added.
+        type: boolean
+      saved:
+        description: Saved is true when the plan's changes were saved.
+        type: boolean
+      schema:
+        example: orders
+        type: string
+      values:
+        description: |-
+          Values is each qualified name inside a quoted SQL value: data, such as
+          an outbox row's source table, that prepare leaves as written. Each
+          environment needs its own text there (current_schema() || '.invoices'),
+          so a person changes it; it does not block an environment.
+        items:
+          $ref: '#/definitions/appprepare.Value'
+        type: array
+    type: object
+  appprepare.Value:
+    properties:
+      kind:
+        example: script
+        type: string
+      line:
+        example: 86
+        type: integer
+      name:
+        example: orders-api
+        type: string
+      text:
+        example: orders.invoices
         type: string
     type: object
   apprhttp.RecentCall:
@@ -4115,6 +4238,33 @@ definitions:
           type: integer
         type: object
     type: object
+  appsvc.EnvironmentSchema:
+    properties:
+      environment:
+        example: dev
+        type: string
+      migration_version:
+        description: |-
+          MigrationVersion is the highest migration applied in it, and Pending
+          what its next release or promote would apply.
+        example: 7
+        type: integer
+      pending:
+        items:
+          type: integer
+        type: array
+      problem:
+        type: string
+      schema:
+        example: orders_dev
+        type: string
+      shared:
+        description: |-
+          Shared names another environment running in the same schema, as every
+          environment did before #2709; empty when the schema is its own.
+        example: prod
+        type: string
+    type: object
   appsvc.PartSchedule:
     properties:
       cron_spec:
@@ -4179,6 +4329,13 @@ definitions:
     type: object
   appsvc.Promoted:
     properties:
+      applied:
+        description: |-
+          Applied is the migrations the promote applied to the target's schema
+          (#2709), [] for none.
+        items:
+          type: integer
+        type: array
       from:
         example: dev
         type: string
@@ -4204,6 +4361,13 @@ definitions:
       connection:
         example: orders
         type: string
+      environments:
+        description: |-
+          Environments is the schema each environment runs in and where its
+          migrations stand there (#2709), in promotion order.
+        items:
+          $ref: '#/definitions/appsvc.EnvironmentSchema'
+        type: array
       migration_version:
         description: |-
           MigrationVersion is the highest migration applied in the database;
@@ -30603,7 +30767,12 @@ paths:
       description: Adds an environment after another (after; empty puts it first,
         and none may follow the last, which /endpoints serves). It runs no release
         until one is promoted or released to it. requires_approval makes an agent's
-        promote or rollback into it a person's to carry out. For administrators.
+        promote or rollback into it a person's to carry out. On an application holding
+        a schema it runs in a schema of its own (schema, default <schema>_<environment>),
+        built from the last environment's structure with no rows and recorded at its
+        migration version, logged in as a role granted on that schema alone; refused
+        while the application's scripts, libraries or pending migrations name its
+        schema or roles (see prepare). For administrators.
       parameters:
       - description: Application name or id
         in: path
@@ -31081,6 +31250,90 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Set a site part's release mode
+      tags:
+      - Applications
+  /portal/applications/{app}/prepare:
+    get:
+      description: Each script, library and pending migration of the application that
+        names its schema or its roles, with the text prepare proposes (the schema
+        qualifier and the role statements removed) and, for a script or library, the
+        recorded runs the save gate replayed against it and any difference (#2709).
+        An application whose files name none is ready for an environment of its own.
+        For the owner and administrators.
+      parameters:
+      - description: Application name or id
+        in: path
+        name: app
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/appprepare.Plan'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Show what preparing an application changes
+      tags:
+      - Applications
+    post:
+      description: 'Saves each change prepare shows as a new version: each library
+        first, then each script loading the libraries'' new versions, then each pending
+        migration replaced. Nothing is saved while the save gate refuses a script
+        or library, as when a replayed run answers differently (#2709). Release the
+        new versions to put them live. For administrators.'
+      parameters:
+      - description: Application name or id
+        in: path
+        name: app
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/appprepare.Plan'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Save what preparing an application changes
       tags:
       - Applications
   /portal/applications/{app}/release:

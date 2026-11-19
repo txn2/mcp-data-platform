@@ -382,6 +382,8 @@ func TestIssue2518_AMigratedSiteKeepsItsURLsAndItsFormsPostToPlatformForms(t *te
 	form, _ := bindForm(t, admin, "acc-2518-form", formFields, map[string]any{"auth_mode": "public", "path": "/"})
 	t.Cleanup(func() { _, _, _ = admin.callRaw("manage_script", map[string]any{"command": "delete", "name": form}) })
 	addScriptPart2517(t, admin, app, form)
+	// A site environment calls the application environment of its name (#2709).
+	admin.call("manage_application", map[string]any{"command": "add_environment", "application": app, "environment": "stage"})
 	admin.call("manage_application", map[string]any{"command": "add_part", "application": app, "kind": "site", "part_id": s.name + "/stage", "release_mode": "coupled"})
 
 	got := admin.call("manage_site", map[string]any{
@@ -438,12 +440,15 @@ func TestIssue2518_ASiteReleasesAndRollsBackWithItsApplication(t *testing.T) {
 	t.Cleanup(func() {
 		_, _, _ = admin.callRaw("manage_application", map[string]any{"command": "delete", "application": app})
 	})
+	// The part calls the application's stage environment (#2709), where its
+	// releases land and its rollback is made.
+	admin.call("manage_application", map[string]any{"command": "add_environment", "application": app, "environment": "stage"})
 	admin.call("manage_application", map[string]any{"command": "add_part", "application": app, "kind": "site", "part_id": s.name + "/stage", "release_mode": "coupled"})
 	admin.call("manage_application", map[string]any{"command": "release", "application": app})
 	served2518(t, s.preview("stage"), "one")
 	s.publish(t, "dev", "two")
 	admin.call("manage_application", map[string]any{"command": "release", "application": app})
 	served2518(t, s.preview("stage"), "two")
-	admin.call("manage_application", map[string]any{"command": "rollback", "application": app})
+	admin.call("manage_application", map[string]any{"command": "rollback", "application": app, "environment": "stage"})
 	served2518(t, s.preview("stage"), "one")
 }

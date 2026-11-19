@@ -26,9 +26,12 @@ func (f *fakeApps) Holder(_ context.Context, _, schema string) (string, error) {
 	return f.holders[schema], nil
 }
 
-func (f *fakeApps) RunRole(_ context.Context, _, application string) (role, password string, err error) {
+func (f *fakeApps) RunRole(_ context.Context, _, application, environment string) (role, password string, err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if r, ok := f.roles[application+"/"+environment]; ok && environment != "" {
+		return r[0], r[1], nil
+	}
 	r := f.roles[application]
 	return r[0], r[1], nil
 }
@@ -160,4 +163,91 @@ func TestRunRole_RealDB_NeedsCreateRole(t *testing.T) {
 			t.Fatalf("want the CREATEROLE refusal, got %v", err)
 		}
 	})
+}
+
+// TestEnvironmentRunRole_RealDB is #2709's boundary between environments
+// against PostgreSQL: a statement in dev logs in as the run role of dev's
+// schema, reads and writes its own tables with no schema named, and is
+// refused by the database on prod's schema, named or not; a statement in
+// prod logs in as prod's.
+func TestEnvironmentRunRole_RealDB(t *testing.T) {
+	onTargets(t, func(t *testing.T) {
+		rt := realTarget(t)
+		tk := newRealToolkit(t, rt.platform, map[string]map[string]any{"target": rt.target})
+		tk.SetMigrationStore(&memStore{})
+		n := targetSeq.Add(1)
+		prod := fmt.Sprintf("ep%d_%d", os.Getpid(), n)
+		dev := prod + "_dev"
+		db, _ := rt.target[cfgKeyDatabase].(string)
+		t.Cleanup(func() {
+			for _, r := range []string{runRoleNameFor(db, prod), runRoleNameFor(db, dev)} {
+				_, _ = rt.server.Exec(`DROP ROLE IF EXISTS "` + r + `"`)
+			}
+		})
+		ctx := context.Background()
+		for _, stmt := range []string{"CREATE SCHEMA " + prod, "CREATE TABLE " + prod + ".invoices (id int)", "INSERT INTO " + prod + ".invoices VALUES (1)"} {
+			execOK(t, tk, Statement{Connection: "target", SQL: stmt})
+		}
+		if err := tk.BuildSchema(ctx, "target", dev, "CREATE TABLE "+dev+".invoices (id int);", []string{prod}); err != nil {
+			t.Fatalf("building dev's schema: %v", err)
+		}
+		apps := &fakeApps{holders: map[string]string{prod: "shop", dev: "shop"}, roles: map[string][2]string{}}
+		tk.SetApplications(apps.Holder, apps.RunRole)
+		for key, schema := range map[string]string{"app_shop": prod, "app_shop/dev": dev} {
+			role, password, err := tk.CreateRunRole(ctx, "target", schema)
+			if err != nil {
+				t.Fatalf("creating %s's run role: %v", schema, err)
+			}
+			apps.roles[key] = [2]string{role, password}
+		}
+
+		devCtx := WithIdentity(ctx, Identity{Application: "app_shop", Environment: "dev", Source: SourceScript})
+		res, err := tk.Query(devCtx, Statement{Connection: "target", SQL: "SELECT current_user"})
+		if err != nil || res.Rows[0][0] != runRoleNameFor(db, dev) {
+			t.Fatalf("a statement in dev runs as dev's run role: %v %v", res, err)
+		}
+		if _, err := tk.Execute(devCtx, Statement{Connection: "target", SQL: "INSERT INTO invoices VALUES (2)"}); err != nil {
+			t.Fatalf("an unqualified insert in dev writes dev's schema: %v", err)
+		}
+		_, err = tk.Query(devCtx, Statement{Connection: "target", SQL: "SELECT * FROM " + prod + ".invoices"})
+		if err == nil || sqlStateOf(t, err) != "42501" {
+			t.Fatalf("dev's run role is refused prod's schema: %v", err)
+		}
+		_, err = tk.Execute(devCtx, Statement{Connection: "target", SQL: "DELETE FROM " + prod + ".invoices"})
+		if err == nil || sqlStateOf(t, err) != "42501" {
+			t.Fatalf("dev's run role writes nothing in prod's schema: %v", err)
+		}
+		count := func(schema string) int64 {
+			r, err := tk.Query(ctx, Statement{Connection: "target", SQL: "SELECT count(*) FROM " + schema + ".invoices"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			return toInt64(r.Rows[0][0])
+		}
+		prodRows, devRows := count(prod), count(dev)
+		if prodRows != 1 || devRows != 1 {
+			t.Fatalf("prod holds %d rows and dev %d; want prod untouched and dev's one", prodRows, devRows)
+		}
+
+		prodCtx := WithIdentity(ctx, Identity{Application: "app_shop", Source: SourceScript})
+		res, err = tk.Query(prodCtx, Statement{Connection: "target", SQL: "SELECT count(*) FROM invoices"})
+		if err != nil || toInt64(res.Rows[0][0]) != 1 {
+			t.Fatalf("a statement in prod reads prod's schema unqualified: %v %v", res, err)
+		}
+	})
+}
+
+// toInt64 reads a count a query answered.
+func toInt64(v any) int64 {
+	switch n := v.(type) {
+	case int64:
+		return n
+	case int32:
+		return int64(n)
+	case int:
+		return int64(n)
+	case float64:
+		return int64(n)
+	}
+	return -1
 }

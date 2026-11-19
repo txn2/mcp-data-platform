@@ -196,7 +196,8 @@ func (m *memStore) ClearSchema(_ context.Context, id string) error {
 
 func (m *memStore) Holding(ctx context.Context, connection, schema string) (*application.Application, error) {
 	for id, a := range m.apps {
-		if a.Connection == connection && a.Schema == schema {
+		if a.Connection == connection && (a.Schema == schema ||
+			slices.ContainsFunc(a.Environments, func(e application.Environment) bool { return e.Schema == schema })) {
 			return m.Get(ctx, id)
 		}
 	}
@@ -205,6 +206,23 @@ func (m *memStore) Holding(ctx context.Context, connection, schema string) (*app
 
 func (m *memStore) RunRoleOf(_ context.Context, id string) (*application.RunRole, error) {
 	if r, ok := m.runRoles[id]; ok {
+		return &r, nil
+	}
+	return nil, application.ErrNoRunRole
+}
+
+// RunRoleIn is the run role of the schema env runs in: an environment's own
+// schema's, kept under "<id>/<schema>", else the application's.
+func (m *memStore) RunRoleIn(ctx context.Context, id, env string) (*application.RunRole, error) {
+	a := m.apps[id]
+	e, _, ok := a.EnvironmentNamed(env)
+	if !ok {
+		return nil, application.ErrNoRunRole
+	}
+	if e.Schema == "" || e.Schema == a.Schema {
+		return m.RunRoleOf(ctx, id)
+	}
+	if r, ok := m.runRoles[id+"/"+e.Schema]; ok {
 		return &r, nil
 	}
 	return nil, application.ErrNoRunRole
@@ -259,40 +277,92 @@ type fakeSchema struct {
 	applied, pending []int
 	failRelease      error
 	kept             string
+	// others is the versions each environment schema other than the
+	// application's own has applied (#2709), and calls what was asked of
+	// which schema.
+	others map[string][]int
+	calls  []string
+}
+
+func (f *fakeSchema) all() []int {
+	return slices.Sorted(slices.Values(append(slices.Clone(f.applied), f.pending...)))
+}
+
+func top(vs []int) int {
+	t := 0
+	for _, v := range vs {
+		t = max(t, v)
+	}
+	return t
 }
 
 func (f *fakeSchema) State(context.Context, string, string) (*appschema.State, error) {
-	top := 0
-	for _, v := range f.applied {
-		top = max(top, v)
-	}
-	return &appschema.State{Applied: top, Pending: f.pending}, nil
+	return &appschema.State{Applied: top(f.applied), Pending: f.pending}, nil
 }
 
-func (f *fakeSchema) Release(context.Context, string, string, string) (*appschema.Applied, error) {
+func (f *fakeSchema) StateIn(ctx context.Context, at appschema.Target) (*appschema.State, error) {
+	if at.Schema == at.Source {
+		return f.State(ctx, at.Connection, at.Schema)
+	}
+	done := f.others[at.Schema]
+	pending := slices.DeleteFunc(f.all(), func(v int) bool { return slices.Contains(done, v) })
+	return &appschema.State{Applied: top(done), Pending: pending}, nil
+}
+
+func (f *fakeSchema) ApplyIn(_ context.Context, at appschema.Target, _ string, upTo int) (*appschema.Applied, error) {
+	f.calls = append(f.calls, fmt.Sprintf("apply %s %d", at.Schema, upTo))
 	if f.failRelease != nil {
 		return nil, f.failRelease
 	}
-	done := f.pending
-	f.applied, f.pending = append(f.applied, f.pending...), nil
-	top := 0
-	for _, v := range f.applied {
-		top = max(top, v)
+	within := func(v int) bool { return upTo < 0 || v <= upTo }
+	if at.Schema == at.Source {
+		done := slices.DeleteFunc(slices.Clone(f.pending), func(v int) bool { return !within(v) })
+		f.pending = slices.DeleteFunc(f.pending, within)
+		f.applied = append(f.applied, done...)
+		return &appschema.Applied{Versions: done, Head: top(f.applied)}, nil
 	}
-	return &appschema.Applied{Versions: done, Head: top}, nil
+	if f.others == nil {
+		f.others = map[string][]int{}
+	}
+	done := []int{}
+	for _, v := range f.all() {
+		if within(v) && !slices.Contains(f.others[at.Schema], v) {
+			done = append(done, v)
+		}
+	}
+	f.others[at.Schema] = append(f.others[at.Schema], done...)
+	return &appschema.Applied{Versions: done, Head: top(f.others[at.Schema])}, nil
 }
 
-func (f *fakeSchema) Rollback(_ context.Context, _, _, _ string, to int) (*appschema.Reverted, error) {
+func (f *fakeSchema) RollbackIn(_ context.Context, at appschema.Target, _ string, to int) (*appschema.Reverted, error) {
+	f.calls = append(f.calls, fmt.Sprintf("rollback %s %d", at.Schema, to))
 	if f.kept != "" {
 		return &appschema.Reverted{Versions: []int{}, Head: 9, Kept: f.kept}, nil
 	}
+	vs := f.applied
+	if at.Schema != at.Source {
+		vs = f.others[at.Schema]
+	}
 	reverted := []int{}
-	for _, v := range f.applied {
+	for _, v := range vs {
 		if v > to {
 			reverted = append(reverted, v)
 		}
 	}
 	return &appschema.Reverted{Versions: reverted, Head: to}, nil
+}
+
+func (f *fakeSchema) Baseline(_ context.Context, at appschema.Target, _ string, upTo int) error {
+	f.calls = append(f.calls, fmt.Sprintf("baseline %s %d", at.Schema, upTo))
+	if f.others == nil {
+		f.others = map[string][]int{}
+	}
+	for _, v := range f.applied {
+		if v <= upTo {
+			f.others[at.Schema] = append(f.others[at.Schema], v)
+		}
+	}
+	return nil
 }
 
 const (
@@ -334,6 +404,18 @@ func reachOnly(conns ...string) func(context.Context, application.Actor) ([]stri
 type fakeRoles struct {
 	created, dropped, granted []string
 	failCreate, failDrop      error
+	// cloned is each schema built from another's, "from>to"; failClone
+	// refuses the build.
+	cloned    []string
+	failClone error
+}
+
+func (f *fakeRoles) CloneSchema(_ context.Context, _, from, to string) error {
+	if f.failClone != nil {
+		return f.failClone
+	}
+	f.cloned = append(f.cloned, from+">"+to)
+	return nil
 }
 
 func (f *fakeRoles) CreateRunRole(_ context.Context, connection, schema string) (role, password string, err error) {

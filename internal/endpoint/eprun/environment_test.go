@@ -106,3 +106,25 @@ func TestTargetIn_CarriesTheEnvironmentToThePublicVersion(t *testing.T) {
 	assert.Equal(t, "1", out.public.variables["A"])
 	assert.Empty(t, tg.public.Environment, "the held target is not changed")
 }
+
+// The application's last environment named answers as "" does: an endpoint
+// of an application never released serves the script's run version on a site
+// calling prod by name, as it did when sites called the last environment
+// (#2709).
+func TestResolveIn_TheLastEnvironmentNamedRunsAsTheBareName(t *testing.T) {
+	f := newFixture(t, envSource[:len(envSource)-1]+"\n")
+	f.scripts.save(envSource)
+	st := f.bindings.stamps["orders"]
+	st.Application = "app_1"
+	f.bindings.stamps["orders"] = st
+	f.runner.Environments = envResolver{envs: map[string]appenv.Script{
+		"prod": {OK: true, Environment: "prod", Last: true},
+		"dev":  {OK: true, Environment: "dev"},
+	}}
+	ctx := context.Background()
+	prod, err := f.runner.ResolveIn(ctx, "orders", "prod")
+	require.NoError(t, err)
+	assert.Equal(t, "prod", prod.Environment)
+	_, err = f.runner.ResolveIn(ctx, "orders", "dev")
+	require.ErrorIs(t, err, ErrNoEnvironment, "an earlier environment with no release still answers nothing")
+}

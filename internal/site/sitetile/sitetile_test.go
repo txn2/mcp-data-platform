@@ -40,6 +40,10 @@ func TestStore(t *testing.T) {
 	mock.ExpectExec(`SET lease_until = now\(\)`).WithArgs("s1", "prod", float64(30)).WillReturnResult(sqlmock.NewResult(0, 1))
 	require.NoError(t, st.Hold(ctx, "s1", "prod", 30*time.Second))
 
+	mock.ExpectExec(`SET drawn_release = NULL, tile_key = '', attempt_release = NULL, attempts = 0 WHERE site_id = \$1 AND environment = \$2 AND tile_key = \$3`).
+		WithArgs("s1", "prod", "k").WillReturnResult(sqlmock.NewResult(0, 1))
+	require.NoError(t, st.Forget(ctx, "s1", "prod", "k"))
+
 	mock.ExpectQuery(`SELECT drawn_release, tile_key, failure FROM site_tiles`).WithArgs("s1", "prod").
 		WillReturnRows(sqlmock.NewRows([]string{"r", "k", "f"}).AddRow(4, "k", ""))
 	got, err := st.Get(ctx, "s1", "prod")
@@ -53,6 +57,7 @@ func TestStore(t *testing.T) {
 		func() error { return st.Record(ctx, one, "k", 1) },
 		func() error { return st.RecordFailure(ctx, one, "r", 1) },
 		func() error { return st.Hold(ctx, "s", "e", time.Second) },
+		func() error { return st.Forget(ctx, "s", "e", "k") },
 	} {
 		mock.ExpectExec(`UPDATE site_tiles`).WillReturnError(errors.New("db down"))
 		require.Error(t, fail())

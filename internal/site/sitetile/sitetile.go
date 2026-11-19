@@ -23,7 +23,9 @@ import (
 //  2. #2681: the release as its address serves it (redirects, rewrites,
 //     media, 404 page), public files fetched, the same site's hostnames
 //     served in process, and a quiet network waited for.
-const Renderer = 2
+//  3. #2701: the tiles the storage capacity pass removed as orphans,
+//     drawn again on every deployment that lost them.
+const Renderer = 3
 
 // Work is one environment owed a tile.
 type Work struct {
@@ -130,6 +132,18 @@ func (s *Store) Hold(ctx context.Context, siteID, environment string, hold time.
 		`UPDATE site_tiles SET lease_until = now() + make_interval(secs => $3) WHERE site_id = $1 AND environment = $2`,
 		siteID, environment, hold.Seconds()); err != nil {
 		return fmt.Errorf("holding a site tile: %w", err)
+	}
+	return nil
+}
+
+// Forget clears an environment's tile whose object at key is gone, so the
+// worker draws it again for the release it serves (#2701), with its attempts
+// counted afresh. A row that has since recorded another key is left alone.
+func (s *Store) Forget(ctx context.Context, siteID, environment, key string) error {
+	if _, err := s.DB.ExecContext(ctx,
+		`UPDATE site_tiles SET drawn_release = NULL, tile_key = '', attempt_release = NULL, attempts = 0 WHERE site_id = $1 AND environment = $2 AND tile_key = $3`,
+		siteID, environment, key); err != nil {
+		return fmt.Errorf("forgetting a site tile: %w", err)
 	}
 	return nil
 }

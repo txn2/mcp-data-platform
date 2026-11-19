@@ -16,6 +16,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/connledger"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
@@ -127,9 +128,12 @@ type Toolkit struct {
 	name        string
 	defaultName string
 
-	mu               sync.RWMutex
-	server           *mcp.Server
-	connections      map[string]*upstream
+	mu          sync.RWMutex
+	server      *mcp.Server
+	connections map[string]*upstream
+	// configs is the configuration each run-time connection was added with
+	// (toolkit.ConfigHolder, #2704).
+	configs          connledger.Ledger
 	enrichmentEngine *enrichment.Engine
 	connOAuthStore   connoauth.Store
 	authEvents       *authevents.Writer
@@ -687,7 +691,18 @@ func (t *Toolkit) AddConnection(name string, config map[string]any) error {
 	if cfg.ConnectionName == "" {
 		cfg.ConnectionName = name
 	}
-	return t.addParsedConnection(name, cfg)
+	if err := t.addParsedConnection(name, cfg); err != nil {
+		return err
+	}
+	t.configs.Record(name, config)
+	return nil
+}
+
+// HoldsConfig implements toolkit.ConfigHolder: whether name is served under
+// exactly config. A peer's announcement of the same configuration then keeps
+// the live session and its tools rather than dropping and re-registering them.
+func (t *Toolkit) HoldsConfig(name string, config map[string]any) bool {
+	return t.HasConnection(name) && t.configs.Holds(name, config)
 }
 
 // addParsedConnection runs the dial + registration. The toolkit's mutex
@@ -859,6 +874,7 @@ func (t *Toolkit) RemoveConnection(name string) error {
 		notify = true
 	}
 	delete(t.connections, name)
+	t.configs.Forget(name)
 	client := u.client
 	// Clear the pointer so a concurrent in-flight forwarder reading currentClient
 	// sees the connection as gone (returns "upstream unavailable") rather than

@@ -32,9 +32,12 @@ const (
 	endlessSQL2073      = "SELECT count(*) AS n FROM UNNEST(sequence(1, 10000)) AS a(x) " +
 		"CROSS JOIN UNNEST(sequence(1, 10000)) AS b(y) CROSS JOIN UNNEST(sequence(1, 10000)) AS c(z)"
 	// mediumSQL2073 runs for a few seconds on the dev stack's Trino: past a
-	// one-second limit, well inside a sixty-second one.
-	mediumSQL2073 = "SELECT sum((x * y) % 7) AS n FROM UNNEST(sequence(1, 10000)) AS a(x) " +
-		"CROSS JOIN UNNEST(sequence(1, 10000)) AS b(y)"
+	// one-second limit, well inside a sixty-second one. 10^8 rows finished
+	// in 976 ms once Trino was warm (#2709's recording), inside the limit
+	// that was to stop it; 4 x 10^8 keeps it past one second (a fourth join,
+	// since Trino's sequence holds at most 10,000 entries).
+	mediumSQL2073 = "SELECT sum((x * y * z) % 7) AS n FROM UNNEST(sequence(1, 10000)) AS a(x) " +
+		"CROSS JOIN UNNEST(sequence(1, 10000)) AS b(y) CROSS JOIN UNNEST(sequence(1, 4)) AS c(z)"
 )
 
 // saved2073 saves source as the administrator's script and returns its name.

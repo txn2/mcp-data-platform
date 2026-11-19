@@ -22,7 +22,7 @@ def handle(req):
 `
 
 func TestDerive_AnEndpointsHandlerIsDrawn(t *testing.T) {
-	g := deriveGraph(anEndpoint)
+	g := deriveGraph(anEndpoint, nil)
 	require.True(t, g.OK, "%+v", g.Findings)
 	q := nodeByTitle(t, g, "Query trino")
 	assert.Equal(t, []string{"hive.sales.orders"}, q.Detail)
@@ -42,7 +42,7 @@ def form_submit(req, values):
 `
 
 func TestDerive_AFormsTwoHandlersAreDrawn(t *testing.T) {
-	g := deriveGraph(aForm)
+	g := deriveGraph(aForm, nil)
 	require.True(t, g.OK, "%+v", g.Findings)
 	q := nodeByTitle(t, g, "Query trino")
 	assert.Equal(t, []string{"hive.sales.plans"}, q.Detail)

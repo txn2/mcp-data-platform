@@ -2,11 +2,15 @@ package appwire
 
 import (
 	"context"
+	"database/sql"
 	"testing"
+
+	"github.com/DATA-DOG/go-sqlmock"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	postgreskit "github.com/txn2/mcp-data-platform/pkg/toolkits/postgres"
 )
@@ -32,6 +36,21 @@ func TestLiveRoles(t *testing.T) {
 	require.Error(t, err, "the toolkit refuses a connection it does not serve")
 	_, err = live.GrantRunRole(ctx, "orders", "shop")
 	require.Error(t, err)
+	require.Error(t, live.CloneSchema(ctx, "orders", "shop", "shop_dev"), "the toolkit refuses a connection it does not serve")
 	require.Error(t, live.DropRunRole(ctx, "orders", "shop"))
 	assert.False(t, members(reg)(ctx, "orders", "a", "b"))
+}
+
+// With no application database toolkit, a clone is refused; a library is
+// read by its name (#2709).
+func TestCloneSchemaAndLibraryNamed(t *testing.T) {
+	require.ErrorIs(t, liveRoles{reg: registry.NewRegistry()}.CloneSchema(context.Background(), "orders", "shop", "shop_dev"), errNoKit)
+
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	libs := libraries{Store: scriptstore.New(db), db: db}
+	mock.ExpectQuery("SELECT id FROM scripts WHERE library AND name").WithArgs("shop-sql").WillReturnError(sql.ErrNoRows)
+	_, err = libs.LibraryNamed(context.Background(), "shop-sql")
+	require.ErrorContains(t, err, "reading library shop-sql")
 }

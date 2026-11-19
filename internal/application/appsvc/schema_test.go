@@ -221,7 +221,7 @@ func TestRollback_NeverBelowTheAdoptedVersion(t *testing.T) {
 	assert.Equal(t, 3, st.Schema.ReleasedVersion)
 	assert.Equal(t, 2, st.Schema.AdoptedVersion)
 	assert.Equal(t, "shop_run", st.Schema.RunRole)
-	assert.Contains(t, st.Schema.Note, "reaches no table until a migration defines shop_write")
+	assert.Empty(t, st.Schema.Note, "the platform grants the run role on its schema; nothing is owed (#2709)")
 
 	back, err := svc.Rollback(ctx, admin, "shop", 1)
 	require.NoError(t, err)

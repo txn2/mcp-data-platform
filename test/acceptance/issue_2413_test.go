@@ -107,9 +107,6 @@ func buildShop2413(t *testing.T) *shop2413 {
 	}
 	clean()
 	t.Cleanup(clean)
-	// The roles the page's last migration defines belong to the server, and
-	// outlive the schema's cleanup.
-	dropRolesLater(t, "shop_write", "shop_read")
 	s.conn = "acc-2413-" + stamp
 	path := "/api/v1/admin/connection-instances/appdb/" + s.conn
 	if status, out := admin.rest(http.MethodPut, path, jsonBody(t, map[string]any{"config": map[string]any{
@@ -128,9 +125,11 @@ func buildShop2413(t *testing.T) *shop2413 {
 	})
 	admin.call("manage_application", map[string]any{"command": "add_part", "application": s.app, "kind": "schema", "part_id": s.conn + "/" + shopSchema2413})
 	body := page2413(t, admin)
+	// Since #2709 a migration names no role: the platform grants each
+	// environment's run role, so the page teaches no grant block.
 	sqls, grants, pys := blocks2413(body, "sql"), blocks2413(body, "sql no-run"), blocks2413(body, "python")
-	if len(sqls) != 3 || len(grants) != 1 || len(pys) != 3 {
-		t.Fatalf("the page has %d SQL, %d grant and %d Python blocks, not 3, 1 and 3", len(sqls), len(grants), len(pys))
+	if len(sqls) != 3 || len(grants) != 0 || len(pys) != 3 {
+		t.Fatalf("the page has %d SQL, %d grant and %d Python blocks, not 3, 0 and 3", len(sqls), len(grants), len(pys))
 	}
 	inConn := func(src string) string {
 		return strings.Replace(src, `CONNECTION = "orders"`, fmt.Sprintf("CONNECTION = %q", s.conn), 1)
@@ -148,11 +147,7 @@ func buildShop2413(t *testing.T) *shop2413 {
 		schema(map[string]any{"command": "add", "version": i + 1, "name": fmt.Sprintf("page block %d", i+1), "up": up, "down": downs[i]})
 	}
 	schema(map[string]any{"command": "add", "version": 4, "template": "outbox", "capture": []string{"orders"}})
-	schema(map[string]any{
-		"command": "add", "version": 5, "name": "the application's roles", "up": grants[0],
-		"down": "DROP OWNED BY shop_write, shop_read; DROP ROLE shop_write; DROP ROLE shop_read",
-	})
-	schema(map[string]any{"command": "add", "version": 6, "name": "products", "up": `INSERT INTO products (sku, name, price) VALUES ('mug', 'Mug', 12.50), ('tee', 'Tee', 20);
+	schema(map[string]any{"command": "add", "version": 5, "name": "products", "up": `INSERT INTO products (sku, name, price) VALUES ('mug', 'Mug', 12.50), ('tee', 'Tee', 20);
 INSERT INTO inventory (sku, on_hand) VALUES ('mug', 5), ('tee', 1);`, "down": "DELETE FROM inventory; DELETE FROM products"})
 
 	// 2. The checkout: the built-in example, saved with its own tests.
@@ -200,8 +195,8 @@ INSERT INTO inventory (sku, on_hand) VALUES ('mug', 5), ('tee', 1);`, "down": "D
 	}
 	admin.call("manage_application", map[string]any{"command": "add_part", "application": s.app, "kind": "asset", "part_id": s.storefront})
 	rel := admin.call("manage_application", map[string]any{"command": "release", "application": s.app, "note": "the shop"})
-	if !strings.Contains(asJSON(rel["changes"]), `"applied":[1,2,3,4,5,6]`) {
-		t.Fatalf("the release did not apply the six migrations: %v", rel)
+	if !strings.Contains(asJSON(rel["changes"]), `"applied":[1,2,3,4,5]`) {
+		t.Fatalf("the release did not apply the five migrations: %v", rel)
 	}
 
 	// 4. The confirmation: the outbox as a webhook source the confirmation

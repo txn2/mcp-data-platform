@@ -124,6 +124,11 @@ func (w *Worker) attempt(ctx context.Context, j job) error {
 		w.handBack(ctx, j)
 		return nil //nolint:nilerr // a stop is not the attempt's failure
 	}
+	if w.stoppedTheRenderer(ctx, err) {
+		recordUndrawable(ctx, j, failureReason(errStoppedRenderer))
+		m.RecordThumbnailFailure(ctx, kind, failUndrawable)
+		return err
+	}
 	if j.attempts >= w.cfg.MaxAttempts {
 		w.giveUp(ctx, j, err)
 		m.RecordThumbnailFailure(ctx, kind, failUndrawable)
@@ -209,9 +214,30 @@ func (*Worker) endClaim(ctx context.Context, j job, hold time.Duration, attempts
 func (w *Worker) giveUp(ctx context.Context, j job, last error) {
 	// The last reason is trimmed of its prefixes before it is placed, and the
 	// whole bounded after.
-	reason := failureReason(fmt.Errorf("the renderer could not finish drawing this after %d attempts; the last: %s",
-		w.cfg.MaxAttempts, failureReason(last)))
-	slog.WarnContext(ctx, "thumbnails: recording a document as not drawable after its attempts",
+	recordUndrawable(ctx, j, failureReason(fmt.Errorf("the renderer could not finish drawing this after %d attempts; the last: %s",
+		w.cfg.MaxAttempts, failureReason(last))))
+}
+
+// errStoppedRenderer is the reason recorded for a document whose attempt
+// took the renderer down.
+var errStoppedRenderer = errors.New("drawing this stopped the renderer (it ran out of memory or crashed), so it is not tried again until it changes")
+
+// stoppedTheRenderer reports whether an attempt that did not finish took the
+// renderer down: it ended with the renderer gone, the renderer still does not
+// answer, and the worker draws one document at a time, so no other document
+// was in the renderer to have done it. Such a document is recorded at once
+// rather than held and tried again, each try stopping every tile on the
+// replica while the renderer restarts (#2697). With more than one document
+// drawn at a time the attempt cannot be told from the others in the renderer,
+// and is held as any other.
+func (w *Worker) stoppedTheRenderer(ctx context.Context, err error) bool {
+	return w.cfg.Concurrency == 1 && errors.Is(err, headless.ErrUnavailable) && !w.rendererAnswers(ctx)
+}
+
+// recordUndrawable records a document as not drawable for reason, ending its
+// claim.
+func recordUndrawable(ctx context.Context, j job, reason string) {
+	slog.WarnContext(ctx, "thumbnails: recording a document as not drawable",
 		logKeyDocument, logsan.SanitizeForLog(j.name), "reason", logsan.SanitizeForLog(reason))
 	if err := j.fail(ctx, reason); err != nil {
 		slog.ErrorContext(ctx, "thumbnails: recording a failure failed", logKeyDocument, logsan.SanitizeForLog(j.name),

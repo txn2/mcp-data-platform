@@ -15,6 +15,7 @@ import (
 	trinotools "github.com/txn2/mcp-trino/pkg/tools"
 
 	"github.com/txn2/mcp-data-platform/internal/conncatchup"
+	"github.com/txn2/mcp-data-platform/internal/connledger"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/secretref"
 	"github.com/txn2/mcp-data-platform/pkg/query"
@@ -167,6 +168,9 @@ type Toolkit struct {
 	name    string
 	config  Config
 	manager *multiserver.Manager
+	// configs is the configuration each run-time connection was added with,
+	// secrets filled (toolkit.ConfigHolder, #2704).
+	configs connledger.Ledger
 	// primary is the default connection's client settings, which a
 	// connection added at run time inherits what it leaves unset from.
 	primary      trinoclient.Config
@@ -731,8 +735,20 @@ func (t *Toolkit) AddConnection(name string, config map[string]any) error {
 	} else {
 		delete(t.scratch, name)
 	}
+	t.configs.Record(name, config)
 
 	return nil
+}
+
+// HoldsConfig implements toolkit.ConfigHolder: whether name is served under
+// exactly config, its secret references filled as AddConnection fills them,
+// so a rotated secret reads as a changed configuration.
+func (t *Toolkit) HoldsConfig(name string, config map[string]any) bool {
+	filled, err := secretref.FillConfigKeys(context.Background(), name, config, SecretKeys...)
+	if err != nil {
+		return false
+	}
+	return t.HasConnection(name) && t.configs.Holds(name, filled)
 }
 
 // RemoveConnection removes a named connection at runtime.
@@ -744,6 +760,7 @@ func (t *Toolkit) RemoveConnection(name string) error {
 	if err := t.manager.RemoveConnection(name); err != nil {
 		return fmt.Errorf("removing trino connection %s: %w", name, err)
 	}
+	t.configs.Forget(name)
 
 	t.connMu.Lock()
 	defer t.connMu.Unlock()

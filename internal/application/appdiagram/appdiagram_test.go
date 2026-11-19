@@ -3,6 +3,7 @@ package appdiagram
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -27,6 +28,7 @@ type fake struct {
 	filled    []string
 	created   []string
 	appdb     map[string]bool
+	libraries map[string]string
 }
 
 func (f *fake) Script(_ context.Context, id string) (*script.Script, error) {
@@ -64,6 +66,11 @@ func (f *fake) SchemaTables(context.Context, string, string) SchemaTables {
 }
 
 func (f *fake) IsAppDB(_ context.Context, c string) bool { return f.appdb[c] }
+
+func (f *fake) LibrarySource(_ context.Context, name string, version int) (string, bool) {
+	text, ok := f.libraries[fmt.Sprintf("%s@%d", name, version)]
+	return text, ok
+}
 
 const (
 	intake  = "11111111-0000-0000-0000-000000000001"
@@ -245,6 +252,17 @@ func TestBuild_Findings(t *testing.T) {
 		Problems(&Diagram{Findings: []Finding{kinds[FindingForeignSchema], kinds[FindingLibraryVersion]}}))
 }
 
+// runtimeWrites is the message of every runtime_writes finding of a diagram.
+func runtimeWrites(d *Diagram) []string {
+	var out []string
+	for _, fd := range d.Findings {
+		if fd.Kind == FindingRuntimeWrites {
+			out = append(out, fd.Message)
+		}
+	}
+	return out
+}
+
 // unwrittenFindings is every unwritten_table finding of a diagram.
 func unwrittenFindings(d *Diagram) []Finding {
 	var out []Finding
@@ -280,8 +298,11 @@ func TestBuild_WritesTheAnalyzerMissed(t *testing.T) {
 	require.NotEmpty(t, found)
 	for _, fd := range found {
 		assert.NotContains(t, fd.Message, "written by no part", "a run-time write may be the writer")
-		assert.Contains(t, fd.Message, "intake writes a table named only when it runs")
+		assert.Contains(t, fd.Message, "a script that writes a table named only when it runs may")
+		assert.NotContains(t, fd.Message, "intake", "the scripts are named once, not on every table")
 	}
+	assert.Equal(t, []string{"script intake writes a table named only when it runs, which may be a table of shop that no part is known to write"},
+		runtimeWrites(d))
 
 	f.sources[intake][2] = "def main():\n    \"\"\"Files.\"\"\"\n    platform.execute(run.params[\"sql\"], connection = \"elsewhere\")\n"
 	d = Build(context.Background(), f, in)
@@ -299,8 +320,8 @@ func TestBuild_WritesTheAnalyzerMissed(t *testing.T) {
 // a table named only when it runs.
 func TestBuild_LookupsAndComprehensionsAreWrites(t *testing.T) {
 	f, in := shop()
-	f.sources[intake][2] = `UPSERT_COMPANIES = "INSERT INTO shop.company (code) SELECT code FROM x ON CONFLICT (code) DO UPDATE SET code = excluded.code"
-UPSERT_SITES = "INSERT INTO shop.site (code) SELECT code FROM x ON CONFLICT (code) DO UPDATE SET code = excluded.code"
+	f.sources[intake][2] = `UPSERT_COMPANIES = "INSERT INTO shop.company (code) SELECT code FROM (VALUES (1)) AS v(code) ON CONFLICT (code) DO UPDATE SET code = excluded.code"
+UPSERT_SITES = "INSERT INTO shop.site (code) SELECT code FROM (VALUES (1)) AS v(code) ON CONFLICT (code) DO UPDATE SET code = excluded.code"
 INSERT_DOCUMENT = "WITH added AS (INSERT INTO shop.document (b) SELECT $1 RETURNING id) INSERT INTO shop.invoice (d) SELECT id FROM added"
 
 def save(documents):
@@ -332,9 +353,8 @@ def main():
 	d = Build(context.Background(), f, in)
 	found := unwrittenFindings(d)
 	require.NotEmpty(t, found)
-	for _, fd := range found {
-		assert.Contains(t, fd.Message, "intake writes a table named only when it runs", "a candidate built when it runs")
-	}
+	assert.Len(t, runtimeWrites(d), 1, "a candidate built when it runs")
+	assert.Contains(t, runtimeWrites(d)[0], "intake writes a table named only when it runs")
 }
 
 // TestBuild_AnAssetTheCallerCannotOpen is drawn unnamed and not read.
@@ -407,4 +427,71 @@ func TestBuild_AnEndpointReferenceIsACall(t *testing.T) {
 	f.content["store"] = `<script>const EP = "mcp:endpoint:shop-api";</script>`
 	d := Build(context.Background(), f, in)
 	assert.True(t, hasLink(d, "asset:store", "script:"+api, LinkCalls))
+}
+
+// TestBuild_RuntimeWritesAreOneCardAndOneFinding is #2699: a script with
+// several steps whose tables are named only when it runs is drawn with one
+// such card per connection, and several such scripts are named once, in a
+// sentence that agrees with their number.
+func TestBuild_RuntimeWritesAreOneCardAndOneFinding(t *testing.T) {
+	f, in := shop()
+	f.sources[intake][2] = "def main():\n    \"\"\"Files.\"\"\"\n" +
+		"    platform.execute(run.params[\"a\"], connection = \"orders\")\n" +
+		"    platform.batch(\"orders\", json.decode(run.params[\"b\"]))\n" +
+		"    platform.execute(run.params[\"c\"], connection = \"elsewhere\")\n"
+	f.sources[api][1] = "def handle(req):\n    \"\"\"Answers.\"\"\"\n    platform.execute(run.params[\"x\"], connection = \"orders\")\n" +
+		"    return platform.query(\"SELECT * FROM shop.products\", connection = \"orders\")\n"
+	d := Build(context.Background(), f, in)
+	var cards []string
+	for _, n := range d.Nodes {
+		if strings.HasPrefix(n.ID, "computed:script:"+intake+":") {
+			cards = append(cards, n.ID)
+		}
+	}
+	assert.ElementsMatch(t, []string{"computed:script:" + intake + ":orders", "computed:script:" + intake + ":elsewhere"}, cards)
+	got := runtimeWrites(d)
+	require.Len(t, got, 1)
+	assert.Contains(t, got[0], "scripts ")
+	assert.Contains(t, got[0], " write tables named only when they run, which may be tables of shop that no part is known to write")
+	assert.Equal(t, 1, strings.Count(strings.Join(Problems(d), "\n"), "intake"), "the script list is stated once: %q", Problems(d))
+}
+
+// TestBuild_StatementsALibraryDefinesAreWrites is #2699 on the shape a real
+// application had: a script whose statements and helper come from a library
+// it loads is drawn writing those tables, with no unwritten finding for them.
+func TestBuild_StatementsALibraryDefinesAreWrites(t *testing.T) {
+	f, in := shop()
+	f.libraries = map[string]string{"shop-sql@3": "ADD_SIGNUP = \"INSERT INTO shop.signups (email) VALUES (:e)\"\n\n" +
+		"def product_rows(names):\n    \"\"\"One product row per name.\"\"\"\n    return [{\"sql\": \"INSERT INTO shop.products (name) VALUES (:n)\", \"params\": {\"n\": n}} for n in names]\n"}
+	f.sources[intake][2] = "load(\"lib:shop-sql@3\", \"ADD_SIGNUP\", \"product_rows\")\n\n" +
+		"def main():\n    \"\"\"Files.\"\"\"\n    platform.execute(ADD_SIGNUP, connection = \"orders\", params = {\"e\": 1})\n" +
+		"    platform.batch(\"orders\", product_rows([\"a\"]))\n"
+	f.sources[api][1] = "def handle(req):\n    \"\"\"Answers.\"\"\"\n    return platform.query(\"SELECT * FROM shop.products JOIN shop.signups ON true\", connection = \"orders\")\n"
+	d := Build(context.Background(), f, in)
+	assert.True(t, hasLink(d, "script:"+intake, "table:orders/shop.signups", LinkWrites))
+	assert.True(t, hasLink(d, "script:"+intake, "table:orders/shop.products", LinkWrites))
+	for _, fd := range unwrittenFindings(d) {
+		assert.NotContains(t, fd.Node, "shop.signups")
+		assert.NotContains(t, fd.Node, "shop.products")
+	}
+	assert.Empty(t, runtimeWrites(d))
+}
+
+// A table written without a schema, as each environment's runs read it in
+// their own schema, is the application's, and so is one qualified by an
+// environment's schema; neither is a foreign schema (#2709).
+func TestBuild_AnUnqualifiedTableIsTheApplications(t *testing.T) {
+	f, in := shop()
+	in.App.Environments = []application.Environment{{Name: "dev", Schema: "shop_dev"}, {Name: "prod", Schema: "shop"}}
+	f.sources[api][1] = "def handle(req):\n    \"\"\"Answers.\"\"\"\n    platform.query(\"SELECT * FROM products\", connection = \"orders\")\n" +
+		"    return platform.query(\"SELECT * FROM shop_dev.products\", connection = \"orders\")\n"
+	d := Build(context.Background(), f, in)
+	for _, fd := range d.Findings {
+		assert.NotEqual(t, FindingForeignSchema, fd.Kind, fd.Message)
+	}
+	found := false
+	for _, n := range d.Nodes {
+		found = found || (n.Label == "products" && n.Group == GroupSchema)
+	}
+	assert.True(t, found, "products is drawn in the application's schema")
 }

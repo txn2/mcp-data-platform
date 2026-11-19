@@ -98,7 +98,7 @@ func acyclic(s Structure) bool {
 }
 
 func TestStructure_OneStartExitsDecisionsAndBoxes(t *testing.T) {
-	g := deriveGraph(structured)
+	g := deriveGraph(structured, nil)
 	require.True(t, g.OK, "%+v", g.Findings)
 	s := g.Structure
 
@@ -180,7 +180,7 @@ func TestStructure_OneStartExitsDecisionsAndBoxes(t *testing.T) {
 // The early return and the fail() leave the flow; the steps after the if run
 // on its no arm.
 func TestStructure_ArmsJoinWhereTheNextStatementIs(t *testing.T) {
-	s := deriveGraph(structured).Structure
+	s := deriveGraph(structured, nil).Structure
 	var early StructNode
 	for _, n := range s.Nodes {
 		if n.Kind == StructIf && n.Label == "len(rows) == 0" {
@@ -218,7 +218,7 @@ func TestStructure_AFailedRunsBacktraceNamesItsStop(t *testing.T) {
 	site := scriptcallsite.FromBacktrace(err.Error())
 	require.NotEmpty(t, site, "%v", err)
 
-	stop := structNodes(deriveGraph(structured).Structure, StructStop)[0]
+	stop := structNodes(deriveGraph(structured, nil).Structure, StructStop)[0]
 	assert.Equal(t, strings.Join(stop.CallSite, ">"), strings.Join(site, ">"))
 }
 
@@ -228,7 +228,7 @@ def main():
     ids = ["a", "b"]
     rows = [platform.query("SELECT 1", connection="w") for i in ids]
     platform.export("out", rows, format="csv")
-`)
+`, nil)
 	require.True(t, g.OK, "%+v", g.Findings)
 	s := g.Structure
 	require.Len(t, s.Boxes, 1)
@@ -241,14 +241,14 @@ def main():
 }
 
 func TestStructure_NoMainIsTheTopLevel(t *testing.T) {
-	s := deriveGraph(threeSteps).Structure
+	s := deriveGraph(threeSteps, nil).Structure
 	require.Len(t, structNodes(s, StructStart), 1)
 	assert.Len(t, structNodes(s, StructStep), 3, "query, api and export; the table shares the export's call")
 	assert.True(t, acyclic(s))
 }
 
 func TestStructure_AnUnparsedSourceHasEmptyLists(t *testing.T) {
-	g := deriveGraph("def (")
+	g := deriveGraph("def (", nil)
 	require.False(t, g.OK)
 	assert.NotNil(t, g.Structure.Nodes)
 	assert.NotNil(t, g.Structure.Edges)
@@ -272,7 +272,7 @@ func TestStructure_DeepFanOutIsBounded(t *testing.T) {
 	}
 	lines = append(lines, "def main():", `    """Starts the fan-out."""`, "    f0()")
 	source := strings.Join(lines, "\n") + "\n"
-	g := deriveGraph(source)
+	g := deriveGraph(source, nil)
 	require.True(t, g.OK, "%+v", g.Findings)
 	assert.True(t, g.Structure.Truncated)
 	assert.LessOrEqual(t, len(g.Structure.Nodes), maxStructNodes)

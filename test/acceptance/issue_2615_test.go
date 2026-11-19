@@ -38,6 +38,21 @@ func findings2615(t *testing.T, c *client, app string) map[string]string {
 	return out
 }
 
+// runtimeWrites2615 is the runtime_writes finding manage_application get
+// reports: the one sentence naming the scripts that write a table named only
+// when they run (#2699), empty for none.
+func runtimeWrites2615(t *testing.T, c *client, app string) string {
+	t.Helper()
+	var out []string
+	for _, f := range asList(get2539(c, app)["findings"]) {
+		if f["kind"] == "runtime_writes" {
+			msg, _ := f["message"].(string)
+			out = append(out, msg)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
 // shop2615 is an application holding a schema whose migration creates doc and
 // inv and fills neither, with a part that reads both.
 func shop2615(t *testing.T, admin *client, label string) (app, schema string) {
@@ -47,7 +62,7 @@ func shop2615(t *testing.T, admin *client, label string) (app, schema string) {
 	addSchema2539(admin, app, conn2539, schema)
 	migration2539(admin, conn2539, schema, 1,
 		"CREATE TABLE doc (id serial PRIMARY KEY, b int);\nCREATE TABLE inv (d int);\n"+writeRole(schema, "SELECT, INSERT", "doc, inv"),
-		"DROP TABLE inv; DROP TABLE doc; DROP OWNED BY "+schema+"_write; DROP ROLE "+schema+"_write")
+		"DROP TABLE inv; DROP TABLE doc")
 	admin.call("manage_schema", map[string]any{"command": "apply", "connection": conn2539, "schema": schema})
 	reader := "def main():\n    \"\"\"Counts invoices and documents.\"\"\"\n" +
 		"    a = platform.query(\"SELECT count(*) AS n FROM " + schema + ".inv\", connection = \"orders\")[\"rows\"]\n" +
@@ -110,9 +125,12 @@ func TestIssue2615_AStatementChosenWhenItRunsMayBeTheWriter(t *testing.T) {
 		if strings.Contains(msg, "written by no part") {
 			t.Errorf("%s is reported written by no part while %s may write it: %s", node, name, msg)
 		}
-		if !strings.Contains(msg, name+" writes a table named only when it runs") {
-			t.Errorf("the finding for %s does not name %s: %s", node, name, msg)
+		if !strings.Contains(msg, "a script that writes a table named only when it runs may") || strings.Contains(msg, name) {
+			t.Errorf("the finding for %s does not say a run-time writer may write it, or repeats the script list: %s", node, msg)
 		}
+	}
+	if msg := runtimeWrites2615(t, admin, app); !strings.Contains(msg, name+" writes a table named only when it runs") {
+		t.Errorf("the scripts that write a table named only when they run are not named once: %q", msg)
 	}
 }
 

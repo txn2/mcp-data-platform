@@ -3,6 +3,7 @@ package ephttp
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -50,4 +51,28 @@ func TestEnvironmentRoute(t *testing.T) {
 	// A runner that knows no environments answers none.
 	f2 := newFixture()
 	assert.Equal(t, http.StatusNotFound, f2.do("GET", "/environments/dev/endpoints/open/42", nil, "").Code)
+}
+
+// A request on a site environment's host resolves the endpoint in the
+// application environment its route names, and the application's own page
+// origin, naming none, in the last (#2709).
+func TestServePage_ResolvesInTheRoutesEnvironment(t *testing.T) {
+	f := newFixture()
+	er := &envRunner{runner: f.runner, envs: map[string]bool{"dev": true}}
+	h := &Handler{Runner: er, Checker: f.checker}
+	serve := func(env string) int {
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://shop-web--dev.pages.example.com/endpoints/open", http.NoBody)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rec := httptest.NewRecorder()
+		h.ServePage(rec, req, PageRoute{Application: "app_shop", Environment: env, Name: "open"})
+		return rec.Code
+	}
+	serve("dev")
+	assert.Equal(t, []string{"dev/open"}, er.asked)
+	assert.Equal(t, http.StatusNotFound, serve("qa"), "an environment the application lacks answers nothing")
+	er.asked = nil
+	serve("")
+	assert.Empty(t, er.asked, "the page origin names no environment and resolves the last")
 }

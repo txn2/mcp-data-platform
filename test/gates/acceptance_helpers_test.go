@@ -73,7 +73,7 @@ func helperGate(t *testing.T, root string, args ...string) (string, bool) {
 	cmd := exec.CommandContext(t.Context(), "python3", //nolint:gosec // a fixed script under a temp root this test wrote
 		append([]string{filepath.Join(root, scriptRelPath)}, args...)...)
 	cmd.Dir = root
-	cmd.Env = append(os.Environ(), "ACCEPTANCE_DIFF_RANGE=HEAD")
+	cmd.Env = append(os.Environ(), "ACCEPTANCE_DIFF_RANGE=HEAD", "ACCEPTANCE_STALE_STRICT=1")
 	cmd.Stdin = strings.NewReader(changedHelpers)
 	out, err := cmd.CombinedOutput()
 	return string(out), err == nil

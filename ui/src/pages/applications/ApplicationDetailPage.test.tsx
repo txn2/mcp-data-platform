@@ -43,7 +43,7 @@ describe("ApplicationDetailPage", () => {
     // The header's release, and each environment's (#2696).
     expect(screen.getAllByText("Release 3")).toHaveLength(3);
     expect(screen.getByLabelText("prod runs release 3")).toBeInTheDocument();
-    expect(screen.getByTestId("parts-subtitle")).toHaveTextContent("5 parts. Release v3 pins the version of each.");
+    expect(screen.getByTestId("parts-subtitle")).toHaveTextContent("8 parts. Release v3 pins the version of each.");
     expect(screen.getByRole("group", { name: "Automations" })).toHaveTextContent("Automations · 2");
     const sales = screen.getByTestId("part-script-script-001");
     expect(sales).toHaveTextContent("Daily sales report");
@@ -116,7 +116,8 @@ describe("ApplicationDetailPage", () => {
     await loaded();
 
     expect(screen.getByRole("button", { name: "Add parts" })).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: /^Actions for / })).toHaveLength(5);
+    // Two automations, an asset, a source, the schema and three site environments.
+    expect(screen.getAllByRole("button", { name: /^Actions for / })).toHaveLength(8);
     for (const name of ["Release", "Roll back", "Export"]) {
       expect(screen.queryByRole("button", { name }), name).toBeNull();
     }

@@ -68,6 +68,11 @@ print(A)
 	want := map[string]string{"A": "warehouse", "B": "warehouse-rw", "C": "hive.sales", "D": "t_3", "E": "a/warehouse-rw", "N": "10", "I2": "i2"}
 	assert.Equal(t, want, tbl.values)
 	assert.Equal(t, len(want), tbl.Len())
+	v, ok := tbl.Named("B")
+	assert.True(t, ok)
+	assert.Equal(t, "warehouse-rw", v, "a constant read by name, as another file reads a library's")
+	_, ok = tbl.Named("R")
+	assert.False(t, ok)
 	assert.Equal(t, Table{values: map[string]string{}}, Collect(nil))
 }
 

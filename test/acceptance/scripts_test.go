@@ -86,6 +86,13 @@ func (c *client) tested(save, args map[string]any) map[string]any {
 		name += "-edit-draft"
 	}
 	draft := map[string]any{"command": "run_draft", "name": name, "source": source}
+	// A script written before it is an application's part drafts in the
+	// application it names (#2709); the save takes no such argument.
+	if app, ok := save["application"]; ok {
+		draft["application"] = app
+		save = maps.Clone(save)
+		delete(save, "application")
+	}
 	params, declared := save["params"]
 	if !declared && save["command"] == "update" {
 		// An edit that sends no parameters keeps the saved ones.

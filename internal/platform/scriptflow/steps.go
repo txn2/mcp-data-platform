@@ -360,7 +360,7 @@ func (c *card) copyLine(table syntax.Expr) string {
 func (c *card) batch(n *Node) {
 	conn, full := c.value(c.arg(argConnection, 0))
 	n.Role, n.Kind, n.Title, n.Computed = RoleWrites, KindTransaction, onConn("Batch", conn), !full
-	stmts, ok := stmtlookup.Statements(c.s.scope, c.arg("statements", 1), nil)
+	stmts, ok := stmtlookup.Statements(c.s.scope, c.arg("statements", 1), stmtlookup.ListsBound(c.s.scope.body))
 	if !ok {
 		n.Detail, n.Computed = []string{"statements assembled at run time"}, true
 		n.Data = c.dataRef(c.arg(argConnection, 0), nil)

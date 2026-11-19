@@ -12,6 +12,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/rasterfit"
 	"github.com/txn2/mcp-data-platform/internal/thumbtypes"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
@@ -379,16 +380,56 @@ func (w *Worker) memberTiles(ctx context.Context, source string) (light, dark []
 
 // drawnSource is the document the tile page draws for src: a D2 source as the
 // SVG the platform renders from it, in the variant's theme (#2302), since the
-// browser does not render D2. Any other document is drawn as it is. It returns
-// why a D2 source has no tile when it cannot be rendered.
+// browser does not render D2, and a large raster image as the copy the
+// platform reduces to the tile's size (#2697). Any other document is drawn as
+// it is. It returns why the document has no tile when it cannot be prepared.
 func drawnSource(ctx context.Context, src tileSource) (out tileSource, why string) {
 	if contenttype.Normalize(src.contentType) != contenttype.D2 {
-		return src, ""
+		return reducedRaster(ctx, src)
 	}
 	svg, err := d2render.Render(ctx, string(src.content), src.dark)
 	if err != nil {
 		return src, "the diagram could not be drawn: " + err.Error()
 	}
 	src.contentType, src.content = contenttype.SVG, svg
+	return src, ""
+}
+
+// rasterMaxBytes bounds the memory one image is decoded into for its tile:
+// 96 MiB is 24 megapixels of 8-bit color, which covers a phone's or a
+// camera's photograph. It is held by the platform's
+// container, one image at a time per replica (internal/rasterfit).
+const rasterMaxBytes = 96 << 20
+
+// rasterFit is the largest copy of an image handed to the tile page: the
+// stored tile's size, so nothing the page lays out is lost to the reduction.
+const (
+	rasterFitWidth  = int(tileWidth * tileScale)
+	rasterFitHeight = int(tileHeight * tileScale)
+)
+
+// reducedRaster is src as the tile page draws it (#2697): a raster image
+// larger than the stored tile reduced to fit it, as a PNG, so the renderer
+// never decodes a photograph at its natural size; anything else unchanged. An
+// image the platform cannot decode reaches the page as stored, as every image
+// did before, since a browser may read what Go's decoders refuse. why is the
+// document's own failure: an image whose header declares more pixels than a
+// tile is drawn from.
+func reducedRaster(ctx context.Context, src tileSource) (out tileSource, why string) {
+	if !rasterfit.Decodes(src.contentType) {
+		return src, ""
+	}
+	reduced, ok, err := rasterfit.Fit(ctx, src.content, rasterFitWidth, rasterFitHeight, rasterMaxBytes)
+	var tooLarge *rasterfit.TooLargeError
+	switch {
+	case errors.As(err, &tooLarge):
+		return src, tooLarge.Error() + ", too large to draw a tile from"
+	case err != nil:
+		slog.DebugContext(ctx, "thumbnails: the image could not be reduced; drawing it as stored",
+			"name", logsan.SanitizeForLog(src.name), logKeyError, logsan.SanitizeForLog(err.Error()))
+		return src, ""
+	case ok:
+		src.contentType, src.content = "image/png", reduced
+	}
 	return src, ""
 }

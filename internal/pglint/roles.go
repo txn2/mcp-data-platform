@@ -6,13 +6,13 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/pglex"
 )
 
-// ruleRoleOutsideSchema refuses a migration that creates, alters, drops or
-// grants to a role whose name does not start with its schema's (#2539). A
-// role belongs to the whole server, and an application's statements run as
-// its run role, a member of the roles its own migrations define: a
-// migration naming another application's role could grant itself that
-// application's data.
-const ruleRoleOutsideSchema = "role_outside_schema"
+// RuleRoleNamed refuses a migration that creates, alters, drops or grants to
+// a role (#2539, #2709). A role belongs to the whole server, and an
+// application's migrations apply to every environment's schema, each with a
+// run role of its own that the platform grants on that schema alone: a
+// migration naming a role would grant one environment's role, another
+// application's, or every role's (PUBLIC) on data it must not reach.
+const RuleRoleNamed = "role_named"
 
 // Words the role rule reads statements by.
 const (
@@ -36,23 +36,22 @@ var ownRoleWords = map[string]bool{"current_user": true, "session_user": true, "
 // grantEnd ends a list of grantees.
 var grantEnd = map[string]bool{kwWith: true, "granted": true, "cascade": true, "restrict": true}
 
-// rolesOutsideSchema refuses each role a statement names that is not the
-// schema's own. Silent when the target names no schema.
-func (l *linter) rolesOutsideSchema(n int, ts toks) {
+// rolesNamed refuses each role a statement names. Silent when the target
+// names no schema.
+func (l *linter) rolesNamed(n int, ts toks) {
 	schema := l.sec.target.Schema
 	if schema == "" || len(ts) < 2 {
 		return
 	}
 	for _, role := range namedRoles(ts) {
-		if !strings.HasPrefix(role, schema+"_") {
-			l.add(Finding{
-				Rule: ruleRoleOutsideSchema, Severity: SeverityRefused, Statement: n, Object: role,
-				Effect: "names a role outside schema " + schema + ": a role belongs to the whole server, and one another " +
-					"application uses, or every role (PUBLIC), would reach this schema's data or give this application another's",
-				Safe: "name the schema's own roles, " + schema + "_read, " + schema + "_write and narrower ones, each starting " +
-					"with " + schema + "_; the platform grants the application's run role " + schema + "_write",
-			})
-		}
+		l.add(Finding{
+			Rule: RuleRoleNamed, Severity: SeverityRefused, Statement: n, Object: role,
+			Effect: "names role " + role + ": the migration applies to every environment's schema, each with a run role the " +
+				"platform grants on it alone, and a role belongs to the whole server, so a grant here would reach data in " +
+				"another environment or another application",
+			Safe: "leave the role out: the platform grants each environment's run role SELECT, INSERT, UPDATE and DELETE on " +
+				"what the migration creates in that environment's schema",
+		})
 	}
 }
 
@@ -157,7 +156,7 @@ func (l *linter) rolesInDo(n int, stmt string) {
 		ts := lex(inner)
 		for i := range ts {
 			if namesRoles(ts[i:]) {
-				l.rolesOutsideSchema(n, ts[i:])
+				l.rolesNamed(n, ts[i:])
 				break
 			}
 		}

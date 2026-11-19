@@ -841,13 +841,17 @@ func (s *Store) RemoveDomain(ctx context.Context, hostname string) error {
 }
 
 // routeSelect reads an environment, the release it serves, whether the host
-// is private ($1, decided by the caller), and the application it is a part of.
+// is private ($1, decided by the caller), the application it is a part of and
+// that application's environment of the same name (#2709), which its
+// endpoints run in.
 const routeSelect = `
 	SELECT s.id, s.name, e.name, COALESCE(e.release_number, 0), $1::boolean, COALESCE(a.name, ''),
+	       COALESCE(ae.name, ''),
 	       e.status, e.status_message, e.back_at, e.redirect_to, e.redirect_keep_path
 	  FROM site_environments e JOIN sites s ON s.id = e.site_id
 	  LEFT JOIN application_parts p ON p.kind = 'site' AND p.part_id = s.name || '/' || e.name
-	  LEFT JOIN applications a ON a.id = p.application_id`
+	  LEFT JOIN applications a ON a.id = p.application_id
+	  LEFT JOIN application_environments ae ON ae.application_id = a.id AND ae.name = e.name`
 
 // RouteHost is what an added hostname serves.
 func (s *Store) RouteHost(ctx context.Context, hostname string) (*site.Route, error) {
@@ -885,7 +889,7 @@ func (s *Store) routeOf(ctx context.Context, query string, args ...any) (*site.R
 	r := &site.Route{}
 	var number int
 	var backAt sql.NullTime
-	err := s.db.QueryRowContext(ctx, query, args...).Scan(&r.SiteID, &r.Site, &r.Environment, &number, &r.Private, &r.PartOf,
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(&r.SiteID, &r.Site, &r.Environment, &number, &r.Private, &r.PartOf, &r.PartOfEnvironment,
 		&r.Status.Status, &r.Status.Message, &backAt, &r.Status.RedirectTo, &r.Status.KeepPath)
 	r.Status.BackAt = timePtr(backAt)
 	if errors.Is(err, sql.ErrNoRows) {

@@ -6,6 +6,8 @@ import (
 
 	"go.starlark.net/syntax"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptflow/stmtlookup"
+
 	"github.com/txn2/mcp-data-platform/internal/scriptconst"
 )
 
@@ -17,6 +19,14 @@ type scope struct {
 	vars   map[string]binding
 	global map[string]syntax.Expr
 	gdicts map[string]*syntax.DictExpr
+	// funcs is the functions the source defines, and body the statements of
+	// the function the scope is in (nil at module scope): what a statement
+	// list is followed through (stmtlookup, #2699).
+	funcs  map[string]*syntax.DefStmt
+	loaded map[string]stmtlookup.Loaded
+	body   []syntax.Stmt
+	// lists is stmtlookup.Grown(body), read once when Bound first asks.
+	lists map[string][]syntax.Expr
 }
 
 // binding is what one frame knows about one variable: its text when the
@@ -29,12 +39,21 @@ type binding struct {
 	hasShown bool
 	expr     syntax.Expr
 	dict     *syntax.DictExpr
+	// arg is what a parameter or a loop variable stands for, scope free
+	// (stmtlookup.Substitute): the caller's argument, or an element of what
+	// the loop iterates (#2699).
+	arg syntax.Expr
 }
 
 // scopeOf copies the scope visible from f: its own names, then its lexical
 // parents', then the module's expressions for names bound at module scope.
 func (a *analyzer) scopeOf(f *frame) *scope {
-	sc := &scope{vars: map[string]binding{}, global: map[string]syntax.Expr{}, gdicts: map[string]*syntax.DictExpr{}}
+	sc := &scope{vars: map[string]binding{}, global: map[string]syntax.Expr{}, gdicts: map[string]*syntax.DictExpr{}, funcs: a.funcs, loaded: a.loaded}
+	if f != nil && f != a.top {
+		if d := a.funcs[f.fn]; d != nil {
+			sc.body = d.Body
+		}
+	}
 	for fr := f; fr != nil && fr != a.top; fr = fr.lexical {
 		for name, b := range fr.bindings() {
 			if _, ok := sc.vars[name]; !ok {
@@ -73,6 +92,11 @@ func (f *frame) bindings() map[string]binding {
 		b.dict = d
 		out[name] = b
 	}
+	for name, x := range f.args {
+		b := entry(name)
+		b.arg = x
+		out[name] = b
+	}
 	return out
 }
 
@@ -106,6 +130,9 @@ func (a *analyzer) name(r *scriptconst.Renderer, sc *scope, id *syntax.Ident) (s
 	case b.expr != nil:
 		v, _ := r.Nested(b.expr)
 		return v, false
+	}
+	if v, ok := sc.loaded[id.Name].Constant(); ok {
+		return v, true
 	}
 	return "{" + id.Name + "}", false
 }
@@ -145,7 +172,58 @@ func (sc *scope) Bound(id *syntax.Ident) syntax.Expr {
 	if scriptconst.IsModuleName(id) {
 		return sc.global[id.Name]
 	}
-	return sc.vars[id.Name].expr
+	if grown := sc.grownList(id); grown != nil {
+		return grown
+	}
+	if b := sc.vars[id.Name]; b.expr != nil {
+		return b.expr
+	}
+	if arg := sc.vars[id.Name].arg; arg != nil {
+		return arg
+	}
+	return sc.loaded[id.Name].Expr()
+}
+
+// grownList is a list the function builds under id in more than one step
+// (assigned, then appended to, extended or added to), as one concatenation of
+// every part, so a statement list passed on after it was grown carries each
+// statement added to it (#2699). Nil for a name built in one step, which
+// Bound reads as it was assigned.
+func (sc *scope) grownList(id *syntax.Ident) syntax.Expr {
+	if sc.body == nil {
+		return nil
+	}
+	if sc.lists == nil {
+		sc.lists = stmtlookup.Grown(sc.body)
+	}
+	parts := sc.lists[id.Name]
+	if len(parts) < 2 {
+		return nil
+	}
+	var out syntax.Expr
+	for _, p := range parts {
+		if marker, ok := p.(*syntax.Ident); ok && marker.Name == id.Name && marker.Binding == nil {
+			// What the name held before the function grew it: its argument.
+			if p = sc.vars[id.Name].arg; p == nil {
+				p = stmtlookup.Opaque(id.Name)
+			}
+		}
+		if out == nil {
+			out = p
+			continue
+		}
+		out = &syntax.BinaryExpr{Op: syntax.PLUS, X: out, Y: p}
+	}
+	return out
+}
+
+// Func is the function the source defines under name, or one it loads from a
+// library, read in that library's scope; nil for none.
+func (sc *scope) Func(name string) (*syntax.DefStmt, stmtlookup.Resolver) {
+	if d := sc.funcs[name]; d != nil {
+		return d, nil
+	}
+	return sc.loaded[name].Def()
 }
 
 // Known is the constant string id holds in this scope, when it holds one

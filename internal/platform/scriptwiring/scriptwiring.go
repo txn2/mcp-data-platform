@@ -157,6 +157,12 @@ func Wire(deps Deps) *scriptexec.Handle {
 	wireIntegrations(deps, endpoints, sites)
 	// Applications (#2411): scripts, assets, sources and a schema released
 	// together, over the same stores.
+	// The save gate refuses an edit adding SQL naming the schema of the
+	// application holding the script (#2709).
+	layer.SaveGate().AppSchemas = appstore.SchemasOfScript(deps.DB)
+	// A draft of a script not yet an application's part runs in the
+	// application it names (#2709).
+	layer.SetDraftApplications(appstore.DraftIn(deps.DB))
 	appDeps := applicationDeps(deps, endpoints, layer.SaveGate(), sites)
 	appDeps.Handlers = layer.Handlers()
 	if svc := appwire.Register(deps.Server, appDeps); svc != nil {

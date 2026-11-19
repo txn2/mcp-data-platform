@@ -101,7 +101,10 @@ func TestRealDB_EnvironmentsHoldTheirOwnRelease(t *testing.T) {
 	assert.Equal(t, appenv.Script{OK: true, Environment: "dev", Version: 2, Variables: map[string]string{"API_BASE": "https://sandbox.example.com"}}, *dev)
 	last, err := s.ForScript(ctx, api.ID, "")
 	require.NoError(t, err)
-	assert.Equal(t, appenv.Script{OK: true, Environment: "prod", Version: 1, Variables: map[string]string{"API_BASE": "https://pay2.example.com"}}, *last)
+	assert.Equal(t, appenv.Script{OK: true, Environment: "prod", Version: 1, Variables: map[string]string{"API_BASE": "https://pay2.example.com"}, Last: true}, *last)
+	named, err := s.ForScript(ctx, api.ID, "prod")
+	require.NoError(t, err)
+	assert.True(t, named.Last, "prod named is the last environment, which runs what \"\" does (#2709)")
 	stage, err := s.ForScript(ctx, api.ID, "stage")
 	require.NoError(t, err)
 	assert.Equal(t, 0, stage.Version, "stage runs no release yet")
@@ -131,4 +134,55 @@ func TestRealDB_EnvironmentsHoldTheirOwnRelease(t *testing.T) {
 			assert.Equal(t, []string{"dev", "prod"}, envNames(&a))
 		}
 	}
+}
+
+// Each environment its own schema (#2709): an environment added with a
+// schema and run role holds that schema, the run role of the schema an
+// environment runs in is the one read for it, and removing the environment
+// takes its run role, never the application's own.
+func TestRealDB_EnvironmentSchemasAndRunRoles(t *testing.T) {
+	db := testdb.New(t)
+	ctx := context.Background()
+	s := New(db)
+	app := &application.Application{Name: "orders-app", OwnerEmail: owner, CreatedBy: owner}
+	require.NoError(t, s.Create(ctx, app))
+	require.NoError(t, s.SetSchema(ctx, app.ID, application.HeldSchema{
+		Connection: "orders", Schema: "orders", AddedBy: owner, Role: "orders_run", SealedPassword: "sealed-prod",
+	}))
+	dev := application.Environment{Name: "dev", Schema: "orders_dev", UpdatedBy: owner, Held: &application.HeldSchema{
+		Connection: "orders", Schema: "orders_dev", Role: "orders_dev_run", SealedPassword: "sealed-dev",
+	}}
+	require.NoError(t, s.AddEnvironment(ctx, app.ID, dev, ""))
+
+	got, err := s.Get(ctx, app.ID)
+	require.NoError(t, err)
+	require.Equal(t, []string{"dev", DefaultEnvironment}, envNames(got))
+	assert.Equal(t, "orders_dev", got.Environments[0].Schema)
+
+	held, err := s.Holding(ctx, "orders", "orders_dev")
+	require.NoError(t, err)
+	assert.Equal(t, app.ID, held.ID, "an environment's schema is held by its application")
+	_, err = s.Holding(ctx, "orders", "orders_qa")
+	require.ErrorIs(t, err, application.ErrNotFound)
+
+	for env, want := range map[string]string{"dev": "orders_dev_run", "": "orders_run", DefaultEnvironment: "orders_run"} {
+		rr, err := s.RunRoleIn(ctx, app.ID, env)
+		require.NoError(t, err, env)
+		assert.Equal(t, want, rr.Role, "environment %q", env)
+	}
+	first, err := s.RunRoleIn(ctx, app.ID, appenv.First)
+	require.NoError(t, err)
+	assert.Equal(t, "orders_dev_run", first.Role, "a draft runs in the first environment")
+	_, err = s.RunRoleIn(ctx, app.ID, "staging")
+	require.ErrorIs(t, err, application.ErrNoRunRole, "an environment the application lacks has no run role")
+	own, err := s.RunRoleOf(ctx, app.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "orders_run", own.Role)
+
+	require.NoError(t, s.RemoveEnvironment(ctx, app.ID, "dev"))
+	_, err = s.Holding(ctx, "orders", "orders_dev")
+	require.ErrorIs(t, err, application.ErrNotFound)
+	var roles int
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM application_run_roles WHERE application_id = $1`, app.ID).Scan(&roles))
+	assert.Equal(t, 1, roles, "the removed environment's run role went with it, the application's stayed")
 }

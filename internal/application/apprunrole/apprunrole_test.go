@@ -46,6 +46,15 @@ func (s holdingStore) RunRoleOf(_ context.Context, id string) (*application.RunR
 	return nil, application.ErrNoRunRole
 }
 
+// RunRoleIn is the run role of id's environment env, keyed "<id>/<env>";
+// "" is the application's own.
+func (s holdingStore) RunRoleIn(ctx context.Context, id, env string) (*application.RunRole, error) {
+	if env == "" {
+		return s.RunRoleOf(ctx, id)
+	}
+	return s.RunRoleOf(ctx, id+"/"+env)
+}
+
 // TestRunRoles is what the toolkit asks (#2539): which application holds a
 // schema, and an application's run role with its password opened only for
 // the binding it was sealed under.
@@ -74,24 +83,37 @@ func TestRunRoles(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, name)
 
-	role, password, err := h.RunRole(ctx, "orders", "app_1")
+	role, password, err := h.RunRole(ctx, "orders", "app_1", "")
 	require.NoError(t, err)
 	assert.Equal(t, "shop_run", role)
 	assert.Equal(t, "s3cret", password)
-	role, _, err = h.RunRole(ctx, "ledger", "app_1")
+	role, _, err = h.RunRole(ctx, "ledger", "app_1", "")
 	require.NoError(t, err)
 	assert.Empty(t, role, "a run role is only for the connection holding the schema")
-	role, _, err = h.RunRole(ctx, "orders", "app_9")
+	role, _, err = h.RunRole(ctx, "orders", "app_9", "")
 	require.NoError(t, err)
 	assert.Empty(t, role)
-	_, _, err = h.RunRole(ctx, "orders", "app_2")
+	_, _, err = h.RunRole(ctx, "orders", "app_2", "")
 	require.ErrorContains(t, err, "opening the run role's password", "a sealed value opens only for its own binding")
 	assert.NotContains(t, err.Error(), "s3cret")
+
+	// An environment with a schema of its own logs in as that schema's run
+	// role (#2709), opened only for its own binding.
+	devSealed, err := sealer.SealBound(appsvc.RunRoleBinding("app_1", "orders", "shop_dev", "shop_dev_run"), "dev-pw")
+	require.NoError(t, err)
+	store.roles["app_1/dev"] = application.RunRole{ApplicationID: "app_1", Connection: "orders", Schema: "shop_dev", Role: "shop_dev_run", SealedPassword: devSealed}
+	role, password, err = h.RunRole(ctx, "orders", "app_1", "dev")
+	require.NoError(t, err)
+	assert.Equal(t, "shop_dev_run", role)
+	assert.Equal(t, "dev-pw", password)
+	role, _, err = h.RunRole(ctx, "orders", "app_1", "staging")
+	require.NoError(t, err)
+	assert.Empty(t, role, "an environment with no run role logs in as none, never another environment's")
 
 	failing := New(holdingStore{err: errors.New("down")}, sealer)
 	_, err = failing.Holder(ctx, "orders", "shop")
 	require.Error(t, err)
-	_, _, err = failing.RunRole(ctx, "orders", "app_1")
+	_, _, err = failing.RunRole(ctx, "orders", "app_1", "")
 	require.Error(t, err)
 
 	assert.Nil(t, New(nil, sealer).Holder)

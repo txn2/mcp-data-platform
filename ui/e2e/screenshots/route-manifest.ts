@@ -7,6 +7,7 @@ import { drawerRoutes } from "./route-drawers";
 import { scratchTableRoutes } from "./route-scratch-tables";
 import { apiBrowserAdminRoutes, apiBrowserUserRoutes } from "./route-apis";
 import { sectionIntroRoutes } from "./route-section-intros";
+import { assetFeedbackRoutes } from "./route-feedback-sheet";
 import { adminCatalogRoutes, knowledgeCatalogRoutes } from "./route-catalog";
 import { adminWebhookRoutes } from "./route-webhooks";
 import { adminConnectionRoutes } from "./route-connections";
@@ -14,7 +15,6 @@ import { adminPersonaRoutes } from "./route-personas";
 import { adminScriptRoutes, applicationRoutes, userScriptRoutes } from "./route-scripts";
 import {
   openCollectionDetailsDialog,
-  openFeedbackMentionComposer,
   openKnowledgeGraph,
   openKnowledgeGraphCorpus,
   openPersonaScopeTab,
@@ -141,14 +141,8 @@ export const routes: ScreenshotRoute[] = [
       await page.waitForTimeout(500);
     },
   },
-  {
-    // Mention composer (#627): the audience-scoped type-ahead open over the
-    // new-feedback form.
-    slug: "asset-feedback-mention",
-    path: "/portal/assets/ast-001",
-    category: "user",
-    beforeCapture: openFeedbackMentionComposer,
-  },
+  // An asset's feedback: the mention composer (#627) and the phone sheet (#2705).
+  ...assetFeedbackRoutes,
   {
     // KnowledgeHub (#661): one /knowledge route, three hash-driven tabs plus
     // the review queue, which is addressable on its own so the review-queue

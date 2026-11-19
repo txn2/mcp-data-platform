@@ -37,7 +37,7 @@ async function openSchemaView(app: string) {
 }
 
 describe("Application schema part", () => {
-  it("lists the schema last, under Schema, with its migration, pending count and run role note", async () => {
+  it("lists the schema under Schema, before the sites, with its migration, pending count and run role", async () => {
     serveApplications();
     signIn("j.martinez@example.com", false);
     renderPage("app-shop");
@@ -47,15 +47,15 @@ describe("Application schema part", () => {
     expect(group).toHaveTextContent("Schema · 1");
     expect(within(group).getByTestId(SHOP_SCHEMA)).toBe(row);
     const groups = screen.getAllByRole("group").map((g) => g.getAttribute("aria-label"));
-    expect(groups[groups.length - 1]).toBe("Schema");
+    // The schema is listed after every other kind but the site environments.
+    expect(groups.slice(-2)).toEqual(["Schema", "Sites"]);
 
     expect(row).toHaveTextContent("acme-shop/shop");
     expect(row).toHaveTextContent("migration 3 applied · release v3 recorded 2 · 1 pending · scripts run as shop_run");
     expect(row).toHaveTextContent("Migration 3");
     expect(row).toHaveTextContent("1 pending");
-    expect(within(row).getByTestId("schema-note")).toHaveTextContent(
-      "the application's scripts log in as shop_run, which reaches no table until a migration defines shop_write",
-    );
+    // The platform grants the run role on its schema, so nothing is owed (#2709).
+    expect(within(row).queryByTestId("schema-note")).toBeNull();
     // The schema's pending migration is the release's, not a part behind its pin.
     expect(screen.getByTestId("parts-behind")).toHaveTextContent("1 part has a newer version");
     // A reader who cannot edit gets no menu on it: it has no page and no reference.

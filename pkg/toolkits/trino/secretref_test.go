@@ -73,3 +73,40 @@ func TestAddConnection_FillsAStoredSecret(t *testing.T) {
 		t.Errorf("the manager holds password %q; want the stored secret", got)
 	}
 }
+
+// HoldsConfig: a connection is held under exactly the configuration it was
+// added with, its secret filled, so a rotated secret is a change (#2704).
+func TestHoldsConfig_ComparesTheFilledConfiguration(t *testing.T) {
+	secret := "pw"
+	prev := secretref.SetConnectionSource(func(context.Context, string, string) (string, error) { return secret, nil })
+	t.Cleanup(func() { secretref.SetConnectionSource(prev) })
+	tk := newMultiForTest(t)
+	cfg := map[string]any{"host": "h.example.com", "user": "u", "password": "{{secret:wh}}", "ssl": true}
+	if tk.HoldsConfig("lake", cfg) {
+		t.Fatal("a connection never added is held")
+	}
+	if err := tk.AddConnection("lake", cfg); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	if !tk.HoldsConfig("lake", map[string]any{"ssl": true, "password": "{{secret:wh}}", "user": "u", "host": "h.example.com"}) {
+		t.Error("the configuration the connection was added with is not held")
+	}
+	if tk.HoldsConfig("lake", map[string]any{"host": "h.example.com", "user": "other", "password": "{{secret:wh}}", "ssl": true}) {
+		t.Error("a changed user is held")
+	}
+	secret = "rotated"
+	if tk.HoldsConfig("lake", cfg) {
+		t.Error("a rotated secret is held")
+	}
+	secretref.SetConnectionSource(func(context.Context, string, string) (string, error) { return "", errors.New("gone") })
+	if tk.HoldsConfig("lake", cfg) {
+		t.Error("an unreadable secret is held")
+	}
+	secretref.SetConnectionSource(func(context.Context, string, string) (string, error) { return "pw", nil })
+	if err := tk.RemoveConnection("lake"); err != nil {
+		t.Fatalf("RemoveConnection: %v", err)
+	}
+	if tk.HoldsConfig("lake", cfg) {
+		t.Error("a removed connection is held")
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/application"
+	"github.com/txn2/mcp-data-platform/internal/application/appprepare"
 	"github.com/txn2/mcp-data-platform/internal/application/appsvc"
 )
 
@@ -124,4 +125,25 @@ func TestTool_EnvironmentsAndVariables(t *testing.T) {
 	require.True(t, isErr)
 	_, isErr = call(t, owner, map[string]any{"command": "delete_variable", "application": "nope", "variable": "A"})
 	require.True(t, isErr)
+}
+
+// prepare through manage_application (#2709): a deployment that cannot
+// prepare says so, and an application holding no schema is ready.
+func TestTool_Prepare(t *testing.T) {
+	st := &store{apps: map[string]*application.Application{}}
+	tool := &Tool{Service: &appsvc.Service{Store: st, Scripts: scripts{}, Environments: &envs{s: st}}}
+	owner := session(t, tool, pcFor("jane@example.com", false))
+	text, isErr := call(t, owner, map[string]any{"command": "create", "name": "shop"})
+	require.False(t, isErr, text)
+	text, isErr = call(t, owner, map[string]any{"command": "prepare", "application": "shop"})
+	require.True(t, isErr)
+	assert.Contains(t, text, "cannot prepare applications")
+
+	tool.Service.Preparer = &appprepare.Preparer{}
+	text, isErr = call(t, owner, map[string]any{"command": "prepare", "application": "shop"})
+	require.False(t, isErr, text)
+	assert.Contains(t, text, `"ready":true`)
+	text, isErr = call(t, owner, map[string]any{"command": "prepare", "application": "shop", "save": true})
+	require.True(t, isErr)
+	assert.Contains(t, text, "administrators")
 }

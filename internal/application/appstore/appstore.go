@@ -10,11 +10,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 
 	"github.com/txn2/mcp-data-platform/internal/application"
+	"github.com/txn2/mcp-data-platform/internal/application/appenv"
 )
 
 var _ application.Store = (*Store)(nil)
@@ -670,7 +673,7 @@ func putRunRole(ctx context.Context, tx *sql.Tx, applicationID string, h applica
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO application_run_roles (application_id, connection, schema_name, role_name, password_sealed)
 		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (application_id) DO UPDATE SET connection = EXCLUDED.connection, schema_name = EXCLUDED.schema_name,
+		ON CONFLICT (application_id, schema_name) DO UPDATE SET connection = EXCLUDED.connection,
 		       role_name = EXCLUDED.role_name, password_sealed = EXCLUDED.password_sealed, created_at = NOW()`,
 		applicationID, h.Connection, h.Schema, h.Role, h.SealedPassword)
 	if err != nil {
@@ -699,17 +702,55 @@ func (s *Store) ClearSchema(ctx context.Context, applicationID string) error {
 	})
 }
 
-// Holding is the application holding schema on connection.
+// Holding is the application holding schema on connection: its own schema,
+// or one of its environments' (#2709).
 func (s *Store) Holding(ctx context.Context, connection, schema string) (*application.Application, error) {
-	return s.one(ctx, `SELECT `+columns+` FROM applications WHERE connection = $1 AND schema_name = $2`, connection, schema)
+	return s.one(ctx, `SELECT `+columns+` FROM applications WHERE connection = $1 AND (schema_name = $2
+		OR EXISTS (SELECT 1 FROM application_environments e WHERE e.application_id = applications.id AND e.schema_name = $2))`,
+		connection, schema)
 }
 
-// RunRoleOf is the application's run role.
+// RunRoleOf is the run role of the application's own schema.
 func (s *Store) RunRoleOf(ctx context.Context, applicationID string) (*application.RunRole, error) {
+	return s.runRole(ctx, applicationID, `
+		SELECT r.connection, r.schema_name, r.role_name, r.password_sealed
+		  FROM application_run_roles r JOIN applications a ON a.id = r.application_id AND a.schema_name = r.schema_name
+		 WHERE r.application_id = $1`, applicationID)
+}
+
+// runRoleInSQL reads the run role of the schema an environment runs in: its
+// own, or the application's for one that names none. An environment the
+// application lacks has none.
+const runRoleInSQL = `
+	WITH env AS (SELECT NULLIF(schema_name, '') AS s FROM application_environments
+	              WHERE application_id = $1 AND ($2 = '' OR name = $2) ORDER BY position DESC LIMIT 1)
+	SELECT r.connection, r.schema_name, r.role_name, r.password_sealed
+	  FROM application_run_roles r JOIN applications a ON a.id = r.application_id
+	 WHERE r.application_id = $1
+	   AND r.schema_name = CASE WHEN EXISTS (SELECT 1 FROM env) THEN COALESCE((SELECT s FROM env), a.schema_name)
+	                            WHEN $2 = '' THEN a.schema_name END`
+
+// runRoleFirstSQL reads the run role of the schema the first environment
+// runs in, where a draft runs (#2709).
+const runRoleFirstSQL = `
+	WITH env AS (SELECT NULLIF(schema_name, '') AS s FROM application_environments
+	              WHERE application_id = $1 ORDER BY position LIMIT 1)
+	SELECT r.connection, r.schema_name, r.role_name, r.password_sealed
+	  FROM application_run_roles r JOIN applications a ON a.id = r.application_id
+	 WHERE r.application_id = $1 AND r.schema_name = COALESCE((SELECT s FROM env), a.schema_name)`
+
+// RunRoleIn is the run role of the schema environment env runs in (#2709);
+// appenv.First is the first environment's.
+func (s *Store) RunRoleIn(ctx context.Context, applicationID, env string) (*application.RunRole, error) {
+	if env == appenv.First {
+		return s.runRole(ctx, applicationID, runRoleFirstSQL, applicationID)
+	}
+	return s.runRole(ctx, applicationID, runRoleInSQL, applicationID, env)
+}
+
+func (s *Store) runRole(ctx context.Context, applicationID, query string, args ...any) (*application.RunRole, error) {
 	r := &application.RunRole{ApplicationID: applicationID}
-	err := s.db.QueryRowContext(ctx, `
-		SELECT connection, schema_name, role_name, password_sealed FROM application_run_roles WHERE application_id = $1`,
-		applicationID).Scan(&r.Connection, &r.Schema, &r.Role, &r.SealedPassword)
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(&r.Connection, &r.Schema, &r.Role, &r.SealedPassword)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, application.ErrNoRunRole
 	}
@@ -717,4 +758,54 @@ func (s *Store) RunRoleOf(ctx context.Context, applicationID string) (*applicati
 		return nil, fmt.Errorf("read application run role: %w", err)
 	}
 	return r, nil
+}
+
+// SchemasOfScript is the schemas the application holding a script runs in
+// (#2709): its own and its environments', none for a script no application
+// holds or one holding no schema. The save gate reads it.
+func SchemasOfScript(db *sql.DB) func(ctx context.Context, scriptID string) []string {
+	if db == nil {
+		return nil
+	}
+	s := New(db)
+	return func(ctx context.Context, scriptID string) []string {
+		a, err := s.Owning(ctx, application.KindScript, scriptID)
+		if err != nil || a.Schema == "" {
+			return nil
+		}
+		out := []string{a.Schema}
+		for _, e := range a.Environments {
+			if e.Schema != "" && !slices.Contains(out, e.Schema) {
+				out = append(out, e.Schema)
+			}
+		}
+		return out
+	}
+}
+
+// DraftIn resolves the application a run_draft names for a script that is
+// not yet one of its parts (#2709): its id and the connection its schema is
+// on, for its owner and administrators. Nil for no database.
+func DraftIn(db *sql.DB) func(ctx context.Context, ref, email string, admin bool) (id, connection string, err error) {
+	if db == nil {
+		return nil
+	}
+	s := New(db)
+	return func(ctx context.Context, ref, email string, admin bool) (string, string, error) {
+		get := s.GetByName
+		if strings.HasPrefix(ref, "app_") {
+			get = s.Get
+		}
+		a, err := get(ctx, ref)
+		if errors.Is(err, application.ErrNotFound) {
+			return "", "", fmt.Errorf("there is no application %q to draft in", ref)
+		}
+		if err != nil {
+			return "", "", fmt.Errorf("reading application %q: %w", ref, err)
+		}
+		if !a.MayEdit(application.Actor{Email: email, Admin: admin}) {
+			return "", "", fmt.Errorf("drafting in application %q is for its owner and administrators", a.Name)
+		}
+		return a.ID, a.Connection, nil
+	}
 }

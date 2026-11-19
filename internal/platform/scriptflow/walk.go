@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"go.starlark.net/syntax"
+
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptflow/stmtlookup"
 )
 
 // run walks the module twice. The second pass lets a value assigned late in a
@@ -58,6 +60,7 @@ func (a *analyzer) record(f *frame, name string, s *syntax.AssignStmt) {
 	delete(f.known, name)
 	delete(f.shown, name)
 	delete(f.dicts, name)
+	delete(f.args, name)
 	if s.Op != syntax.EQ {
 		return
 	}
@@ -96,16 +99,34 @@ func (a *analyzer) forStmt(f *frame, s *syntax.ForStmt) {
 	for _, id := range targetNames(s.Vars) {
 		changed[id] = true
 	}
+	elems := stmtlookup.LoopElements(s.Vars, s.X)
 	for pass := range 2 {
 		for name := range changed {
 			delete(f.known, name)
 		}
+		a.bindLoopVars(f, s.Vars, elems)
 		before := f.env.clone()
 		a.assign(f, s.Vars, it, pass > 0)
 		a.stmts(f, s.Body)
 		f.env.merge(before)
 	}
 	f.loops = f.loops[:len(f.loops)-1]
+}
+
+// bindLoopVars records what each loop variable stands for (#2699): an element
+// of what the loop iterates, made scope free in the scope the loop is in, so
+// a helper the loop body passes it to reads it there. A variable the loop
+// binds is no longer whatever it was assigned before the loop.
+func (a *analyzer) bindLoopVars(f *frame, vars syntax.Expr, elems map[string]syntax.Expr) {
+	sc := a.scopeOf(f)
+	for _, name := range targetNames(vars) {
+		delete(f.exprs, name)
+		delete(f.dicts, name)
+		delete(f.args, name)
+		if elem, ok := elems[name]; ok {
+			f.args[name] = stmtlookup.Substitute(sc, elem)
+		}
+	}
 }
 
 // maxLoopLabel is the longest loop chip a step carries.

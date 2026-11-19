@@ -26,16 +26,12 @@ func holdSchema(t *testing.T, c *client, conn, schema string) string {
 	return name
 }
 
-// writeRole is the migration that defines schema's write role and grants it
-// what tables names, the role the platform grants an application's run role
-// (#2539): created only when absent, as the platform applies migrations from
-// zero on a throwaway database on the same server first.
-func writeRole(schema, privileges, tables string) string {
-	role := schema + "_write"
-	return "DO $$BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '" + role + "') THEN CREATE ROLE " + role +
-		" NOLOGIN; END IF; END$$;\nGRANT USAGE ON SCHEMA " + schema + " TO " + role + ";\nGRANT " + privileges + " ON " + tables +
-		" TO " + role
-}
+// writeRole is what a migration adds to reach its tables from the
+// application's scripts: nothing since #2709, which grants each
+// environment's run role DML on what its schema's migrations create; a
+// migration naming a role is refused. Before #2709 it defined
+// <schema>_write and granted it privileges on tables.
+func writeRole(_, _, _ string) string { return "SELECT 1" }
 
 // dropRolesLater drops roles on the dev stack's target server when the test
 // ends, best effort: a role is the server's, and a schema's cleanup leaves it.

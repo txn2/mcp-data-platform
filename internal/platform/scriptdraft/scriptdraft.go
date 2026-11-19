@@ -32,6 +32,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/application/appenv"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdialect"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
@@ -125,6 +126,11 @@ type Request struct {
 	// one created cannot be exercised without the create — and the person
 	// making that call is the one who owns what it writes.
 	AllowWrites bool
+	// Application and ApplicationConnection are the application a draft of a
+	// script not yet its part runs in, and the connection its schema is on
+	// (#2709): its statements there log in as the application's run role in
+	// its first environment. Empty leaves it to the script's own application.
+	Application, ApplicationConnection string
 	// Long is a background draft (#2117): the id it was started under, the
 	// reporter get_run reads its log and progress from, and how long it may
 	// run. The zero value is an inline draft held to scriptrun.DraftTimeout.
@@ -338,6 +344,9 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Outcome, error) {
 	if r == nil || r.server == nil {
 		return nil, errors.New("script execution is unavailable on this deployment")
 	}
+	if req.Application != "" {
+		ctx = scriptsession.WithRunAs(ctx, req.Application, req.ApplicationConnection)
+	}
 	if req.Identity.UserID == "" {
 		return nil, ErrNoIdentity
 	}
@@ -489,6 +498,9 @@ func (r *Runner) acquire(ctx context.Context) (func(), error) {
 func (r *Runner) connect(ctx context.Context, runID string, id Identity) (scriptrun.Caller, func(), error) {
 	serverCtx := middleware.WithSource(ctx, middleware.SourceScript)
 	serverCtx = pkgsession.WithAwareSessionID(serverCtx, runID)
+	// A draft of an application's part runs in its first environment, so
+	// trying a change never writes the last environment's rows (#2709).
+	serverCtx = scriptsession.WithEnvironment(serverCtx, appenv.First)
 	serverCtx = middleware.WithPreAuthenticatedUser(serverCtx, &middleware.UserInfo{
 		UserID:   id.UserID,
 		Email:    id.Email,

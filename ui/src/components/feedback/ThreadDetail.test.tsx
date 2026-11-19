@@ -128,3 +128,45 @@ describe("ThreadDetail validation control (#603)", () => {
     expect(screen.queryByText(/your validation was requested/i)).not.toBeInTheDocument();
   });
 });
+
+// #2705: on a phone's sheet the subject and comments scroll as one surface,
+// the timeline has no scroll box of its own, and the reply box is one row.
+describe("ThreadDetail on a phone's sheet", () => {
+  it("scrolls the subject and timeline as one surface over a collapsed reply row", () => {
+    mockUseThread.mockReturnValue({ data: baseThread({ status: "open" }) } as never);
+    const sheet = { size: "default" as const, setSize: vi.fn() };
+    render(<ThreadDetail threadId="t1" canModerate={false} onBack={() => {}} onDeleted={() => {}} sheet={sheet} onClose={() => {}} />);
+    const scroll = screen.getByTestId("thread-scroll");
+    expect(scroll.className).toContain("overflow-auto");
+    expect(scroll.contains(screen.getByText(/sme@example.com ·/))).toBe(true);
+    expect(screen.getByTestId("thread-timeline").className).not.toContain("overflow-auto");
+    expect(screen.getByRole("button", { name: "Reply…" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Reply")).toBeNull();
+    expect(screen.getByTestId("thread-sheet-row")).toBeInTheDocument();
+  });
+
+  it("follows the comments with what may be done with the thread, which beside the page comes first", () => {
+    mockUseThread.mockReturnValue({ data: baseThread({ insight_id: "ins_1" }) } as never);
+    mockUseThreadChain.mockReturnValue({
+      data: { thread_id: "t1", insight_id: "ins_1", changesets: [] },
+      isLoading: false,
+    } as never);
+    const sheet = { size: "default" as const, setSize: vi.fn() };
+    const { unmount } = render(
+      <ThreadDetail threadId="t1" canModerate={false} onBack={() => {}} onDeleted={() => {}} sheet={sheet} onClose={() => {}} />,
+    );
+    const after = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_PRECEDING);
+    expect(after(screen.getByText("Knowledge chain"), screen.getByTestId("thread-timeline"))).toBe(true);
+    unmount();
+    render(<ThreadDetail threadId="t1" canModerate={false} onBack={() => {}} onDeleted={() => {}} />);
+    expect(after(screen.getByTestId("thread-timeline"), screen.getByText("Knowledge chain"))).toBe(true);
+  });
+
+  it("beside the page keeps the timeline's own scroll and the open reply box", () => {
+    mockUseThread.mockReturnValue({ data: baseThread({ status: "open" }) } as never);
+    render(<ThreadDetail threadId="t1" canModerate={false} onBack={() => {}} onDeleted={() => {}} />);
+    expect(screen.getByTestId("thread-scroll").className).toBe("contents");
+    expect(screen.getByTestId("thread-timeline").className).toContain("overflow-auto");
+    expect(screen.getByLabelText("Reply").className).toContain("min-h-[150px]");
+  });
+});

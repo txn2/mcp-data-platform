@@ -33,6 +33,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 )
 
@@ -114,7 +116,7 @@ func (t *Toolkit) TestDatabase(ctx context.Context, connection string, schemas [
 	if len(schemas) > 0 {
 		migrations = slices.DeleteFunc(migrations, func(m Migration) bool { return !slices.Contains(schemas, m.Schema) })
 	}
-	return t.clone(ctx, c, srv, schemas, migrations)
+	return t.clone(ctx, c, srv, cloneScope{schemas: schemas, onPath: true}, migrations)
 }
 
 // DescribeBuilt describes schema as migrations build it from zero, on a clone
@@ -125,7 +127,7 @@ func (t *Toolkit) DescribeBuilt(ctx context.Context, connection, schema string, 
 	if err != nil {
 		return nil, err
 	}
-	db, err := t.clone(ctx, c, srv, []string{schema}, migrations)
+	db, err := t.clone(ctx, c, srv, cloneScope{schemas: []string{schema}}, migrations)
 	if err != nil {
 		return nil, err
 	}
@@ -133,9 +135,20 @@ func (t *Toolkit) DescribeBuilt(ctx context.Context, connection, schema string, 
 	return db.Describe(ctx, connection, schema)
 }
 
+// cloneScope is the schemas a clone holds and whether they are its search
+// path: a script's test names their tables without them, as an
+// environment's run role does (#2709); a clone a schema is described on
+// keeps the server's, so it renders names as the live schema's description
+// does.
+type cloneScope struct {
+	schemas []string
+	onPath  bool
+}
+
 // clone builds the template of migrations when the head has none and clones
 // it on srv.
-func (t *Toolkit) clone(ctx context.Context, c, srv *conn, schemas []string, migrations []Migration) (*TestDB, error) {
+func (t *Toolkit) clone(ctx context.Context, c, srv *conn, scope cloneScope, migrations []Migration) (*TestDB, error) {
+	schemas := scope.schemas
 	connection := c.cfg.ConnectionName
 	tmpl, err := t.template(ctx, c, srv, scopeOf(schemas), migrations)
 	if err != nil {
@@ -146,6 +159,14 @@ func (t *Toolkit) clone(ctx context.Context, c, srv *conn, schemas []string, mig
 		return nil, err
 	}
 	if err := srv.cloneFrom(ctx, c, name, tmpl); err != nil {
+		return nil, err
+	}
+	var path []string
+	if scope.onPath {
+		path = schemas
+	}
+	if err := srv.searchPath(ctx, name, path); err != nil {
+		srv.dropDatabase(name)
 		return nil, err
 	}
 	child, err := t.newScratch(connection, onServer(c.cfg, srv.cfg, name))
@@ -377,6 +398,29 @@ func (t *Toolkit) applyFromZero(ctx context.Context, c, srv *conn, build string,
 
 // cloneFrom creates database name from template tmpl, waiting out the moment
 // a template is renamed into place.
+// searchPath makes schemas the clone's default search path (#2709): a
+// script's test names an application's tables without the schema, as each
+// environment's run role reads them. A clone of every schema keeps the
+// server's default.
+func (srv *conn) searchPath(ctx context.Context, name string, schemas []string) error {
+	if len(schemas) == 0 {
+		return nil
+	}
+	idents := make([]string, len(schemas))
+	for i, s := range schemas {
+		idents[i] = pgx.Identifier{s}.Sanitize()
+	}
+	s, err := srv.session(ctx)
+	if err != nil {
+		return srv.failure(ctx, err)
+	}
+	defer s.Release()
+	if err := s.Script(ctx, "ALTER DATABASE "+name+" SET search_path TO "+strings.Join(idents, ", ")+", public"); err != nil {
+		return srv.failure(ctx, err)
+	}
+	return nil
+}
+
 func (srv *conn) cloneFrom(ctx context.Context, c *conn, name, tmpl string) error {
 	s, err := srv.session(ctx)
 	if err != nil {

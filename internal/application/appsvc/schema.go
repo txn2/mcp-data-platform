@@ -20,6 +20,9 @@ type Roles interface {
 	CreateRunRole(ctx context.Context, connection, schema string) (role, password string, err error)
 	GrantRunRole(ctx context.Context, connection, schema string) (string, error)
 	DropRunRole(ctx context.Context, connection, schema string) error
+	// CloneSchema builds schema to from the structure of from, no row
+	// (#2709), refusing one that would reach from.
+	CloneSchema(ctx context.Context, connection, from, to string) error
 }
 
 // Sealer seals a run role's password for storage, bound to what it is the
@@ -35,6 +38,21 @@ type Sealer interface {
 // value opens only for the same four.
 func RunRoleBinding(applicationID, connection, schema, role string) string {
 	return "application-run-role:" + applicationID + ":" + connection + "/" + schema + ":" + role
+}
+
+// EnvironmentSchema is one environment's schema as the application's page
+// shows it (#2709).
+type EnvironmentSchema struct {
+	Environment string `json:"environment" example:"dev"`
+	Schema      string `json:"schema" example:"orders_dev"`
+	// MigrationVersion is the highest migration applied in it, and Pending
+	// what its next release or promote would apply.
+	MigrationVersion int   `json:"migration_version" example:"7"`
+	Pending          []int `json:"pending"`
+	// Shared names another environment running in the same schema, as every
+	// environment did before #2709; empty when the schema is its own.
+	Shared  string `json:"shared,omitempty" example:"prod"`
+	Problem string `json:"problem,omitempty"`
 }
 
 // SchemaView is the schema part as an application's page and get show it
@@ -61,6 +79,9 @@ type SchemaView struct {
 	Note string `json:"note,omitempty"`
 	// Problem says the migrations could not be read, empty when they were.
 	Problem string `json:"problem,omitempty"`
+	// Environments is the schema each environment runs in and where its
+	// migrations stand there (#2709), in promotion order.
+	Environments []EnvironmentSchema `json:"environments"`
 }
 
 // reachable is the application database connections the actor may name.
@@ -264,13 +285,14 @@ func (s *Service) removeSchema(ctx context.Context, a *application.Application, 
 	return s.Store.Get(ctx, a.ID) //nolint:wrapcheck // the store's errors are read by identity
 }
 
-// grantRunRole makes the run role a member of the write role a release's
-// migrations defined, logging a failure: the next release tries again.
-func (s *Service) grantRunRole(ctx context.Context, a *application.Application) {
-	if s.Roles == nil || a.Schema == "" {
+// grantRunRole gives the run role of schema what its statements need there
+// after migrations applied, logging a failure: the next release or promote
+// tries again.
+func (s *Service) grantRunRole(ctx context.Context, a *application.Application, schema string) {
+	if s.Roles == nil || schema == "" {
 		return
 	}
-	if _, err := s.Roles.GrantRunRole(ctx, a.Connection, a.Schema); err != nil {
+	if _, err := s.Roles.GrantRunRole(ctx, a.Connection, schema); err != nil {
 		slog.WarnContext(ctx, "application: granting the run role its schema's write role failed",
 			"application", logsan.SanitizeForLog(a.Name), "error", logsan.SanitizeForLog(err.Error()))
 	}
@@ -296,7 +318,33 @@ func (s *Service) SchemaOf(ctx context.Context, a *application.Application, curr
 		v.RunRole = rr.Role
 	}
 	s.describeRunRole(ctx, a, v)
+	v.Environments = s.environmentSchemas(ctx, a)
 	return v
+}
+
+// environmentSchemas is each environment's schema and where its migrations
+// stand there.
+func (s *Service) environmentSchemas(ctx context.Context, a *application.Application) []EnvironmentSchema {
+	out := make([]EnvironmentSchema, 0, len(a.Environments))
+	for i := range a.Environments {
+		e := &a.Environments[i]
+		es := EnvironmentSchema{Environment: e.Name, Schema: envSchema(a, e), Pending: []int{}}
+		for j := range a.Environments {
+			if j != i && envSchema(a, &a.Environments[j]) == es.Schema {
+				es.Shared = a.Environments[j].Name
+				break
+			}
+		}
+		if s.Schema != nil {
+			if st, err := s.Schema.StateIn(ctx, schemaTarget(a, e)); err == nil {
+				es.MigrationVersion, es.Pending = st.Applied, st.Pending
+			} else {
+				es.Problem = err.Error()
+			}
+		}
+		out = append(out, es)
+	}
+	return out
 }
 
 // describeRunRole fills what the run role holds and still needs.
@@ -308,10 +356,6 @@ func (s *Service) describeRunRole(ctx context.Context, a *application.Applicatio
 			"again (add_part kind schema part_id %q) to create one", application.SchemaPartID(a.Connection, a.Schema))
 	case s.Members != nil && s.Members(ctx, a.Connection, v.RunRole, write):
 		v.WriteRole = write
-	default:
-		v.Note = fmt.Sprintf("the application's scripts log in as %s, which reaches no table until a migration defines %s "+
-			"(CREATE ROLE %s NOLOGIN, with its grants on schema %s); the next release grants it to %s",
-			v.RunRole, write, write, a.Schema, v.RunRole)
 	}
 }
 

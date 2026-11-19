@@ -118,6 +118,11 @@ type manageScriptInput struct {
 	// whose next step reads what the last one created.
 	AllowWrites bool `json:"allow_writes,omitempty"`
 
+	// Application is the application a run_draft of a script that is not yet
+	// one of its parts runs in (#2709): its first environment's schema and
+	// role, so unqualified SQL reads that environment's tables.
+	Application string `json:"application,omitempty"`
+
 	// ChangeSummary and UserAgreed carry a behavior change on a save (#1942):
 	// what the new version does differently, in plain language, and the
 	// confirmation that the person the automation runs for agreed to it.
@@ -410,6 +415,14 @@ func manageScriptSchema() any {
 			keyDescription: "Parameter values for run_draft, or the bound values a schedule handler fires with, " +
 				"checked against the script's declared params. A schedule's value may contain " +
 				script.FireDateToken + ", which expands to the date of the fire in the schedule's timezone.",
+		},
+		"application": map[string]any{
+			keyType: valString,
+			keyDescription: "For run_draft: the application (name or id) to draft in, for a script that is not one of " +
+				"its parts yet. The draft runs in the application's first environment, as its run role with that " +
+				"environment's schema as the search path, so unqualified SQL (FROM invoices) reads that " +
+				"environment's tables. A script already a part of an application drafts in its first environment " +
+				"without it. The application's owner and administrators may.",
 		},
 		"allow_writes": map[string]any{
 			keyType: valBoolean,
