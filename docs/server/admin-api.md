@@ -1853,6 +1853,17 @@ mechanics (find every live toolkit of the kind, then remove/add the connection)
 are shared by the admin hot-reload path and the peer subscriber
 (`pkg/connreconcile`) so both apply changes identically.
 
+A replica that already serves a connection under exactly the configuration
+being applied leaves it alone (#2704). A connection saved through one replica
+reaches the others twice, as the stored row their first request takes on and
+as the announcement after it; replacing the connection on the announcement
+closed the client a call in flight was using (`sql: database is closed`), and
+for an MCP connection dropped and re-registered its tools. The Trino, S3 and
+MCP kinds record each run-time connection's configuration (a digest of it,
+stored secret references filled, so a rotated secret reads as a change) and
+the reconcile asks them before replacing anything. A changed configuration
+replaces the connection as before.
+
 The broadcast carries the operation so peers apply it safely:
 
 - **Create/update**: peers read the connection store for the new config and

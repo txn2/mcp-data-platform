@@ -374,3 +374,33 @@ func TestReconciler_AdoptKeepsTheConnectionsState(t *testing.T) {
 		t.Errorf("a resync's adopt changed the state to %q", s)
 	}
 }
+
+type holdingToolkit struct {
+	recordingToolkit
+	holds map[string]any
+}
+
+func (t *holdingToolkit) HoldsConfig(_ string, config map[string]any) bool {
+	return t.holds != nil && config["base_url"] == t.holds["base_url"]
+}
+
+// An announcement of the configuration a toolkit already serves changes
+// nothing; a changed one replaces the connection as before (#2704).
+func TestReconciler_IdenticalConfigurationIsLeftAlone(t *testing.T) {
+	const kind, name = "trino", "c1"
+	same := map[string]any{"base_url": "https://same"}
+	for _, reconcile := range []func(*Reconciler, map[string]any) []Failure{
+		func(r *Reconciler, cfg map[string]any) []Failure { return r.Upsert(kind, name, cfg) },
+		func(r *Reconciler, cfg map[string]any) []Failure { return r.Adopt(kind, name, cfg) },
+	} {
+		tk := &holdingToolkit{holds: same}
+		tk.kind, tk.has = kind, true
+		if f := reconcile(New(mustRegister(t, tk)), same); len(f) != 0 || len(tk.events) != 0 {
+			t.Errorf("identical configuration: failures %v, events %v; want neither", f, tk.events)
+		}
+		if f := reconcile(New(mustRegister(t, tk)), map[string]any{"base_url": "https://changed"}); len(f) != 0 ||
+			len(tk.events) != 2 || tk.events[0] != "remove:c1" || tk.events[1] != "add:c1" {
+			t.Errorf("changed configuration: failures %v, events %v; want remove then add", f, tk.events)
+		}
+	}
+}

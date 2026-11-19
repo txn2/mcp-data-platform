@@ -219,12 +219,11 @@ func (c *conn) holdsVersion(v StoredSchema) bool {
 // the way a tool call finds it, including one another replica saved, and
 // brought up to what the store holds before it is reported (#1714).
 func (t *Toolkit) CurrentSchemaInfo(ctx context.Context, name string) (SchemaInfo, error) {
-	c, _, ok := t.serving(ctx, name)
+	c, _, ok := t.current(ctx, name)
 	if !ok {
 		return SchemaInfo{}, notFound(name)
 	}
-	t.syncStored(ctx, c)
-	return t.SchemaInfo(name)
+	return c.schemaInfo(), nil
 }
 
 // RefreshSchema reads a connection's schema from its endpoint by
@@ -550,6 +549,11 @@ func (t *Toolkit) SchemaInfo(name string) (SchemaInfo, error) {
 	if !ok {
 		return SchemaInfo{}, notFound(name)
 	}
+	return c.schemaInfo(), nil
+}
+
+// schemaInfo reports what one connection holds.
+func (c *conn) schemaInfo() SchemaInfo {
 	c.schemaMu.RLock()
 	defer c.schemaMu.RUnlock()
 	info := SchemaInfo{
@@ -562,7 +566,7 @@ func (t *Toolkit) SchemaInfo(name string) (SchemaInfo, error) {
 	if c.schema != nil {
 		info.Hash = c.schema.Hash()
 	}
-	return info, nil
+	return info
 }
 
 // SchemaInfos reports every registered connection's schema state, for

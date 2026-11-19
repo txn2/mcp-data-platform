@@ -197,7 +197,8 @@ export function NewThreadForm({ target, availableAnchor, onCancel, onCreated }: 
         </p>
       )}
 
-      <div className="flex justify-end gap-2">
+      {/* On a phone's sheet the buttons stay in reach as the form scrolls (#2705). */}
+      <div className="flex justify-end gap-2 max-lg:sticky max-lg:bottom-0 max-lg:border-t max-lg:bg-card max-lg:py-2">
         <Button type="button" variant="outline" size="sm" onClick={onCancel}>
           Cancel
         </Button>

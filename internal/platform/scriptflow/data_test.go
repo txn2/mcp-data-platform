@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 )
 
 // TestDataRefs is what each statement step names of its data (#2539, #2540):
@@ -187,6 +189,7 @@ def main():
 		"UPDATE s.u",
 	}, subtitles)
 }
+
 func TestOutputRefs(t *testing.T) {
 	refs := OutputRefs(`
 def main():
@@ -329,4 +332,281 @@ def main():
     print(guess)
 `)
 	assert.Empty(t, shadowed, "a variable shadowing a function name is not a call of it")
+}
+
+// writesOf is the tables every step of a script writes, and whether any step
+// is computed.
+func writesOf(src string) (writes []string, computed bool) {
+	for _, r := range DataRefs(src) {
+		writes = union(writes, r.Writes)
+		computed = computed || r.Computed
+	}
+	return writes, computed
+}
+
+// TestDataRefs_BatchStatementsFollowed is #2699's shape: platform.batch and
+// platform.transaction statements that are module constants reached through a
+// parameter, a field of a dict constant, a helper's return value, list
+// concatenation, .append, and a comprehension over any of these. Every table
+// is drawn written and no step is computed.
+func TestDataRefs_BatchStatementsFollowed(t *testing.T) {
+	writes, computed := writesOf(`
+CONNECTION = "shop"
+UPSERT_CUSTOMERS = "INSERT INTO shop.customer (code, name) SELECT code, name FROM x ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name"
+UPSERT_ITEMS = "INSERT INTO shop.item (sku) VALUES ($1)"
+RECORD_ORDER = "INSERT INTO shop.orders (id) VALUES ($1)"
+INSERT_LINE = "INSERT INTO shop.order_line (order_id) VALUES ($1)"
+TOUCH = "UPDATE shop.sync SET at = now()"
+SPECS = {
+    "customers": {"query": "q", "write": [UPSERT_CUSTOMERS]},
+    "items": {"query": "q", "write": [UPSERT_ITEMS]},
+}
+
+def write_page(spec, rows):
+    """Writes one page of a spec's rows."""
+    platform.batch(CONNECTION, [{"sql": sql, "params": {"rows": json.encode(rows)}} for sql in spec["write"]])
+
+def commit(statements):
+    """Commits statements in one round trip."""
+    return platform.batch(CONNECTION, statements, on_error = "return")
+
+def line_statements(made):
+    """The statements of an order's lines."""
+    out = []
+    for line in made["lines"]:
+        out.append({"sql": INSERT_LINE, "params": [line]})
+    return out
+
+def record(made):
+    """Records an order and its lines."""
+    return commit([{"sql": RECORD_ORDER, "params": [made["id"]]}] + line_statements(made))
+
+def touch(tx):
+    """Touches the sync row."""
+    tx.batch([TOUCH])
+
+def main():
+    """Syncs every spec, then an order."""
+    for name, spec in SPECS.items():
+        write_page(spec, [])
+    record({"id": 1, "lines": []})
+    platform.transaction(CONNECTION, touch)
+`)
+	assert.False(t, computed, "every statement is a module constant")
+	assert.ElementsMatch(t, []string{"shop.customer", "shop.item", "shop.orders", "shop.order_line", "shop.sync"}, writes)
+}
+
+// TestDataRefs_BatchFollowedOneSpec: a parameter passed one dict of a dict
+// constant is that dict's statements alone, and a statement built when the
+// script runs still leaves its step computed.
+func TestDataRefs_BatchFollowedOneSpec(t *testing.T) {
+	writes, computed := writesOf(`
+A = "INSERT INTO s.a VALUES (1)"
+B = "INSERT INTO s.b VALUES (1)"
+SPECS = {"a": {"write": [A]}, "b": {"write": [B]}}
+
+def write(spec):
+    """Writes."""
+    platform.batch("c", [{"sql": s} for s in spec["write"]])
+
+def main():
+    """One spec."""
+    write(SPECS["a"])
+`)
+	assert.False(t, computed)
+	assert.Equal(t, []string{"s.a"}, writes)
+
+	_, computed = writesOf(`
+def write(statements):
+    """Writes."""
+    platform.batch("c", statements)
+
+def main():
+    """Built when it runs."""
+    write(["INSERT INTO " + run.params["t"] + " VALUES (1)"])
+`)
+	assert.True(t, computed, "a statement built at run time")
+
+	_, computed = writesOf(`
+def write(statements):
+    """Writes."""
+    platform.batch("c", statements)
+
+def main():
+    """From a call the source does not define."""
+    write(json.decode(run.params["statements"]))
+`)
+	assert.True(t, computed, "a list from a call the source does not define")
+}
+
+// TestDataRefs_BatchFollowedThroughASpecBuilder: the spec a page writer is
+// handed is a field of a dict whose value a function returns from a dict it
+// builds (spec_of(phase) returning specs[phase]); every table any spec's
+// "write" list names is written (#2699).
+func TestDataRefs_BatchFollowedThroughASpecBuilder(t *testing.T) {
+	writes, computed := writesOf(`
+CONNECTION = "apps"
+UPSERT_A = "INSERT INTO s.a (code) SELECT 1"
+UPSERT_B = "INSERT INTO s.b (code) SELECT 1"
+RENAME_B = "UPDATE s.b_type SET name = 'x'"
+PHASES = ["a", "b"]
+
+def spec_of(phase, flag):
+    """How one phase writes."""
+    specs = {
+        "a": {"query": "qa", "write": [UPSERT_A], "page": 10},
+        "b": {"query": "qb" if flag else "qc", "write": [UPSERT_B, RENAME_B], "page": 10},
+    }
+    return specs[phase]
+
+def write_page(spec, rows):
+    """Writes one page."""
+    encoded = json.encode(rows)
+    platform.batch(CONNECTION, [{"sql": sql, "params": {"rows": encoded}} for sql in spec["write"]])
+
+def refresh_phase(phase, job):
+    """Pages one list."""
+    reading = {"spec": spec_of(phase, job["flag"]), "ctx": {}}
+    for _ in range(3):
+        spec = reading["spec"]
+        write_page(spec, [1])
+
+def main():
+    """Every phase."""
+    job = {"flag": True}
+    for phase in PHASES:
+        refresh_phase(phase, job)
+`)
+	assert.False(t, computed)
+	assert.ElementsMatch(t, []string{"s.a", "s.b", "s.b_type"}, writes)
+}
+
+// TestDataRefs_BatchFollowedThroughHelperStatements: a list one helper builds
+// and grows, holding statements another helper returns, committed through a
+// third (#2699).
+func TestDataRefs_BatchFollowedThroughHelperStatements(t *testing.T) {
+	writes, computed := writesOf(`
+CONNECTION = "apps"
+SEND = "UPDATE s.invoice SET status = 'sent'"
+HOLD = "INSERT INTO s.invoice_hold (id) VALUES (:id)"
+EVENT = "INSERT INTO s.invoice_event (kind) VALUES (:kind)"
+
+def event(invoice_id, kind):
+    """The statement recording an event."""
+    return {"sql": EVENT, "params": {"id": invoice_id, "kind": kind}}
+
+def commit(statements):
+    """Runs statements in one transaction."""
+    return platform.batch(CONNECTION, statements, on_error = "return")
+
+def finish(invoice_id, statements):
+    """Commits an action's statements."""
+    return commit(statements)
+
+def send(inv):
+    """Sends an invoice."""
+    return finish(inv["id"], [{"sql": SEND, "params": {"id": inv["id"]}}, event(inv["id"], "sent")])
+
+def hold(inv):
+    """Holds an invoice."""
+    statements = [event(inv["id"], "checked")]
+    if inv["bad"]:
+        statements.append({"sql": HOLD, "params": {"id": inv["id"]}})
+    return finish(inv["id"], statements)
+
+def main():
+    """Both."""
+    send({"id": 1})
+    hold({"id": 1, "bad": True})
+`)
+	assert.False(t, computed)
+	assert.ElementsMatch(t, []string{"s.invoice", "s.invoice_event", "s.invoice_hold"}, writes)
+}
+
+// TestDataRefs_NamesLoadedFromALibrary: a statement constant and a helper a
+// script loads from a library are read from the library's source at the
+// version the load names (#2699); without it they are run-time values.
+func TestDataRefs_NamesLoadedFromALibrary(t *testing.T) {
+	lib := `PREFIX = "x3ap"
+ADD_EVENT = "INSERT INTO " + PREFIX + ".invoice_event (kind) VALUES (:kind)"
+WITHDRAW = "UPDATE x3ap.approval_request SET status = 'withdrawn'"
+REPLACED = "UPDATE x3ap.approval_request SET replaced_by = :new"
+
+def result_statements(made):
+    """One history row per request."""
+    return [{"sql": ADD_EVENT, "params": {"kind": m}} for m in made] + [{"sql": REPLACED, "params": {}}]
+`
+	src := `load("lib:ap-approval@2", "ADD_EVENT", "WITHDRAW", "result_statements")
+
+CONNECTION = "apps"
+
+def main():
+    """Withdraws, records and explains."""
+    platform.execute(WITHDRAW, connection = CONNECTION)
+    platform.execute(ADD_EVENT, connection = CONNECTION, params = {"kind": "x"})
+    platform.batch(CONNECTION, result_statements(["a"]), on_error = "return")
+`
+	libs := Libraries{scriptlib.Ref{Name: "ap-approval", Version: 2}: lib}
+	var writes []string
+	computed := false
+	for _, r := range DataRefsWith(src, libs) {
+		writes = union(writes, r.Writes)
+		computed = computed || r.Computed
+	}
+	assert.False(t, computed)
+	assert.ElementsMatch(t, []string{"x3ap.approval_request", "x3ap.invoice_event"}, writes)
+
+	without := false
+	for _, r := range DataRefsWith(src, Libraries{scriptlib.Ref{Name: "ap-approval", Version: 1}: lib}) {
+		without = without || r.Computed
+	}
+	assert.True(t, without, "a version the load does not name is not read")
+}
+
+// TestDataRefs_ALookupIntoAGrownList: a statement picked out of a list the
+// function built in steps is each statement the list holds (#2699).
+func TestDataRefs_ALookupIntoAGrownList(t *testing.T) {
+	writes, computed := writesOf(`
+A = "INSERT INTO s.a VALUES (1)"
+B = "INSERT INTO s.b VALUES (1)"
+
+def main():
+    """Runs one of two statements."""
+    xs = [A]
+    xs.append(B)
+    platform.execute(xs[run.params["i"]], connection = "c")
+`)
+	assert.False(t, computed)
+	assert.ElementsMatch(t, []string{"s.a", "s.b"}, writes)
+}
+
+// TestDataRefs_AParameterGrownInTheCallee: a parameter the function only
+// appends to holds what the caller passed, then what it added (#2699).
+func TestDataRefs_AParameterGrownInTheCallee(t *testing.T) {
+	writes, computed := writesOf(`
+A = "INSERT INTO s.a VALUES (1)"
+B = "INSERT INTO s.b VALUES (1)"
+
+def commit(statements):
+    """Adds the audit row and commits."""
+    statements.append(B)
+    platform.batch("c", statements)
+
+def main():
+    """Commits."""
+    commit([A])
+`)
+	assert.False(t, computed)
+	assert.ElementsMatch(t, []string{"s.a", "s.b"}, writes)
+
+	_, computed = writesOf(`
+B = "INSERT INTO s.b VALUES (1)"
+
+def main():
+    """A list grown from what a loop unpacks."""
+    for _, statements in run.params["pairs"]:
+        statements.append(B)
+        platform.batch("c", statements)
+`)
+	assert.True(t, computed, "what the list held first is not known")
 }

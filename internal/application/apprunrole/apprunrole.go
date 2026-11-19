@@ -27,7 +27,7 @@ import (
 // a database or an encryption key, which governs no schema.
 type Lookups struct {
 	Holder  func(ctx context.Context, connection, schema string) (string, error)
-	RunRole func(ctx context.Context, connection, application string) (role, password string, err error)
+	RunRole func(ctx context.Context, connection, application, environment string) (role, password string, err error)
 }
 
 // New is the lookups over store, opening passwords with sealer.
@@ -64,10 +64,11 @@ func (h hooks) holder(ctx context.Context, connection, schema string) (string, e
 	return a.Name, nil
 }
 
-// runRole is the application's run role on connection, its password opened
-// only for the binding it was sealed under; role "" for none.
-func (h hooks) runRole(ctx context.Context, connection, applicationID string) (role, password string, err error) {
-	rr, err := h.store.RunRoleOf(ctx, applicationID)
+// runRole is the run role of the schema the application's environment env
+// runs in on connection ("" for the last, #2709), its password opened only
+// for the binding it was sealed under; role "" for none.
+func (h hooks) runRole(ctx context.Context, connection, applicationID, env string) (role, password string, err error) {
+	rr, err := h.store.RunRoleIn(ctx, applicationID, env)
 	if errors.Is(err, application.ErrNoRunRole) {
 		return "", "", nil
 	}

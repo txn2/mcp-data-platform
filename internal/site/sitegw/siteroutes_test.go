@@ -49,9 +49,9 @@ func newSiteRoutes(t *testing.T) *siteRoutes {
 	sr.db.store = sr.store
 	sr.store.own = routes
 	dev := sr.store.own["marketing"]
-	dev.PartOf = appShop
+	dev.PartOf, dev.PartOfEnvironment = appShop, dev.Environment
 	rel := dev.Release
-	sr.store.own["marketing--prod"] = &site.Route{SiteID: testSiteID, Site: "marketing", Environment: "prod", Release: rel, PartOf: appShop}
+	sr.store.own["marketing--prod"] = &site.Route{SiteID: testSiteID, Site: "marketing", Environment: "prod", Release: rel, PartOf: appShop, PartOfEnvironment: "prod"}
 	return sr
 }
 
@@ -119,6 +119,7 @@ func TestSiteEndpoint_RunsAsTheViewerFromThisOriginOnly(t *testing.T) {
 			require.Len(t, sr.server.routes, 1, rec.Body.String())
 			route := sr.server.routes[0]
 			assert.Equal(t, "app_"+appShop, route.Application)
+			assert.Equal(t, sr.store.own["marketing"].Environment, route.Environment, "the endpoint runs in the application environment of the site environment's name")
 			assert.Equal(t, "greet", route.Name)
 			assert.Equal(t, "/a/b", route.Rest)
 			assert.NotEmpty(t, route.Nonce)
@@ -174,6 +175,18 @@ func TestSiteEndpoint_OnlyForAPartOfAnApplication(t *testing.T) {
 	rec := sr.call(testOwnHost, "/endpoints/greet", http.Header{"Sec-Fetch-Site": {"same-origin"}}, sr.cookieFor(viewerOf(ownerMail)))
 	assert.Equal(t, http.StatusNotFound, rec.Code, "an application that no longer exists answers nothing")
 	assert.Empty(t, sr.server.routes)
+}
+
+// A site environment whose application has no environment of its name
+// answers 404 naming the one to add, and never runs another (#2709).
+func TestSiteEndpoint_NoEnvironmentOfItsNameAnswersNothing(t *testing.T) {
+	sr := newSiteRoutes(t)
+	own := sr.store.own["marketing"]
+	own.PartOfEnvironment = ""
+	rec := sr.call(testOwnHost, "/endpoints/greet", http.Header{"Sec-Fetch-Site": {"same-origin"}}, sr.cookieFor(viewerOf(ownerMail)))
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Contains(t, rec.Body.String(), "application "+appShop+" has no environment named "+own.Environment)
+	assert.Empty(t, sr.server.routes, "no environment of another name runs in its place")
 }
 
 // A persona grant follows the persona the viewer's roles resolve to now, not

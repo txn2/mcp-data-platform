@@ -102,6 +102,9 @@ type Config struct {
 // Handle owns the assembled script layer. All accessors are nil-safe, so a
 // deployment without a database holds a Handle that registers nothing.
 type Handle struct {
+	// draftIn resolves the application a draft of a script not yet its part
+	// runs in (#2709): its id and connection. Nil refuses the argument.
+	draftIn func(ctx context.Context, ref, email string, admin bool) (id, connection string, err error)
 	// partFindings is what a save newly gives its application to find (#2540).
 	partFindings func(ctx context.Context, scriptID string, before int) []string
 	store        script.Store
@@ -456,6 +459,11 @@ func (h *Handle) ownsOrAdmin(ctx context.Context, sc *script.Script) bool {
 
 // SetPartFindings installs the findings a save of a script over a version
 // introduced in its application (#2540).
+// SetDraftApplications wires the application a run_draft names (#2709).
+func (h *Handle) SetDraftApplications(f func(ctx context.Context, ref, email string, admin bool) (id, connection string, err error)) {
+	h.draftIn = f
+}
+
 func (h *Handle) SetPartFindings(f func(ctx context.Context, scriptID string, before int) []string) {
 	h.partFindings = f
 }

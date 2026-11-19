@@ -241,15 +241,24 @@ func TestIssue2617_AnApplicationReleaseMovesEachSitePartOneStep(t *testing.T) {
 	stageBefore, devNow := s.release2617(t, "stage"), s.release2617(t, "dev")
 
 	app := app2539(t, admin, admin, "2617")
+	// Each part calls the application environment of its name, and moves
+	// with that environment's release (#2709): a release lands in stage, a
+	// promote moves prod to what stage ran with it.
+	admin.call("manage_application", map[string]any{"command": "add_environment", "application": app, "environment": "stage"})
 	for _, env := range []string{"stage", "prod"} {
 		admin.call("manage_application", map[string]any{"command": "add_part", "application": app, "kind": "site", "part_id": sitePart2613(s.name, env), "release_mode": "coupled"})
 	}
+	prodBefore := s.release2617(t, "prod")
 	admin.call("manage_application", map[string]any{"command": "release", "application": app, "note": "acceptance 2617"})
 	if got := s.release2617(t, "stage"); got != devNow {
 		t.Errorf("stage serves %d after the release, want dev's %d", got, devNow)
 	}
-	if got := s.release2617(t, "prod"); got != stageBefore {
-		t.Errorf("prod serves %d after the release, want %d, what stage served before it", got, stageBefore)
+	if got := s.release2617(t, "prod"); got != prodBefore {
+		t.Errorf("prod serves %d after a release into stage, want %d, where it was", got, prodBefore)
+	}
+	admin.call("manage_application", map[string]any{"command": "promote", "application": app, "environment": "stage"})
+	if got := s.release2617(t, "prod"); got != devNow {
+		t.Errorf("prod serves %d after the promote, want %d, what stage ran with the release (stage served %d before it)", got, devNow, stageBefore)
 	}
 }
 

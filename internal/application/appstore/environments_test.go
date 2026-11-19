@@ -79,9 +79,10 @@ func TestEnvironmentWrites(t *testing.T) {
 
 	// Remove closes the gap and drops its variables.
 	mock.ExpectBegin()
-	mock.ExpectQuery("DELETE FROM application_environments").WillReturnRows(sqlmock.NewRows([]string{"position"}).AddRow(1))
+	mock.ExpectQuery("DELETE FROM application_environments").WillReturnRows(sqlmock.NewRows([]string{"position", "schema_name"}).AddRow(1, "shop_stage"))
 	mock.ExpectExec("SET position = position - 1").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("DELETE FROM application_variables").WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectExec("DELETE FROM application_run_roles r").WithArgs("app_1", "shop_stage").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	require.NoError(t, s.RemoveEnvironment(ctx, "app_1", "stage"))
 	mock.ExpectBegin()
@@ -123,8 +124,8 @@ func TestVariablesAndResolution(t *testing.T) {
 	_, err = s.Variables(ctx, "app_1")
 	require.Error(t, err)
 
-	cols := []string{"name", "version", "vars"}
-	mock.ExpectQuery("FROM application_parts p").WillReturnRows(sqlmock.NewRows(cols).AddRow("dev", 4, []byte(`{"A":"1"}`)))
+	cols := []string{"name", "version", "last", "vars"}
+	mock.ExpectQuery("FROM application_parts p").WillReturnRows(sqlmock.NewRows(cols).AddRow("dev", 4, false, []byte(`{"A":"1"}`)))
 	got, err := s.ForScript(ctx, "s1", "dev")
 	require.NoError(t, err)
 	assert.Equal(t, appenv.Script{OK: true, Environment: "dev", Version: 4, Variables: map[string]string{"A": "1"}}, *got)
@@ -132,10 +133,10 @@ func TestVariablesAndResolution(t *testing.T) {
 	got, err = s.ForScript(ctx, "s1", "")
 	require.NoError(t, err)
 	assert.False(t, got.OK)
-	mock.ExpectQuery("FROM application_parts p").WillReturnRows(sqlmock.NewRows(cols).AddRow(nil, 0, []byte(`{}`)))
+	mock.ExpectQuery("FROM application_parts p").WillReturnRows(sqlmock.NewRows(cols).AddRow(nil, 0, false, []byte(`{}`)))
 	_, err = s.ForScript(ctx, "s1", "qa")
 	require.ErrorIs(t, err, appenv.ErrNoEnvironment)
-	mock.ExpectQuery("FROM application_parts p").WillReturnRows(sqlmock.NewRows(cols).AddRow("dev", 0, []byte(`[`)))
+	mock.ExpectQuery("FROM application_parts p").WillReturnRows(sqlmock.NewRows(cols).AddRow("dev", 0, false, []byte(`[`)))
 	_, err = s.ForScript(ctx, "s1", "dev")
 	require.ErrorContains(t, err, "variables")
 	mock.ExpectQuery("FROM application_parts p").WillReturnError(errDown)

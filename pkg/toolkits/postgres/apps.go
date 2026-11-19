@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -31,9 +32,9 @@ type applications struct {
 	// "" for none.
 	holder func(ctx context.Context, connection, schema string) (string, error)
 	// runRole is the login role, and its password, the statements of the
-	// application's scripts run as on connection; role is "" when the
-	// application holds no schema there.
-	runRole func(ctx context.Context, connection, application string) (role, password string, err error)
+	// application's scripts run as on connection in environment ("" for the
+	// last, #2709); role is "" when the application holds no schema there.
+	runRole func(ctx context.Context, connection, application, environment string) (role, password string, err error)
 }
 
 // Holder implements the lookup of the application holding a schema.
@@ -41,19 +42,19 @@ func (a *applications) Holder(ctx context.Context, connection, schema string) (s
 	return a.holder(ctx, connection, schema)
 }
 
-// RunRole implements the lookup of an application's run role.
-func (a *applications) RunRole(ctx context.Context, connection, application string) (role, password string, err error) {
-	return a.runRole(ctx, connection, application)
+// RunRole implements the lookup of an application environment's run role.
+func (a *applications) RunRole(ctx context.Context, connection, application, environment string) (role, password string, err error) {
+	return a.runRole(ctx, connection, application, environment)
 }
 
 // SetApplications installs what the toolkit asks about applications: holder,
 // the name of the application holding a schema ("" for none), and runRole,
 // the login role and password an application's scripts run as on a
-// connection (role "" for none). Either nil leaves every schema governed by
-// no application, as before #2539.
+// connection in an environment (role "" for none). Either nil leaves every
+// schema governed by no application, as before #2539.
 func (t *Toolkit) SetApplications(
 	holder func(ctx context.Context, connection, schema string) (string, error),
-	runRole func(ctx context.Context, connection, application string) (role, password string, err error),
+	runRole func(ctx context.Context, connection, application, environment string) (role, password string, err error),
 ) {
 	if holder == nil || runRole == nil {
 		t.apps.Store(nil)
@@ -299,11 +300,15 @@ func (c *conn) mayCreateRole(ctx context.Context, connection, schema, role strin
 	return nil
 }
 
-// GrantRunRole makes the run role of schema a member of the schema's write
-// role when the schema's migrations define one and the run role is not yet,
-// naming the role granted; "" when there was nothing to grant. A release
-// calls it after applying migrations, since the migration that defines the
-// write role usually comes after the schema was added.
+// GrantRunRole gives the run role of schema what its statements need there,
+// and answers the role it was made a member of, "" for none. The role's
+// search_path is schema (#2709), so a statement naming a table without a
+// schema reads and writes its own environment's. Its grants come from the
+// platform: USAGE on the schema and DML on every table, sequence and routine
+// in it, never on another schema, since a migration names no role. A schema
+// whose migrations defined its write role before #2709 also keeps the run
+// role a member of it. A release and a promote call it after applying
+// migrations, which create what it grants on.
 func (t *Toolkit) GrantRunRole(ctx context.Context, connection, schema string) (string, error) {
 	c, err := t.schemaConn(connection, schema)
 	if err != nil {
@@ -317,7 +322,17 @@ func (t *Toolkit) GrantRunRole(ctx context.Context, connection, schema string) (
 	if err := c.roleQ().QueryRow(ctx, roleExistsSQL, write).Scan(&writeExists); err != nil {
 		return "", c.failure(ctx, err)
 	}
-	if !runExists || !writeExists {
+	if !runExists {
+		return "", nil
+	}
+	if _, err := c.roleQ().Exec(ctx, "/* mcp-data-platform */ ALTER ROLE "+pgx.Identifier{run}.Sanitize()+
+		" SET search_path TO "+pgx.Identifier{schema}.Sanitize()); err != nil {
+		return "", c.failure(ctx, err)
+	}
+	if err := c.grantSchema(ctx, run, schema); err != nil {
+		return "", err
+	}
+	if !writeExists {
 		return "", nil
 	}
 	var member bool
@@ -332,6 +347,145 @@ func (t *Toolkit) GrantRunRole(ctx context.Context, connection, schema string) (
 		return "", c.failure(ctx, err)
 	}
 	return write, nil
+}
+
+// grantSchema grants run USAGE on schema and DML on what is in it, when the
+// schema exists: a schema added before its first migration has nothing to
+// grant on yet.
+func (c *conn) grantSchema(ctx context.Context, run, schema string) error {
+	var exists bool
+	if err := c.roleQ().QueryRow(ctx, schemaExistsSQL, schema).Scan(&exists); err != nil {
+		return c.failure(ctx, err)
+	}
+	if !exists {
+		return nil
+	}
+	s, r := pgx.Identifier{schema}.Sanitize(), pgx.Identifier{run}.Sanitize()
+	for _, grant := range []string{
+		"USAGE ON SCHEMA " + s,
+		"SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA " + s,
+		"USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA " + s,
+		"EXECUTE ON ALL ROUTINES IN SCHEMA " + s,
+	} {
+		if _, err := c.roleQ().Exec(ctx, "/* mcp-data-platform */ GRANT "+grant+" TO "+r); err != nil {
+			return c.failure(ctx, err)
+		}
+	}
+	return nil
+}
+
+// schemaExistsSQL reads whether a schema is on the database.
+const schemaExistsSQL = "/* mcp-data-platform */ SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = $1)"
+
+// codeSchemaExists refuses building a schema whose name is taken.
+const codeSchemaExists = "schema_exists"
+
+// codeSchemaReachesOut refuses a built schema holding an object that reaches
+// a schema it must stay apart from.
+const codeSchemaReachesOut = "schema_reaches_out"
+
+// reachesOutSQL lists the objects of schema $1 that reach one of the schemas
+// in $2 around a run role's grants: a view, a foreign key, a column default,
+// a trigger, a policy or a standard-SQL function depending on an object
+// there, or a function whose body names it qualified or whose settings put
+// it on the search path. A view and a function run with their owner's
+// privileges, so such an object lets a run role read rows its grants keep it
+// from.
+const reachesOutSQL = `/* mcp-data-platform */ SELECT DISTINCT kind || ' ' || name FROM (
+ SELECT 'view' AS kind, v.relname::text AS name FROM pg_rewrite r JOIN pg_class v ON v.oid = r.ev_class
+   JOIN pg_depend d ON d.classid = 'pg_rewrite'::regclass AND d.objid = r.oid AND d.refclassid = 'pg_class'::regclass
+   JOIN pg_class t ON t.oid = d.refobjid
+  WHERE v.relnamespace = $1::text::regnamespace AND t.relnamespace::regnamespace::text = ANY($2)
+ UNION ALL SELECT 'foreign key', con.conname::text FROM pg_constraint con JOIN pg_class f ON f.oid = con.confrelid
+  WHERE con.connamespace = $1::text::regnamespace AND con.contype = 'f' AND f.relnamespace::regnamespace::text = ANY($2)
+ UNION ALL SELECT 'default of', c.relname::text || '.' || a.attname::text FROM pg_attrdef ad
+   JOIN pg_class c ON c.oid = ad.adrelid JOIN pg_attribute a ON a.attrelid = ad.adrelid AND a.attnum = ad.adnum
+   JOIN pg_depend d ON d.classid = 'pg_attrdef'::regclass AND d.objid = ad.oid AND d.refclassid = 'pg_class'::regclass
+   JOIN pg_class s ON s.oid = d.refobjid
+  WHERE c.relnamespace = $1::text::regnamespace AND s.relnamespace::regnamespace::text = ANY($2)
+ UNION ALL SELECT 'trigger', tg.tgname::text FROM pg_trigger tg JOIN pg_class c ON c.oid = tg.tgrelid
+   JOIN pg_proc p ON p.oid = tg.tgfoid
+  WHERE c.relnamespace = $1::text::regnamespace AND p.pronamespace::regnamespace::text = ANY($2)
+ UNION ALL SELECT 'policy', pol.polname::text FROM pg_policy pol JOIN pg_class c ON c.oid = pol.polrelid
+   JOIN pg_depend d ON d.classid = 'pg_policy'::regclass AND d.objid = pol.oid AND d.refclassid = 'pg_class'::regclass
+   JOIN pg_class t ON t.oid = d.refobjid
+  WHERE c.relnamespace = $1::text::regnamespace AND t.relnamespace::regnamespace::text = ANY($2)
+ UNION ALL SELECT 'function', p.proname::text FROM pg_proc p
+   JOIN pg_depend d ON d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.refclassid = 'pg_class'::regclass
+   JOIN pg_class t ON t.oid = d.refobjid
+  WHERE p.pronamespace = $1::text::regnamespace AND t.relnamespace::regnamespace::text = ANY($2)
+ UNION ALL SELECT 'function', p.proname::text FROM pg_proc p, unnest($2::text[]) f
+  WHERE p.pronamespace = $1::text::regnamespace
+    AND (p.prosrc ~* ('(^|[^a-z0-9_$"])"?' || f || '"?\.')
+         OR COALESCE(array_to_string(p.proconfig, ' '), '') ~* ('search_path=(.*[, ''"])?' || f || '($|[, ''"])'))
+) x ORDER BY 1`
+
+// BuildSchema creates schema on connection and runs ddl in it, in one
+// transaction as the connection's user (#2709): a new application
+// environment's schema, built from the structure of another's. A schema of
+// that name already on the server is refused, so nothing is ever built over
+// what is there. Before it commits, the schema is read for an object that
+// reaches one of isolatedFrom (reachesOutSQL); any one refuses the build,
+// naming the objects, and nothing is kept. The refusal and every failure name
+// objects only, never a row.
+func (t *Toolkit) BuildSchema(ctx context.Context, connection, schema, ddl string, isolatedFrom []string) error {
+	c, err := t.schemaConn(connection, schema)
+	if err != nil {
+		return err
+	}
+	s, err := c.session(ctx)
+	if err != nil {
+		return c.failure(ctx, err)
+	}
+	defer s.Release()
+	tx, err := s.Begin(ctx)
+	if err != nil {
+		return c.failure(ctx, err)
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	var exists bool
+	if err := tx.QueryRow(ctx, schemaExistsSQL, schema).Scan(&exists); err != nil {
+		return c.failure(ctx, err)
+	}
+	if exists {
+		return &RefusedError{Code: codeSchemaExists, msg: fmt.Sprintf(
+			"%s: schema %q already exists on connection %q; name another, or have an administrator drop it first", errPrefix, schema, connection)}
+	}
+	if err := c.prepareMigration(ctx, tx, schema, 0); err != nil {
+		return c.failure(ctx, err)
+	}
+	if err := script(ctx, tx, ddl); err != nil {
+		return c.failure(ctx, err)
+	}
+	if err := reachesOut(ctx, tx, schema, isolatedFrom); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return c.failure(ctx, err)
+	}
+	return nil
+}
+
+// reachesOut refuses schema when an object in it reaches one of others.
+func reachesOut(ctx context.Context, tx pgx.Tx, schema string, others []string) error {
+	if len(others) == 0 {
+		return nil
+	}
+	rows, err := tx.Query(ctx, reachesOutSQL, schema, others)
+	if err != nil {
+		return fmt.Errorf("appdb: reading what schema %q reaches: %w", schema, err)
+	}
+	found, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return fmt.Errorf("appdb: reading what schema %q reaches: %w", schema, err)
+	}
+	if len(found) == 0 {
+		return nil
+	}
+	return &RefusedError{Code: codeSchemaReachesOut, msg: fmt.Sprintf(
+		"%s: schema %q would reach schema %s through %s, which run with their owner's privileges and would let its runs "+
+			"read or write rows there; remove the schema qualifier from them in the source schema's migrations, then add the environment again",
+		errPrefix, schema, strings.Join(others, ", "), strings.Join(found, ", "))}
 }
 
 // DropRunRole drops the run role of schema on connection: the pools logged in
@@ -404,15 +558,16 @@ func scramVerifier(password string) (string, error) {
 // connection's role pools, apart from every persona's.
 func appPoolKey(role string) string { return "\x00run:" + role }
 
-// runRolePool is the pool the statements of application's scripts run on:
-// its run role's, built from the password Applications opens the first time
-// one runs. ok is false when the application holds no schema on c.
-func (t *Toolkit) runRolePool(ctx context.Context, c *conn, application string) (*pgxpool.Pool, bool, error) {
+// runRolePool is the pool the statements of application's scripts in
+// environment run on: the run role of the schema that environment runs in
+// (#2709), built from the password Applications opens the first time one
+// runs. ok is false when the application holds no schema on c.
+func (t *Toolkit) runRolePool(ctx context.Context, c *conn, application, environment string) (*pgxpool.Pool, bool, error) {
 	apps := t.applications()
 	if apps == nil || application == "" {
 		return nil, false, nil
 	}
-	role, password, err := apps.RunRole(ctx, c.cfg.ConnectionName, application)
+	role, password, err := apps.RunRole(ctx, c.cfg.ConnectionName, application, environment)
 	if err != nil {
 		return nil, false, fmt.Errorf("appdb: reading the run role of application %q: %w", application, err)
 	}
@@ -469,7 +624,7 @@ func (c *conn) rolePool(key, role, password string) (*pgxpool.Pool, error) {
 // role, else the connection's own.
 func (c *conn) identityPool(ctx context.Context, id Identity) (*pgxpool.Pool, error) {
 	if id.Application != "" && c.runPool != nil {
-		p, ok, err := c.runPool(ctx, c, id.Application)
+		p, ok, err := c.runPool(ctx, c, id.Application, id.Environment)
 		if err != nil {
 			return nil, err
 		}

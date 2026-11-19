@@ -90,11 +90,8 @@ def main():
 `
 	params := []any{map[string]any{"name": "kind", "type": "string", "required": true, "description": "Which table to fill."}}
 	name := part2539(t, admin, app, "2623-lookup", writer, map[string]any{"kind": "documents"}, params)
-	found := findings2615(t, admin, app)
-	for node, msg := range found {
-		if strings.Contains(msg, name+" writes a table named only when it runs") {
-			t.Errorf("the finding for %s names %s as writing a table chosen when it runs: %s", node, name, msg)
-		}
+	if msg := runtimeWrites2615(t, admin, app); strings.Contains(msg, name+" writes a table named only when it runs") {
+		t.Errorf("the findings name %s as writing a table chosen when it runs: %s", name, msg)
 	}
 	writes2623(t, admin, app, schema, name)
 }
@@ -118,8 +115,10 @@ def main():
 		map[string]any{"name": "table", "type": "string", "required": false, "description": "The table a built statement fills."},
 	}
 	name := part2539(t, admin, app, "2623-partial", writer, map[string]any{"kind": "documents"}, params)
-	msg, ok := findings2615(t, admin, app)["table:"+conn2539+"/"+schema+".inv"]
-	if !ok || !strings.Contains(msg, name+" writes a table named only when it runs") {
-		t.Fatalf("the finding for %s.inv does not name %s as writing a table chosen when it runs: %q", schema, name, msg)
+	if _, ok := findings2615(t, admin, app)["table:"+conn2539+"/"+schema+".inv"]; !ok {
+		t.Fatalf("%s.inv is not reported unwritten while only a statement built when it runs may write it", schema)
+	}
+	if msg := runtimeWrites2615(t, admin, app); !strings.Contains(msg, name+" writes a table named only when it runs") {
+		t.Fatalf("the findings do not name %s as writing a table chosen when it runs: %q", name, msg)
 	}
 }

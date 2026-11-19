@@ -144,6 +144,6 @@ func TestListsBound(t *testing.T) {
 	assert.Len(t, got["a"], 1)
 	assert.Len(t, got["b"], 1)
 	assert.NotContains(t, got, "c", "a dict comprehension is not a list")
-	assert.NotContains(t, got, "d")
+	assert.Len(t, got["d"], 1, "any value assigned is read when the list is, and one built at run time leaves it unread")
 	assert.NotContains(t, got, "e", "an unpacking assignment binds no list by name")
 }

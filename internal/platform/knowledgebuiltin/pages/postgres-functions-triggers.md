@@ -46,15 +46,22 @@ DROP TABLE orders;
 ## SECURITY DEFINER, safely
 
 A `SECURITY DEFINER` function runs with its owner's privileges, which is how a
-role that cannot read a table may still do one checked thing with it. Pin its
-`search_path` (with `pg_temp` last) so a caller cannot put a table of their
-own in front of the one it means, and revoke `EXECUTE` from `PUBLIC` in the
-same migration, then grant it to the roles that need it.
+role that cannot read a table may still do one checked thing with it. Write
+its body as SQL standard (`BEGIN ATOMIC`): the table names in it are bound when
+the migration creates it, in the schema the migration is applied to, so each
+environment's copy reads its own environment's table and nothing a caller
+puts on the path at run time. Pin its `search_path` to `pg_catalog, pg_temp`
+(`pg_temp` last) so no other name it uses can be shadowed, and revoke
+`EXECUTE` from `PUBLIC` in the same migration; the platform grants `EXECUTE`
+to each environment's run role after the migration applies. A function body
+in a quoted string (`LANGUAGE plpgsql`) resolves its names when it runs, and
+an application's migration names no schema, so do not make one `SECURITY
+DEFINER`.
 
 ```sql
 CREATE TABLE secrets (id int PRIMARY KEY, token text NOT NULL);
 CREATE FUNCTION token_matches(given text) RETURNS boolean
-  LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp
+  LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
 BEGIN ATOMIC
   SELECT EXISTS (SELECT 1 FROM secrets WHERE token = given);
 END;

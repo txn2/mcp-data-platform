@@ -1,3 +1,4 @@
+import type { ApplicationEnvironmentSchema, ApplicationPrepareCounts } from "./applicationEnvironments";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { sortNames } from "@/lib/sortByName";
 import { apiFetch, apiFetchRaw, ApiError } from "../client";
@@ -73,6 +74,8 @@ export interface ApplicationEnvironment {
   release: number;
   /** An agent's promote or rollback into it is refused; a person does it here. */
   requires_approval: boolean;
+  /** The schema its runs read and write (#2709); empty with none. */
+  schema?: string;
   updated_by: string;
   updated_at: string;
 }
@@ -190,6 +193,8 @@ export interface ApplicationSchemaView {
   note?: string;
   /** Set when the migrations could not be read. */
   problem?: string;
+  /** The schema each environment runs in and where its migrations stand there (#2709). */
+  environments?: ApplicationEnvironmentSchema[];
 }
 
 /** An application's page: where it stands and its releases, newest first. */
@@ -212,6 +217,8 @@ export interface ApplicationDetail {
   releases: ApplicationRelease[];
   /** Each site part's mode, served and step release and compatibility (#2679). */
   site_parts?: ApplicationSitePart[];
+  /** How many files name the schema or roles (#2709); absent with no schema. */
+  prepare?: ApplicationPrepareCounts;
 }
 
 /** The kinds of thing an application diagram draws (#2540). */
@@ -288,7 +295,11 @@ export interface ApplicationDiagramGroup {
 
 /** Something the diagram finds wrong (#2540). */
 export interface ApplicationFinding {
-  kind: "library_version" | "unwritten_table" | "foreign_schema";
+  /**
+   * runtime_writes names, once, the automations that write a table named only
+   * when they run, which may be a table reported unwritten (#2699).
+   */
+  kind: "library_version" | "unwritten_table" | "foreign_schema" | "runtime_writes";
   /** The node it is about. */
   node: string;
   message: string;

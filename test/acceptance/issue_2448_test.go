@@ -79,12 +79,14 @@ func TestIssue2448_AProcedureThatCommitsIsRefusedThroughPlatformExecute(t *testi
 	admin := connectFor(t, 3*time.Minute)
 	conn := appdbConn(t, admin, "acc-2448-proc", "orders_app", "orders_secret")
 	schema := "acc2448_proc_" + unique1579()
+	// A migration names no table with its schema (#2709); the procedure
+	// still writes into it, by a name it builds when it runs.
 	migrate(t, admin, conn, schema, `CREATE TABLE batches (id int PRIMARY KEY);
 CREATE PROCEDURE load_in_chunks() LANGUAGE plpgsql AS $$
 BEGIN
-  INSERT INTO `+schema+`.batches VALUES (1);
+  EXECUTE format('INSERT INTO %I.batches VALUES (1)', '`+schema+`');
   COMMIT;
-  INSERT INTO `+schema+`.batches VALUES (2);
+  EXECUTE format('INSERT INTO %I.batches VALUES (2)', '`+schema+`');
 END $$`)
 	out := draft2428(admin, "acc-2448-proc", `def main():
     """Calls a procedure that commits."""

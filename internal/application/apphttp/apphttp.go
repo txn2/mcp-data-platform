@@ -22,6 +22,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/application/apptool"
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/selfcall"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
@@ -136,7 +137,11 @@ func (h *handler) actor(w http.ResponseWriter, r *http.Request) (application.Act
 		httpjson.WriteError(w, http.StatusUnauthorized, "sign in to use applications")
 		return application.Actor{}, false
 	}
-	return *a, true
+	actor := *a
+	// A request a tool call made to the platform's own API is an agent's
+	// (#2706): its promote and rollback wait on a person like the tool's.
+	actor.Agent = selfcall.ByTool(r.Context())
+	return actor, true
 }
 
 func decode[T any](w http.ResponseWriter, r *http.Request) (T, bool) {
@@ -160,7 +165,8 @@ func status(err error) int {
 	case errors.Is(err, application.ErrNotAllowed):
 		return http.StatusForbidden
 	case errors.Is(err, application.ErrNameTaken), errors.Is(err, application.ErrSchemaHeld),
-		errors.Is(err, application.ErrPartTaken), errors.Is(err, application.ErrStale):
+		errors.Is(err, application.ErrPartTaken), errors.Is(err, application.ErrStale),
+		errors.Is(err, application.ErrApprovalRequired):
 		return http.StatusConflict
 	case errors.As(err, &refused):
 		return http.StatusUnprocessableEntity

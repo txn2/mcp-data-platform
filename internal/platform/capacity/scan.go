@@ -50,7 +50,8 @@ func markStart(ctx context.Context, w Walker, bucket string, fallback time.Time)
 }
 
 // The rows that reference an object, per bucket. Every key column the
-// platform writes is read, a soft-deleted row's included: its object is kept
+// platform writes is read (TestEveryObjectKeyColumnIsAReference derives them
+// from the migrations, #2701), a soft-deleted row's included: its object is kept
 // until the purge removes both. A portal row with an empty bucket was written
 // before the bucket was recorded and means the portal's bucket.
 const (
@@ -59,7 +60,8 @@ UNION ALL SELECT thumbnail_s3_key FROM portal_assets WHERE s3_bucket IN ('', $1)
 UNION ALL SELECT thumbnail_dark_s3_key FROM portal_assets WHERE s3_bucket IN ('', $1) AND thumbnail_dark_s3_key <> ''
 UNION ALL SELECT s3_key FROM portal_asset_versions WHERE COALESCE(s3_bucket, '') IN ('', $1) AND s3_key <> ''
 UNION ALL SELECT thumbnail_s3_key FROM portal_collections WHERE COALESCE(thumbnail_s3_key, '') <> ''
-UNION ALL SELECT s3_key FROM script_tiles WHERE COALESCE(s3_key, '') <> ''`
+UNION ALL SELECT s3_key FROM script_tiles WHERE COALESCE(s3_key, '') <> ''
+UNION ALL SELECT tile_key FROM site_tiles WHERE tile_key <> ''`
 
 	resourceRefsQuery = `SELECT s3_key FROM resources WHERE s3_key <> ''
 UNION ALL SELECT thumbnail_s3_key FROM resources WHERE COALESCE(thumbnail_s3_key, '') <> ''

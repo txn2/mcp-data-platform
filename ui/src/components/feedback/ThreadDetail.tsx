@@ -8,6 +8,7 @@ import {
 } from "@/api/portal/hooks";
 import type { Thread, ThreadEvent, ThreadStatus } from "@/api/portal/types";
 import { useAuthStore } from "@/stores/auth";
+import type { PanelSheetState } from "@/components/layout/PageArea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ShareToast, useShareToast } from "@/components/share/ShareToast";
 import { targetOfThread } from "./targetFilter";
@@ -25,6 +26,11 @@ interface Props {
   canModerate: boolean;
   onBack: () => void;
   onDeleted: () => void;
+  // sheet is set while the panel is a sheet under the item (#2705): the
+  // thread's row is the panel's header, the subject, panels and comments
+  // scroll as one surface, and the reply box waits as one "Reply…" row.
+  sheet?: PanelSheetState | null;
+  onClose?: () => void;
 }
 
 type Viewer = ReturnType<typeof useAuthStore.getState>["user"];
@@ -57,6 +63,50 @@ function useThreadPermissions(thread: Thread | undefined, canModerate: boolean) 
 function offersCapture(thread: Thread, canApply: boolean): boolean {
   if (thread.insight_id || !canApply) return false;
   return thread.kind === "correction" || thread.kind === "suggestion";
+}
+
+/** ThreadPanels is what may be done with the thread beyond replying: capture
+ * it as an insight, follow the knowledge it led to, or validate it. */
+function ThreadPanels({
+  thread,
+  events,
+  loading,
+  canApply,
+  isAuthor,
+}: {
+  thread: Thread;
+  events: ThreadEvent[] | undefined;
+  loading: boolean;
+  canApply: boolean;
+  isAuthor: boolean;
+}) {
+  return (
+    <>
+      {offersCapture(thread, canApply) && (
+        <CaptureInsightPanel key={thread.id} threadId={thread.id} title={thread.title} events={events} loading={loading} />
+      )}
+      {thread.insight_id && <KnowledgeChainPanel threadId={thread.id} insightId={thread.insight_id} />}
+      {thread.validation_state === "pending" && isAuthor && <ValidationPanel threadId={thread.id} />}
+    </>
+  );
+}
+
+/** scrollToEnd brings the newest comment's last lines above the reply box:
+ * once the box has opened, and again once an on-screen keyboard has shrunk
+ * the sheet. It aligns the last comment, not the end of the surface, since on
+ * a sheet what may be done with the thread follows the comments. */
+function scrollToEnd(el: HTMLElement | null) {
+  const toEnd = () => {
+    if (!el) return;
+    const last = el.querySelector('[data-testid="thread-timeline"] > :last-child');
+    if (!last) {
+      el.scrollTop = el.scrollHeight;
+      return;
+    }
+    el.scrollTop += last.getBoundingClientRect().bottom - el.getBoundingClientRect().bottom;
+  };
+  requestAnimationFrame(toEnd);
+  setTimeout(toEnd, 350);
 }
 
 /** useNow ticks every 15 seconds so an Undo goes away when its window ends. */
@@ -97,13 +147,14 @@ function useStatusChange(threadId: string, events: ThreadEvent[] | undefined) {
   return { update, undo, toast, undoableId, change };
 }
 
-export function ThreadDetail({ threadId, canModerate, onBack, onDeleted }: Props) {
+export function ThreadDetail({ threadId, canModerate, onBack, onDeleted, sheet, onClose }: Props) {
   const { data: thread } = useThread(threadId);
   const { data: events, isLoading } = useThreadEvents(threadId);
   const del = useDeleteThread();
   const { isAuthor, mayModerate, canApply } = useThreadPermissions(thread, canModerate);
   const isAdmin = useAuthStore((s) => s.user?.is_admin === true);
   const status = useStatusChange(threadId, events);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   if (!thread) {
     return <div className="p-4 text-sm text-muted-foreground">Loading…</div>;
@@ -122,6 +173,8 @@ export function ThreadDetail({ threadId, canModerate, onBack, onDeleted }: Props
             <StatusMenu status={thread.status} disabled={status.update.isPending} onChange={status.change} />
           ) : undefined
         }
+        sheet={sheet}
+        onClose={onClose}
       />
       {del.isError && (
         <Alert variant="destructive" className="rounded-none border-x-0 border-t-0">
@@ -134,32 +187,40 @@ export function ThreadDetail({ threadId, canModerate, onBack, onDeleted }: Props
         </Alert>
       )}
 
-      <ThreadSubject thread={thread} />
+      {/* On a sheet one surface scrolls; beside the page the timeline does. */}
+      <div ref={scrollRef} className={sheet ? "min-h-0 flex-1 overflow-auto" : "contents"} data-testid="thread-scroll">
+        <ThreadSubject thread={thread} />
 
-      {offersCapture(thread, canApply) && (
-        <CaptureInsightPanel key={threadId} threadId={threadId} title={thread.title} events={events} loading={isLoading} />
-      )}
+        {/* On a sheet the comments come first: what may be done with the
+            thread follows the conversation rather than pushing it down. */}
+        {!sheet && (
+          <ThreadPanels thread={thread} events={events} loading={isLoading} canApply={canApply} isAuthor={isAuthor} />
+        )}
 
-      {thread.insight_id && (
-        <KnowledgeChainPanel threadId={threadId} insightId={thread.insight_id} />
-      )}
+        <ThreadTimeline
+          events={events}
+          isLoading={isLoading}
+          threadId={threadId}
+          target={targetOfThread(thread)}
+          canRemoveAny={canModerate || isAdmin}
+          undoableId={status.undoableId}
+          onUndo={(eventId) => status.undo.mutate({ threadId, eventId })}
+          undoing={status.undo.isPending}
+          flow={Boolean(sheet)}
+        />
 
-      {thread.validation_state === "pending" && isAuthor && (
-        <ValidationPanel threadId={threadId} />
-      )}
+        {sheet && (
+          <ThreadPanels thread={thread} events={events} loading={isLoading} canApply={canApply} isAuthor={isAuthor} />
+        )}
+      </div>
 
-      <ThreadTimeline
-        events={events}
-        isLoading={isLoading}
+      <ReplyComposer
         threadId={threadId}
-        target={targetOfThread(thread)}
-        canRemoveAny={canModerate || isAdmin}
-        undoableId={status.undoableId}
-        onUndo={(eventId) => status.undo.mutate({ threadId, eventId })}
-        undoing={status.undo.isPending}
+        thread={thread}
+        mayResolve={mayModerate}
+        collapsible={Boolean(sheet)}
+        onOpen={() => scrollToEnd(scrollRef.current)}
       />
-
-      <ReplyComposer threadId={threadId} thread={thread} mayResolve={mayModerate} />
       <ShareToast toast={status.toast.toast} onDismiss={status.toast.dismiss} />
     </div>
   );

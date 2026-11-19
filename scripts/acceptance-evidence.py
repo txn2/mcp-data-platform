@@ -574,6 +574,10 @@ def affected(changed: list[str]) -> dict[str, dict[str, tuple[str, str]]]:
 DIFF_RANGE_ENV = "ACCEPTANCE_DIFF_RANGE"
 GROUP_EDGE = re.compile(r"^(?:(?:const|var|type)\s*\(|\))$")
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+# ISSUE_PREFIX reads the ticket a staleness problem names first.
+ISSUE_PREFIX = re.compile(r"^#(\d+)")
+# TOP_LEVEL opens a top-level declaration or its doc comment.
+TOP_LEVEL = re.compile(r"^(?:func|type|var|const)\b|^//")
 
 
 def diff_range() -> str:
@@ -617,6 +621,7 @@ def production_changed_lines(range_: str, files: list[str]) -> dict[str, set[int
     # removing only such lines is not either.
     out: dict[str, set[int]] = {f: set() for f in files}
     current, at, removed = "", 0, False
+    pure, whole = False, None
 
     def code(text: str) -> bool:
         # A group's own "const (" or closing ")" says nothing its specs do not.
@@ -632,11 +637,22 @@ def production_changed_lines(range_: str, files: list[str]) -> dict[str, set[int
         m = HUNK.match(line)
         if m:
             at, removed = int(m.group(1)), False
-            if m.group(2) == "0":
+            pure, whole = m.group(2) == "0", None
+            if pure:
                 at += 1
             continue
         if not current:
             continue
+        if pure and line.startswith("-"):
+            # A hunk removing only whole top-level declarations (code moved to
+            # another package) changes no declaration left behind: the line
+            # after it is the next declaration's, untouched (#2709). A use of
+            # what was removed cannot compile unchanged, so its caller is a
+            # change of its own.
+            if whole is None:
+                whole = TOP_LEVEL.match(line[1:]) is not None
+            if whole:
+                continue
         if line.startswith("-") and code(line[1:]) and not removed:
             removed = True
             out.setdefault(current, set()).add(at)
@@ -670,8 +686,16 @@ def changed_helpers(range_: str) -> dict[str, str]:
         source = REPO_ROOT / path
         if not path.endswith("_test.go") or not source.is_file():
             continue
-        for name, first, last in declarations(source.read_text(encoding="utf-8")):
+        text = source.read_text(encoding="utf-8")
+        rows = text.splitlines()
+        for name, first, last in declarations(text):
             if name.startswith("Test") or not any(first <= n <= last for n in lines):
+                continue
+            # A ticket's own method on its own type (schemaApp2709.call) is
+            # that ticket's: no other file holds the type, and its name says
+            # nothing about the harness method another file calls (#2709).
+            method = METHOD_DECL.match(rows[first - 1]) if first <= len(rows) else None
+            if method and method.group(1) != HARNESS_RECEIVER and issue_of(path):
                 continue
             out.setdefault(name, path)
     return out
@@ -1271,6 +1295,22 @@ def cmd_check(args: argparse.Namespace) -> int:
         if issue:
             by_issue.setdefault(issue, []).append(path)
     stale = stale_recordings(changed_paths(args))
+    # A stale run of a file the diff leaves alone is CI's to repeat: the pull
+    # request's Acceptance (changed criteria) job runs exactly these tickets
+    # (acceptance-pr-paths.py --tickets reads the same affected sets), on fresh
+    # stacks in up to eight jobs at once. Re-recording them here, one at a
+    # time, cost two hours on #2709 and grew with every release. A ticket whose
+    # criteria the diff changes is still recorded here before verify.
+    # ACCEPTANCE_STALE_STRICT=1 asks for every one locally.
+    deferred: list[str] = []
+    if os.environ.get("ACCEPTANCE_STALE_STRICT") != "1":
+        deferred = [s for s in stale if (ISSUE_PREFIX.match(s) or [None, None])[1] not in by_issue]
+        stale = [s for s in stale if s not in deferred]
+    if deferred:
+        tickets = sorted({ISSUE_PREFIX.match(s)[1] for s in deferred}, key=int)
+        print(f"acceptance-check: {len(tickets)} ticket(s) the diff leaves alone call what it changes; the pull "
+              f"request's Acceptance (changed criteria) job runs them in parallel on fresh stacks: "
+              f"{', '.join('#' + n for n in tickets)}. ACCEPTANCE_STALE_STRICT=1 records them here instead.")
     if not by_issue and not stale:
         return 0
 

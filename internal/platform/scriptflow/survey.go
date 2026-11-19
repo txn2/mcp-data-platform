@@ -7,6 +7,7 @@ import (
 	"go.starlark.net/syntax"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdialect"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptflow/stmtlookup"
 	"github.com/txn2/mcp-data-platform/internal/scriptconst"
 )
 
@@ -36,6 +37,9 @@ type analyzer struct {
 	entryCalls []*syntax.CallExpr
 	consts     scriptconst.Table
 	funcs      map[string]*syntax.DefStmt
+	// loaded is every name the script loads from a library it was given
+	// the source of (#2699).
+	loaded map[string]stmtlookup.Loaded
 	// parentOf names the function a nested def is written in.
 	parentOf map[string]string
 	// hasSteps is every function that makes a platform call, directly or

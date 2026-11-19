@@ -18,11 +18,11 @@ import (
 // (#2696).
 const DefaultEnvironment = "prod"
 
-const envColumns = `name, release, requires_approval, updated_by, updated_at`
+const envColumns = `name, release, requires_approval, schema_name, updated_by, updated_at`
 
 func scanEnvironment(r rowScanner) (application.Environment, error) {
 	var e application.Environment
-	err := r.Scan(&e.Name, &e.Release, &e.RequiresApproval, &e.UpdatedBy, &e.UpdatedAt)
+	err := r.Scan(&e.Name, &e.Release, &e.RequiresApproval, &e.Schema, &e.UpdatedBy, &e.UpdatedAt)
 	return e, err //nolint:wrapcheck // each caller says what it was reading
 }
 
@@ -69,7 +69,7 @@ func (s *Store) listEnvironments(ctx context.Context, apps []application.Applica
 	for rows.Next() {
 		var id string
 		var e application.Environment
-		if err := rows.Scan(&id, &e.Name, &e.Release, &e.RequiresApproval, &e.UpdatedBy, &e.UpdatedAt); err != nil {
+		if err := rows.Scan(&id, &e.Name, &e.Release, &e.RequiresApproval, &e.Schema, &e.UpdatedBy, &e.UpdatedAt); err != nil {
 			return fmt.Errorf("list environment: %w", err)
 		}
 		if i, ok := at[id]; ok {
@@ -158,14 +158,17 @@ func (s *Store) AddEnvironment(ctx context.Context, applicationID string, e appl
 			return fmt.Errorf("make room for environment: %w", err)
 		}
 		_, err = tx.ExecContext(ctx, `
-			INSERT INTO application_environments (application_id, name, position, requires_approval, updated_by)
-			VALUES ($1, $2, $3, $4, $5)`,
-			applicationID, e.Name, at, e.RequiresApproval, e.UpdatedBy)
+			INSERT INTO application_environments (application_id, name, position, requires_approval, schema_name, updated_by)
+			VALUES ($1, $2, $3, $4, $5, $6)`,
+			applicationID, e.Name, at, e.RequiresApproval, e.Schema, e.UpdatedBy)
 		if violated(err) == envKey {
 			return fmt.Errorf("environment %q exists: %w", e.Name, application.ErrNameTaken)
 		}
 		if err != nil {
 			return fmt.Errorf("add environment: %w", err)
+		}
+		if e.Held != nil {
+			return putRunRole(ctx, tx, applicationID, *e.Held)
 		}
 		return nil
 	})
@@ -199,8 +202,9 @@ const envKey = "application_environments_pkey"
 func (s *Store) RemoveEnvironment(ctx context.Context, applicationID, name string) error {
 	return s.withTx(ctx, func(tx *sql.Tx) error {
 		var at int
+		var schema string
 		err := tx.QueryRowContext(ctx, `DELETE FROM application_environments
-			 WHERE application_id = $1 AND name = $2 RETURNING position`, applicationID, name).Scan(&at)
+			 WHERE application_id = $1 AND name = $2 RETURNING position, schema_name`, applicationID, name).Scan(&at, &schema)
 		if errors.Is(err, sql.ErrNoRows) {
 			return appenv.ErrNoEnvironment
 		}
@@ -214,6 +218,15 @@ func (s *Store) RemoveEnvironment(ctx context.Context, applicationID, name strin
 		if _, err := tx.ExecContext(ctx, `DELETE FROM application_variables
 			 WHERE application_id = $1 AND environment = $2`, applicationID, name); err != nil {
 			return fmt.Errorf("remove environment variables: %w", err)
+		}
+		// The run role of a schema no environment runs in any longer goes with
+		// it; the schema itself stays until an administrator drops it (#2709).
+		if _, err := tx.ExecContext(ctx, `DELETE FROM application_run_roles r
+			 WHERE r.application_id = $1 AND r.schema_name = $2
+			   AND r.schema_name <> (SELECT a.schema_name FROM applications a WHERE a.id = $1)
+			   AND NOT EXISTS (SELECT 1 FROM application_environments e
+			                    WHERE e.application_id = $1 AND e.schema_name = r.schema_name)`, applicationID, schema); err != nil {
+			return fmt.Errorf("remove environment run role: %w", err)
 		}
 		return nil
 	})
@@ -286,21 +299,24 @@ func (s *Store) ForScript(ctx context.Context, scriptID, env string) (*appenv.Sc
 	var name sql.NullString
 	var version int
 	var vars []byte
+	var last bool
 	err := s.db.QueryRowContext(ctx, `
 		SELECT e.name, COALESCE(pin.version, 0),
+		       COALESCE(e.position = (SELECT MAX(position) FROM application_environments
+		                               WHERE application_id = p.application_id), false),
 		       COALESCE((SELECT json_object_agg(v.name, v.value) FROM (
 		           SELECT DISTINCT ON (name) name, value FROM application_variables
 		            WHERE application_id = p.application_id AND environment IN ('', e.name)
 		            ORDER BY name, environment DESC) v), '{}'::json)
 		  FROM application_parts p
 		  LEFT JOIN LATERAL (
-			SELECT name, release FROM application_environments
+			SELECT name, release, position FROM application_environments
 			 WHERE application_id = p.application_id AND ($2 = '' OR name = $2)
 			 ORDER BY position DESC LIMIT 1) e ON TRUE
 		  LEFT JOIN application_release_pins pin
 		    ON pin.application_id = p.application_id AND pin.number = e.release
 		   AND pin.kind = 'script' AND pin.part_id = p.part_id
-		 WHERE p.kind = 'script' AND p.part_id = $1`, scriptID, env).Scan(&name, &version, &vars)
+		 WHERE p.kind = 'script' AND p.part_id = $1`, scriptID, env).Scan(&name, &version, &last, &vars)
 	if errors.Is(err, sql.ErrNoRows) {
 		return &appenv.Script{}, nil
 	}
@@ -310,7 +326,7 @@ func (s *Store) ForScript(ctx context.Context, scriptID, env string) (*appenv.Sc
 	if !name.Valid {
 		return nil, appenv.ErrNoEnvironment
 	}
-	out := &appenv.Script{OK: true, Environment: name.String, Version: version, Variables: map[string]string{}}
+	out := &appenv.Script{OK: true, Environment: name.String, Version: version, Variables: map[string]string{}, Last: last}
 	if err := json.Unmarshal(vars, &out.Variables); err != nil {
 		return nil, fmt.Errorf("read environment variables: %w", err)
 	}

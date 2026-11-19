@@ -14,6 +14,7 @@ import (
 	s3client "github.com/txn2/mcp-s3/pkg/client"
 	s3tools "github.com/txn2/mcp-s3/pkg/tools"
 
+	"github.com/txn2/mcp-data-platform/internal/connledger"
 	"github.com/txn2/mcp-data-platform/internal/secretref"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/query"
@@ -69,6 +70,10 @@ type Toolkit struct {
 
 	// descriptions is what list_connections shows for each bound name.
 	descriptions map[string]string
+
+	// configs is the configuration each run-time connection was added with,
+	// secrets filled (toolkit.ConfigHolder, #2704).
+	configs connledger.Ledger
 
 	// connections holds, per bound name, the settings a call is bound by:
 	// whether the connection is read-only, the bucket prefix it lists, and its
@@ -304,7 +309,18 @@ func (t *Toolkit) AddConnection(name string, config map[string]any) error {
 	if err := t.bind(cfg); err != nil {
 		return fmt.Errorf("creating S3 client for %s: %w", name, err)
 	}
+	t.configs.Record(name, config)
 	return nil
+}
+
+// HoldsConfig implements toolkit.ConfigHolder: whether name is served under
+// exactly config, its secret references filled as AddConnection fills them.
+func (t *Toolkit) HoldsConfig(name string, config map[string]any) bool {
+	filled, err := secretref.FillConfigKeys(context.Background(), name, config, SecretKeys...)
+	if err != nil {
+		return false
+	}
+	return t.HasConnection(name) && t.configs.Holds(name, filled)
 }
 
 // RemoveConnection removes a named S3 connection at runtime.
@@ -312,6 +328,7 @@ func (t *Toolkit) RemoveConnection(name string) error {
 	if err := t.s3Toolkit.RemoveClient(name); err != nil {
 		return fmt.Errorf("removing S3 client %s: %w", name, err)
 	}
+	t.configs.Forget(name)
 	t.connMu.Lock()
 	delete(t.connections, name)
 	delete(t.descriptions, name)

@@ -667,7 +667,7 @@ func (c *appdbCaller) identity(ctx context.Context, connection string) context.C
 	c.mu.Lock()
 	id := postgres.Identity{Persona: c.authorized[connection]}
 	c.mu.Unlock()
-	id.Application = c.runAs(connection)
+	id.Application, id.Environment = c.runAs(connection), environmentOf(c.ctx)
 	if ep, ok := endpointOf(c.ctx); ok {
 		id.Source, id.UserID, id.Email = postgres.SourceEndpoint, ep.UserID, ep.Email
 	} else if u := middleware.GetPreAuthenticatedUser(c.ctx); u != nil {

@@ -207,7 +207,7 @@ func (r *Runner) ResolveIn(ctx context.Context, name, env string) (*Target, erro
 		return t, err
 	}
 	out := t.in(res)
-	if env == "" || res.Version == t.Version.Version {
+	if env == "" || res.Last || res.Version == t.Version.Version {
 		return out, nil
 	}
 	if res.Version == 0 {
@@ -556,6 +556,9 @@ func (r *Runner) connect(ctx context.Context, t *Target, sessionID string, reque
 	// The stamp read for this request names the script's application, so its
 	// statements find their run role without a query of their own (#2539).
 	serverCtx = scriptsession.WithRunAs(serverCtx, t.stamp.Application, t.stamp.AppConnection)
+	// In the environment the request resolved, whose schema its statements
+	// read and write (#2709).
+	serverCtx = scriptsession.WithEnvironment(serverCtx, t.Environment)
 	caller, cleanup, err := scriptsession.Connect(serverCtx, r.Server, clientLabel)
 	if err != nil {
 		return nil, nil, fmt.Errorf("opening the request's session: %w", err)

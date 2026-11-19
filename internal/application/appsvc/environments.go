@@ -13,11 +13,11 @@ import (
 // Environments (#2696): a release lands in an application's first
 // environment, a promote copies an environment's release to the next, and a
 // rollback moves one environment back. The last environment is what
-// /endpoints/<name> and every handler naming no environment run. Every
-// environment uses the application's schema, so its migrations move with the
-// first environment: a release applies them and a rollback there reverts
-// them; a promote, and a rollback in any later environment, leave the schema
-// alone.
+// /endpoints/<name> and every handler naming no environment run. Each
+// environment runs in a schema of its own (envschema.go, #2709): a release
+// applies the migrations to the first environment's schema, a promote to the
+// target's, and a rollback reverts them in a schema only its environment
+// runs in.
 
 // errNoEnvironments is an environment operation on a deployment wired with
 // no environment store.
@@ -30,11 +30,6 @@ func landing(a *application.Application) (env string, running int) {
 		return "", a.CurrentRelease
 	}
 	return a.Environments[0].Name, a.Environments[0].Release
-}
-
-// first reports whether env is where releases land.
-func first(a *application.Application, env string) bool {
-	return len(a.Environments) == 0 || env == "" && len(a.Environments) == 1 || a.Environments[0].Name == env
 }
 
 // releaseOf is release number of the application, an empty one for 0.
@@ -80,6 +75,9 @@ type Promoted struct {
 	Release int    `json:"release" example:"8"`
 	// Replaced is the release the target ran before, 0 for none.
 	Replaced int `json:"replaced" example:"6"`
+	// Applied is the migrations the promote applied to the target's schema
+	// (#2709), [] for none.
+	Applied []int `json:"applied"`
 }
 
 // NextEnvironment is the environment a promote from env moves into.
@@ -104,13 +102,32 @@ func (s *Service) Promote(ctx context.Context, actor application.Actor, ref, fro
 	if err != nil {
 		return nil, err
 	}
-	if err := s.releaseReadable(ctx, a, src.Release); err != nil {
+	if err := approved(actor, a, dst); err != nil {
 		return nil, err
 	}
-	out := &Promoted{From: src.Name, To: dst.Name, Release: src.Release, Replaced: dst.Release}
+	rel, err := s.releaseReadable(ctx, a, src.Release)
+	if err != nil {
+		return nil, err
+	}
+	out := &Promoted{From: src.Name, To: dst.Name, Release: src.Release, Replaced: dst.Release, Applied: []int{}}
+	// The target's schema applies what the release recorded before the
+	// environment moves (#2709); a migration that fails there refuses the
+	// promote and leaves the target as it was.
+	if a.Schema != "" {
+		applied, err := s.applyToEnvironment(ctx, actor, a, dst, rel.MigrationVersion)
+		if err != nil {
+			return nil, fmt.Errorf("nothing was promoted: %w", err)
+		}
+		out.Applied = applied.Versions
+	}
 	move := application.Move{Environment: dst.Name, Number: src.Release, Expect: dst.Release, By: actor.Email}
 	if err := store.SetEnvironmentRelease(ctx, a.ID, move); err != nil {
 		return nil, err //nolint:wrapcheck // read by identity
+	}
+	// The site parts calling the target move with it (#2709), to the site
+	// release the source ran this release with.
+	if err := s.applySitePins(ctx, actor, pinsCalling(a, rel.Pins, dst.Name)); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -150,13 +167,17 @@ func promotion(a *application.Application, from string) (src, dst *application.E
 	return src, dst, nil
 }
 
-// releaseReadable refuses a release whose pins can no longer be read.
-func (s *Service) releaseReadable(ctx context.Context, a *application.Application, number int) error {
+// releaseReadable is release number, refused when its pins can no longer be
+// read.
+func (s *Service) releaseReadable(ctx context.Context, a *application.Application, number int) (*application.Release, error) {
 	rel, err := s.Store.Release(ctx, a.ID, number)
 	if err != nil {
-		return err //nolint:wrapcheck // read by identity
+		return nil, err //nolint:wrapcheck // read by identity
 	}
-	return s.pinsReadable(ctx, rel.Pins)
+	if err := s.pinsReadable(ctx, rel.Pins); err != nil {
+		return nil, err
+	}
+	return rel, nil
 }
 
 // RollbackIn moves one environment back to an earlier release: to, or the
@@ -170,6 +191,11 @@ func (s *Service) RollbackIn(ctx context.Context, actor application.Actor, ref, 
 	a, err := s.Find(ctx, ref)
 	if err != nil {
 		return nil, err
+	}
+	if e, _, ok := a.EnvironmentNamed(env); ok {
+		if err := approved(actor, a, e); err != nil {
+			return nil, err
+		}
 	}
 	if lastOrOnly(a, env) {
 		return s.Rollback(ctx, actor, ref, to)
@@ -201,8 +227,20 @@ func (s *Service) pointAt(ctx context.Context, actor application.Actor, a *appli
 	if err != nil {
 		return nil, err
 	}
+	current, err := s.releaseOf(ctx, a, e.Release)
+	if err != nil {
+		return nil, err
+	}
+	_, i, _ := a.EnvironmentNamed(e.Name)
+	if _, _, err := s.revertEnvironment(ctx, actor, a, i, target.MigrationVersion); err != nil {
+		return nil, fmt.Errorf("nothing was rolled back: %w", err)
+	}
 	if err := store.SetEnvironmentRelease(ctx, a.ID, application.Move{Environment: e.Name, Number: to, Expect: e.Release, By: actor.Email}); err != nil {
 		return nil, err //nolint:wrapcheck // read by identity
+	}
+	// Only the site parts calling this environment return with it (#2709).
+	if err := s.applySitePins(ctx, actor, pinsCalling(a, rollbackSitePins(a, current, target), e.Name)); err != nil {
+		return nil, err
 	}
 	return target, nil
 }
@@ -248,8 +286,18 @@ func (s *Service) AddEnvironment(ctx context.Context, actor application.Actor, r
 			return nil, refused("%s is application %q's last environment, which /endpoints serves; add the new one before it", after, a.Name)
 		}
 	}
+	if _, _, taken := a.EnvironmentNamed(e.Name); taken {
+		return nil, refused("application %q already has an environment %q", a.Name, e.Name)
+	}
+	if err := s.newEnvironmentSchema(ctx, actor, a, &e); err != nil {
+		return nil, err
+	}
 	e.UpdatedBy = actor.Email
 	if err := store.AddEnvironment(ctx, a.ID, e, after); err != nil {
+		if e.Held != nil {
+			s.dropRunRole(ctx, a.Connection, e.Schema)
+			err = fmt.Errorf("schema %s was built and is left for an administrator to drop: %w", e.Schema, err)
+		}
 		if errors.Is(err, application.ErrNameTaken) {
 			return nil, refused("application %q already has an environment %q", a.Name, e.Name)
 		}
@@ -276,15 +324,24 @@ func (s *Service) RemoveEnvironment(ctx context.Context, actor application.Actor
 	if err != nil {
 		return nil, err
 	}
-	if _, _, err := environment(a, env); err != nil {
+	removed, _, err := environment(a, env)
+	if err != nil {
 		return nil, err
 	}
 	if a.Last().Name == env {
 		return nil, refused("%s is application %q's last environment, which /endpoints serves, and cannot be removed", env, a.Name)
 	}
+	if part := callerOf(a, env); part != "" {
+		kept := ""
+		if schema := envSchema(a, removed); schema != a.Schema {
+			kept = fmt.Sprintf(". Its schema %s is kept until an administrator drops it", schema)
+		}
+		return nil, refused("%s can't be removed: site part %s calls it. Remove that site part first%s", env, part, kept)
+	}
 	if err := store.RemoveEnvironment(ctx, a.ID, env); err != nil {
 		return nil, err //nolint:wrapcheck // read by identity
 	}
+	s.forgetEnvironmentSchema(ctx, a, removed)
 	return s.Find(ctx, a.ID)
 }
 
@@ -389,4 +446,82 @@ func checkEnvironments(envs []application.Environment) error {
 		envs[i].Release = 0
 	}
 	return nil
+}
+
+// siteCalls refuses a site part whose environment names no environment of
+// the application: a site environment's endpoints run in the application
+// environment of its own name (#2709), and there would be none to run.
+func siteCalls(a *application.Application, partID string) error {
+	_, env, ok := application.ParseSitePartID(partID)
+	if !ok || len(a.Environments) == 0 {
+		return nil
+	}
+	if _, _, found := a.EnvironmentNamed(env); found {
+		return nil
+	}
+	return refused("site part %s would call environment %s of application %q, which it does not have (it has %s); add environment %s first", partID, env, a.Name, envNames(a), env)
+}
+
+// callerOf is the site part whose endpoints run in env, "" for none.
+func callerOf(a *application.Application, env string) string {
+	for _, p := range a.Parts {
+		if p.Kind != application.KindSite {
+			continue
+		}
+		if _, e, ok := application.ParseSitePartID(p.ID); ok && e == env {
+			return p.ID
+		}
+	}
+	return ""
+}
+
+// pinsCalling is the pins a move into env applies (#2709): every pin but a
+// site part calling another environment. An application listing no
+// environments moves every site part, as before environments.
+func pinsCalling(a *application.Application, pins []application.Pin, env string) []application.Pin {
+	if len(a.Environments) == 0 {
+		return pins
+	}
+	out := make([]application.Pin, 0, len(pins))
+	for _, p := range pins {
+		if p.Kind == application.KindSite {
+			if _, e, ok := application.ParseSitePartID(p.PartID); !ok || e != env {
+				continue
+			}
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// pinnedIn is the version each site's part calling env is pinned at, by site.
+func pinnedIn(pins []application.Pin, env string) map[string]int {
+	out := map[string]int{}
+	for _, p := range pins {
+		if name, e, ok := application.ParseSitePartID(p.PartID); p.Kind == application.KindSite && ok && e == env {
+			out[name] = p.Version
+		}
+	}
+	return out
+}
+
+// lastName is the application's last environment, "" for none.
+func lastName(a *application.Application) string {
+	if l := a.Last(); l != nil {
+		return l.Name
+	}
+	return ""
+}
+
+// approved refuses an agent's move into an environment that requires
+// approval (#2706, #2709). It is the one check every surface reaches: the
+// tool, the portal API a platform-admin connection or a managed script calls,
+// and anything added later.
+func approved(actor application.Actor, a *application.Application, target *application.Environment) error {
+	if !actor.Agent || !target.RequiresApproval {
+		return nil
+	}
+	return fmt.Errorf("%w: environment %s of application %s requires approval, so an agent does not move it: a person "+
+		"promotes or rolls it back on the application's page in the portal (Applications > %s > Environments)",
+		application.ErrApprovalRequired, target.Name, a.Name, a.Name)
 }

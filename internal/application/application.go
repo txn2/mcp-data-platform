@@ -63,6 +63,10 @@ var (
 	// ErrStale is a release recorded against a current release another
 	// release has since moved.
 	ErrStale = errors.New("another release of the application was recorded first")
+	// ErrApprovalRequired is an agent's promote or rollback into an
+	// environment that requires approval (#2706, #2709): a person carries it
+	// out in the portal.
+	ErrApprovalRequired = errors.New("APPROVAL_REQUIRED")
 )
 
 // Application is the record.
@@ -104,9 +108,16 @@ type Environment struct {
 	Release int `json:"release" example:"8"`
 	// RequiresApproval makes an agent's promote or rollback into it wait on a
 	// person, as a site environment's does.
-	RequiresApproval bool      `json:"requires_approval"`
-	UpdatedBy        string    `json:"updated_by" example:"jane@example.com"`
-	UpdatedAt        time.Time `json:"updated_at"`
+	RequiresApproval bool `json:"requires_approval"`
+	// Schema is the schema its runs read and write on the application's
+	// connection (#2709), empty for an application holding none. An
+	// environment that existed before #2709 uses the application's schema.
+	Schema    string    `json:"schema" example:"orders_dev"`
+	UpdatedBy string    `json:"updated_by" example:"jane@example.com"`
+	UpdatedAt time.Time `json:"updated_at"`
+	// Held is the run role created for a new environment's schema, stored
+	// with it; never read back or serialized.
+	Held *HeldSchema `json:"-"`
 }
 
 // Last is the environment /endpoints/<name> runs, nil for none.
@@ -400,6 +411,11 @@ type Actor struct {
 	Admin   bool
 	Subject string
 	Roles   []string
+	// Agent is true for a call an agent made: every manage_application call,
+	// and a request a tool call made to the platform's own API (selfcall.ByTool:
+	// the platform-admin connection, a managed script's self-call). An agent's
+	// move into an environment that requires approval is refused (#2709).
+	Agent bool
 }
 
 // MayEdit reports whether the actor edits the application's record and
@@ -448,8 +464,12 @@ type Store interface {
 	// Holding is the application holding schema on connection, ErrNotFound
 	// for none.
 	Holding(ctx context.Context, connection, schema string) (*Application, error)
-	// RunRoleOf is the application's run role, ErrNoRunRole for none.
+	// RunRoleOf is the run role of the application's own schema,
+	// ErrNoRunRole for none.
 	RunRoleOf(ctx context.Context, applicationID string) (*RunRole, error)
+	// RunRoleIn is the run role of the schema environment env ("" for the
+	// last) runs in (#2709), ErrNoRunRole for none.
+	RunRoleIn(ctx context.Context, applicationID, env string) (*RunRole, error)
 	Releases(ctx context.Context, applicationID string) ([]Release, error)
 	Release(ctx context.Context, applicationID string, number int) (*Release, error)
 	// Record writes a release and its pins, makes it current, and holds each

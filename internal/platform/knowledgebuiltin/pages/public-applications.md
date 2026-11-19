@@ -93,10 +93,12 @@ address for an order placed through an authenticated endpoint. `sent_at` is
 what a mail was sent at, so a mail with none is one still owed.
 
 Then `manage_schema add template=outbox capture=["mails"]`, so each mail
-written is an event, and the last migration's roles, as on
-mcp:knowledge_page:platform-applications: `store_write` with `SELECT, INSERT,
-UPDATE` on the four tables, `INSERT` on `outbox` and `USAGE` on the schema's
-sequences.
+written is an event. No migration names a role: the platform grants the
+store's run role `SELECT`, `INSERT`, `UPDATE` and `DELETE` on what these
+migrations create, in the schema of each environment it runs in, as on
+mcp:knowledge_page:platform-applications. Every statement below names its
+table without the schema, because each environment's runs have their own
+schema as their search path.
 
 ## 2. The JSON API
 
@@ -116,27 +118,27 @@ ORIGIN = "https://www.store.example"
 SIGN_IN_KEY = "store-sign-in"
 UUID = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 
-PRODUCTS = "SELECT slug, name, price, image FROM store.products ORDER BY name"
-PRODUCT = "SELECT slug, name, price, image FROM store.products WHERE slug = :slug"
-NEW_CART = "INSERT INTO store.carts DEFAULT VALUES RETURNING id"
-CART = "SELECT jsonb_array_length(lines) AS items FROM store.carts WHERE id = CAST(:cart AS uuid)"
+PRODUCTS = "SELECT slug, name, price, image FROM products ORDER BY name"
+PRODUCT = "SELECT slug, name, price, image FROM products WHERE slug = :slug"
+NEW_CART = "INSERT INTO carts DEFAULT VALUES RETURNING id"
+CART = "SELECT jsonb_array_length(lines) AS items FROM carts WHERE id = CAST(:cart AS uuid)"
 ADD_LINE = """
-    UPDATE store.carts SET lines = lines || jsonb_build_array(:slug)
-     WHERE id = CAST(:cart AS uuid) AND EXISTS (SELECT 1 FROM store.products WHERE slug = :slug)
+    UPDATE carts SET lines = lines || jsonb_build_array(:slug)
+     WHERE id = CAST(:cart AS uuid) AND EXISTS (SELECT 1 FROM products WHERE slug = :slug)
     RETURNING jsonb_array_length(lines) AS items
 """
 PLACE = """
-    INSERT INTO store.orders (cart_id, email, total, placed_by)
+    INSERT INTO orders (cart_id, email, total, placed_by)
     SELECT c.id, :email, coalesce(sum(p.price), 0), nullif(current_setting('mcp.email', true), '')
-      FROM store.carts c
+      FROM carts c
       LEFT JOIN LATERAL jsonb_array_elements_text(c.lines) AS l(slug) ON true
-      LEFT JOIN store.products p ON p.slug = l.slug
+      LEFT JOIN products p ON p.slug = l.slug
      WHERE c.id = CAST(:cart AS uuid)
      GROUP BY c.id
     RETURNING id, total, placed_by
 """
-QUEUE_MAIL = "INSERT INTO store.mails (recipient, subject, body) VALUES (:to, :subject, :body)"
-ATTACH = "UPDATE store.carts SET email = :email WHERE id = CAST(:cart AS uuid)"
+QUEUE_MAIL = "INSERT INTO mails (recipient, subject, body) VALUES (:to, :subject, :body)"
+ATTACH = "UPDATE carts SET email = :email WHERE id = CAST(:cart AS uuid)"
 
 def answer(body, status = 200, cookies = []):
     """A JSON answer, with the cookies it sets."""
@@ -253,7 +255,9 @@ def handle(req):
 
 Draft it with a `main()` that walks one visitor through the API, with a
 product in the table; the save's test replays that draft, and the endpoint
-never calls `main()`:
+never calls `main()`. Until the script is a part of the store, draft it with
+`manage_script command=run_draft application=store`, so its unqualified SQL
+reads the store's first environment's tables:
 
 ```python
 def visit(route, method = "GET", body = None, cart = ""):
@@ -460,7 +464,7 @@ webhook handler for the source (`manage_script command=handler_set
 kind=webhook event_source=store-payments`) marks the order paid:
 
 ```python
-MARK_PAID = "UPDATE store.orders SET paid_at = now() WHERE id = :id AND paid_at IS NULL"
+MARK_PAID = "UPDATE orders SET paid_at = now() WHERE id = :id AND paid_at IS NULL"
 
 def main():
     """Marks the order a successful payment names as paid; other events change nothing."""
@@ -503,14 +507,14 @@ CONNECTION = "orders"
 PROVIDER = "mail-provider"
 SEND_PATH = "/v1/send"
 
-READ_MAIL = "SELECT id, recipient, subject, body FROM store.mails WHERE id = :id AND sent_at IS NULL"
+READ_MAIL = "SELECT id, recipient, subject, body FROM mails WHERE id = :id AND sent_at IS NULL"
 UNSENT = """
-    SELECT id, recipient, subject, body FROM store.mails
+    SELECT id, recipient, subject, body FROM mails
      WHERE sent_at IS NULL AND attempts < 10 AND (attempts > 0 OR created_at < now() - interval '10 minutes')
      ORDER BY created_at LIMIT 50
 """
-MARK_SENT = "UPDATE store.mails SET sent_at = now(), attempts = attempts + 1, last_error = NULL WHERE id = :id"
-MARK_FAILED = "UPDATE store.mails SET attempts = attempts + 1, last_error = :error WHERE id = :id"
+MARK_SENT = "UPDATE mails SET sent_at = now(), attempts = attempts + 1, last_error = NULL WHERE id = :id"
+MARK_FAILED = "UPDATE mails SET attempts = attempts + 1, last_error = :error WHERE id = :id"
 
 def send(mail):
     """Sends one mail through the provider, records what happened, and returns whether it was taken."""
@@ -546,7 +550,7 @@ def owed_mail():
     """A database built from the migrations, holding one mail still owed; returns its id."""
     testing.database(CONNECTION, schemas = ["store"])
     added = platform.execute(
-        "INSERT INTO store.mails (recipient, subject, body) VALUES (:to, 'Your order', 'Thank you.') RETURNING id",
+        "INSERT INTO mails (recipient, subject, body) VALUES (:to, 'Your order', 'Thank you.') RETURNING id",
         connection = CONNECTION,
         params = {"to": "ann@example.com"},
     )
@@ -554,7 +558,7 @@ def owed_mail():
 
 def state_of(mail_id):
     """Whether a mail was sent, and how many sends were tried."""
-    rows = platform.query("SELECT sent_at IS NOT NULL AS sent, attempts FROM store.mails WHERE id = :id",
+    rows = platform.query("SELECT sent_at IS NOT NULL AS sent, attempts FROM mails WHERE id = :id",
                           connection = CONNECTION, params = {"id": mail_id})["rows"]
     return rows[0]
 
@@ -671,6 +675,13 @@ then run the pinned versions, the release moves `store-web`'s `prod` to the
 release the environment before it serves (its `dev` here), and a change is
 tested and released as a whole. Add a `stage` between `dev` and `prod` and a
 release ships what was promoted to `stage`, not the working copy in `dev`.
+
+To test the shop on its own data before visitors see it, give the
+application a `dev` environment too (`add_environment environment=dev`):
+`store-web/dev` then calls the store's `dev`, which runs in a schema of its
+own, so a test order never reaches `prod`'s rows. Set the payment processor's
+sandbox and live values as one variable per environment, as
+mcp:knowledge_page:platform-application-environments shows.
 
 ## 13. Running the shop
 

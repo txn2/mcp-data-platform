@@ -134,6 +134,10 @@ func (*store) RunRoleOf(context.Context, string) (*application.RunRole, error) {
 	return nil, application.ErrNoRunRole
 }
 
+func (*store) RunRoleIn(context.Context, string, string) (*application.RunRole, error) {
+	return nil, application.ErrNoRunRole
+}
+
 func (s *store) Releases(context.Context, string) ([]application.Release, error) {
 	return s.releases, nil
 }

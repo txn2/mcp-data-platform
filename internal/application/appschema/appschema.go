@@ -66,19 +66,33 @@ type State struct {
 // State reads where the schema's migrations stand. Drift between the target's
 // ledger and the platform's migrations is an error.
 func (s *Schema) State(ctx context.Context, connection, schema string) (*State, error) {
+	return s.StateIn(ctx, Target{Connection: connection, Source: schema, Schema: schema})
+}
+
+// Target is where an application's migrations apply (#2709): the schema
+// they are kept under, Source, which is the application's, and the schema
+// an environment runs in, Schema, whose ledger records what it applied.
+// Every environment applies the one set of migrations to its own schema.
+type Target struct {
+	Connection, Source, Schema string
+}
+
+// StateIn is where the source's migrations stand in at's schema.
+func (s *Schema) StateIn(ctx context.Context, at Target) (*State, error) {
 	k, err := s.kit()
 	if err != nil {
 		return nil, err
 	}
-	_, st, err := s.read(ctx, k, connection, schema)
+	_, st, err := s.read(ctx, k, at)
 	if err != nil {
 		return nil, err
 	}
 	return &State{Applied: highest(st.Applied), Pending: versions(st.Pending)}, nil
 }
 
-func (s *Schema) read(ctx context.Context, k Kit, connection, schema string) ([]postgreskit.Migration, *postgreskit.LedgerStatus, error) {
-	ms, err := s.Store.List(ctx, connection, schema)
+func (s *Schema) read(ctx context.Context, k Kit, at Target) ([]postgreskit.Migration, *postgreskit.LedgerStatus, error) {
+	connection, schema := at.Connection, at.Schema
+	ms, err := s.Store.List(ctx, connection, at.Source)
 	if err != nil {
 		return nil, nil, fmt.Errorf("reading the schema's migrations: %w", err)
 	}
@@ -141,25 +155,38 @@ type Applied struct {
 // migration still fail during the apply, the ones this release applied are
 // reverted with their down migrations.
 func (s *Schema) Release(ctx context.Context, connection, schema, actor string) (*Applied, error) {
+	return s.ApplyIn(ctx, Target{Connection: connection, Source: schema, Schema: schema}, actor, AllVersions)
+}
+
+// AllVersions is the upTo that applies every pending migration.
+const AllVersions = -1
+
+// ApplyIn applies the source's pending migrations to at's schema, as Release
+// does: up to and including version upTo, every one for AllVersions, none
+// for 0. A promote applies what the release it moves recorded, no more
+// (#2709).
+func (s *Schema) ApplyIn(ctx context.Context, at Target, actor string, upTo int) (*Applied, error) {
+	connection, schema := at.Connection, at.Schema
 	k, err := s.kit()
 	if err != nil {
 		return nil, err
 	}
-	ms, st, err := s.read(ctx, k, connection, schema)
+	ms, st, err := s.read(ctx, k, at)
 	if err != nil {
 		return nil, err
 	}
 	head := highest(st.Applied)
-	if len(st.Pending) == 0 {
+	ms, pending := upToVersion(ms, upTo), upToVersion(st.Pending, upTo)
+	if len(pending) == 0 {
 		return &Applied{Versions: []int{}, Head: head}, nil
 	}
-	if _, err := k.PlanMigrations(ctx, connection, schema, st.Pending); err != nil {
+	if _, err := k.PlanMigrations(ctx, connection, schema, pending); err != nil {
 		return nil, &FailedError{Err: err, Undone: []int{}, Left: []int{}}
 	}
 	o := s.options(ctx, connection, schema, actor, postgreskit.EventApplied)
 	done, err := k.Apply(ctx, o, ms)
 	if err != nil {
-		return nil, s.undo(ctx, k, target{connection: connection, schema: schema, actor: actor, before: head}, done, err)
+		return nil, s.undo(ctx, k, target{at: at, actor: actor, before: head}, done, err)
 	}
 	for _, m := range done {
 		head = max(head, m.Version)
@@ -167,16 +194,55 @@ func (s *Schema) Release(ctx context.Context, connection, schema, actor string) 
 	return &Applied{Versions: versions(done), Head: head}, nil
 }
 
+// upToVersion is ms through version upTo, all of them for AllVersions.
+func upToVersion(ms []postgreskit.Migration, upTo int) []postgreskit.Migration {
+	if upTo < 0 {
+		return ms
+	}
+	out := make([]postgreskit.Migration, 0, len(ms))
+	for _, m := range ms {
+		if m.Version <= upTo {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// Baseline records the source's migrations through version upTo as applied
+// in at's schema without running them (#2709): a new environment's schema,
+// built from the structure of a schema that applied them, holds what they
+// made already.
+func (s *Schema) Baseline(ctx context.Context, at Target, actor string, upTo int) error {
+	k, err := s.kit()
+	if err != nil {
+		return err
+	}
+	if upTo <= 0 {
+		return nil
+	}
+	ms, err := s.Store.List(ctx, at.Connection, at.Source)
+	if err != nil {
+		return fmt.Errorf("reading the schema's migrations: %w", err)
+	}
+	o := s.options(ctx, at.Connection, at.Schema, actor, postgreskit.EventApplied)
+	o.MarkOnly = true
+	if _, err := k.Apply(ctx, o, upToVersion(ms, upTo)); err != nil {
+		return fmt.Errorf("recording the new schema's baseline: %w", err)
+	}
+	return nil
+}
+
 // target is the schema an apply acts on, who acts, and the version applied
 // before it began.
 type target struct {
-	connection, schema, actor string
-	before                    int
+	at     Target
+	actor  string
+	before int
 }
 
 // undo reverts what a failed apply did, down to at.before.
 func (s *Schema) undo(ctx context.Context, k Kit, at target, done []postgreskit.Migration, cause error) error {
-	connection, schema, actor, before := at.connection, at.schema, at.actor, at.before
+	connection, schema, actor, before := at.at.Connection, at.at.Schema, at.actor, at.before
 	failed := &FailedError{Err: cause, Undone: []int{}, Left: versions(done)}
 	if len(done) == 0 {
 		failed.Left = []int{}
@@ -185,7 +251,7 @@ func (s *Schema) undo(ctx context.Context, k Kit, at target, done []postgreskit.
 	if missing := withoutDown(done); len(missing) > 0 {
 		return failed
 	}
-	ms, err := s.Store.List(context.WithoutCancel(ctx), connection, schema)
+	ms, err := s.Store.List(context.WithoutCancel(ctx), connection, at.at.Source)
 	if err != nil {
 		return failed
 	}
@@ -221,11 +287,17 @@ type Reverted struct {
 // Rollback reverts every applied migration above to when each has a down
 // migration. When any lacks one nothing is reverted and Kept says which.
 func (s *Schema) Rollback(ctx context.Context, connection, schema, actor string, to int) (*Reverted, error) {
+	return s.RollbackIn(ctx, Target{Connection: connection, Source: schema, Schema: schema}, actor, to)
+}
+
+// RollbackIn is Rollback of the source's migrations in at's schema.
+func (s *Schema) RollbackIn(ctx context.Context, at Target, actor string, to int) (*Reverted, error) {
+	connection, schema := at.Connection, at.Schema
 	k, err := s.kit()
 	if err != nil {
 		return nil, err
 	}
-	ms, st, err := s.read(ctx, k, connection, schema)
+	ms, st, err := s.read(ctx, k, at)
 	if err != nil {
 		return nil, err
 	}

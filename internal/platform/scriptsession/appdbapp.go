@@ -51,6 +51,21 @@ func scriptOf(ctx context.Context) string {
 
 type runAsKey struct{}
 
+type environmentKey struct{}
+
+// WithEnvironment records on ctx the application environment the session's
+// script runs in, "" for the last (#2709): its statements log in as the run
+// role of the schema that environment runs in.
+func WithEnvironment(ctx context.Context, env string) context.Context {
+	return context.WithValue(ctx, environmentKey{}, env)
+}
+
+// environmentOf is the environment WithEnvironment recorded, "" for none.
+func environmentOf(ctx context.Context) string {
+	env, _ := ctx.Value(environmentKey{}).(string)
+	return env
+}
+
 // knownRunAs is the application a caller already read for the session's
 // script, and the connection its schema is on.
 type knownRunAs struct{ app, connection string }

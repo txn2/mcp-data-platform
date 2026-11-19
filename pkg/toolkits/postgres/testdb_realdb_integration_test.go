@@ -66,6 +66,11 @@ func TestThrowawayDatabases_RealDB(t *testing.T) {
 		if _, err := db.Execute(ctx, insert); err != nil {
 			t.Fatalf("insert on the clone: %v", err)
 		}
+		// The clone's search path is the schemas the test names (#2709), so
+		// a statement names their tables as an environment's run role does.
+		if _, err := db.Execute(ctx, Statement{Connection: "target", SQL: "INSERT INTO users (email) VALUES ($1)", Params: []any{"b@example.com"}}); err != nil {
+			t.Fatalf("an unqualified insert on the clone: %v", err)
+		}
 		var failed *FailedError
 		if _, err := db.Execute(ctx, insert); !errors.As(err, &failed) || failed.Statement == nil || failed.Statement.SQLState != "23505" {
 			t.Errorf("a duplicate on the clone = %v, want the unique constraint's 23505", err)

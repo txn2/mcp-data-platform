@@ -192,7 +192,7 @@ func newSource2412(t *testing.T) *source2412 {
 	admin.call("manage_schema", map[string]any{
 		"command": "add", "connection": s.conn, "schema": s.schema, "version": 1,
 		"name": "products", "up": "CREATE TABLE products (sku text PRIMARY KEY);\n" + writeRole(s.schema, "SELECT", "products"),
-		"down": "DROP TABLE products; DROP OWNED BY " + s.schema + "_write; DROP ROLE " + s.schema + "_write",
+		"down": "DROP TABLE products",
 	})
 	t.Cleanup(func() { targetPSQL(t, "DROP SCHEMA IF EXISTS "+s.schema+" CASCADE") })
 

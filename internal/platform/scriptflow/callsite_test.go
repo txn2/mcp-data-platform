@@ -79,7 +79,7 @@ func assertRunMatchesGraph(t *testing.T, src string) {
 	})
 	require.NoError(t, err)
 
-	g := deriveGraph(src)
+	g := deriveGraph(src, nil)
 	require.True(t, g.OK, "%+v", g.Findings)
 	cards := map[string]string{}
 	for _, n := range g.Nodes {

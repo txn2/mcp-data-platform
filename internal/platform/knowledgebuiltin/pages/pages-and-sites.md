@@ -391,8 +391,8 @@ A private environment answers `/_viewer` with the signed-in person (`email`,
 domain it answers 401, nobody signed in. When the environment is a part of an
 application (`manage_application add_part kind=site part_id="<site>/<environment>"`),
 its hosts also serve that application's endpoints at `/endpoints/<name>/...`, run
-as the signed-in person (`req["caller"]`), so the site enforces its own rules on
-the server. Only requests the browser marks as coming from the site's own origin
+as the signed-in person (`req["caller"]`) in the application environment of the
+environment's name, so the site enforces its own rules on the server. Only requests the browser marks as coming from the site's own origin
 carry the viewer.
 
 ### Two shapes
@@ -539,11 +539,21 @@ listing them in `allowed_origins`, and a public form may be framed by them.
 
 `manage_application add_part kind=site part_id="<site>/<environment>"` makes one
 environment a part, which serves the application's `/endpoints/` with its
-cookies and viewer on the site's own address. A part is linked (the default:
-moved only by `promote` and `rollback` here, or by a release naming it in
-`move_sites`) or coupled (`release_mode=coupled`: every release moves it to what
-the environment before it serves, `dev` at the site's newest release, and every
-rollback returns it).
+cookies and viewer on the site's own address. The endpoints run in the
+application environment of the site environment's name (#2709): `shop-web/dev`
+calls the application's `dev`, with dev's release, variables and schema, and
+`shop-web/prod` calls `prod`. A site environment whose name the application
+has no environment of is refused as a part, naming the environment to add; one
+renamed out of a match answers `/endpoints/...` with 404 and a body naming the
+environment the application lacks, never another environment's endpoints. An
+application environment a site part calls cannot be removed until the part is.
+A part is linked (the default: moved only by `promote` and `rollback` here, or
+by a release naming it in `move_sites`) or coupled (`release_mode=coupled`: it
+moves when a release reaches the environment it calls, to what the site
+environment before it serves, `dev` at the site's newest release, and that
+environment's rollback returns it). A release into the application's first
+environment moves the coupled part calling it; a promote into prod moves the
+one calling prod, to the site release the source ran with that release.
 
 An `_application` file at a release's root declares the application it is a
 front end of and the contract versions it works with,

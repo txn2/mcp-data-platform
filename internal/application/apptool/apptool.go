@@ -44,6 +44,9 @@ const (
 	CmdVariables         = "variables"
 	CmdSetVariable       = "set_variable"
 	CmdDeleteVariable    = "delete_variable"
+	// CmdPrepare shows, and with save saves, what an application needs
+	// before it runs in environments of their own (#2709).
+	CmdPrepare = "prepare"
 )
 
 // Commands is every command, in the order the schema lists them.
@@ -51,6 +54,7 @@ var Commands = []string{
 	CmdCreate, CmdGet, CmdList, CmdUpdate, CmdDelete, CmdAddPart, CmdRemovePart, CmdSetPart,
 	CmdRelease, CmdRollback, CmdReleases, CmdExport, CmdImport,
 	CmdPromote, CmdAddEnvironment, CmdRemoveEnvironment, CmdSetEnvironment, CmdVariables, CmdSetVariable, CmdDeleteVariable,
+	CmdPrepare,
 }
 
 // Reads is the commands that change nothing.
@@ -96,6 +100,8 @@ type Input struct {
 	// Variable and Value are set_variable's NAME=value.
 	Variable string `json:"variable,omitempty"`
 	Value    string `json:"value,omitempty"`
+	// Save saves what prepare shows (#2709).
+	Save bool `json:"save,omitempty"`
 }
 
 // Bundles exports and imports applications; nil on a deployment that cannot.
@@ -154,12 +160,22 @@ const description = "Applications: one record naming what a system built on the 
 	"front ends call; a site release's _application file declares the range it works with ({\"application\": \"store\", " +
 	"\"contract\": \">=2 <4\"}). A release whose contract a site part's release excludes is refused naming it unless force is set " +
 	"(administrator, recorded), and manage_site promote refuses a release that excludes the application's contract. " +
-	"ENVIRONMENTS (#2696): an application runs in ordered environments, one (prod) when created; add_environment environment=dev " +
-	"with no after puts dev first, where releases land. release lands in the first; promote environment=<name> copies its release to the next; rollback " +
-	"environment=<name> moves one back (the last when omitted). The last is what /endpoints/<name> and handlers with no environment run; " +
-	"another answers at /environments/<env>/endpoints/<name>, and a schedule or webhook handler names one with manage_script " +
-	"handler_environment. Every environment uses the application's schema, and its migrations move with the first environment. " +
-	"An environment with requires_approval refuses an agent's promote or rollback into it: a person does it on the application's page. " +
+	"ENVIRONMENTS (#2696, #2709). An application runs in ordered environments, dev first and prod last (one, prod, when " +
+	"created; add_environment environment=dev with no after puts dev first). Each has its own release, its own variables and " +
+	"ALWAYS its own schema (add_environment schema=, default <schema>_<environment>, built from the last environment's " +
+	"structure with no rows). SQL: write table names unqualified (invoices, never orders.invoices); a run's search path is its " +
+	"environment's schema and its role reaches no other, and a schema-qualified name is refused when a script or migration is " +
+	"saved; migrations name no role, the platform grants each environment's. Connections, base URLs, modes and keys come from " +
+	"variables: platform.env(\"PAYMENTS_CONNECTION\"); never hard-code a connection name; give a variable a value per " +
+	"environment where dev must not touch prod, one default where both may use the same service. A site environment calls the " +
+	"application environment of the same name: shop-web/dev calls dev. release lands in the first environment; promote " +
+	"environment=<name> moves a release one step and applies its migrations to that environment's schema; rows and variables " +
+	"never move. rollback environment=<name> moves one back (the last when omitted). An application built before environments " +
+	"names its schema: run prepare and save its change (save=true) before add_environment. The last environment is what " +
+	"/endpoints/<name> and handlers with no environment run; another answers at /environments/<env>/endpoints/<name>, and a " +
+	"schedule or webhook handler names one with manage_script handler_environment. An environment with requires_approval " +
+	"refuses an agent's promote or rollback into it, however the agent calls: a person does it on the application's page. " +
+	"Before building or changing an application, read mcp:knowledge_page:platform-application-environments. " +
 	"VARIABLES: set_variable variable=NAME value=... environment=<name> (omit for the application-wide default); scripts read " +
 	"platform.env(\"NAME\") and platform.environment(). A value is plain text; to use a stored secret write {{secret:<name>}}, " +
 	"filled only when a request carrying it is sent through a connection the secret allows. variables lists them (owner and administrators)."
@@ -176,6 +192,7 @@ const (
 	keyType   = "type"
 	keyDesc   = "description"
 	typString = "string"
+	typBool   = "boolean"
 )
 
 func schema() map[string]any {
@@ -190,7 +207,9 @@ func schema() map[string]any {
 			"name":        str("create: the application's name, a lowercase slug."),
 			keyDesc:       str("create, update: what the application is."),
 			"connection":  str("create: the application database connection its schema is on (with schema). Same as add_part kind schema afterwards."),
-			"schema":      str("create: the schema whose migrations a release applies (with connection). Same as add_part kind schema afterwards."),
+			"schema": str("create: the schema whose migrations a release applies (with connection). Same as add_part kind schema afterwards. " +
+				"add_environment: the schema the new environment runs in, created from the last environment's structure; <schema>_<environment> when omitted."),
+			"save":        map[string]any{keyType: typBool, keyDesc: "prepare: save the changes prepare shows as new versions (administrators); omitted shows them."},
 			"owner_email": str("update: move the application to another owner (administrators)."),
 			"kind":        map[string]any{keyType: typString, "enum": application.Kinds, keyDesc: "add_part, remove_part: the kind of part."},
 			"part_id":     str("add_part, remove_part, set_part: the script's id, the asset's id, the webhook source's name, or for kind schema \"<connection>/<schema>\" (the schema alone when you reach one application database connection)."),
@@ -208,13 +227,13 @@ func schema() map[string]any {
 				keyType: "array", "items": map[string]any{keyType: typString},
 				keyDesc: "release: site parts (\"<site>/<environment>\") to move one step in this release, linked or not; a rollback of the release returns them.",
 			},
-			"force":      map[string]any{keyType: "boolean", keyDesc: "release: release over a site part whose release does not accept the contract (administrator); the release records each one."},
+			"force":      map[string]any{keyType: typBool, keyDesc: "release: release over a site part whose release does not accept the contract (administrator); the release records each one."},
 			"to_release": num("rollback: the release whose pins to restore; the one before the current release when omitted."),
 			keyEnvironment: str("promote: the environment whose release moves to the next. rollback: the environment moved back (the last when omitted). " +
 				"add_environment, remove_environment, set_environment: the environment. set_variable, delete_variable: the environment the variable " +
 				"belongs to, omitted for the application-wide default."),
 			"after":             str("add_environment: the environment the new one follows; omitted puts it first. It cannot follow the last."),
-			"requires_approval": map[string]any{keyType: "boolean", keyDesc: "add_environment, set_environment: an agent's promote or rollback into it is refused; a person carries it out in the portal."},
+			"requires_approval": map[string]any{keyType: typBool, keyDesc: "add_environment, set_environment: an agent's promote or rollback into it is refused; a person carries it out in the portal."},
 			keyVariable:         str("set_variable, delete_variable: the variable's NAME (uppercase letters, digits and underscores)."),
 			"value":             str("set_variable: the value, plain text up to 8 KiB; {{secret:<name>}} references a stored secret."),
 			"release":           num("export: the release to export; the current release when omitted."),
@@ -233,7 +252,7 @@ func actorOf(ctx context.Context) application.Actor {
 	if pc == nil {
 		return application.Actor{}
 	}
-	return application.Actor{Email: pc.UserEmail, Admin: pc.IsAdmin, Subject: pc.UserID, Roles: pc.Roles}
+	return application.Actor{Email: pc.UserEmail, Admin: pc.IsAdmin, Subject: pc.UserID, Roles: pc.Roles, Agent: true}
 }
 
 // insideRun reports whether a managed-script run made the call.
@@ -304,12 +323,12 @@ func (t *Tool) handlers() map[string]handler {
 			})
 		},
 		CmdRollback: func(ctx context.Context, actor application.Actor, in Input) (any, error) {
-			if err := t.agentMove(ctx, in.Application, in.Environment, false); err != nil {
-				return nil, err
-			}
 			return s.RollbackIn(ctx, actor, in.Application, in.Environment, in.ToRelease) //nolint:wrapcheck // the caller's message
 		},
-		CmdPromote:           t.promote,
+		CmdPromote: t.promote,
+		CmdPrepare: func(ctx context.Context, actor application.Actor, in Input) (any, error) {
+			return s.Prepare(ctx, actor, in.Application, in.Save) //nolint:wrapcheck // the caller's message
+		},
 		CmdAddEnvironment:    t.addEnvironment,
 		CmdRemoveEnvironment: t.removeEnvironment,
 		CmdSetEnvironment:    t.setEnvironment,

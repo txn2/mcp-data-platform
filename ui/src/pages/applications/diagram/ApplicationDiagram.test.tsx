@@ -98,6 +98,9 @@ describe("ApplicationDiagram", () => {
     await openDiagram();
 
     expect(diagramRequests(sent)).toEqual(["/api/v1/portal/applications/app-shop/diagram?version=current"]);
+    // A small application is drawn card by card, as before #2700: no band, no Drawing | Table switch.
+    expect(screen.queryByTestId("application-diagram-large")).toBeNull();
+    expect(screen.queryByRole("group", { name: "View" })).toBeNull();
     for (const g of ["application", "schema", "outside"]) {
       expect(document.querySelector(`[data-group="${g}"]`)).not.toBeNull();
     }

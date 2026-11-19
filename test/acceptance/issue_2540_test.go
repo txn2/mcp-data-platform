@@ -62,7 +62,7 @@ func TestIssue2540_TheDiagramDrawsEveryLinkOfTheApplication(t *testing.T) {
 	schema := schema2539(t, "diagram")
 	addSchema2539(admin, app, conn2539, schema)
 	migration2539(admin, conn2539, schema, 1, "CREATE TABLE signups (email text);\n"+writeRole(schema, "SELECT, INSERT", "signups"),
-		"DROP TABLE signups; DROP OWNED BY "+schema+"_write; DROP ROLE "+schema+"_write")
+		"DROP TABLE signups")
 	admin.call("manage_schema", map[string]any{"command": "apply", "connection": conn2539, "schema": schema})
 
 	form, _ := bindForm(t, admin, "acc-2540-form", formFields, map[string]any{"auth_mode": "public"})
@@ -213,7 +213,7 @@ func TestIssue2540_FindingsAreReportedAndALibraryAtAnUnpinnedVersionRefusesTheRe
 	schema := schema2539(t, "findings")
 	addSchema2539(admin, app, conn2539, schema)
 	migration2539(admin, conn2539, schema, 1, "CREATE TABLE lonely (id int);\n"+writeRole(schema, "SELECT", "lonely"),
-		"DROP TABLE lonely; DROP OWNED BY "+schema+"_write; DROP ROLE "+schema+"_write")
+		"DROP TABLE lonely")
 	admin.call("manage_schema", map[string]any{"command": "apply", "connection": conn2539, "schema": schema})
 
 	lib := "acc2540-lib-" + stamp

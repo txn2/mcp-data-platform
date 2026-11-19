@@ -84,6 +84,9 @@ type frame struct {
 	exprs map[string]syntax.Expr
 	shown map[string]string
 	dicts map[string]*syntax.DictExpr
+	// args is what a parameter or a loop variable stands for, scope free:
+	// the caller's argument, or an element of what the loop iterates (#2699).
+	args  map[string]syntax.Expr
 	loops []string
 	// lexical is the frame of the enclosing function, for a nested def.
 	lexical *frame
@@ -101,7 +104,7 @@ type frame struct {
 func newFrame(fn string) *frame {
 	return &frame{
 		fn: fn, env: env{}, known: map[string]string{}, exprs: map[string]syntax.Expr{},
-		shown: map[string]string{}, dicts: map[string]*syntax.DictExpr{}, ret: origins{},
+		shown: map[string]string{}, dicts: map[string]*syntax.DictExpr{}, args: map[string]syntax.Expr{}, ret: origins{},
 	}
 }
 

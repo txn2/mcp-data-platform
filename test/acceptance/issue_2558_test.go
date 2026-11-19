@@ -143,11 +143,9 @@ func newStore2558(t *testing.T, ipLimit int) *store2558 {
 	admin.call("manage_schema", map[string]any{
 		"command": "add", "connection": conn2539, "schema": s.schema, "version": 2, "template": "outbox", "capture": []string{"mails"},
 	})
-	role := s.schema + "_write"
-	migration2539(admin, conn2539, s.schema, 3,
-		writeRole(s.schema, "SELECT, INSERT, UPDATE", "products, carts, orders, mails")+";\nGRANT INSERT ON outbox TO "+role+
-			";\nGRANT USAGE ON ALL SEQUENCES IN SCHEMA "+s.schema+" TO "+role,
-		"DROP OWNED BY "+role+"; DROP ROLE "+role)
+	// Since #2709 the platform grants the run role DML on every table and
+	// sequence the migrations create; a migration naming a role is refused.
+	migration2539(admin, conn2539, s.schema, 3, writeRole(s.schema, "", ""), "SELECT 1")
 	admin.call("manage_schema", map[string]any{"command": "apply", "connection": conn2539, "schema": s.schema})
 	targetPSQL(t, "INSERT INTO "+s.schema+".products VALUES ('tee', 'Tee', 20.00, 'tee.3f2a9c1b.png')")
 
@@ -158,15 +156,15 @@ func newStore2558(t *testing.T, ipLimit int) *store2558 {
 	})
 
 	api := s.names(fence2558(t, "python", "ROUTES = {") + "\n" + fence2558(t, "python", "def visit("))
-	admin.saveScript(map[string]any{"command": "create", "name": s.api, "source": api, "description": "Acceptance #2558: the store's API"}, nil)
+	admin.saveScript(map[string]any{"command": "create", "name": s.api, "source": api, "description": "Acceptance #2558: the store's API", "application": s.app}, nil)
 	admin.call("manage_application", map[string]any{"command": "add_part", "application": s.app, "kind": "script", "part_id": scriptID2540(admin, s.api)})
 	bindEndpoint(t, admin, s.api, "", map[string]any{
 		"endpoint": s.api, "methods": []string{"GET", "POST"}, "path": "/{route...}", "auth_mode": "public", "callers": []string{},
 		"rate_limit": 600, "ip_rate_limit": ipLimit,
 	})
 	// The draft wrote a cart, an order and two mails; the source starts empty.
-	targetPSQL(t, "DELETE FROM "+s.schema+".outbox; DELETE FROM "+s.schema+".mails")
-	admin.saveScript(map[string]any{"command": "create", "name": s.mail, "source": s.names(fence2558(t, "python", "PROVIDER = ")), "description": "Acceptance #2558: the store's mail"}, nil)
+	targetPSQL(t, fmt.Sprintf("DELETE FROM %[1]s.outbox; DELETE FROM %[1]s.%[2]s", s.schema, "mails"))
+	admin.saveScript(map[string]any{"command": "create", "name": s.mail, "source": s.names(fence2558(t, "python", "PROVIDER = ")), "description": "Acceptance #2558: the store's mail", "application": s.app}, nil)
 
 	issue1870Create(t, admin, map[string]any{
 		"name": s.source, "connection": issue1870Conn,

@@ -215,3 +215,43 @@ func TestRollback(t *testing.T) {
 	_, err = s.Rollback(ctx, "c", "s", "admin", 1)
 	require.Error(t, err)
 }
+
+// An environment's schema applies the application's migrations (#2709): a
+// promote through the version its release recorded, a new schema's baseline
+// marked without running, and a rollback in its own schema.
+func TestEnvironmentSchemas(t *testing.T) {
+	k, st := &kit{}, &store{ms: migs(true, 1, 2, 3)}
+	s := &Schema{Kit: func() Kit { return k }, Store: st}
+	ctx := context.Background()
+	at := Target{Connection: "c", Source: "orders", Schema: "orders_dev"}
+
+	none, err := s.ApplyIn(ctx, at, "admin", 0)
+	require.NoError(t, err)
+	assert.Empty(t, none.Versions, "a release that recorded no migration applies none")
+	applied, err := s.ApplyIn(ctx, at, "admin", 2)
+	require.NoError(t, err)
+	assert.Equal(t, []int{1, 2}, applied.Versions, "through the version the promoted release recorded")
+	assert.Equal(t, "orders_dev", st.events[0].Schema, "recorded in the environment's schema's history")
+	state, err := s.StateIn(ctx, at)
+	require.NoError(t, err)
+	assert.Equal(t, []int{3}, state.Pending)
+
+	k2 := &kit{}
+	s2 := &Schema{Kit: func() Kit { return k2 }, Store: st}
+	require.NoError(t, s2.Baseline(ctx, at, "admin", 0), "nothing to mark")
+	assert.Empty(t, k2.applied)
+	require.NoError(t, s2.Baseline(ctx, at, "admin", 2))
+	assert.Equal(t, []int{1, 2}, k2.applied)
+
+	back, err := s.RollbackIn(ctx, at, "admin", 1)
+	require.NoError(t, err)
+	assert.Equal(t, []int{2}, back.Versions)
+
+	_, err = (&Schema{}).StateIn(ctx, at)
+	require.ErrorIs(t, err, ErrNoKit)
+	require.ErrorIs(t, (&Schema{}).Baseline(ctx, at, "a", 1), ErrNoKit)
+	_, err = (&Schema{}).ApplyIn(ctx, at, "a", 1)
+	require.ErrorIs(t, err, ErrNoKit)
+	_, err = (&Schema{}).RollbackIn(ctx, at, "a", 1)
+	require.ErrorIs(t, err, ErrNoKit)
+}

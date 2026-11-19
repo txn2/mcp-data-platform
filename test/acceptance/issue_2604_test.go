@@ -558,6 +558,9 @@ func TestIssue2604_APrivateSiteKnowsItsViewerAndRunsItsEndpointsAsThem(t *testin
 `, `{"params": {}, "caller": None}`)
 	addScriptPart2517(t, admin, app, api)
 	bindEndpoint(t, admin, api, "", map[string]any{"endpoint": api, "methods": []string{"GET"}, "path": "/", "auth_mode": "authenticated", "callers": []string{"*"}})
+	// A site environment calls the application environment of its name
+	// (#2709), so the application has one called open too.
+	admin.call("manage_application", map[string]any{"command": "add_environment", "application": app, "environment": "open"})
 	for _, env := range []string{"prod", "open"} {
 		admin.call("manage_application", map[string]any{"command": "add_part", "application": app, "kind": "site", "part_id": s.name + "/" + env, "release_mode": "coupled"})
 	}

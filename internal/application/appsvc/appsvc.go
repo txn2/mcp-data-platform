@@ -19,6 +19,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/application"
 	"github.com/txn2/mcp-data-platform/internal/application/appdiagram"
+	"github.com/txn2/mcp-data-platform/internal/application/appprepare"
 	"github.com/txn2/mcp-data-platform/internal/application/appschema"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptevents"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
@@ -44,8 +45,12 @@ type Sources interface {
 // Schema is what a release does to the application's schema.
 type Schema interface {
 	State(ctx context.Context, connection, schema string) (*appschema.State, error)
-	Release(ctx context.Context, connection, schema, actor string) (*appschema.Applied, error)
-	Rollback(ctx context.Context, connection, schema, actor string, to int) (*appschema.Reverted, error)
+	// StateIn, ApplyIn, RollbackIn and Baseline act on the schema an
+	// environment runs in with the application's migrations (#2709).
+	StateIn(ctx context.Context, at appschema.Target) (*appschema.State, error)
+	ApplyIn(ctx context.Context, at appschema.Target, actor string, upTo int) (*appschema.Applied, error)
+	RollbackIn(ctx context.Context, at appschema.Target, actor string, to int) (*appschema.Reverted, error)
+	Baseline(ctx context.Context, at appschema.Target, actor string, upTo int) error
 }
 
 // Service is the application operations.
@@ -56,6 +61,10 @@ type Service struct {
 	AssetVersions portaldomain.VersionReader
 	Sources       Sources
 	Schema        Schema
+	// Preparer prepares an application for environments of their own
+	// (#2709); nil refuses Prepare and counts nothing before an
+	// environment is added.
+	Preparer Preparer
 	// HasConnection reports whether an application database connection
 	// (kind appdb) is named so, one another replica saved a moment ago
 	// included (#2662); nil checks nothing.
@@ -258,6 +267,11 @@ func (s *Service) AddPartMode(ctx context.Context, actor application.Actor, ref 
 		return s.addSchema(ctx, actor, a, id)
 	}
 	id = currentSitePart(kind, id)
+	if kind == application.KindSite {
+		if err := siteCalls(a, id); err != nil {
+			return nil, err
+		}
+	}
 	if err := s.mayAdd(ctx, actor, kind, id); err != nil {
 		return nil, err
 	}
@@ -449,6 +463,10 @@ type Status struct {
 	// SiteParts is each site part's mode, what it serves, where a release
 	// would move it and whether it works with the contract (#2679).
 	SiteParts []SitePartView `json:"site_parts"`
+	// Prepare is how many of the application's files name its schema or
+	// roles (#2709), which refuses a new environment until prepare saves
+	// their change; nil for an application holding no schema.
+	Prepare *appprepare.Counts `json:"prepare,omitempty"`
 }
 
 // StatusOf reads where an application stands.
@@ -478,6 +496,11 @@ func (s *Service) StatusOf(ctx context.Context, ref string) (*Status, error) {
 		}
 	}
 	st.Schema = s.SchemaOf(ctx, a, st.Current)
+	if a.Schema != "" && s.Preparer != nil {
+		if c, err := s.Preparer.Named(ctx, a); err == nil {
+			st.Prepare = &c
+		}
+	}
 	st.Findings = s.findings(ctx, a)
 	if st.Findings == nil {
 		st.Findings = []appdiagram.Finding{}
@@ -490,12 +513,17 @@ func (s *Service) StatusOf(ctx context.Context, ref string) (*Status, error) {
 // newestPins pins each part a release moves at its newest version, naming
 // the parts that cannot be pinned: a linked site part only when named moves
 // it (#2679).
+//
+// A site part calling a later environment than the first is pinned at the
+// site release the part of the same site calling the first environment is
+// (#2709): what the first environment runs with this release is what a
+// promote moves the later one to, and what a rollback to it returns. Only a
+// site with no part calling the first environment is pinned one step on.
 func (s *Service) newestPins(ctx context.Context, a *application.Application, named map[string]bool) (pins []application.Pin, problems []string) {
 	pins, problems = []application.Pin{}, []string{}
-	for _, p := range a.Parts {
-		if !moves(p, named) {
-			continue
-		}
+	land, _ := landing(a)
+	later := []application.Part{}
+	add := func(p application.Part) {
 		pin, problem := s.newestPin(ctx, p)
 		if problem != "" {
 			problems = append(problems, problem)
@@ -503,7 +531,35 @@ func (s *Service) newestPins(ctx context.Context, a *application.Application, na
 			pins = append(pins, pin)
 		}
 	}
+	for _, p := range a.Parts {
+		switch {
+		case !moves(p, named):
+		case callsLater(p, land):
+			later = append(later, p)
+		default:
+			add(p)
+		}
+	}
+	first := pinnedIn(pins, land)
+	for _, p := range later {
+		name, _, _ := application.ParseSitePartID(p.ID)
+		if v, ok := first[name]; ok {
+			pins = append(pins, application.Pin{Kind: application.KindSite, PartID: p.ID, Version: v})
+			continue
+		}
+		add(p)
+	}
 	return pins, problems
+}
+
+// callsLater reports whether p is a site part calling an environment other
+// than land, the first; "" lists none.
+func callsLater(p application.Part, land string) bool {
+	if p.Kind != application.KindSite || land == "" {
+		return false
+	}
+	_, env, ok := application.ParseSitePartID(p.ID)
+	return ok && env != land
 }
 
 // newestPin is one part pinned at its newest version, or why it cannot be;
@@ -613,7 +669,7 @@ func (s *Service) makeRelease(ctx context.Context, actor application.Actor, ref 
 	if err != nil {
 		return nil, err //nolint:wrapcheck // read by identity
 	}
-	if err := s.afterRecord(ctx, actor, a, o.Contract != nil, pins); err != nil {
+	if err := s.afterRecord(ctx, actor, a, o.Contract != nil, pinsCalling(a, pins, env)); err != nil {
 		return nil, err
 	}
 	return recorded, nil
@@ -637,12 +693,15 @@ func (s *Service) releaseSchema(ctx context.Context, actor application.Actor, a 
 	if a.Schema == "" {
 		return nil
 	}
-	applied, err := s.Schema.Release(ctx, a.Connection, a.Schema, actorName(actor, a))
+	var land *application.Environment
+	if len(a.Environments) > 0 {
+		land = &a.Environments[0]
+	}
+	applied, err := s.applyToEnvironment(ctx, actor, a, land, appschema.AllVersions)
 	if err != nil {
 		return fmt.Errorf("nothing was released: %w", err)
 	}
 	rel.Changes.Applied, rel.MigrationVersion = applied.Versions, applied.Head
-	s.grantRunRole(ctx, a)
 	return nil
 }
 
@@ -688,16 +747,15 @@ func (s *Service) Rollback(ctx context.Context, actor application.Actor, ref str
 		Pins: target.Pins, MigrationVersion: prev.MigrationVersion,
 	}
 	rel.Changes.Reverted = []int{}
-	// Migrations move with the first environment (#2696); a rollback in a
-	// later one leaves the schema alone.
-	if a.Schema != "" && first(a, "") {
-		// Migrations applied before the schema was added were applied by no
-		// release, and no rollback reverts them (#2539).
-		to := max(target.MigrationVersion, a.SchemaAdoptedVersion)
-		reverted, err := s.Schema.Rollback(ctx, a.Connection, a.Schema, actorName(actor, a), to)
-		if err != nil {
-			return nil, fmt.Errorf("nothing was rolled back: %w", err)
-		}
+	// A rollback reverts the migrations of a schema only the last
+	// environment runs in (#2709); one it shares is left alone. Migrations
+	// applied before the schema was added were applied by no release, and no
+	// rollback reverts them (#2539).
+	reverted, ok, err := s.revertEnvironment(ctx, actor, a, len(a.Environments)-1, target.MigrationVersion)
+	if err != nil {
+		return nil, fmt.Errorf("nothing was rolled back: %w", err)
+	}
+	if ok {
 		rel.Changes.Reverted, rel.Changes.MigrationsKept, rel.MigrationVersion = reverted.Versions, reverted.Kept, reverted.Head
 	}
 	rel.Changes.Parts = application.Diff(prev.Pins, target.Pins)
@@ -705,7 +763,7 @@ func (s *Service) Rollback(ctx context.Context, actor application.Actor, ref str
 	if err != nil {
 		return nil, err //nolint:wrapcheck // read by identity
 	}
-	if err := s.applySitePins(ctx, actor, rollbackSitePins(a, prev, target)); err != nil {
+	if err := s.applySitePins(ctx, actor, pinsCalling(a, rollbackSitePins(a, prev, target), lastName(a))); err != nil {
 		return nil, err
 	}
 	return recorded, nil

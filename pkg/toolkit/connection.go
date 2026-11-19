@@ -128,6 +128,16 @@ type ConnectionUpdater interface {
 	UpdateConnection(name string, config map[string]any) error
 }
 
+// ConfigHolder is an optional interface for a ConnectionManager that can tell
+// whether it already serves a connection under exactly a given configuration.
+// A reconcile of a configuration the toolkit holds changes nothing: a replica
+// that took a saved connection on from the store hears the saving replica's
+// announcement of the same configuration next, and replacing the connection
+// then closes the client a call in flight is using (#2704).
+type ConfigHolder interface {
+	HoldsConfig(name string, config map[string]any) bool
+}
+
 // ConnectionAdopter is an optional interface for a ConnectionManager whose
 // connections carry state another replica already derived and stored (a
 // schema read from the endpoint). A replica applying a peer's announcement of

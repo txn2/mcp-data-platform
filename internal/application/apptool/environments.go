@@ -7,41 +7,12 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/application/appsvc"
 )
 
-// agentMove refuses an agent's promote or rollback into an environment that
-// requires approval (#2696): every manage_application call is an agent's,
-// and the person carries the move out on the application's page. promote
-// names the environment moved from; the target is the next.
-func (t *Tool) agentMove(ctx context.Context, ref, env string, promote bool) error {
-	a, err := t.Service.Find(ctx, ref)
-	if err != nil {
-		return err //nolint:wrapcheck // the caller's message
-	}
-	target, _, ok := a.EnvironmentNamed(env)
-	if !ok {
-		return nil // the service names the missing environment
-	}
-	if promote {
-		if target, err = appsvc.NextEnvironment(a, env); err != nil {
-			return err //nolint:wrapcheck // the caller's message
-		}
-	}
-	if !target.RequiresApproval {
-		return nil
-	}
-	return &appsvc.RefusedError{Msg: "APPROVAL_REQUIRED: environment " + target.Name + " of application " + a.Name +
-		" requires approval, so an agent does not move it: a person promotes or rolls it back on the application's page " +
-		"in the portal (Applications > " + a.Name + " > Environments)."}
-}
-
 func (t *Tool) promote(ctx context.Context, actor application.Actor, in Input) (any, error) {
-	if err := t.agentMove(ctx, in.Application, in.Environment, true); err != nil {
-		return nil, err
-	}
 	return t.Service.Promote(ctx, actor, in.Application, in.Environment) //nolint:wrapcheck // the caller's message
 }
 
 func (t *Tool) addEnvironment(ctx context.Context, actor application.Actor, in Input) (any, error) {
-	e := application.Environment{Name: in.Environment, RequiresApproval: in.RequiresApproval != nil && *in.RequiresApproval}
+	e := application.Environment{Name: in.Environment, Schema: in.Schema, RequiresApproval: in.RequiresApproval != nil && *in.RequiresApproval}
 	return t.Service.AddEnvironment(ctx, actor, in.Application, e, in.After) //nolint:wrapcheck // the caller's message
 }
 

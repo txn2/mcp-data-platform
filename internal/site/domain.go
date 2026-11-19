@@ -110,6 +110,10 @@ type Route struct {
 	// PartOf is the application this environment is a part of, "" for none;
 	// its endpoints answer on the environment's own hosts.
 	PartOf string
+	// PartOfEnvironment is PartOf's environment of this environment's name,
+	// the one its endpoints run in (#2709); "" when PartOf has none of that
+	// name, and the endpoints answer 404 naming it rather than run another.
+	PartOfEnvironment string
 	// Status is what the environment answers in place of its release, after
 	// the access check (#2631, #2632); its zero value is online.
 	Status EnvironmentStatus

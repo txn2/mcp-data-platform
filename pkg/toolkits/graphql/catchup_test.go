@@ -553,3 +553,58 @@ func TestNoSchemaMessageNamesAReadOnlyWhenOneFailed(t *testing.T) {
 		t.Errorf("a failed read is refused with %q", failed)
 	}
 }
+
+// replacingStore is a schema store whose first version read runs replace
+// before answering: a peer's announcement installed and an upload stored while
+// a request was syncing the connection it had looked up.
+type replacingStore struct {
+	*memorySchemaStore
+	replace func()
+}
+
+func (s *replacingStore) SchemaVersion(ctx context.Context, connection string) (StoredSchema, error) {
+	if s.replace != nil {
+		fn := s.replace
+		s.replace = nil
+		fn()
+	}
+	return s.memorySchemaStore.SchemaVersion(ctx, connection)
+}
+
+// A request whose connection was replaced between its lookup and its sync
+// answers from the replacement brought up to the stored version, not from the
+// retired connection or a replacement built before the upload (#2704).
+func TestARequestAnswersFromTheConnectionItBroughtUpToDate(t *testing.T) {
+	u := newUpstream(t)
+	u.introspection = flatIntrospectionResult
+	mem := newMemorySchemaStore()
+	storedUpload(t, mem, u, "flat")
+	store := &replacingStore{memorySchemaStore: mem}
+	tk := NewMulti(MultiConfig{DefaultName: "other"})
+	tk.SetSchemaStore(store)
+	if err := tk.AdoptConnection("gql", map[string]any{"endpoint_url": u.server.URL}); err != nil {
+		t.Fatalf("adopt: %v", err)
+	}
+	first, _, _ := tk.lookup("gql")
+	var uploaded string
+	store.replace = func() {
+		if err := tk.AdoptConnection("gql", map[string]any{"endpoint_url": u.server.URL}); err != nil {
+			t.Errorf("announcement: %v", err)
+		}
+		uploaded = storedUpload(t, mem, u, "namespaced")
+	}
+
+	info, err := tk.CurrentSchemaInfo(context.Background(), "gql")
+	if err != nil {
+		t.Fatalf("schema info: %v", err)
+	}
+	if first.phase.Load() != phaseRetired {
+		t.Fatal("the announcement did not replace the connection the request looked up")
+	}
+	if info.Hash != uploaded || info.OperationCount != namespacedOperationCount(t) {
+		t.Errorf("info = %+v; want the upload %q made while the request was syncing", info, uploaded)
+	}
+	if _, err := tk.CurrentSchemaInfo(context.Background(), "missing"); err == nil {
+		t.Error("a connection served nowhere was reported")
+	}
+}

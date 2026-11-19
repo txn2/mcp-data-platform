@@ -239,8 +239,14 @@ func OutputRefs(source string) []OutputRef {
 // DataRefs is every statement step of source with what it reads and writes,
 // in source order.
 func DataRefs(source string) []DataRef {
+	return DataRefsWith(source, nil)
+}
+
+// DataRefsWith is DataRefs reading the names the script loads from the
+// libraries libs holds (#2699).
+func DataRefsWith(source string, libs Libraries) []DataRef {
 	out := []DataRef{}
-	for _, n := range Derive(source).Nodes {
+	for _, n := range DeriveWith(source, libs).Nodes {
 		if n.Data != nil {
 			out = append(out, *n.Data)
 		}

@@ -70,7 +70,10 @@ const (
 const (
 	FindingLibraryVersion = "library_version"
 	FindingUnwrittenTable = "unwritten_table"
-	FindingForeignSchema  = "foreign_schema"
+	// FindingRuntimeWrites names, once, the scripts that write a table named
+	// only when they run, which may be a table reported unwritten (#2699).
+	FindingRuntimeWrites = "runtime_writes"
+	FindingForeignSchema = "foreign_schema"
 )
 
 // The marks a compared diagram carries.
@@ -177,6 +180,10 @@ type Reader interface {
 	SchemaTables(ctx context.Context, connection, schema string) SchemaTables
 	// IsAppDB reports whether a connection is an application database.
 	IsAppDB(ctx context.Context, connection string) bool
+	// LibrarySource is one saved version of a library a script loads, so
+	// the statements and helpers it defines are read where a script uses
+	// them (#2699); false when it cannot be read.
+	LibrarySource(ctx context.Context, name string, version int) (string, bool)
 }
 
 // SchemaTables is what a schema's migrations say about its tables, by bare
@@ -342,8 +349,8 @@ func (b *builder) script(p Part) {
 	}
 	b.form(id, v.Source)
 	b.loads(id, sc, v.Source)
-	for i, ref := range scriptflow.DataRefs(v.Source) {
-		b.data(id, sc, i, ref)
+	for _, ref := range scriptflow.DataRefsWith(v.Source, b.libraries(v.Source)) {
+		b.data(id, sc, ref)
 	}
 	for i, out := range scriptflow.OutputRefs(v.Source) {
 		b.output(id, p.ID, i, out)
@@ -397,10 +404,24 @@ func (b *builder) loads(id string, sc *script.Script, source string) {
 	}
 }
 
-// data links a script to the tables one statement step reads and writes.
-func (b *builder) data(id string, sc *script.Script, i int, ref scriptflow.DataRef) {
+// libraries is the source of each library version source loads that can be
+// read.
+func (b *builder) libraries(source string) scriptflow.Libraries {
+	out := scriptflow.Libraries{}
+	for _, ref := range scriptlib.Refs(source) {
+		if text, ok := b.r.LibrarySource(b.ctx, ref.Name, ref.Version); ok {
+			out[ref] = text
+		}
+	}
+	return out
+}
+
+// data links a script to the tables one statement step reads and writes. A
+// step whose table is named only when it runs links to one card per script
+// and connection, however many such steps the script has (#2699).
+func (b *builder) data(id string, sc *script.Script, ref scriptflow.DataRef) {
 	if ref.Computed {
-		node := fmt.Sprintf("computed:%s:%d", id, i)
+		node := "computed:" + id + ":" + ref.Connection
 		b.node(Node{ID: node, Kind: NodeTable, Label: "table named when it runs", Group: GroupOutside, Computed: true, Detail: connDetail(ref.Connection)})
 		kind := LinkReads
 		if ref.Write || len(ref.Writes) > 0 {
@@ -448,7 +469,7 @@ func (b *builder) table(sc *script.Script, connection, table string) string {
 	if _, after, ok := strings.CutLast(table, "."); ok {
 		name = after
 	}
-	if b.app.Schema != "" && connection == b.app.Connection && schema == b.app.Schema {
+	if b.app.Schema != "" && connection == b.app.Connection && b.ownSchema(table, schema) {
 		id := b.schemaTableID(name)
 		b.node(Node{ID: id, Kind: NodeTable, Label: name, Group: GroupSchema})
 		return id
@@ -463,6 +484,23 @@ func (b *builder) table(sc *script.Script, connection, table string) string {
 		})
 	}
 	return id
+}
+
+// ownSchema reports whether a table a script names on the application's
+// connection is the application's own: written without a schema, it is read
+// in the schema of the environment the run is in, whose search path is that
+// schema (#2709); written with one, the schema is the application's or one of
+// its environments'.
+func (b *builder) ownSchema(table, schema string) bool {
+	if !strings.Contains(table, ".") || schema == b.app.Schema {
+		return true
+	}
+	for _, e := range b.app.Environments {
+		if e.Schema != "" && e.Schema == schema {
+			return true
+		}
+	}
+	return false
 }
 
 // output links a script to what one output step names.
@@ -570,13 +608,18 @@ func (b *builder) unwritten() {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
+	first := ""
 	for _, id := range ids {
 		n := b.d.Nodes[b.nodes[id]]
 		if n.Group != GroupSchema || b.writes[id] || slices.Contains(filled, n.Label) {
 			continue
 		}
+		if first == "" {
+			first = id
+		}
 		b.finding(Finding{Kind: FindingUnwrittenTable, Node: id, Message: b.unwrittenMessage(n.Label)})
 	}
+	b.runtimeWriters(first)
 }
 
 // unwrittenMessage says a table has no writer the diagram knows of. With a
@@ -586,9 +629,25 @@ func (b *builder) unwrittenMessage(table string) string {
 	if len(b.unknownWriters) == 0 {
 		return fmt.Sprintf("table %s.%s is read by the application's scripts and written by no part", b.app.Schema, table)
 	}
+	return fmt.Sprintf("table %s.%s is read by the application's scripts, and no part is known to write it; a script that writes a table named only when it runs may",
+		b.app.Schema, table)
+}
+
+// runtimeWriters states once which scripts write a table named only when
+// they run, when a table is reported unwritten (#2699): the list is not
+// repeated on every table.
+func (b *builder) runtimeWriters(firstUnwritten string) {
+	if len(b.unknownWriters) == 0 || firstUnwritten == "" {
+		return
+	}
 	sort.Strings(b.unknownWriters)
-	return fmt.Sprintf("table %s.%s is read by the application's scripts, and no part is known to write it: %s writes a table named only when it runs, which may be this one",
-		b.app.Schema, table, strings.Join(b.unknownWriters, ", "))
+	msg := fmt.Sprintf("script %s writes a table named only when it runs, which may be a table of %s that no part is known to write",
+		b.unknownWriters[0], b.app.Schema)
+	if n := len(b.unknownWriters); n > 1 {
+		msg = fmt.Sprintf("scripts %s and %s write tables named only when they run, which may be tables of %s that no part is known to write",
+			strings.Join(b.unknownWriters[:n-1], ", "), b.unknownWriters[n-1], b.app.Schema)
+	}
+	b.finding(Finding{Kind: FindingRuntimeWrites, Node: firstUnwritten, Message: msg})
 }
 
 // Compare marks next against prev: each node and link added, removed (carried

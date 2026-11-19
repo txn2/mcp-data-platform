@@ -94,6 +94,36 @@ func (t *Toolkit) serving(ctx context.Context, name string) (*conn, RoutePolicy,
 	return t.lookup(name)
 }
 
+// maxCurrentTries bounds how many replacements current follows: each one is
+// an announcement installed while a request was syncing, so two in a row is
+// already rare.
+const maxCurrentTries = 3
+
+// current returns the connection served under name, brought up to the schema
+// version the store holds: what a request that reads a connection's schema
+// answers from. A connection retired between its lookup and its sync (a
+// peer's announcement installed a replacement) skipped the sync, and its
+// replacement may have been built before the change the request must see, so
+// the replacement is looked up and synced instead (#2704). The connection
+// returned is the one synced, never a second lookup.
+func (t *Toolkit) current(ctx context.Context, name string) (*conn, RoutePolicy, bool) {
+	var (
+		c      *conn
+		policy RoutePolicy
+		ok     bool
+	)
+	for range maxCurrentTries {
+		if c, policy, ok = t.serving(ctx, name); !ok {
+			return nil, nil, false
+		}
+		t.syncStored(ctx, c)
+		if c.phase.Load() != phaseRetired {
+			break
+		}
+	}
+	return c, policy, true
+}
+
 // catchUpServer is this kind's connection map as the catch-up changes it.
 type catchUpServer struct{ t *Toolkit }
 

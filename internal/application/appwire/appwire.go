@@ -18,6 +18,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/application"
 	"github.com/txn2/mcp-data-platform/internal/application/appbundle"
+	"github.com/txn2/mcp-data-platform/internal/application/appprepare"
 	"github.com/txn2/mcp-data-platform/internal/application/appschema"
 	"github.com/txn2/mcp-data-platform/internal/application/appstore"
 	"github.com/txn2/mcp-data-platform/internal/application/appsvc"
@@ -121,6 +122,12 @@ func Service(d Deps) *appsvc.Service {
 	}
 	if d.Sealer != nil {
 		svc.Sealer = d.Sealer
+	}
+	if d.SaveGate != nil {
+		svc.Preparer = &appprepare.Preparer{
+			Scripts: scripts, Libraries: libraries{Store: scripts, db: d.DB},
+			Migrations: migrationstore.New(d.DB), Schema: svc.Schema, Gate: d.SaveGate, Recordings: d.Recordings,
+		}
 	}
 	if d.Sites != nil {
 		svc.Sites = d.Sites

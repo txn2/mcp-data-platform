@@ -527,6 +527,12 @@ func TestAppDBCaller_Identity(t *testing.T) {
 	}, db.ids, "an endpoint's statements claim its caller, and a public endpoint's claim nobody")
 
 	db.ids = nil
+	_, err = newAppDBCaller(WithEnvironment(run, "dev")).call(context.Background(), AppDBQuery, stmt)
+	require.NoError(t, err)
+	require.Len(t, db.ids, 1)
+	assert.Equal(t, "dev", db.ids[0].Environment, "a run's statements carry the environment it runs in (#2709)")
+
+	db.ids = nil
 	draft := middleware.WithPreAuthenticatedUser(context.Background(), &middleware.UserInfo{UserID: "sub-drafter", Email: "drafter@example.com"})
 	_, err = newAppDBCaller(draft).call(context.Background(), AppDBQuery, stmt)
 	require.NoError(t, err)

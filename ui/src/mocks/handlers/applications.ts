@@ -5,7 +5,7 @@ import type {
   ApplicationPartKind,
   ApplicationRelease,
 } from "@/api/portal/hooks/applications";
-import type { ApplicationVariable } from "@/api/portal/hooks/applicationEnvironments";
+import type { ApplicationPreparePlan, ApplicationVariable } from "@/api/portal/hooks/applicationEnvironments";
 import { shopDiagram } from "../data/applicationDiagram";
 import {
   candidateOf,
@@ -13,6 +13,7 @@ import {
   mockApplicationDetails,
   mockApplicationVariables,
   mockPartCatalog,
+  mockWarehousePrepare,
   partView,
   schemaViewOf,
 } from "../data/applications";
@@ -32,6 +33,7 @@ import {
 //   POST   /portal/applications/:app/environments, PATCH/DELETE .../environments/:env
 //   POST   /portal/applications/:app/environments/:env/promote, .../rollback
 //   GET    /portal/applications/:app/variables, PUT/DELETE .../variables/:name
+//   GET    /portal/applications/:app/prepare, POST .../prepare (#2709)
 
 const BASE = "/api/v1/portal/applications";
 
@@ -41,6 +43,17 @@ const details: Record<string, ApplicationDetail> = JSON.parse(
 
 function find(ref: string): ApplicationDetail | undefined {
   return details[ref] ?? Object.values(details).find((d) => d.application.name === ref);
+}
+
+// What prepare changes in each application that still names its schema
+// (#2709); one not listed names nothing.
+const prepares: Record<string, ApplicationPreparePlan> = {
+  "app-warehouse": JSON.parse(JSON.stringify(mockWarehousePrepare)) as ApplicationPreparePlan,
+};
+
+function prepareTotal(d: ApplicationDetail): number {
+  const c = d.prepare;
+  return c ? c.scripts + c.libraries + c.migrations : 0;
 }
 
 const variables: Record<string, ApplicationVariable[]> = JSON.parse(
@@ -88,6 +101,12 @@ function holdSchema(d: ApplicationDetail, connection: string, schema: string) {
   d.application.schema_adopted_version = 0;
   d.application.parts.push({ kind: "schema", id: `${connection}/${schema}`, added_by: "sarah.chen@example.com", added_at: now() });
   d.schema = schemaViewOf(connection, schema);
+  // Every environment it has runs in the schema it took on (#2709).
+  d.schema.environments = (d.application.environments ?? []).map((e) => {
+    e.schema = schema;
+    return { environment: e.name, schema, migration_version: 0, pending: [] };
+  });
+  d.prepare = { scripts: 0, libraries: 0, migrations: 0 };
   d.migrations = { applied: 0, pending: [] };
 }
 
@@ -130,6 +149,8 @@ function releaseSchema(d: ApplicationDetail) {
   d.application.schema_adopted_version = 0;
   delete d.schema;
   delete d.migrations;
+  delete d.prepare;
+  for (const e of d.application.environments ?? []) e.schema = "";
 }
 
 // blockingProblems is what refuses a release: every problem but the message
@@ -364,6 +385,15 @@ export const applicationHandlers = [
     if (d.schema) {
       d.schema = { ...d.schema, migration_version: rel.migration_version, released_version: rel.migration_version, pending: [] };
     }
+    // A release lands in the first environment and applies its migrations to
+    // that environment's schema (#2696, #2709).
+    const landing = d.application.environments?.[0];
+    if (landing) {
+      landing.release = rel.number;
+      landing.updated_at = now();
+      const es = d.schema?.environments?.find((e) => e.environment === landing.name);
+      if (es) Object.assign(es, { migration_version: rel.migration_version, pending: [] });
+    }
     return HttpResponse.json(rel);
   }),
 
@@ -440,7 +470,15 @@ export const applicationHandlers = [
     next.release = src.release;
     next.updated_at = now();
     if (at + 1 === envs.length - 1) d.application.current_release = src.release;
-    return HttpResponse.json({ from: src.name, to: next.name, release: src.release, replaced });
+    // The target's schema applies what the release recorded (#2709).
+    const upTo = d.releases.find((r) => r.number === src.release)?.migration_version ?? 0;
+    const target = d.schema?.environments?.find((e) => e.environment === next.name);
+    const applied = (target?.pending ?? []).filter((v) => v <= upTo);
+    if (target) {
+      target.pending = target.pending.filter((v) => v > upTo);
+      target.migration_version = Math.max(target.migration_version, ...applied);
+    }
+    return HttpResponse.json({ from: src.name, to: next.name, release: src.release, replaced, applied });
   }),
 
   http.post(`${BASE}/:app/environments/:env/rollback`, async ({ params, request }) => {
@@ -460,18 +498,43 @@ export const applicationHandlers = [
   http.post(`${BASE}/:app/environments`, async ({ params, request }) => {
     const d = find(String(params.app));
     if (!d) return notFound(String(params.app));
-    const body = (await request.json()) as { name: string; after: string; requires_approval: boolean };
+    const body = (await request.json()) as { name: string; after: string; requires_approval: boolean; schema?: string };
     const envs = d.application.environments ?? [];
-    if (envs.some((e) => e.name === body.name)) return problem(422, `environment "${body.name}" exists`);
+    const a = d.application;
+    if (envs.some((e) => e.name === body.name)) return problem(422, `application "${a.name}" already has an environment "${body.name}"`);
+    if (a.schema === "" && body.schema) {
+      return problem(422, `application "${a.name}" holds no schema, so environment ${body.name} cannot be given one; add the application's schema first`);
+    }
+    const c = d.prepare;
+    if (c && prepareTotal(d) > 0) {
+      return problem(
+        422,
+        `application "${a.name}" is not ready for an environment of its own: ${c.scripts} scripts, ${c.libraries} libraries and ${c.migrations} pending ` +
+          `migrations name schema ${a.schema} or its roles, which from a new environment would reach this one's data. Prepare the application first ` +
+          `(manage_application command prepare, or Prepare on the application's page): it removes them, replays each changed script's recent runs ` +
+          `to show the answers are the same, and saves new versions to release`,
+      );
+    }
+    const schema = a.schema === "" ? "" : body.schema || `${a.schema}_${body.name.replace(/-/g, "_")}`;
+    if (schema !== "" && envs.some((e) => (e.schema || a.schema) === schema)) {
+      const owner = envs.find((e) => (e.schema || a.schema) === schema)!.name;
+      return problem(422, `schema ${schema} is environment ${owner}'s; each new environment runs in a schema of its own`);
+    }
     const at = body.after ? envs.findIndex((e) => e.name === body.after) + 1 : 0;
     envs.splice(at, 0, {
       name: body.name,
       release: 0,
       requires_approval: body.requires_approval,
+      schema,
       updated_by: "admin@example.com",
       updated_at: now(),
     });
     d.application.environments = envs;
+    if (schema !== "" && d.schema) {
+      const last = d.schema.environments?.[d.schema.environments.length - 1];
+      d.schema.environments = [...(d.schema.environments ?? [])];
+      d.schema.environments.splice(at, 0, { environment: body.name, schema, migration_version: last?.migration_version ?? 0, pending: [] });
+    }
     return HttpResponse.json(touch(d));
   }),
 
@@ -487,8 +550,59 @@ export const applicationHandlers = [
   http.delete(`${BASE}/:app/environments/:env`, ({ params }) => {
     const d = find(String(params.app));
     if (!d) return notFound(String(params.app));
-    d.application.environments = (d.application.environments ?? []).filter((e) => e.name !== params.env);
+    const name = String(params.env);
+    const envs = d.application.environments ?? [];
+    const env = envs.find((e) => e.name === name);
+    if (!env) return problem(422, `application "${d.application.name}" has no environment "${name}"`);
+    if (envs[envs.length - 1] === env) {
+      return problem(422, `${name} is application "${d.application.name}"'s last environment, which /endpoints serves, and cannot be removed`);
+    }
+    const caller = d.application.parts.find((p) => p.kind === "site" && p.id.slice(p.id.indexOf("/") + 1) === name);
+    if (caller) {
+      const own = env.schema && env.schema !== d.application.schema ? `. Its schema ${env.schema} is kept until an administrator drops it` : "";
+      return problem(422, `${name} can't be removed: site part ${caller.id} calls it. Remove that site part first${own}`);
+    }
+    d.application.environments = envs.filter((e) => e !== env);
+    if (d.schema?.environments) d.schema.environments = d.schema.environments.filter((e) => e.environment !== name);
     return HttpResponse.json(touch(d));
+  }),
+
+  // Prepare (#2709).
+  http.get(`${BASE}/:app/prepare`, ({ params }) => {
+    const d = find(String(params.app));
+    if (!d) return notFound(String(params.app));
+    const plan = prepares[d.application.id];
+    if (plan) return HttpResponse.json(plan);
+    return HttpResponse.json({
+      application: d.application.name, schema: d.application.schema, files: [], values: [],
+      counts: { scripts: 0, libraries: 0, migrations: 0 }, ready: true, saved: false,
+    } satisfies ApplicationPreparePlan);
+  }),
+
+  http.post(`${BASE}/:app/prepare`, ({ params }) => {
+    const d = find(String(params.app));
+    if (!d) return notFound(String(params.app));
+    const plan = prepares[d.application.id];
+    if (!plan) {
+      return HttpResponse.json({
+        application: d.application.name, schema: d.application.schema, files: [], values: [],
+        counts: { scripts: 0, libraries: 0, migrations: 0 }, ready: true, saved: true,
+      } satisfies ApplicationPreparePlan);
+    }
+    if (plan.files.some((f) => f.refusal)) {
+      return HttpResponse.json(
+        { status: 422, detail: "prepare saves nothing while the save gate refuses a file; see each file's refusal and differences", plan },
+        { status: 422 },
+      );
+    }
+    const saved: ApplicationPreparePlan = {
+      ...plan,
+      saved: true,
+      files: plan.files.map((f) => ({ ...f, saved: f.kind === "migration" ? f.version : f.version + 1 })),
+    };
+    delete prepares[d.application.id];
+    d.prepare = { scripts: 0, libraries: 0, migrations: 0 };
+    return HttpResponse.json(saved);
   }),
 
   http.get(`${BASE}/:app/variables`, ({ params }) => {

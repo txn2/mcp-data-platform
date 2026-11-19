@@ -250,12 +250,11 @@ func (t *Toolkit) resolve(ctx context.Context, in QueryInput) (c *conn, policy R
 	if strings.TrimSpace(in.Query) == "" {
 		return nil, nil, "query is required: pass the GraphQL document to execute (graphql_discover renders one)"
 	}
-	c, policy, ok := t.serving(ctx, in.Connection)
+	c, policy, ok := t.current(ctx, in.Connection)
 	if !ok {
 		return nil, nil, fmt.Sprintf(
 			"connection %q not found (use list_connections to discover graphql connections)", in.Connection)
 	}
-	t.syncStored(ctx, c)
 	c.schemaMu.RLock()
 	schema, schemaErr := c.schema, c.schemaErr
 	c.schemaMu.RUnlock()

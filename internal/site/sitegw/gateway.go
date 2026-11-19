@@ -337,7 +337,7 @@ func (g *Gateway) serveSiteRoutes(w http.ResponseWriter, r *http.Request, route 
 		writeSiteViewer(w, viewer)
 		return true
 	case route.PartOf != "" && g.deps.Pages != nil && strings.HasPrefix(r.URL.Path, prefixEP):
-		g.deps.Pages.siteEndpoint(w, r, route.PartOf, viewer, g.deps.Access)
+		g.deps.Pages.siteEndpoint(w, r, route, viewer, g.deps.Access)
 		return true
 	}
 	return false

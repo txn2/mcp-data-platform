@@ -74,6 +74,45 @@ func TestAttempt_TheLastUnfinishedAttemptIsRecordedAsNotDrawable(t *testing.T) {
 	}
 }
 
+// TestAttempt_ADocumentThatStopsTheRendererIsRecordedAtOnce holds #2697: a
+// worker drawing one document at a time whose render ended with the renderer
+// gone, and still not answering, records that document as not drawable on the
+// first attempt rather than holding it to stop the renderer again. Drawing
+// two at a time the culprit cannot be told apart, so the attempt is held.
+func TestAttempt_ADocumentThatStopsTheRendererIsRecordedAtOnce(t *testing.T) {
+	assets := &fakeAssets{}
+	d := &fakeDrawer{results: []error{errRendererGone}, pingErr: errRendererGone}
+	w := seededWorker(d, assets, "a1")
+	_ = w.attempt(context.Background(), w.assetJob(claimed("a1", 1)))
+	u, ok := assets.update("a1")
+	if !ok || u.ThumbnailFailure == nil || !strings.Contains(*u.ThumbnailFailure, "stopped the renderer") || !u.ReleaseThumbnailClaim {
+		t.Fatalf("recorded %+v; want the document recorded as stopping the renderer", u)
+	}
+	if _, held := assets.held("a1"); held {
+		t.Error("a document recorded as stopping the renderer was also held")
+	}
+
+	for _, c := range []struct {
+		name        string
+		concurrency int
+		pingErr     error
+	}{
+		{"the renderer answers again", 1, nil},
+		{"two documents drawn at once", 2, errRendererGone},
+	} {
+		assets := &fakeAssets{}
+		w := seededWorker(&fakeDrawer{results: []error{errRendererGone}, pingErr: c.pingErr}, assets, "a1")
+		w.cfg.Concurrency = c.concurrency
+		_ = w.attempt(context.Background(), w.assetJob(claimed("a1", 1)))
+		if _, held := assets.held("a1"); !held {
+			t.Errorf("%s: the attempt was not held", c.name)
+		}
+		if _, recorded := assets.update("a1"); recorded {
+			t.Errorf("%s: the document was recorded", c.name)
+		}
+	}
+}
+
 // TestAttempt_AClaimPastTheLastAttemptIsNotDrawn: a replica that died drawing
 // the last attempt left the claim charged; the next claim records the
 // document without drawing it again.

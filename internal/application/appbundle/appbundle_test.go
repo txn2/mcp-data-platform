@@ -174,6 +174,10 @@ func (*world) RunRoleOf(context.Context, string) (*application.RunRole, error) {
 	return nil, application.ErrNoRunRole
 }
 
+func (*world) RunRoleIn(context.Context, string, string) (*application.RunRole, error) {
+	return nil, application.ErrNoRunRole
+}
+
 func (w *world) Release(_ context.Context, id string, n int) (*application.Release, error) {
 	for _, r := range w.releases[id] {
 		if r.Number == n {
@@ -301,13 +305,19 @@ func (schema) State(context.Context, string, string) (*appschema.State, error) {
 	return &appschema.State{}, nil
 }
 
-func (schema) Release(context.Context, string, string, string) (*appschema.Applied, error) {
+func (schema) StateIn(context.Context, appschema.Target) (*appschema.State, error) {
+	return &appschema.State{}, nil
+}
+
+func (schema) ApplyIn(context.Context, appschema.Target, string, int) (*appschema.Applied, error) {
 	return &appschema.Applied{Versions: []int{}, Head: 1}, nil
 }
 
-func (schema) Rollback(context.Context, string, string, string, int) (*appschema.Reverted, error) {
+func (schema) RollbackIn(context.Context, appschema.Target, string, int) (*appschema.Reverted, error) {
 	return &appschema.Reverted{}, nil
 }
+
+func (schema) Baseline(context.Context, appschema.Target, string, int) error { return nil }
 
 type lander struct{ w *world }
 
@@ -337,6 +347,7 @@ func (roles) CreateRunRole(_ context.Context, _, schema string) (role, password 
 }
 func (roles) GrantRunRole(context.Context, string, string) (string, error) { return "", nil }
 func (roles) DropRunRole(context.Context, string, string) error            { return nil }
+func (roles) CloneSchema(context.Context, string, string, string) error    { return nil }
 
 // sealer seals by wrapping.
 type sealer struct{}

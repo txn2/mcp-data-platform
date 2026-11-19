@@ -99,6 +99,33 @@ func TestAddConnection_DiscoversAndNamespacesTools(t *testing.T) {
 	}
 }
 
+// HoldsConfig: a connection is held under exactly the configuration it was
+// added with, and forgotten when removed (#2704).
+func TestHoldsConfig(t *testing.T) {
+	url := upstreamServer(t)
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+	cfg := connectionConfig(url, connCRM)
+	if tk.HoldsConfig(connCRM, cfg) {
+		t.Fatal("a connection never added is held")
+	}
+	if err := tk.AddConnection(connCRM, cfg); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	if !tk.HoldsConfig(connCRM, connectionConfig(url, connCRM)) {
+		t.Error("the configuration the connection was added with is not held")
+	}
+	if tk.HoldsConfig(connCRM, connectionConfig(url+"/other", connCRM)) {
+		t.Error("a changed endpoint is held")
+	}
+	if err := tk.RemoveConnection(connCRM); err != nil {
+		t.Fatalf("RemoveConnection: %v", err)
+	}
+	if tk.HoldsConfig(connCRM, cfg) {
+		t.Error("a removed connection is held")
+	}
+}
+
 func TestConnectionForTool_ResolvesPerToolToConnection(t *testing.T) {
 	tk := New("primary")
 	t.Cleanup(func() { _ = tk.Close() })

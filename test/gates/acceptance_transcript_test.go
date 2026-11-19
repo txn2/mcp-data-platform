@@ -161,6 +161,7 @@ func gateWith(t *testing.T, root, stdin string, args ...string) (string, bool) {
 	cmd := exec.CommandContext(t.Context(), "python3", //nolint:gosec // a fixed script under a temp root this test wrote
 		append([]string{filepath.Join(root, scriptRelPath)}, args...)...)
 	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "ACCEPTANCE_STALE_STRICT=1")
 	cmd.Stdin = strings.NewReader(stdin)
 	out, err := cmd.CombinedOutput()
 	return string(out), err == nil

@@ -179,6 +179,18 @@ func (h *Handle) handleRecording(ctx context.Context, input manageScriptInput) (
 // for one run and lets platform.export write for real (#1822), and the response
 // then lists what the run wrote.
 //
+// draftApplication is the application a draft names, its id and connection;
+// none for "" (#2709).
+func (h *Handle) draftApplication(ctx context.Context, ref string) (id, connection string, err error) {
+	if ref == "" {
+		return "", "", nil
+	}
+	if h.draftIn == nil {
+		return "", "", errors.New("this deployment keeps no applications to draft in")
+	}
+	return h.draftIn(ctx, ref, resolveEmail(ctx), h.isAdminPersona(ctx))
+}
+
 // A script need not be saved to be drafted (#1822). Source sent under a name no
 // saved script of the caller's holds runs as that prospective script: its
 // params bind against the params sent with it, and it reads the empty state a
@@ -212,6 +224,10 @@ func (h *Handle) handleRunDraft(ctx context.Context, input manageScriptInput) (*
 	if err != nil {
 		return errorResult(err.Error()), nil, nil
 	}
+	app, appConn, err := h.draftApplication(ctx, input.Application)
+	if err != nil {
+		return errorResult(err.Error()), nil, nil
+	}
 	exec := func(ctx context.Context, long scriptdraft.Long) (map[string]any, bool, error) {
 		outcome, err := scriptdraft.New(h.server, h.destinations).WithToolkits(h.toolkits).
 			WithExports(h.draftExports).WithMemoryBudget(h.runLimits.MaxMemoryBytes).
@@ -227,12 +243,12 @@ func (h *Handle) handleRunDraft(ctx context.Context, input manageScriptInput) (*
 				UserID: pc.UserID, Email: pc.UserEmail, Claims: pc.UserClaims,
 				Roles: pc.Roles, AuthType: pc.AuthType, Resources: new(resourcewrite.CallerClaims(ctx)),
 			},
-			AllowWrites: input.AllowWrites, Long: long,
+			AllowWrites: input.AllowWrites, Long: long, Application: app, ApplicationConnection: appConn,
 		})
 		if err != nil {
 			return nil, false, err //nolint:wrapcheck // the runner's sentence
 		}
-		return draftResult(sc, outcome), outcome.Err != nil, nil
+		return scriptdraft.Report(sc, outcome), outcome.Err != nil, nil
 	}
 	var out map[string]any
 	if background {
@@ -305,128 +321,6 @@ func runnable(sc *script.Script) *mcp.CallToolResult {
 		return errorResult(err.Error())
 	}
 	return nil
-}
-
-// draftResult renders one draft run, successful or failed. A failed run still
-// reports its log and metrics: the log is the whole reason to have run it.
-func draftResult(sc *script.Script, outcome *scriptdraft.Outcome) map[string]any {
-	result, runErr := outcome.Result, outcome.Err
-	out := map[string]any{
-		fieldName: sc.Name, "run_id": outcome.RunID, "draft": true,
-		fieldStatus: "succeeded", "queries": 0, "exports": []scriptrun.ExportRecord{},
-		"writes": []scriptrun.WriteRecord{},
-	}
-	if result != nil {
-		out["log"] = result.Log
-		out["log_truncated"] = result.LogTruncated
-		out["steps"] = result.Steps
-		out["duration_ms"] = result.Duration.Milliseconds()
-		out["queries"] = result.Queries
-		if result.SlowestStatement != nil {
-			out["slowest_statement"] = result.SlowestStatement
-		}
-		// How close the draft came to the memory budget, before a scheduled
-		// run finds out (#1861).
-		out["peak_memory_bytes"] = result.PeakMemory
-		out["exports"] = orEmptyExports(result.Exports)
-		out["writes"] = orEmptyWrites(result.Writes)
-		// A draft reports what a platform run would hand back and its last
-		// progress report, the same fields get_run carries (#1845, #1847).
-		if result.Return != nil {
-			out["result"] = result.Return
-		}
-		if result.Progress != nil {
-			out["progress"] = result.Progress
-		}
-	}
-	// What a platform run would commit, and a failed run's save_state that
-	// it would discard rather than save (#2002, #2003).
-	if st := outcome.State(); st.Committed != nil || st.Discarded != nil {
-		if st.Committed != nil {
-			out["state"] = orEmptyParams(st.Committed)
-		}
-		if st.Checkpoint {
-			out["state_checkpoint"] = true
-		}
-		if st.Discarded != nil {
-			out["state_discarded"] = orEmptyParams(st.Discarded)
-		}
-	}
-	if outcome.Recorded {
-		// What a test replays (#1939).
-		out["recording"] = outcome.RunID
-		out["recording_note"] = fmt.Sprintf("This draft's host calls and their answers were recorded. A test replays them "+
-			"with testing.replay(%q); see command=help for how a test is written.", outcome.RunID)
-	}
-	if runErr != nil {
-		out[fieldStatus] = "failed"
-		out["error"] = runErr.Error()
-		out["retryable"] = false
-		out["message"] = draftFailureMessage(result)
-		if refused := refusedWriteOf(result); refused != nil {
-			out["refused_write"] = refused
-		}
-	} else {
-		out["message"] = outcome.Persisted("draft")
-	}
-	// A draft of a script that is not saved says so, because nothing names it
-	// yet: no schedule fires it and no run_script reaches it until it is.
-	if sc.ID == "" {
-		out["saved"] = false
-	}
-	return out
-}
-
-// draftFailureMessage states why the draft ended, separating the two failures
-// an author acts on differently: a script that is wrong, and a script that is
-// right but wanted to write.
-func draftFailureMessage(result *scriptrun.Result) string {
-	if refused := refusedWriteOf(result); refused != nil {
-		return "The draft stopped at a call that persists (refused_write), because a draft does not write. " +
-			"Its recording holds every call before the write: a test replays it and answers the write with " +
-			"testing.answer(tool, args, answer), so the script is tested and saved without writing anything. " +
-			"Run it again with allow_writes only to write for real; it will report every write it made."
-	}
-	return "The script raised this failure. If it reacted to something outside the script, such as an upstream " +
-		"that answered with an error, running the draft again may pass; if it fails the same way again, fix the " +
-		"script and run the draft again."
-}
-
-// refusedWriteOf reads the barred call off a result, tolerating the nil result
-// a run that never started leaves.
-func refusedWriteOf(result *scriptrun.Result) *scriptrun.WriteRecord {
-	if result == nil {
-		return nil
-	}
-	return result.RefusedWrite
-}
-
-// writesOf reads the persisting calls off a result, tolerating the nil result a
-// run that never started leaves.
-func writesOf(result *scriptrun.Result) []scriptrun.WriteRecord {
-	if result == nil {
-		return nil
-	}
-	return result.Writes
-}
-
-// orEmptyWrites normalizes a nil write slice so the response carries a list
-// rather than null: a reader checking what a draft persisted must be able to
-// read the empty answer as an empty list.
-func orEmptyWrites(writes []scriptrun.WriteRecord) []scriptrun.WriteRecord {
-	if writes == nil {
-		return []scriptrun.WriteRecord{}
-	}
-	return writes
-}
-
-// orEmptyExports normalizes a nil export slice so the response carries a list
-// rather than null.
-func orEmptyExports(exports []scriptrun.ExportRecord) []scriptrun.ExportRecord {
-	if exports == nil {
-		return []scriptrun.ExportRecord{}
-	}
-	return exports
 }
 
 // tableTargetChecker is the half of the asset toolkit validate asks whether a

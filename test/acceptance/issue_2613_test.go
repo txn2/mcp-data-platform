@@ -52,6 +52,8 @@ func TestIssue2613_APortalApplicationTakesASiteEnvironment(t *testing.T) {
 	s := newSite2604(t, keyAdmin2604, "acc2613-")
 	app := "acc2613-shop-" + stamp
 	app2527(t, admin, app)
+	// A site environment calls the application environment of its name (#2709).
+	admin.application(map[string]any{"command": "add_environment", "application": app, "environment": "dev"})
 
 	found := candidates2613(t, admin, app, s.name)
 	dev, ok := found[sitePart2613(s.name, "dev")]
@@ -102,6 +104,9 @@ func TestIssue2613_APersonIsOfferedTheirOwnSites(t *testing.T) {
 	theirs := newSite2604(t, keyAdmin2604, "acc2613-theirs-")
 	app := "acc2613-own-" + stamp
 	app2527(t, owner, app)
+	// A site environment calls the application environment of its name
+	// (#2709); environments are an administrator's.
+	connectAs(t, keyAdmin2604).application(map[string]any{"command": "add_environment", "application": app, "environment": "dev"})
 
 	found := candidates2613(t, owner, app, "acc2613-")
 	if _, ok := found[sitePart2613(mine.name, "dev")]; !ok {

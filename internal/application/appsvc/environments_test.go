@@ -53,6 +53,12 @@ func (m *memStore) AddEnvironment(_ context.Context, id string, e application.En
 	if _, _, ok := a.EnvironmentNamed(e.Name); ok && e.Name != "" {
 		return application.ErrNameTaken
 	}
+	if e.Held != nil {
+		m.runRoles[id+"/"+e.Held.Schema] = application.RunRole{
+			ApplicationID: id, Connection: e.Held.Connection, Schema: e.Held.Schema, Role: e.Held.Role, SealedPassword: e.Held.SealedPassword,
+		}
+	}
+	e.Held = nil
 	a.Environments = slices.Insert(a.Environments, at, e)
 	return nil
 }
@@ -131,7 +137,7 @@ func TestReleasePromoteRollbackPerEnvironment(t *testing.T) {
 	require.ErrorContains(t, err, `no environment "qa"`)
 	p, err := svc.Promote(ctx, admin, "shop", "dev")
 	require.NoError(t, err)
-	assert.Equal(t, Promoted{From: "dev", To: "prod", Release: rel.Number}, *p)
+	assert.Equal(t, Promoted{From: "dev", To: "prod", Release: rel.Number, Applied: []int{}}, *p)
 	_, err = svc.Promote(ctx, admin, "shop", "dev")
 	require.ErrorContains(t, err, "already runs")
 	a, _ = svc.Find(ctx, "shop")
@@ -283,4 +289,90 @@ func TestEnvironmentMovesToAnUnreadableRelease(t *testing.T) {
 	store.releases["app_shop"] = store.releases["app_shop"][1:]
 	_, err = svc.RollbackIn(ctx, admin, "shop", "dev", 1)
 	require.Error(t, err, "release 1 is gone")
+}
+
+// siteEnvFixture is envFixture with a site, shop-web, whose dev and prod
+// environments are coupled parts of shop (#2709).
+func siteEnvFixture(t *testing.T) (*Service, *fakeSites) {
+	t.Helper()
+	svc, _ := envFixture(t)
+	sites := &fakeSites{owner: jane.Email, latest: 5, step: map[string]int{"prod": 4}, releases: map[int]bool{3: true, 4: true, 5: true}}
+	svc.Sites = sites
+	for _, id := range []string{"shop-web/dev", "shop-web/prod"} {
+		_, err := svc.AddPartMode(context.Background(), jane, "shop", application.Part{Kind: application.KindSite, ID: id, ReleaseMode: application.ModeCoupled})
+		require.NoError(t, err)
+	}
+	return svc, sites
+}
+
+// A site environment part calls the application environment of its name,
+// so one naming an environment the application lacks is refused, and an
+// environment a part calls cannot be removed (#2709).
+func TestSitePartsCallTheirEnvironment(t *testing.T) {
+	ctx := context.Background()
+	svc, _ := siteEnvFixture(t)
+	_, err := svc.AddPartMode(ctx, jane, "shop", application.Part{Kind: application.KindSite, ID: "shop-web/staging"})
+	require.ErrorContains(t, err, "would call environment staging of application \"shop\", which it does not have (it has dev, prod); add environment staging first")
+	_, err = svc.RemoveEnvironment(ctx, admin, "shop", "dev")
+	require.ErrorContains(t, err, "dev can't be removed: site part shop-web/dev calls it. Remove that site part first")
+
+	_, err = svc.AddEnvironment(ctx, admin, "shop", application.Environment{Name: "staging"}, "dev")
+	require.NoError(t, err)
+	_, err = svc.AddPartMode(ctx, jane, "shop", application.Part{Kind: application.KindSite, ID: "shop-web/staging"})
+	require.NoError(t, err, "once the application has staging, its part is added")
+}
+
+// A release moves only the site parts calling the first environment; a
+// promote moves the target's to the site release the source ran with it; a
+// rollback returns only the parts calling the environment it moves (#2709).
+func TestSitePartsMoveWithTheirEnvironment(t *testing.T) {
+	ctx := context.Background()
+	svc, sites := siteEnvFixture(t)
+
+	first, err := svc.Release(ctx, admin, "shop", "first")
+	require.NoError(t, err)
+	assert.Equal(t, []pinCall{{admin.Email, "shop-web", "dev", 5}}, sites.pins, "the release moves dev's site part only")
+
+	sites.pins = nil
+	_, err = svc.Promote(ctx, admin, "shop", "dev")
+	require.NoError(t, err)
+	assert.Equal(t, []pinCall{{admin.Email, "shop-web", "prod", 5}}, sites.pins, "prod's part moves to the site release dev ran with release %d", first.Number)
+
+	sites.latest = 6
+	sites.releases[6] = true
+	sites.pins = nil
+	_, err = svc.Release(ctx, admin, "shop", "second")
+	require.NoError(t, err)
+	assert.Equal(t, []pinCall{{admin.Email, "shop-web", "dev", 6}}, sites.pins)
+
+	sites.pins = nil
+	_, err = svc.Promote(ctx, admin, "shop", "dev")
+	require.NoError(t, err)
+	assert.Equal(t, []pinCall{{admin.Email, "shop-web", "prod", 6}}, sites.pins)
+
+	sites.pins = nil
+	_, err = svc.RollbackIn(ctx, admin, "shop", "prod", 0)
+	require.NoError(t, err)
+	assert.Equal(t, []pinCall{{admin.Email, "shop-web", "prod", 5}}, sites.pins, "a rollback in prod returns prod's part only")
+
+	sites.pins = nil
+	_, err = svc.RollbackIn(ctx, admin, "shop", "dev", 0)
+	require.NoError(t, err)
+	assert.Equal(t, []pinCall{{admin.Email, "shop-web", "dev", 5}}, sites.pins, "a rollback in dev returns dev's part only")
+}
+
+// A release needs nothing of a later environment's site part: it takes the
+// pin of the site's part calling the first environment, so a site whose
+// environment before prod serves no release does not refuse it (#2709).
+func TestARelease_NeedsNoStepOfALaterSitePart(t *testing.T) {
+	ctx := context.Background()
+	svc, sites := siteEnvFixture(t)
+	sites.step["prod"] = 0
+	rel, err := svc.Release(ctx, admin, "shop", "first")
+	require.NoError(t, err, "prod's part does not move on a release, so its own step is not what pins it")
+	pins := map[string]int{}
+	for _, p := range rel.Pins {
+		pins[p.PartID] = p.Version
+	}
+	assert.Equal(t, map[string]int{"shop-web/dev": 5, "shop-web/prod": 5}, map[string]int{"shop-web/dev": pins["shop-web/dev"], "shop-web/prod": pins["shop-web/prod"]})
 }

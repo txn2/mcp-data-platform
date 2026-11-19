@@ -60,6 +60,7 @@ The platform keeps each connection's schema and serves discovery from it rather 
 - A request for a connection a replica does not hold yet reads the connection's saved configuration and its stored schema, and serves it. A connection the store no longer holds is not served.
 - A request that uses a connection's schema (`graphql_discover`, `graphql_query`, `graphql_export`, the schema route, a re-read) first reads the stored schema's version: its hash, when it was read, and the refusal recorded beside it. When that differs from what the replica holds, the replica installs the stored schema before answering. The schema itself is read only then.
 - The announcement of a saved connection installs it the same way, from the store, and reads the endpoint only when the store holds no schema for it. What such a read finds is served on that replica and not stored.
+- A request answers from the connection it brought up to the stored version (#2704). When an announcement replaces the connection between the request finding it and reading the stored version, the request takes the replacement and brings that one up to date instead, so an upload made while the announcement was being applied is what the request reports and discovers from.
 
 Two replicas therefore answer one schema state for one connection from the moment a save, an upload or a re-read returns, and a replica whose own read fails serves what the store holds rather than nothing.
 

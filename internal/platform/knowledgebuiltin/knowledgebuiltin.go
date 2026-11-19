@@ -82,6 +82,7 @@ const (
 	slugSites         = "platform-pages-and-sites"
 	slugFromSource    = "platform-sites-from-source"
 	slugPublicApps    = "platform-public-applications"
+	slugAppEnvs       = "platform-application-environments"
 	// The PostgreSQL design pages (#2448).
 	slugPGWrites    = "platform-postgres-write-patterns"
 	slugPGIntegrity = "platform-postgres-integrity"
@@ -155,7 +156,14 @@ var pageMetas = []pageMeta{
 		slug:    slugApps,
 		summary: "Building an application on the platform end to end, a shop as the worked example: the schema first through migrations, a checkout in one transaction, identity and row-level security, endpoints and forms as the front, outbox events for side effects, scheduled maintenance, and a release with manage_application that pins it all, with rollback, export and import.",
 		tags:    []string{tagApplications, "application database", tagEndpoints, "forms", "releases"},
-		related: []string{slugAppDB, slugPGWrites, slugPGSecurity, slugPGProvides, slugWriting, slugPublicApps},
+		related: []string{slugAppDB, slugAppEnvs, slugPGWrites, slugPGSecurity, slugPGProvides, slugWriting, slugPublicApps},
+	},
+	{
+		file:    "application-environments.md",
+		slug:    slugAppEnvs,
+		summary: "Running one application in dev and prod, each with its own data (#2709): an environment's release, variables, schema and the site environments that call it; connections and keys from platform.env per environment and shared defaults; unqualified SQL and migrations that name no role; sites calling the environment of their name; what promote and rollback move; bringing an older application over with prepare; and every refusal with its fix.",
+		tags:    []string{tagApplications, "environments", "application database", tagSites, "releases"},
+		related: []string{slugApps, slugAppDB, slugSites, slugWriting},
 	},
 	{
 		file:    "public-applications.md",

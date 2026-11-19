@@ -232,12 +232,20 @@ func OutboxIdentifier(name string) (string, error) {
 // set, notifies its channel, and a trigger on each table in capture (a bare
 // name is in schema).
 // down removes the triggers, the function and the table.
+//
+// It names nothing in schema with the schema (#2709): an application's
+// migration applies to every environment's schema with the search path set
+// to it, so the outbox, the function and a bare capture land in the schema
+// the migration is applied to. The function pins that search path (SET
+// search_path FROM CURRENT), so a write by any session reaches its own
+// environment's outbox, and notifies its own environment's channel
+// (current_schema() and the table, which is OutboxChannel in that schema).
 func OutboxTemplate(schema, table string, capture []string, notify bool) (up, down string, err error) {
-	ident, err := OutboxIdentifier(schema + "." + table)
-	if err != nil {
+	if _, err := OutboxIdentifier(schema + "." + table); err != nil {
 		return "", "", err
 	}
-	fn := pgx.Identifier{schema, table + "_capture"}.Sanitize()
+	ident := pgx.Identifier{table}.Sanitize()
+	fn := pgx.Identifier{table + "_capture"}.Sanitize()
 	trigger := pgx.Identifier{table + "_capture"}.Sanitize()
 	var u, d strings.Builder
 	fmt.Fprintf(&u, `CREATE TABLE %s (
@@ -247,7 +255,7 @@ func OutboxTemplate(schema, table string, capture []string, notify bool) (up, do
     %s jsonb NOT NULL,
     %s timestamptz NOT NULL DEFAULT now()
 );
-CREATE FUNCTION %s() RETURNS trigger LANGUAGE plpgsql AS $outbox$
+CREATE FUNCTION %s() RETURNS trigger LANGUAGE plpgsql SET search_path FROM CURRENT AS $outbox$
 BEGIN
     INSERT INTO %s (%s, %s, %s)
     VALUES (TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME, TG_OP, to_jsonb(CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END));
@@ -255,13 +263,16 @@ BEGIN
 END
 $outbox$;
 `, ident, outboxColID, outboxColTable, outboxColOp, outboxColPayload, outboxColCreated,
-		fn, ident, outboxColTable, outboxColOp, outboxColPayload, notifyLine(schema, table, notify))
+		fn, ident, outboxColTable, outboxColOp, outboxColPayload, notifyLine(table, notify))
 	for _, name := range capture {
 		cs, ct, err := splitTable(name, schema)
 		if err != nil {
 			return "", "", err
 		}
-		target := pgx.Identifier{cs, ct}.Sanitize()
+		target := pgx.Identifier{ct}.Sanitize()
+		if cs != schema {
+			target = pgx.Identifier{cs, ct}.Sanitize()
+		}
 		fmt.Fprintf(&u, "CREATE TRIGGER %s AFTER INSERT OR UPDATE OR DELETE ON %s FOR EACH ROW EXECUTE FUNCTION %s();\n", trigger, target, fn)
 		fmt.Fprintf(&d, "DROP TRIGGER IF EXISTS %s ON %s;\n", trigger, target)
 	}
@@ -273,11 +284,11 @@ $outbox$;
 // or nothing when notify is off. A transaction that notifies takes a lock
 // held across every notifying commit, which serializes a table written by
 // many sessions at once; without it the source's poll alone finds the rows.
-func notifyLine(schema, table string, notify bool) string {
+func notifyLine(table string, notify bool) string {
 	if !notify {
 		return ""
 	}
-	return "    PERFORM pg_notify('" + OutboxChannel(schema, table) + "', '');\n"
+	return "    PERFORM pg_notify(current_schema() || '." + table + "', '');\n"
 }
 
 // listenProbeWait is how long the probe waits for its own notification.

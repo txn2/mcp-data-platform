@@ -79,3 +79,43 @@ describe("ReplyComposer (#2532)", () => {
     expect(applyFormat("a\nb", 0, 3, list).text).toBe("- a\n- b");
   });
 });
+
+// #2705: on a phone's sheet the box waits as one row so the comments get the
+// sheet, and opens with its toolbar, tabs and buttons when tapped.
+describe("ReplyComposer on a phone's sheet", () => {
+  it("is one Reply row until tapped, then opens without the expand control", () => {
+    const onOpen = vi.fn();
+    render(<ReplyComposer threadId="t1" thread={thread} mayResolve collapsible onOpen={onOpen} />);
+    expect(screen.queryByLabelText("Reply")).toBeNull();
+    expect(screen.queryByRole("toolbar", { name: "Formatting" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reply and resolve" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Reply…" }));
+    expect(onOpen).toHaveBeenCalled();
+    expect(screen.getByRole("toolbar", { name: "Formatting" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Write" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reply and resolve" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Expand the reply box" })).toBeNull();
+    expect(screen.getByLabelText("Reply").className).toContain("min-h-20");
+  });
+
+  it("folds back once the reply is posted", () => {
+    append.mockImplementation((_input, opts: { onSuccess: () => void }) => opts.onSuccess());
+    render(<ReplyComposer threadId="t1" thread={thread} mayResolve={false} collapsible />);
+    fireEvent.click(screen.getByRole("button", { name: "Reply…" }));
+    fireEvent.change(screen.getByLabelText("Reply"), { target: { value: "week 45 too" } });
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+    expect(append).toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Reply…" })).toBeInTheDocument();
+  });
+
+  it("folds back when left empty, and opens with a draft", () => {
+    const { unmount } = render(<ReplyComposer threadId="t1" thread={thread} mayResolve={false} collapsible />);
+    fireEvent.click(screen.getByRole("button", { name: "Reply…" }));
+    fireEvent.blur(screen.getByLabelText("Reply"), { relatedTarget: document.body });
+    expect(screen.getByRole("button", { name: "Reply…" })).toBeInTheDocument();
+    unmount();
+    sessionStorage.setItem("thread-reply-draft:t1", "half written");
+    render(<ReplyComposer threadId="t1" thread={thread} mayResolve={false} collapsible />);
+    expect(screen.getByLabelText("Reply")).toHaveValue("half written");
+  });
+});

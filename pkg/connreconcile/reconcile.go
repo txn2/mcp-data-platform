@@ -158,9 +158,16 @@ func (r *Reconciler) Validate(kind, name string, config map[string]any) error {
 	return nil
 }
 
-// upsertOne applies one connection change to one toolkit.
+// upsertOne applies one connection change to one toolkit. A toolkit that
+// already serves name under exactly config (toolkit.ConfigHolder) is left
+// alone: replacing it would close the client a call in flight is using, which
+// is what a peer's announcement of a save this replica already took on from
+// the store did (#2704).
 func upsertOne(cm toolkit.ConnectionManager, name string, config map[string]any) (failure Failure, ok bool) {
 	if cm.HasConnection(name) {
+		if holder, holds := cm.(toolkit.ConfigHolder); holds && holder.HoldsConfig(name, config) {
+			return Failure{}, true
+		}
 		if updater, updates := cm.(toolkit.ConnectionUpdater); updates {
 			if err := updater.UpdateConnection(name, config); err != nil {
 				return Failure{Phase: PhaseUpdate, Err: err}, false

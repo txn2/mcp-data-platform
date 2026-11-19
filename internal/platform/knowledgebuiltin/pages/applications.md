@@ -72,17 +72,21 @@ First the application and its schema:
 
 Adding the schema creates the application's run role, `shop_run_` followed by
 eight characters derived from the database's name, which every
-statement of the application's scripts logs in as (below). `manage_schema`
+statement of the application's scripts logs in as (below). Each environment
+added later runs in a schema of its own with a run role of its own
+(mcp:knowledge_page:platform-application-environments). `manage_schema`
 refuses to add, plan or apply a migration on a schema no application holds,
 naming this call.
 
 Each block below is one migration. Add each with `manage_schema` `add`
 (`connection: "orders"`, `schema: "shop"`, `version`, `name`, `up`, and a
-`down` that undoes it), read `plan`, then `apply`. A migration runs with the
-schema as its search path, so it names tables bare; a script's statement runs
-with the connection's, so the scripts below name them `shop.`. The checks
-below are the database's, so every write path is held to them, the checkout
-included.
+`down` that undoes it), read `plan`, then `apply`. A migration runs with its
+environment's schema as its search path, and so does every statement of the
+application's scripts, so both name tables bare: `orders`, never
+`shop.orders`. A name written with the schema would reach that schema from
+every environment, so a migration naming one is refused when it is added, and
+a script save that adds one is refused naming the line. The checks below are
+the database's, so every write path is held to them, the checkout included.
 
 ```sql
 CREATE TABLE products (
@@ -151,45 +155,29 @@ updated or deleted order into it, and a notification on its channel. Add and
 apply it like the others.
 
 The schema is owned by the connection's user, which runs its migrations; the
-application's statements never run as the owner. They log in as the shop's run role, the
-role the platform created when the schema was added, with no `SUPERUSER` and no
-`BYPASSRLS`, so the policies above hold it. What it may do is the application's
-to define, in a last migration, with roles that cannot log in and whose names
-start with the schema's (a migration naming any other role, or `PUBLIC`, is
-refused). The platform grants the run role `shop_write` once a migration
-defines it:
-
-```sql no-run
-DO $$BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'shop_read') THEN CREATE ROLE shop_read NOLOGIN; END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'shop_write') THEN CREATE ROLE shop_write NOLOGIN IN ROLE shop_read; END IF;
-END$$;
-REVOKE ALL ON SCHEMA shop FROM PUBLIC;
-GRANT USAGE ON SCHEMA shop TO shop_read;
-GRANT SELECT ON products, inventory, orders, order_lines TO shop_read;
-GRANT INSERT, UPDATE, DELETE ON products, inventory TO shop_write;
-GRANT INSERT, UPDATE ON orders, order_lines TO shop_write;
-GRANT INSERT ON outbox TO shop_write;
-GRANT USAGE ON ALL SEQUENCES IN SCHEMA shop TO shop_write;
-GRANT MAINTAIN ON orders, order_lines, inventory TO shop_write;
-```
-
-The roles are created only when absent: the platform applies the migrations
-from zero on a throwaway database on the same server before saving each one,
-and a role belongs to the whole server. The down migration is `DROP OWNED BY
-shop_write, shop_read; DROP ROLE shop_write; DROP ROLE shop_read;`. A
+application's statements never run as the owner. They log in as the run role
+of their environment's schema, the role the platform created when the schema
+was added (or the environment, for one added later), with no `SUPERUSER` and
+no `BYPASSRLS`, so the policies above hold it. Its grants come from the
+platform: after each release and promote applies migrations, the run role of
+that environment's schema is granted `USAGE` on the schema and `SELECT`,
+`INSERT`, `UPDATE` and `DELETE` on every table, sequence and routine in it,
+and nothing on any other schema. A migration names no role: one that creates,
+alters, drops or grants to a role, `PUBLIC` included, is refused when it is
+added, since the same migration applies to every environment's schema and a
+role belongs to the whole server. A shop built before environments, whose
+migrations defined `shop_write`, keeps its run role a member of it as well. A
 migration never gives a role a password; one that does is refused.
 
-The application keeps its own catalog, so it writes products and stock; it
-never deletes an order. `MAINTAIN` lets the maintenance script below vacuum
-and analyze the tables it does not own. Its scripts' statements cannot change
-a table (`DROP TABLE`, `ALTER TABLE`, `CREATE TABLE` are refused by the
-database); every change to the schema is a migration a release applies. Only
-the shop's own scripts reach `shop`: another application's script is refused
-by the database, with an error naming the shop and saying to use its
-endpoints and exports, and adding a script that uses `shop` to another
-application is refused. More on the roles, and narrower grants, is on
-mcp:knowledge_page:platform-application-databases.
+Its scripts' statements cannot change a table (`DROP TABLE`, `ALTER TABLE`,
+`CREATE TABLE` are refused by the database); every change to the schema is a
+migration a release applies. Only the shop's own scripts reach `shop`:
+another application's script is refused by the database, with an error
+naming the shop and saying to use its endpoints and exports, and adding a
+script that uses `shop` to another application is refused. A run in one
+environment reaches only that environment's schema: a statement naming
+another's is refused by the database (`permission denied for schema shop`).
+More on the roles is on mcp:knowledge_page:platform-application-databases.
 
 ## 2. The checkout, in one transaction
 
@@ -206,20 +194,20 @@ approved (`manage_approval`), so request that approval early.
 CONNECTION = "orders"
 
 PLACE_ORDER = """
-    INSERT INTO shop.orders (customer_email)
+    INSERT INTO orders (customer_email)
     VALUES (nullif(current_setting('mcp.email', true), ''))
     RETURNING id
 """
 
 ADD_LINE = """
-    INSERT INTO shop.order_lines (order_id, sku, qty, price)
-    SELECT :order_id, sku, :qty, price FROM shop.products WHERE sku = :sku AND active
+    INSERT INTO order_lines (order_id, sku, qty, price)
+    SELECT :order_id, sku, :qty, price FROM products WHERE sku = :sku AND active
 """
 
-TAKE_STOCK = "UPDATE shop.inventory SET on_hand = on_hand - :qty WHERE sku = :sku"
+TAKE_STOCK = "UPDATE inventory SET on_hand = on_hand - :qty WHERE sku = :sku"
 
 SET_TOTAL = """
-    UPDATE shop.orders SET total = (SELECT sum(qty * price) FROM shop.order_lines WHERE order_id = :id)
+    UPDATE orders SET total = (SELECT sum(qty * price) FROM order_lines WHERE order_id = :id)
      WHERE id = :id
 """
 
@@ -248,7 +236,7 @@ def place(lines):
 
 def form_spec(req):
     """The checkout form: up to two products and their quantities."""
-    products = platform.query("SELECT sku, name FROM shop.products WHERE active ORDER BY name", connection = CONNECTION)
+    products = platform.query("SELECT sku, name FROM products WHERE active ORDER BY name", connection = CONNECTION)
     choices = [{"value": p["sku"], "label": p["name"]} for p in products["rows"]]
     return {
         "fields": [
@@ -295,7 +283,7 @@ def products():
     """The active products with their stock."""
     rows = platform.query("""
         SELECT p.sku, p.name, p.price, i.on_hand
-          FROM shop.products p JOIN shop.inventory i USING (sku)
+          FROM products p JOIN inventory i USING (sku)
          WHERE p.active ORDER BY p.name
     """, connection = CONNECTION)
     return {"json": {"products": rows["rows"]}}
@@ -305,7 +293,7 @@ def my_orders():
     rows = platform.query("""
         SELECT o.id, o.total, o.placed_at,
                json_agg(json_build_object('sku', l.sku, 'qty', l.qty) ORDER BY l.sku) AS lines
-          FROM shop.orders o JOIN shop.order_lines l ON l.order_id = o.id
+          FROM orders o JOIN order_lines l ON l.order_id = o.id
          GROUP BY o.id ORDER BY o.placed_at DESC
     """, connection = CONNECTION)
     return {"json": {"orders": rows["rows"]}}
@@ -325,10 +313,10 @@ def main():
 def test_the_products_and_an_unknown_resource():
     """Lists the products with their stock, and answers 404 for anything else."""
     testing.database(CONNECTION, schemas = ["shop"])
-    platform.execute("DELETE FROM shop.inventory", connection = CONNECTION)
-    platform.execute("DELETE FROM shop.products", connection = CONNECTION)
-    platform.execute("INSERT INTO shop.products (sku, name, price) VALUES ('mug', 'Mug', 12.50)", connection = CONNECTION)
-    platform.execute("INSERT INTO shop.inventory (sku, on_hand) VALUES ('mug', 5)", connection = CONNECTION)
+    platform.execute("DELETE FROM inventory", connection = CONNECTION)
+    platform.execute("DELETE FROM products", connection = CONNECTION)
+    platform.execute("INSERT INTO products (sku, name, price) VALUES ('mug', 'Mug', 12.50)", connection = CONNECTION)
+    platform.execute("INSERT INTO inventory (sku, on_hand) VALUES ('mug', 5)", connection = CONNECTION)
     main()
     listed = testing.outputs().result["json"]["products"]
     assert.eq([(p["sku"], p["on_hand"]) for p in listed], [("mug", 5)])
@@ -428,7 +416,10 @@ reads the same list from `/endpoints/shop/products`.
    later when it needs one. Removing the schema (`remove_part`, `kind:
    "schema"`) drops the run role and leaves the schema and its data; on a
    released application it is an administrator's.
-2. `add_part` for each script (`kind: "script"`, its id: checkout, API,
+2. Each script is drafted, before its first save, with `manage_script
+   command=run_draft application=shop`: a script that is not a part yet
+   belongs to no application, and its unqualified SQL finds no table.
+   `add_part` for each script (`kind: "script"`, its id: checkout, API,
    confirmation, maintenance), the storefront asset (`kind: "asset"`), and the
    outbox webhook source (`kind: "source"`, its name). A part belongs to one
    application; adding one held by another is refused naming it. The owner
@@ -441,12 +432,19 @@ reads the same list from `/endpoints/shop/products`.
 3. `get` shows what a release would change (`pending`), the schema part
    (`schema`: its migration version, the one the current release recorded,
    the pending migrations and the role its scripts log in as), and anything
-   a release would refuse (`problems`).
-4. `release` (an administrator) applies the pending migrations and pins each
-   script's and asset's newest version, and moves each coupled site
-   environment, and each linked one `move_sites` names, to the release the
-   environment before it serves (dev at the site's newest), as promoting it
-   would. A migration that fails refuses the release and changes nothing.
+   a release would refuse (`problems`). The diagram behind `problems` reads
+   which tables each script writes from its source: keep statements as module
+   constants or constants of a library the script loads, and pass them as
+   lists, through helpers, loops and `+` as you like. A statement built from
+   values the script only has when it runs (a table name from a parameter)
+   reads as a write to a table named only when it runs, and a table no part
+   is known to write is then reported as one such a script may write.
+4. `release` (an administrator) applies the pending migrations to the first
+   environment's schema and pins each script's and asset's newest version,
+   and moves each coupled site environment calling the first environment,
+   and each linked one `move_sites` names, to the release the environment
+   before it serves (dev at the site's newest), as promoting it would. A
+   migration that fails refuses the release and changes nothing.
 
 From then on the endpoints, the forms, the schedules, the events and
 `run_script` run the pinned script versions, and the portal serves the pinned
@@ -472,18 +470,25 @@ creates or releases the application there. A migration that writes a
 credential (`PASSWORD '...'`) is refused when it is added, so no bundle ever
 carries one.
 
-**Environments (#2696).** An application starts with one environment,
+**Environments (#2696, #2709).** An application starts with one environment,
 prod. `add_environment` with `environment: "dev"` and no `after` puts dev
-first, so releases land there: `release` lands in the first environment, `promote` with `environment: "dev"` copies dev's release to
-prod, and `rollback` with `environment` moves one back. `/endpoints/<name>`
-serves the last environment; another answers at
-`/environments/<env>/endpoints/<name>`. Keep what differs between
-environments in variables, not in code: `set_variable` with `variable`,
-`value` and `environment` (none sets the default), read in a script with
-`platform.env("API_BASE")`. A secret is never a variable's value: write
-`{{secret:<name>}}` and the gateway fills it when the request is sent.
-An environment with `requires_approval` refuses your promote into it; ask
-the person to promote it on the application's page.
+first, so releases land there: `release` lands in the first environment,
+`promote` with `environment: "dev"` copies dev's release to prod, applying the
+migrations it recorded to prod's schema first, and `rollback` with
+`environment` moves one back. Each environment runs in a schema of its own
+(`shop_dev` for dev unless `schema` names another), built from the last
+environment's structure with no rows, and its runs reach no other: dev's runs
+read and write dev's rows only. `/endpoints/<name>` serves the last
+environment; another answers at `/environments/<env>/endpoints/<name>`. Keep
+what differs between environments in variables, not in code: `set_variable`
+with `variable`, `value` and `environment` (none sets the default), read in a
+script with `platform.env("PAYMENTS_CONNECTION")`. A secret is never a
+variable's value: write `{{secret:<name>}}` and the gateway fills it when the
+request is sent. An environment with `requires_approval` refuses your promote
+into it; ask the person to promote it on the application's page. An
+application built before environments names its schema in its SQL: run
+`prepare` and save its change before `add_environment`. The whole job, with a
+worked example, is mcp:knowledge_page:platform-application-environments.
 
 ## Giving it a front
 
@@ -493,11 +498,15 @@ application: mcp:knowledge_page:platform-pages-and-sites.
 
 A site part is **linked** (the default) or **coupled** (`release_mode` on
 `add_part`, changed with `set_part`). Both call the application's
-`/endpoints/<name>` on the site's own address with its cookies and viewer. A
-linked part moves only by `manage_site promote` and `rollback`, unless a
-release names it in `move_sites`, and a rollback returns it only when the
-rolled-back release moved it; a coupled part moves one step with every release
-and returns with every rollback. Make a front end coupled when it must ship
+`/endpoints/<name>` on the site's own address with its cookies and viewer, in
+the application environment of the site environment's name: `shop-web/dev`
+calls dev, `shop-web/prod` calls prod, and a site environment whose name the
+application has no environment of is refused as a part. A linked part moves
+only by `manage_site promote` and `rollback`, unless a release names it in
+`move_sites`, and a rollback returns it only when the rolled-back release
+moved it; a coupled part moves one step when a release reaches the
+environment it calls (a release into dev moves `shop-web/dev`, a promote into
+prod moves `shop-web/prod`) and returns with that environment's rollback. Make a front end coupled when it must ship
 with every backend change; leave it linked when it has its own cadence, as one
 of several storefronts would.
 

@@ -511,10 +511,19 @@ func (p *Pages) static(w http.ResponseWriter, r *http.Request, entry *appEntry, 
 // viewer must come from this origin, whatever its method: every site and
 // environment under the pages domain is one site to a browser, so a sibling's
 // page could otherwise fire this environment's endpoints as its viewer.
-func (p *Pages) siteEndpoint(w http.ResponseWriter, r *http.Request, appName string, viewer *epform.Viewer, access *Access) {
-	entry := p.application(r.Context(), appName)
+//
+// The endpoint runs in the application environment of the site
+// environment's name (#2709), so a site's dev reads and writes dev's data. An
+// application with no environment of that name answers 404 saying so; it
+// never falls back to another environment.
+func (p *Pages) siteEndpoint(w http.ResponseWriter, r *http.Request, route *site.Route, viewer *epform.Viewer, access *Access) {
+	entry := p.application(r.Context(), route.PartOf)
 	if entry == nil {
 		http.NotFound(w, r)
+		return
+	}
+	if route.PartOfEnvironment == "" {
+		httpjson.WriteError(w, http.StatusNotFound, noEnvironment(route.PartOf, route.Environment))
 		return
 	}
 	var raw [18]byte
@@ -527,7 +536,7 @@ func (p *Pages) siteEndpoint(w http.ResponseWriter, r *http.Request, appName str
 		rest = pathSep + rest
 	}
 	p.Server.ServePage(w, r, ephttp.PageRoute{
-		Application: entry.app.ID, Name: name, Rest: rest, Nonce: base64.RawStdEncoding.EncodeToString(raw[:]),
+		Application: entry.app.ID, Environment: route.PartOfEnvironment, Name: name, Rest: rest, Nonce: base64.RawStdEncoding.EncodeToString(raw[:]),
 		Caller: func(req *http.Request) (*eprun.Caller, error) { return siteCaller(req, viewer, access) },
 		SignIn: func(rw http.ResponseWriter, _ *http.Request) {
 			httpjson.WriteError(rw, http.StatusUnauthorized, "this endpoint needs a signed-in person, and this site is public; make the environment private to sign people in")
@@ -564,4 +573,10 @@ func fromThisOrigin(r *http.Request) bool {
 		return sameOrigin(r)
 	}
 	return false
+}
+
+// noEnvironment is what a site environment's endpoint answers when its
+// application has no environment of its name (#2709).
+func noEnvironment(app, env string) string {
+	return fmt.Sprintf("application %s has no environment named %s; add one to run this site environment's endpoints", app, env)
 }

@@ -33,6 +33,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptshare"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
 	"github.com/txn2/mcp-data-platform/internal/platform/scripttest"
+	"github.com/txn2/mcp-data-platform/internal/schemaref"
 	"github.com/txn2/mcp-data-platform/internal/testreport"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -76,6 +77,9 @@ type Gate struct {
 	// Shared reads the sources a save is compared with for functions a
 	// library or another script already defines (#2273); nil compares none.
 	Shared scriptshare.Sources
+	// AppSchemas is the schemas the application holding a saved script runs
+	// in (#2709), none for a script no application holds; nil checks none.
+	AppSchemas func(ctx context.Context, scriptID string) []string
 }
 
 // Caller is who is saving. A run of the version they save presents their
@@ -105,6 +109,12 @@ type Request struct {
 	// hold yet, by run id: an application import's bundle (#2476). A test
 	// naming one replays it.
 	Carried map[string][]byte
+	// RecordingText rewrites every string of a recording the new source
+	// replays, tests and comparison alike, as its source was rewritten: a
+	// prepare removing an application's schema qualifier replays its
+	// recorded runs with the same statements rewritten (#2709). The saved
+	// version replays the recordings as stored. Nil rewrites nothing.
+	RecordingText func(string) string
 }
 
 // Result is what the gate made of a save.
@@ -180,6 +190,9 @@ func (g *Gate) Check(ctx context.Context, req Request) Result {
 		res.Lint.Findings = append(res.Lint.Findings, warn...)
 		res.Lint.Warnings = append(res.Lint.Warnings, warn...)
 	}
+	if res.Refusal = g.checkSchemas(ctx, req, source); res.Refusal != "" {
+		return res
+	}
 	if res.Refusal = g.checkHandlers(ctx, req, source); res.Refusal != "" {
 		return res
 	}
@@ -206,6 +219,27 @@ func (g *Gate) Check(ctx context.Context, req Request) Result {
 	}
 	res.SharedCode = g.sharedCode(ctx, req, source)
 	return res
+}
+
+// checkSchemas refuses an edit to an application's script that adds SQL
+// naming one of the application's schemas (#2709): each environment's runs
+// read their own schema, so a name written with one reaches it from every
+// environment. What the script already said is left alone, so a script
+// saved before #2709 still runs and saves an edit that adds none.
+func (g *Gate) checkSchemas(ctx context.Context, req Request, source string) string {
+	if g.AppSchemas == nil || req.Existing == nil {
+		return ""
+	}
+	schemas := g.AppSchemas(ctx, req.Existing.ID)
+	if len(schemas) == 0 {
+		return ""
+	}
+	added, ok := schemaref.Added(req.Existing.Source, source, schemas)
+	if !ok {
+		return ""
+	}
+	return fmt.Sprintf("line %d names the schema %s. Inside an application write %s: each environment's runs read their own schema",
+		added.Line, added.Schema, added.Name)
 }
 
 // checkHandlers refuses a source the script's handlers could not serve.
@@ -248,9 +282,36 @@ func (g *Gate) checkTests(ctx context.Context, req Request, source string, res *
 func (g *Gate) testRequest(req Request, source string) scripttest.Request {
 	return scripttest.Request{
 		Source: source, Name: req.Name, Destinations: g.Destinations,
-		Load: carriedFirst(req.Carried, g.Loader(req.Existing, req.Caller)), MaxMemoryBytes: g.MaxMemoryBytes,
-		Contracts: g.Contracts, Libraries: g.libraries(req.Caller),
+		Load:           rewritten(carriedFirst(req.Carried, g.Loader(req.Existing, req.Caller)), req.RecordingText),
+		MaxMemoryBytes: g.MaxMemoryBytes, Contracts: g.Contracts, Libraries: g.libraries(req.Caller),
 	}
+}
+
+// rewritten reads a recording through load with text applied to its
+// strings; load itself when text is nil.
+func rewritten(load scripttest.Loader, text func(string) string) scripttest.Loader {
+	if text == nil {
+		return load
+	}
+	return func(ctx context.Context, runID string) (*scriptrec.Recording, error) {
+		rec, err := load(ctx, runID)
+		if err != nil {
+			return nil, err
+		}
+		return rewriteRecording(rec, text)
+	}
+}
+
+// rewriteRecording is rec with text applied to its strings.
+func rewriteRecording(rec *scriptrec.Recording, text func(string) string) (*scriptrec.Recording, error) {
+	data, err := scriptrec.Encode(rec)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // the recording says what it could not encode
+	}
+	if data, err = scriptrec.Renamed(data, text); err != nil {
+		return nil, err //nolint:wrapcheck // the recording says what it could not read
+	}
+	return scriptrec.Decode(data) //nolint:wrapcheck // the recording says what it could not read
 }
 
 // carriedFirst reads a recording the save carries, and any other through
@@ -355,7 +416,14 @@ func (g *Gate) compare(ctx context.Context, req Request, source string, res *Res
 		saved := g.testRequest(req, req.Existing.Source)
 		saved.Libraries = scriptres.Replaying(saved.Libraries, rec.Files)
 		before := scripttest.Replay(ctx, saved, rec)
-		after := scripttest.Replay(ctx, g.testRequest(req, source), rec)
+		afterRec := rec
+		if req.RecordingText != nil {
+			if afterRec, err = rewriteRecording(rec, req.RecordingText); err != nil {
+				res.NotCompared = append(res.NotCompared, stored.RunID)
+				continue
+			}
+		}
+		after := scripttest.Replay(ctx, g.testRequest(req, source), afterRec)
 		diffs, compared := scriptbehavior.Compare(stored.RunID, before, after)
 		if !compared {
 			res.NotCompared = append(res.NotCompared, stored.RunID)

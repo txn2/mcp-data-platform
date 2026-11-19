@@ -88,6 +88,22 @@ async function expectModeratorHeaderFits(page: Page, width?: number): Promise<vo
   await expect(page.getByRole("radiogroup", { name: "Visibility" })).toBeVisible();
 }
 
+/**
+ * expectSheetHeaderFits is the same header on a phone's sheet (#2705): one
+ * row, the status in it, and Visibility and Delete in More.
+ */
+async function expectSheetHeaderFits(page: Page): Promise<void> {
+  const box = await scroller(page);
+  expect(box.scrollWidth, "the thread scrolls sideways").toBeLessThanOrEqual(box.clientWidth);
+  await expectFits(page.getByRole("button", { name: /^Status:/ }), box);
+  await expectFits(page.getByRole("button", { name: "More for this thread" }), box);
+  await page.getByRole("button", { name: "More for this thread" }).click();
+  await expect(page.getByRole("menuitemradio", { name: "Internal" })).toBeVisible();
+  await expect(page.getByRole("menuitemradio", { name: "Shared" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: /Delete thread/ })).toBeVisible();
+  await page.keyboard.press("Escape");
+}
+
 /** header is the row holding the way back, where a badge would be. */
 function header(page: Page): Locator {
   return page.getByRole("button", { name: "Back to list" }).locator("xpath=../..");
@@ -108,7 +124,9 @@ for (const [label, viewport, width] of [["448px", DESKTOP, DRAWER_WIDTH], ["375p
     await page.setViewportSize(viewport);
     await signInWithKey(page);
     await openInPanel(page);
-    await expectModeratorHeaderFits(page, width);
+    // On a phone the item's panel is a sheet whose thread row holds More (#2705).
+    if (width) await expectModeratorHeaderFits(page, width);
+    else await expectSheetHeaderFits(page);
   });
 }
 

@@ -10,6 +10,7 @@ import (
 	"go.starlark.net/syntax"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdialect"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptflow/flowdoc"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 )
@@ -178,73 +179,8 @@ func (a *analyzer) signature(d *syntax.DefStmt) string {
 // maxCaption is the longest box caption.
 const maxCaption = 120
 
-// caption is the first sentence of the comment the author wrote above a def,
-// or at the top of its body, or else of its docstring. A script created since
-// #1938 documents every function, so its every box carries a sentence a reader
-// who does not read code can follow.
-func caption(d *syntax.DefStmt) string {
-	if cm := d.Comments(); cm != nil {
-		if s := firstSentence(cm.Before); s != "" {
-			return s
-		}
-	}
-	if len(d.Body) == 0 {
-		return ""
-	}
-	if cm := d.Body[0].Comments(); cm != nil {
-		if s := firstSentence(cm.Before); s != "" {
-			return s
-		}
-	}
-	return docSentence(d.Body[0])
-}
-
-// docSentence is the first sentence of a docstring statement, or "" when the
-// statement is not one.
-func docSentence(s syntax.Stmt) string {
-	es, ok := s.(*syntax.ExprStmt)
-	if !ok {
-		return ""
-	}
-	lit, ok := es.X.(*syntax.Literal)
-	if !ok {
-		return ""
-	}
-	text, ok := lit.Value.(string)
-	if !ok {
-		return ""
-	}
-	lines := strings.Split(strings.TrimSpace(text), "\n")
-	comments := make([]syntax.Comment, 0, len(lines))
-	for _, l := range lines {
-		comments = append(comments, syntax.Comment{Text: "# " + l})
-	}
-	return firstSentence(comments)
-}
-
-// firstSentence joins the comment lines of one paragraph up to its first full
-// stop. A rule line (# ----) or a blank comment ends the paragraph.
-func firstSentence(comments []syntax.Comment) string {
-	var parts []string
-	for _, c := range comments {
-		t := strings.TrimSpace(strings.TrimPrefix(c.Text, "#"))
-		if t == "" || strings.HasPrefix(t, "---") || strings.HasPrefix(t, "===") {
-			if len(parts) > 0 {
-				break
-			}
-			continue
-		}
-		parts = append(parts, t)
-		if strings.HasSuffix(t, ".") {
-			break
-		}
-	}
-	s := strings.Join(parts, " ")
-	if i := strings.Index(s, ". "); i > 0 {
-		s = s[:i+1]
-	}
-	return clip(s, maxCaption)
-}
+// caption is the first sentence a def's author wrote about it (flowdoc).
+func caption(d *syntax.DefStmt) string { return flowdoc.Caption(d, maxCaption) }
 
 // buildParams lists the parameters in the order the source first reads them,
 // each with the steps its value reaches.
@@ -325,7 +261,7 @@ func (a *analyzer) library() *Library {
 			fn.Params = append(fn.Params, a.paramText(p))
 		}
 		if len(d.Body) > 0 {
-			fn.Doc = clip(docSentence(d.Body[0]), maxCaption)
+			fn.Doc = flowdoc.DocSentence(d.Body[0], maxCaption)
 		}
 		lib.Functions = append(lib.Functions, fn)
 	}

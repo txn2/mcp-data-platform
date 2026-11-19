@@ -48,7 +48,7 @@ platform.export("orders", crm["rows"], format="parquet", destination="acme-drop"
 `
 
 func TestDerive_StepsAndTheValuesBetweenThem(t *testing.T) {
-	g := deriveGraph(threeSteps)
+	g := deriveGraph(threeSteps, nil)
 	require.True(t, g.OK, "%+v", g.Findings)
 
 	q := nodeByTitle(t, g, "Query trino")
@@ -94,7 +94,7 @@ pull()
 `
 
 func TestDerive_AHelperIsAStepPerCallSiteFoldedIntoItsCaller(t *testing.T) {
-	g := deriveGraph(helperTwice)
+	g := deriveGraph(helperTwice, nil)
 	require.True(t, g.OK, "%+v", g.Findings)
 
 	var apis []Node
@@ -136,7 +136,7 @@ report()
 `
 
 func TestDerive_AFunctionWithStepsIsOneBox(t *testing.T) {
-	g := deriveGraph(boxed)
+	g := deriveGraph(boxed, nil)
 	require.True(t, g.OK, "%+v", g.Findings)
 	require.Len(t, g.Groups, 2)
 	assert.Equal(t, "/report", g.Groups[0].ID)
@@ -243,7 +243,7 @@ platform.export("a", rows["rows"])
 `
 	v2 := v1 + `platform.export("b", rows["rows"], format="csv", destination="acme-drop", key="b.csv")
 `
-	g1, g2 := deriveGraph(v1), deriveGraph(v2)
+	g1, g2 := deriveGraph(v1, nil), deriveGraph(v2, nil)
 	require.Len(t, g2.Nodes, len(g1.Nodes)+1)
 	for i, n := range g1.Nodes {
 		assert.Equal(t, n.Title, g2.Nodes[i].Title)
@@ -258,14 +258,14 @@ func TestDerive_ASourceThatDoesNotParseReturnsItsFindings(t *testing.T) {
 	assert.Equal(t, 1, g.Findings[0].Line)
 	assert.Empty(t, g.Nodes)
 
-	g = deriveGraph("platform.query(undefined_name)")
+	g = deriveGraph("platform.query(undefined_name)", nil)
 	assert.False(t, g.OK)
 	assert.Contains(t, g.Findings[0].Message, "undefined")
 }
 
 func TestDerive_AnEmptyGraphIsEmptyListsNotNull(t *testing.T) {
 	for _, src := range []string{"x = 1 + 2\nprint(x)\n", "def f(:\n"} {
-		b, err := json.Marshal(deriveGraph(src))
+		b, err := json.Marshal(deriveGraph(src, nil))
 		require.NoError(t, err)
 		for _, key := range []string{`"nodes":[]`, `"edges":[]`, `"groups":[]`, `"params":[]`, `"findings":`} {
 			assert.Contains(t, string(b), key)
@@ -444,7 +444,7 @@ outer()
 
 func TestDerive_ADiagramStopsAtItsStepBound(t *testing.T) {
 	src := "def one(i):\n    platform.query(\"SELECT 1\")\n" + strings.Repeat("one(1)\n", maxSteps+5)
-	g := deriveGraph(src)
+	g := deriveGraph(src, nil)
 	require.True(t, g.OK)
 	assert.True(t, g.Truncated)
 	assert.Len(t, g.Nodes, maxSteps)
@@ -454,21 +454,6 @@ func TestDerive_IsCachedBySource(t *testing.T) {
 	src := `platform.query("SELECT 42")`
 	a, b := Derive(src), Derive(src)
 	assert.Equal(t, a, b)
-}
-
-func TestGraphCache_EvictsTheLeastRecentlyUsed(t *testing.T) {
-	c := newGraphCache(2)
-	k := func(b byte) [32]byte { return [32]byte{b} }
-	c.put(k(1), Graph{Lines: 1})
-	c.put(k(2), Graph{Lines: 2})
-	_, _ = c.get(k(1))
-	c.put(k(3), Graph{Lines: 3})
-	c.put(k(3), Graph{Lines: 3})
-	_, ok := c.get(k(2))
-	assert.False(t, ok, "2 was least recently used")
-	g, ok := c.get(k(1))
-	assert.True(t, ok)
-	assert.Equal(t, 1, g.Lines)
 }
 
 // The value paths a real script takes between steps: mutation through a
@@ -510,7 +495,7 @@ main()
 `
 
 func TestDerive_ValuesFollowEveryWayAScriptMovesThem(t *testing.T) {
-	g := deriveGraph(plumbing)
+	g := deriveGraph(plumbing, nil)
 	require.True(t, g.OK, "%+v", g.Findings)
 
 	q := nodeByTitle(t, g, "Query warehouse")
@@ -747,8 +732,6 @@ def main():
 	}
 	assert.Equal(t, "Pulls the day's orders from the warehouse.", captions["pull(day)"])
 	assert.Equal(t, "Sends the summary to the finance team.", captions["send(day)"])
-	assert.Equal(t, "", docSentence(&syntax.ExprStmt{X: &syntax.Ident{Name: "x"}}))
-	assert.Equal(t, "", docSentence(&syntax.ReturnStmt{}))
 }
 
 // A token minted or verified is a card naming the stored key (#2175); a key
@@ -867,7 +850,7 @@ func TestDerive_HandlerCommandsWrite(t *testing.T) {
 	}
 	for command, role := range cases {
 		t.Run(command, func(t *testing.T) {
-			g := deriveGraph(`platform.call("manage_script", {"command": "` + command + `", "name": "daily"})` + "\n")
+			g := deriveGraph(`platform.call("manage_script", {"command": "`+command+`", "name": "daily"})`+"\n", nil)
 			require.True(t, g.OK, "%+v", g.Findings)
 			n := nodeByTitle(t, g, "manage script")
 			assert.Equal(t, command, n.Subtitle)

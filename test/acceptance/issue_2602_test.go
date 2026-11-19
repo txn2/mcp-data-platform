@@ -537,6 +537,7 @@ func TestIssue2602_PinnedAndPendingReleasesAreKept(t *testing.T) {
 	t.Cleanup(func() {
 		_, _, _ = connectAs(t, keyAdmin2604).callRaw("manage_application", map[string]any{"command": "delete", "application": app})
 	})
+	admin.call("manage_application", map[string]any{"command": "add_environment", "application": app, "environment": "stage"}) // the part calls stage (#2709)
 	admin.call("manage_application", map[string]any{"command": "add_part", "application": app, "kind": "site", "part_id": s.name + "/stage", "release_mode": "coupled"})
 	admin.call("manage_application", map[string]any{"command": "release", "application": app, "note": "pins stage at 3"})
 
@@ -590,6 +591,7 @@ func TestIssue2602_WhatKeepsAReleaseIsTheManagersToKnow(t *testing.T) {
 	t.Cleanup(func() {
 		_, _, _ = connectAs(t, keyAdmin2604).callRaw("manage_application", map[string]any{"command": "delete", "application": app})
 	})
+	admin.call("manage_application", map[string]any{"command": "add_environment", "application": app, "environment": hidden}) // the part calls its own name (#2709)
 	admin.call("manage_application", map[string]any{"command": "add_part", "application": app, "kind": "site", "part_id": s.name + "/" + hidden, "release_mode": "coupled"})
 	admin.call("manage_application", map[string]any{"command": "release", "application": app, "note": "pins the private environment"})
 

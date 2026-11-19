@@ -186,6 +186,10 @@ func unclean(p string) bool {
 // that origin carries in place of the portal's.
 type PageRoute struct {
 	Application string
+	// Environment is the application environment the endpoint runs in, ""
+	// for the last: a site environment's host names the one of its own name
+	// (#2709), the application's own page origin none.
+	Environment string
 	Name        string
 	Rest        string
 	// Nonce is this response's inline-script nonce.
@@ -217,7 +221,7 @@ func pageOf(r *http.Request) *PageRoute {
 // ServePage answers one request on an application's page origin. An endpoint
 // of another application answers as if it did not exist.
 func (h *Handler) ServePage(w http.ResponseWriter, r *http.Request, route PageRoute) {
-	h.serve(w, r.WithContext(context.WithValue(r.Context(), pageKey{}, &route)), route.Name, route.Rest)
+	h.serveIn(w, r.WithContext(context.WithValue(r.Context(), pageKey{}, &route)), route.Environment, route.Name, route.Rest)
 }
 
 // ServeHTTP answers one request to an endpoint.

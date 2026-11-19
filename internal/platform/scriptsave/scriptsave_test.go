@@ -398,3 +398,50 @@ func TestACarriedRecordingAnswersTheTests(t *testing.T) {
 	require.NotNil(t, res.Tests)
 	assert.Equal(t, 1, res.Tests.Passed)
 }
+
+// An edit to an application's script that adds a name qualified by one of
+// its schemas is refused naming the line and the name to write; one adding
+// none saves, whatever the script already said (#2709).
+func TestAnEditAddingTheApplicationsSchemaIsRefused(t *testing.T) {
+	st := &store{}
+	record(t, st, "run_1", "", weekly)
+	existing := &script.Script{ID: "s1", Name: "weekly", OwnerEmail: "jane@example.com", Source: weekly + replays}
+	g := &Gate{Recordings: st, AppSchemas: func(_ context.Context, id string) []string {
+		if id == "s1" {
+			return []string{"orders", "orders_dev"}
+		}
+		return nil
+	}}
+	adds := weekly + replays + "\nREFUNDS = \"SELECT * FROM orders.refunds\"\n"
+	res := g.Check(context.Background(), Request{Existing: existing, Name: "weekly", Source: adds, Caller: jane})
+	require.True(t, res.Refused())
+	assert.Contains(t, res.Refusal, "names the schema orders. Inside an application write refunds: each environment's runs read their own schema")
+	assert.Regexp(t, `^line \d+ names`, res.Refusal)
+
+	res = g.Check(context.Background(), Request{Existing: existing, Name: "weekly", Source: weekly + replays + "\nREFUNDS = \"SELECT * FROM refunds\"\n", Caller: jane})
+	assert.NotContains(t, res.Refusal, "names the schema", "an unqualified name is what an application writes")
+	res = g.Check(context.Background(), Request{Name: "weekly", Source: adds, Caller: jane})
+	assert.NotContains(t, res.Refusal, "names the schema", "a new script belongs to no application yet")
+}
+
+// A save whose source is rewritten replays its recorded runs with the same
+// rewrite (#2709): prepare removes an application's schema qualifier from a
+// script's SQL, and the run recorded with the qualified statement replays,
+// tests and comparison alike, with the unqualified one.
+func TestARecordingIsReplayedWithTheSourcesRewrite(t *testing.T) {
+	st := &store{}
+	qualified := strings.Replace(weekly, "from weekly", "from shop.weekly", 1)
+	record(t, st, "run_1", "s1", qualified)
+	existing := &script.Script{ID: "s1", Name: "weekly", OwnerEmail: "jane@example.com", Source: qualified + replays}
+	g := &Gate{Recordings: st}
+	prepared := weekly + replays
+
+	res := g.Check(context.Background(), Request{Existing: existing, Name: "weekly", Source: prepared, Caller: jane})
+	require.True(t, res.Refused(), "without the rewrite the recorded call is not the one the new source makes")
+
+	unqualify := func(s string) string { return strings.ReplaceAll(s, "shop.weekly", "weekly") }
+	res = g.Check(context.Background(), Request{Existing: existing, Name: "weekly", Source: prepared, Caller: jane, RecordingText: unqualify})
+	assert.Empty(t, res.Refusal)
+	assert.Equal(t, []string{"run_1"}, res.Replayed, "the comparison replayed the run")
+	assert.Empty(t, res.Differences, "every answer is the same")
+}

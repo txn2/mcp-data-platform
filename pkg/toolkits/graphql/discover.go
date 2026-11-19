@@ -157,12 +157,11 @@ func (t *Toolkit) handleDiscover(ctx context.Context, _ *mcp.CallToolRequest, in
 	if in.Connection == "" {
 		return toolkit.ErrorResult("connection is required"), nil, nil
 	}
-	c, policy, ok := t.serving(ctx, in.Connection)
+	c, policy, ok := t.current(ctx, in.Connection)
 	if !ok {
 		return toolkit.ErrorResult(fmt.Sprintf(
 			"connection %q not found (use list_connections to discover graphql connections)", in.Connection)), nil, nil
 	}
-	t.syncStored(ctx, c)
 	mode, err := ParseRankingMode(in.Ranking)
 	if err != nil {
 		return toolkit.ErrorResult(err.Error()), nil, nil

@@ -13,6 +13,11 @@ import { targetOfThread } from "../targetFilter";
 // Markdown the reply is written in, the Write/Preview switch, a draft kept
 // while the thread is open, and "Reply and resolve" for whoever may moderate
 // the thread.
+//
+// On a phone's feedback sheet (collapsible, #2705) the box waits as one
+// "Reply…" row so the comments get the sheet; a tap opens the toolbar, the
+// Write/Preview tabs and the buttons, and there is no expand control. It folds
+// back once the reply is posted, or left empty.
 
 const draftKey = (threadId: string) => `thread-reply-draft:${threadId}`;
 
@@ -63,67 +68,67 @@ export function applyFormat(text: string, start: number, end: number, f: Format)
   return { text: next, start: from, end: f.line ? start + inner.length : from + selected.length };
 }
 
-export function ReplyComposer({ threadId, thread, mayResolve }: { threadId: string; thread: Thread; mayResolve: boolean }) {
-  const append = useAppendThreadEvent();
-  const update = useUpdateThread();
+export function ReplyComposer({
+  threadId,
+  thread,
+  mayResolve,
+  collapsible = false,
+  onOpen,
+}: {
+  threadId: string;
+  thread: Thread;
+  mayResolve: boolean;
+  collapsible?: boolean;
+  /** onOpen runs when a collapsible box opens or is focused. */
+  onOpen?: () => void;
+}) {
   const [reply, setReply] = useState(() => readDraft(threadId));
   const [expanded, setExpanded] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
+  const fold = useFold(threadId, collapsible, boxRef, onOpen);
+  const { append, update, post } = usePost(threadId, reply, () => {
+    setReply("");
+    if (collapsible) fold.close();
+  });
 
   useEffect(() => writeDraft(threadId, reply), [threadId, reply]);
-
-  const format = (f: Format) => {
-    const area = boxRef.current?.querySelector("textarea");
-    const start = area?.selectionStart ?? reply.length;
-    const end = area?.selectionEnd ?? reply.length;
-    const next = applyFormat(reply, start, end, f);
-    setReply(next.text);
-    requestAnimationFrame(() => {
-      area?.focus();
-      area?.setSelectionRange(next.start, next.end);
-    });
-  };
-
-  const post = (resolve: boolean) => {
-    const body = reply.trim();
-    if (!body || append.isPending) return;
-    append.mutate(
-      { threadId, event_type: "comment", body },
-      {
-        onSuccess: () => {
-          setReply("");
-          if (resolve) update.mutate({ id: threadId, status: "resolved" });
-        },
-      },
-    );
-  };
+  const format = (f: Format) => formatIn(boxRef.current, reply, setReply, f);
 
   const busy = append.isPending || update.isPending;
-  const closed = thread.status === "resolved" || thread.status === "wont_fix";
+  if (!fold.open) return <CollapsedReply onOpen={fold.openBox} />;
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
         post(false);
       }}
-      className="border-t p-3"
+      onFocus={collapsible ? onOpen : undefined}
+      onBlur={(e) => {
+        // An empty box folds back when the reader leaves it.
+        if (collapsible && !reply.trim() && !e.currentTarget.contains(e.relatedTarget as Node | null)) fold.close();
+      }}
+      className={formShape(collapsible)}
+      data-testid="reply-composer"
     >
-      <FormatToolbar onFormat={format} expanded={expanded} onExpand={() => setExpanded(!expanded)} />
+      <FormatToolbar
+        onFormat={format}
+        expanded={expanded}
+        onExpand={collapsible ? undefined : () => setExpanded(!expanded)}
+      />
       <div ref={boxRef} data-testid="reply-box">
         <MentionTextarea
           target={targetOfThread(thread)}
           value={reply}
           onChange={setReply}
-          rows={6}
           placeholder="Reply… type @ to mention someone"
           aria-label="Reply"
-          className={cn("resize-y", expanded ? "min-h-[360px]" : "min-h-[150px]")}
+          rows={collapsible ? 3 : 6}
+          className={composerHeight(collapsible, expanded)}
         />
       </div>
-      {append.isError && <p className="mt-1 text-xs text-destructive">Failed to post reply.</p>}
-      {update.isError && <p className="mt-1 text-xs text-destructive">The reply was posted; the thread could not be resolved.</p>}
+      <ComposerErrors posting={append.isError} resolving={update.isError} />
       <ComposerActions
-        canResolve={mayResolve && !closed}
+        canResolve={mayResolve && isOpenThread(thread)}
         disabled={!reply.trim() || busy}
         posting={append.isPending}
         onResolve={() => post(true)}
@@ -132,7 +137,99 @@ export function ReplyComposer({ threadId, thread, mayResolve }: { threadId: stri
   );
 }
 
-/** FormatToolbar is the formatting buttons over the reply box and its expand control. */
+/** formShape is the composer's frame: tight on a phone's sheet (#2705). */
+function formShape(collapsible: boolean): string {
+  return collapsible ? "flex-none border-t px-3 pt-1.5 pb-2" : "border-t p-3";
+}
+
+/** isOpenThread reports whether a reply may still resolve the thread. */
+function isOpenThread(thread: Thread): boolean {
+  return thread.status !== "resolved" && thread.status !== "wont_fix";
+}
+
+/** ComposerErrors says what failed: the reply, or the resolve after it. */
+function ComposerErrors({ posting, resolving }: { posting: boolean; resolving: boolean }) {
+  return (
+    <>
+      {posting && <p className="mt-1 text-xs text-destructive">Failed to post reply.</p>}
+      {resolving && <p className="mt-1 text-xs text-destructive">The reply was posted; the thread could not be resolved.</p>}
+    </>
+  );
+}
+
+/** formatIn applies a format to the selection in the reply box under box. */
+function formatIn(box: HTMLElement | null, reply: string, setReply: (text: string) => void, f: Format) {
+  const area = box?.querySelector("textarea");
+  const start = area?.selectionStart ?? reply.length;
+  const end = area?.selectionEnd ?? reply.length;
+  const next = applyFormat(reply, start, end, f);
+  setReply(next.text);
+  requestAnimationFrame(() => {
+    area?.focus();
+    area?.setSelectionRange(next.start, next.end);
+  });
+}
+
+/** usePost posts the reply, and on "Reply and resolve" resolves the thread. */
+function usePost(threadId: string, reply: string, onPosted: () => void) {
+  const append = useAppendThreadEvent();
+  const update = useUpdateThread();
+  const post = (resolve: boolean) => {
+    const body = reply.trim();
+    if (!body || append.isPending) return;
+    append.mutate(
+      { threadId, event_type: "comment", body },
+      {
+        onSuccess: () => {
+          onPosted();
+          if (resolve) update.mutate({ id: threadId, status: "resolved" });
+        },
+      },
+    );
+  };
+  return { append, update, post };
+}
+
+/** useFold is whether a collapsible box is open (#2705). One holding a draft
+ * opens with it; opening it focuses the box. */
+function useFold(threadId: string, collapsible: boolean, box: React.RefObject<HTMLDivElement | null>, onOpen?: () => void) {
+  const [open, setOpen] = useState(() => !collapsible || readDraft(threadId) !== "");
+  return {
+    open,
+    close: () => setOpen(false),
+    openBox: () => {
+      setOpen(true);
+      onOpen?.();
+      requestAnimationFrame(() => box.current?.querySelector("textarea")?.focus());
+    },
+  };
+}
+
+/** composerHeight is the reply box's size: short and fixed on a phone's sheet,
+ * where the comment being answered stays above it, and tall and resizable
+ * beside the page. */
+function composerHeight(collapsible: boolean, expanded: boolean): string {
+  if (collapsible) return "min-h-20 resize-none";
+  return cn("resize-y", expanded ? "min-h-[360px]" : "min-h-[150px]");
+}
+
+/** CollapsedReply is the reply box folded to one row (#2705). */
+function CollapsedReply({ onOpen }: { onOpen: () => void }) {
+  return (
+    <div className="flex-none border-t px-3 py-2">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="h-11 w-full rounded-lg border bg-background px-3 text-left text-sm text-muted-foreground"
+      >
+        Reply…
+      </button>
+    </div>
+  );
+}
+
+/** FormatToolbar is the formatting buttons over the reply box and, beside the
+ * page, its expand control. */
 function FormatToolbar({
   onFormat,
   expanded,
@@ -140,7 +237,7 @@ function FormatToolbar({
 }: {
   onFormat: (f: Format) => void;
   expanded: boolean;
-  onExpand: () => void;
+  onExpand?: () => void;
 }) {
   return (
     <div className="mb-1.5 flex items-center gap-0.5" role="toolbar" aria-label="Formatting">
@@ -152,17 +249,19 @@ function FormatToolbar({
           </Button>
         );
       })}
-      <Button
-        type="button"
-        size="icon-xs"
-        variant="ghost"
-        className="ml-auto"
-        aria-label={expanded ? "Shrink the reply box" : "Expand the reply box"}
-        aria-pressed={expanded}
-        onClick={onExpand}
-      >
-        {expanded ? <Minimize2 /> : <Maximize2 />}
-      </Button>
+      {onExpand && (
+        <Button
+          type="button"
+          size="icon-xs"
+          variant="ghost"
+          className="ml-auto"
+          aria-label={expanded ? "Shrink the reply box" : "Expand the reply box"}
+          aria-pressed={expanded}
+          onClick={onExpand}
+        >
+          {expanded ? <Minimize2 /> : <Maximize2 />}
+        </Button>
+      )}
     </div>
   );
 }

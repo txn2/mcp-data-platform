@@ -348,6 +348,9 @@ func (r *runner) connect(
 	serverCtx = producedby.With(serverCtx, producedby.Producer{
 		Kind: producedby.KindScript, ID: sc.ID, Label: sc.Name,
 	})
+	// Its application database statements log in as the run role of the
+	// schema its environment runs in (#2709).
+	serverCtx = scriptsession.WithEnvironment(serverCtx, run.Environment)
 	roles, author := v.AuthorRoles, v.Author
 	if run.RunAs != nil {
 		// A watch run acts as the administrator who approved the version

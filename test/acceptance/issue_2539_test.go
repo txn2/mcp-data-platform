@@ -25,10 +25,11 @@ import (
 // released application is an administrator's; the unheld schemas are listed
 // with the call that adds them; the knowledge page covers the growing case.
 // Adding the schema creates the run role the application's scripts log in
-// as: a draft of a part runs as it, it is granted the write role a migration
-// defines, a script of another application is refused on the schema by the
-// database (naming the holder), DDL from a part is refused while the same
-// change as a migration succeeds, a connection whose user cannot create
+// as: a draft of a part runs as it, it is granted DML on its schema by the
+// platform (#2709; before it, the write role a migration defined), a
+// script of another application is refused on the schema by the database
+// (naming the holder), DDL from a part is refused while the same change
+// as a migration succeeds, a connection whose user cannot create
 // roles is refused naming CREATEROLE, removal drops the role and its stored
 // password, and the password appears in no response, log, audit row, call
 // record, run record, bundle or error.
@@ -263,7 +264,7 @@ func TestIssue2539_TheKnowledgePagesCoverTheGrowingCaseAndTheRunRole(t *testing.
 }
 
 // shop2539 is an application holding a schema with a table its run role is
-// granted through the write role its migration defines.
+// granted by the platform (#2709).
 type shop2539 struct {
 	app, schema, role string
 }
@@ -274,7 +275,7 @@ func newShop2539(t *testing.T, admin *client, label string) shop2539 {
 	addSchema2539(admin, s.app, conn2539, s.schema)
 	s.role = runRole2539(t, admin, s.app)
 	migration2539(admin, conn2539, s.schema, 1, "CREATE TABLE t (id int);\nINSERT INTO t VALUES (1), (2);\n"+writeRole(s.schema, "SELECT, INSERT", "t"),
-		"DROP TABLE t; DROP OWNED BY "+s.schema+"_write; DROP ROLE "+s.schema+"_write")
+		"DROP TABLE t")
 	admin.call("manage_application", map[string]any{"command": "release", "application": s.app})
 	return s
 }
@@ -313,11 +314,13 @@ func run2539(admin *client, name, statement string) string {
 	return asJSON(admin.call("run_script", map[string]any{"name": name, "args": map[string]any{"sql": statement}, "wait_seconds": 60}))
 }
 
-func TestIssue2539_APartRunsAsTheRunRoleGrantedTheWriteRoleItsMigrationDefines(t *testing.T) {
+// Since #2709 the platform grants the run role DML on what the schema's
+// migrations create, and a migration names no role.
+func TestIssue2539_APartRunsAsTheRunRoleGrantedItsSchemasTables(t *testing.T) {
 	admin := connectFor(t, 5*time.Minute)
 	s := newShop2539(t, admin, "role")
-	if got := targetPSQL(t, "SELECT pg_has_role('"+s.role+"', '"+s.schema+"_write', 'MEMBER')"); strings.TrimSpace(got) != "t" {
-		t.Errorf("the run role is not a member of the write role the migration defined: %s", got)
+	if got := targetPSQL(t, "SELECT has_table_privilege('"+s.role+"', '"+s.schema+".t', 'INSERT')"); strings.TrimSpace(got) != "t" {
+		t.Errorf("the run role holds no INSERT on the table the migration created: %s", got)
 	}
 	src := "def main():\n    \"\"\"Answers who it runs as.\"\"\"\n    platform.result(platform.query(\"SELECT current_user AS who\", connection = \"orders\"))\n"
 	name := part2539(t, admin, s.app, "who", src, nil, nil)
@@ -416,7 +419,7 @@ func TestIssue2539_TheRunRolePasswordReachesNoSink(t *testing.T) {
 	if id, _ := asMap(exported["bundle"])["resource_id"].(string); id != "" {
 		got := endpointRequest(t, admin.base, http.MethodGet, "/api/v1/resources/"+id+"/content", bearer(admin.apiKey), "")
 		sinks["export bundle"] = got.body
-		if !strings.Contains(got.body, s.schema+"_write") {
+		if !strings.Contains(got.body, "CREATE TABLE t") {
 			t.Errorf("the export carries no migration of the schema")
 		}
 	} else {
@@ -456,7 +459,7 @@ func runRolePassword2539(t *testing.T, appID, schema, role string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sealed := platformText2539(t, "SELECT password_sealed FROM application_run_roles WHERE application_id = $1", appID)
+	sealed := platformText2539(t, "SELECT password_sealed FROM application_run_roles WHERE application_id = $1 AND schema_name = $2", appID, schema)
 	if strings.Contains(sealed, role) || !strings.HasPrefix(sealed, "encb:") {
 		t.Fatalf("the stored password is not sealed: %q", firstRunes(sealed, 20))
 	}

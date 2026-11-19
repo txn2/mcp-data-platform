@@ -113,7 +113,8 @@ var capabilities = []capability{
 	{tool: toolManageApp, line: func(map[string]bool) string {
 		return "A system built on the platform (an application database schema, scripts with their " +
 			"endpoints and forms, webhook sources, portal assets) is grouped and released with " +
-			"`manage_application`; read the platform-applications knowledge page before building one. " +
+			"`manage_application`; read the platform-applications knowledge page before building one, and " +
+			"mcp:knowledge_page:platform-application-environments before anything about its dev, prod or other environments. " +
 			"A released script runs its release's version, so a saved change goes live at the next release."
 	}},
 	{tool: toolMemoryCapture, line: func(map[string]bool) string {
