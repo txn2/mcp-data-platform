@@ -30309,6 +30309,46 @@
                 }
             }
         },
+        "/portal/shared-sites": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Each environment of a site that a grant to the caller's verified email or to their persona opens, with its address and whether it is online (#2718). Nothing else of those sites is named: not their other environments and not who else they are shared with. Every signed-in person may ask, an external person included; one with no grant gets an empty list.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "List the site environments shared with me",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/siteshared.List"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/shared-with-me": {
             "get": {
                 "security": [
@@ -59818,6 +59858,42 @@
                 "skipped": {
                     "description": "Skipped is a site left for the next sweep because a job was running or\na publish held its stored files.",
                     "type": "boolean"
+                }
+            }
+        },
+        "siteshared.Environment": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "description": "Address is where the environment is reached: its primary domain, else\nits address on the pages domain; \"\" when it has neither.",
+                    "type": "string",
+                    "example": "https://partner-review--dev.pages.example.net"
+                },
+                "environment": {
+                    "type": "string",
+                    "example": "dev"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "online": {
+                    "description": "Online is false while the site's managers have taken it offline or\npointed it elsewhere; Message is what they said, if anything.",
+                    "type": "boolean"
+                },
+                "site": {
+                    "type": "string",
+                    "example": "partner-review"
+                }
+            }
+        },
+        "siteshared.List": {
+            "type": "object",
+            "properties": {
+                "environments": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/siteshared.Environment"
+                    }
                 }
             }
         },

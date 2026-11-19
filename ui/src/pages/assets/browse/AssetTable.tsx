@@ -20,6 +20,8 @@ import type { DisplayAsset } from "./types";
 import { sharedLine } from "@/lib/sharedLine";
 import { SelectBox } from "./bulk/SelectBox";
 import type { RowSelection } from "./bulk/AssetBulk";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { AssetRows } from "./AssetRows";
 
 /** The Assets list as a dense table. */
 export function AssetTable({
@@ -44,8 +46,22 @@ export function AssetTable({
   /** The bulk selection (#2507); omitted, the rows carry no box. */
   selection?: RowSelection;
 }) {
+  const isMobile = useIsMobile();
   const dateKey = dateColumnFor(sort.key);
   const someSelected = !!selection && items.some(({ asset }) => selection.has(asset.id));
+  if (isMobile) {
+    // A phone cannot hold the table's columns; each asset is a row (#2723).
+    return (
+      <AssetRows
+        items={items}
+        shareSummaries={shareSummaries}
+        sort={sort}
+        onNavigate={onNavigate}
+        onPreview={onPreview}
+        selection={selection}
+      />
+    );
+  }
   return (
     <Card className="gap-0 overflow-hidden py-0">
       <Table className="table-fixed">

@@ -2,6 +2,7 @@ import { rowDate } from "@/components/listView";
 import { FolderOpen } from "lucide-react";
 import type { ShareSummary } from "@/api/portal/types";
 import { ThumbCard } from "@/components/cards/ThumbCard";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { FeedbackCountBadge } from "@/components/feedback/FeedbackCountBadge";
 import { ShareIndicators } from "@/components/ShareIndicators";
 import { SharePermissionBadge } from "@/components/SharePermissionBadge";
@@ -28,8 +29,10 @@ export function CollectionGrid({
   dateKey: DateColumn;
   onNavigate: (path: string) => void;
 }) {
+  const compact = useIsMobile();
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+    // Two narrow cards to a row on a phone (#2723).
+    <div className="grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-3">
       {items.map(({ collection, share }) => (
         <CollectionCard
           key={collection.id}
@@ -39,6 +42,7 @@ export function CollectionGrid({
           threadCount={threadCounts?.[collection.id]}
           dateKey={dateKey}
           onNavigate={onNavigate}
+          compact={compact}
         />
       ))}
     </div>
@@ -52,6 +56,7 @@ function CollectionCard({
   threadCount,
   dateKey,
   onNavigate,
+  compact = false,
 }: {
   collection: DisplayCollection["collection"];
   share?: DisplayCollection["share"];
@@ -59,9 +64,26 @@ function CollectionCard({
   threadCount?: number;
   dateKey: DateColumn;
   onNavigate: (path: string) => void;
+  /** A phone's card: the mosaic, the name on two lines and the date. */
+  compact?: boolean;
 }) {
   const tags = coll.asset_tags ?? [];
   const isDark = useResolvedDark();
+  if (compact) {
+    return (
+      <ThumbCard
+        onClick={() => onNavigate(`/collections/${coll.id}`)}
+        thumbnailSrc={collectionMosaicSrc(coll, isDark)}
+        fallbackIcon={FolderOpen}
+        bodyClassName="flex flex-col gap-1.5 p-2.5"
+      >
+        <span className="line-clamp-2 text-sm leading-snug font-medium">{coll.name}</span>
+        <span className="text-xs text-muted-foreground" title={dateLabelFor(dateKey, !!share)}>
+          {new Date(rowDate(share, coll[dateKey])).toLocaleDateString()}
+        </span>
+      </ThumbCard>
+    );
+  }
   return (
     <ThumbCard
       onClick={() => onNavigate(`/collections/${coll.id}`)}

@@ -6,6 +6,7 @@ import { useAuthStore } from "@/stores/auth";
 import { ActionError } from "./ActionError";
 import { EveryoneSwitch } from "./EveryoneSwitch";
 import { StatusPill } from "./StatusPill";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
 interface Props {
   onNavigate: (path: string) => void;
@@ -24,6 +25,7 @@ function shortDate(iso?: string): string {
  * Delete sends to the trash.
  */
 export function UnusedPage({ onNavigate }: Props) {
+  const isMobile = useIsMobile();
   const isAdmin = useAuthStore((s) => s.isAdmin());
   const [days, setDays] = useState<number>(90);
   const [everyone, setEveryone] = useState(false);
@@ -61,7 +63,22 @@ export function UnusedPage({ onNavigate }: Props) {
             Your assets nobody has opened in the period. Low use can also mean an asset is hard to find.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-4">
+        <div className="flex w-full flex-wrap items-center gap-4 md:w-auto">
+          {isMobile ? (
+            <div role="group" aria-label="Not opened in" className="grid w-full grid-cols-3 rounded-lg bg-muted p-0.5">
+              {PERIODS.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  aria-pressed={days === p}
+                  onClick={() => setDays(p)}
+                  className={`min-h-10 rounded-md text-sm ${days === p ? "bg-background font-semibold shadow-sm" : "text-muted-foreground"}`}
+                >
+                  {p} days
+                </button>
+              ))}
+            </div>
+          ) : (
           <label className="flex items-center gap-2 text-sm">
             Not opened in
             <select
@@ -74,11 +91,12 @@ export function UnusedPage({ onNavigate }: Props) {
               ))}
             </select>
           </label>
+          )}
           {isAdmin && <EveryoneSwitch label="Everyone's" checked={everyone} onChange={setEveryone} />}
         </div>
       </div>
 
-      {selected.size > 0 && <SelectionBar count={selected.size} busy={busy} onApply={apply} />}
+      {selected.size > 0 && <SelectionBar count={selected.size} busy={busy} onApply={apply} docked={isMobile} />}
       <ActionError error={deprecate.error ?? trash.error} />
 
       {!unused.isLoading && items.length === 0 ? (
@@ -87,6 +105,7 @@ export function UnusedPage({ onNavigate }: Props) {
         </p>
       ) : (
         <UnusedTable
+          phone={isMobile}
           items={items}
           everyone={everyone}
           selected={selected}
@@ -108,11 +127,23 @@ function SelectionBar({
   count,
   busy,
   onApply,
+  docked = false,
 }: {
   count: number;
   busy: boolean;
   onApply: (action: "deprecate" | "delete") => void;
+  /** On a phone the bar sits at the bottom of the screen (#2723). */
+  docked?: boolean;
 }) {
+  if (docked) {
+    return (
+      <div className="fixed inset-x-3 bottom-5 z-40 flex items-center gap-2 rounded-2xl bg-foreground py-2 pr-2 pl-4 text-sm text-background shadow-lg">
+        <b className="flex-1">{count} selected</b>
+        <Button variant="outline" disabled={busy} className="h-11 bg-transparent text-background" onClick={() => onApply("deprecate")}>Deprecate</Button>
+        <Button variant="destructive" disabled={busy} className="h-11" onClick={() => onApply("delete")}>Delete</Button>
+      </div>
+    );
+  }
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
       <b>{count} selected</b>
@@ -126,6 +157,7 @@ function SelectionBar({
 }
 
 function UnusedTable({
+  phone = false,
   items,
   everyone,
   selected,
@@ -134,6 +166,8 @@ function UnusedTable({
   allSelected,
   onNavigate,
 }: {
+  /** On a phone each asset is a row (#2723). */
+  phone?: boolean;
   items: UnusedItem[];
   everyone: boolean;
   selected: Set<string>;
@@ -142,6 +176,30 @@ function UnusedTable({
   allSelected: boolean;
   onNavigate: (path: string) => void;
 }) {
+  if (phone) {
+    return (
+      <ul className="flex flex-col pb-20" data-testid="unused-rows">
+        {items.map((it) => (
+          <li key={it.id} className="flex items-start gap-1 border-b py-2">
+            <label className="flex size-11 shrink-0 items-center justify-center">
+              <input type="checkbox" className="size-5" aria-label={`Select ${it.name}`} checked={selected.has(it.id)} onChange={() => onToggle(it.id)} />
+            </label>
+            <button type="button" className="flex min-w-0 flex-1 flex-col gap-1.5 pt-1 text-left" onClick={() => onNavigate(`/assets/${it.id}`)}>
+              <span className="line-clamp-2 text-[15px] leading-snug font-medium">{it.name}</span>
+              {it.status && (
+                <span className="self-start">
+                  <StatusPill status={it.status} />
+                </span>
+              )}
+              <span className="truncate text-xs text-muted-foreground">
+                {[everyone ? it.owner_email : "", it.last_opened ? `${it.opens} ${it.opens === 1 ? "open" : "opens"} · Last opened ${shortDate(it.last_opened)}` : `Never opened · Created ${shortDate(it.created_at)}`].filter(Boolean).join(" · ")}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    );
+  }
   return (
         <div className="overflow-x-auto rounded-xl border bg-card">
           <table className="w-full min-w-[640px] text-sm">

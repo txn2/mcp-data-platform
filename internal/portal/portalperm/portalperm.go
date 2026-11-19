@@ -50,12 +50,15 @@ const (
 )
 
 // externalAllowed are the only first segments a person of an external
-// persona reaches (#2290): who they are, what is shared with them, feedback
-// on it, and their own notification settings and history. Every other portal
-// route, one added later included, is refused them.
+// persona reaches (#2290): who they are, what is shared with them (the site
+// environments too, #2718), feedback on it, their own notification settings
+// and history, and their own recents and favorites, which list only what they
+// can open (#2724). Every other portal route, one added later included, is
+// refused them.
 var externalAllowed = map[string]bool{
 	"me": true, "assets": true, "collections": true, "shared-with-me": true, "shared-collections": true,
-	"threads": true, "worklist": true, "feedback": true, "notification-prefs": true, "notifications": true,
+	"shared-sites": true, "threads": true, "worklist": true, "feedback": true, "notification-prefs": true,
+	"notifications": true, "recents": true, "favorites": true,
 }
 
 // segmentAreas maps the first path segment after /api/v1/portal/ to the

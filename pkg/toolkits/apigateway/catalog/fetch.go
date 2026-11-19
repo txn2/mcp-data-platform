@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +16,8 @@ import (
 	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
+	"golang.org/x/sync/semaphore"
+
 	"github.com/txn2/mcp-data-platform/internal/egressguard"
 	"github.com/txn2/mcp-data-platform/internal/outbound"
 )
@@ -166,11 +169,13 @@ func ParseSpec(raw string) (*openapi3.T, error) {
 	if strings.TrimSpace(raw) == "" {
 		return nil, fmt.Errorf("empty content: %w", ErrInvalidContent)
 	}
+	release := acquireParse(len(raw))
+	defer release()
 	loader := &openapi3.Loader{
 		Context:               context.Background(),
 		IsExternalRefsAllowed: false,
 	}
-	doc, err := loader.LoadFromData([]byte(raw))
+	doc, err := loadSpec(loader, []byte(raw))
 	if err != nil {
 		return nil, fmt.Errorf("parsing: %w: %w", ErrInvalidContent, err)
 	}
@@ -182,6 +187,41 @@ func ParseSpec(raw string) (*openapi3.T, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("validating: %w: %w", ErrInvalidContent, err)
+	}
+	return doc, nil
+}
+
+// parseBudget is how many bytes of spec text are parsed at once in the
+// process. Parsing and validating a spec holds about thirty times its size
+// until it is done, and a replica starting up parses every spec of every
+// connection, the catalog index and a peer's reload at once (#2721): the
+// budget holds that to a few hundred megabytes whatever starts them. A spec
+// larger than the budget is parsed alone.
+const parseBudget = 16 << 20
+
+//nolint:gochecknoglobals // one budget per process
+var parseSlots = semaphore.NewWeighted(parseBudget)
+
+// acquireParse waits for n bytes of the parse budget and returns its release.
+func acquireParse(n int) func() {
+	w := min(int64(n), parseBudget)
+	_ = parseSlots.Acquire(context.Background(), w) // a background context never ends, so this cannot fail
+	return func() { parseSlots.Release(w) }
+}
+
+// loadSpec loads a spec's document. A JSON document is decoded as JSON and
+// its references resolved, which is what the loader does for a JSON document
+// its YAML parser refuses: the loader reads every document through a YAML
+// parser first, and on a large JSON spec that parser allocates two hundred
+// times the document's size, which the platform did for every spec it read at
+// startup (#2721). YAML stays with the loader.
+func loadSpec(loader *openapi3.Loader, data []byte) (*openapi3.T, error) {
+	doc := &openapi3.T{}
+	if err := json.Unmarshal(data, doc); err != nil {
+		return loader.LoadFromData(data) //nolint:wrapcheck // the caller wraps it
+	}
+	if err := loader.ResolveRefsIn(doc, nil); err != nil {
+		return nil, err //nolint:wrapcheck // the caller wraps it
 	}
 	return doc, nil
 }

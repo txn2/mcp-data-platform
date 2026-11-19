@@ -169,6 +169,7 @@ func run() error {
 
 	ctx := setupSignalHandler()
 	applySoftMemoryLimit(procload.SetSoftLimit)
+	startStartupHeapWatch(ctx, os.Getenv(startupHeapEnvDir))
 
 	result, err := createServer(opts)
 	if err != nil {

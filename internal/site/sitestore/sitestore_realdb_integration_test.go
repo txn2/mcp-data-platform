@@ -1029,3 +1029,34 @@ func TestRealDB_PrimaryAndRedirectDomains(t *testing.T) {
 	require.NoError(t, s.AddDomain(ctx, &site.Domain{Hostname: "shop.example.com", ApplicationID: app.ID, CreatedBy: realOwner}))
 	require.ErrorIs(t, s.SetDomainRole(ctx, "shop.example.com", true, site.DomainServe), site.ErrNoDomain)
 }
+
+// TestRealDB_GrantedSiteIDs is #2718's candidate list: the sites with a grant
+// to the email (in any case) or to the persona, each once, and none for a
+// person or persona no grant names; an empty email or persona matches no grant
+// stored without one.
+func TestRealDB_GrantedSiteIDs(t *testing.T) {
+	db := testdb.New(t)
+	s := New(db)
+	ctx := context.Background()
+	a := realSite(ctx, t, s, "granted-a")
+	b := realSite(ctx, t, s, "granted-b")
+	realSite(ctx, t, s, "granted-none")
+	require.NoError(t, s.SetGrant(ctx, a.ID, &site.Grant{Email: "pat@client.example", Level: site.LevelView, Environments: []string{realProd}, GrantedBy: realOwner}))
+	require.NoError(t, s.SetGrant(ctx, a.ID, &site.Grant{Persona: "partners", Level: site.LevelView, GrantedBy: realOwner}))
+	require.NoError(t, s.SetGrant(ctx, b.ID, &site.Grant{Persona: "partners", Level: site.LevelView, GrantedBy: realOwner}))
+
+	ids, err := s.GrantedSiteIDs(ctx, "Pat@Client.example", "partners")
+	require.NoError(t, err)
+	want := []string{a.ID, b.ID}
+	slices.Sort(want)
+	assert.Equal(t, want, ids, "each site once, by email in any case and by persona")
+
+	ids, err = s.GrantedSiteIDs(ctx, "pat@client.example", "")
+	require.NoError(t, err)
+	assert.Equal(t, []string{a.ID}, ids)
+
+	ids, err = s.GrantedSiteIDs(ctx, "", "")
+	require.NoError(t, err)
+	assert.Empty(t, ids, "no identity matches the persona grants stored with an empty email")
+	assert.NotNil(t, ids)
+}

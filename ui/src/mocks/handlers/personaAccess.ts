@@ -77,7 +77,7 @@ function evaluate(p: PersonaCreateRequest): EffectiveAccess {
     connections: { total: conns.length, allowed: conns.filter((c) => c.decision === "allow").length, items: conns },
     api_operations: { total: ops.length, callable: ops.filter((o) => o.callable).length, items: ops },
     scratch,
-    portal: { stored, effective, capped_by_external: ext ? ["assets", "resources", "knowledge", "catalog", "apis", "scratch_tables", "search", "prompts", "automations", "memory"].filter((k) => JSON.stringify(stored[k as keyof typeof stored]) !== JSON.stringify(effective[k as keyof typeof effective])) : [] },
+    portal: { stored, effective, capped_by_external: ext ? ["assets", "resources", "knowledge", "catalog", "apis", "scratch_tables", "search", "prompts", "automations", "sites", "memory", "verify_assets"].filter((k) => JSON.stringify(stored[k as keyof typeof stored]) !== JSON.stringify(effective[k as keyof typeof effective])) : [] },
     sharing: admin || (!ext && p.allow_sharing !== false),
     resource_scopes: admin ? ["user", "persona:*", "global"] : ext ? ["user", `persona:${p.name}`] : ["user", `persona:${p.name}`, "global"],
     references: { secrets: { named: p.name === "data-engineer" ? ["crm-token"] : [], unrestricted: 1 }, script_grants: p.name === "data-engineer" ? 2 : 0, script_versions: 0, prompts: 0, shares: 0, webhook_sources: [], endpoints: p.name === "analyst" ? ["store-lookup"] : [], api_keys: 0, people: p.name === "analyst" ? ["ann@example.com", "bo@example.com"] : [] },

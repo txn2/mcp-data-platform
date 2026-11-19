@@ -12,6 +12,8 @@ import { markdownToPlainText } from "@/lib/markdownText";
 import { dateColumnFor, type CollectionSortKey, type ListSort } from "@/components/listSort";
 import type { DisplayCollection } from "./types";
 import { sharedLine } from "@/lib/sharedLine";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { useAuthStore } from "@/stores/auth";
 
 /** The Collections list as a dense table. */
 export function CollectionTable({
@@ -31,7 +33,31 @@ export function CollectionTable({
   onSort?: (key: CollectionSortKey) => void;
   onNavigate: (path: string) => void;
 }) {
+  const isMobile = useIsMobile();
+  const me = useAuthStore((s) => s.user?.email ?? "");
   const dateKey = dateColumnFor(sort.key);
+  if (isMobile) {
+    // A phone cannot hold the table's columns (#2723): each collection is a
+    // row of its name and one line of who and when; tags are on its page.
+    return (
+      <ul className="flex flex-col" data-testid="collection-rows">
+        {items.map((item) => (
+          <li key={item.collection.id} className="border-b" data-testid="collection-row">
+            <button
+              type="button"
+              onClick={() => onNavigate(`/collections/${item.collection.id}`)}
+              className="flex min-h-14 w-full flex-col gap-1 py-2.5 text-left"
+            >
+              <span className="line-clamp-2 text-[15px] leading-snug font-medium">{item.collection.name}</span>
+              <span className="truncate text-xs text-muted-foreground">
+                {collectionMeta(item, me, dateKey, shareSummaries?.[item.collection.id])}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    );
+  }
   return (
     <Card className="gap-0 overflow-hidden py-0">
       <Table className="table-fixed">
@@ -117,4 +143,18 @@ export function CollectionTable({
       </Table>
     </Card>
   );
+}
+
+/** A phone row's one line: who, when, and whether it is shared (#2723). */
+function collectionMeta(
+  { collection: coll, share }: DisplayCollection,
+  me: string,
+  dateKey: ReturnType<typeof dateColumnFor>,
+  summary?: ShareSummary,
+): string {
+  const owner = coll.owner_email && coll.owner_email !== me ? coll.owner_email : "You";
+  const who = share ? sharedLine(share) : owner;
+  const shared = !share && !!(summary?.has_user_share || summary?.has_public_link);
+  const when = `${dateKey === "created_at" ? "Created" : "Updated"} ${new Date(rowDate(share, coll[dateKey])).toLocaleDateString()}`;
+  return [who, when, shared ? "Shared" : ""].filter(Boolean).join(" · ");
 }

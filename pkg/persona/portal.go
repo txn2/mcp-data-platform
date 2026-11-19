@@ -260,7 +260,10 @@ func (a *PortalAccess) Validate() error {
 
 // Differs lists the areas whose resolved level differs between two blocks,
 // in the order the editor shows them: what an external persona's limits
-// took from the levels it stored (#2257).
+// took from the levels it stored (#2257). Every area is listed, so a switch
+// the limits turn off is reported (#2718); TestDiffersNamesEveryArea fails
+// on one left out. Uploads alone is not: the limits leave it as set, and its
+// default differs by kind of persona rather than being taken.
 func Differs(stored, effective PortalAccess) []string {
 	var out []string
 	for _, f := range []struct {
@@ -276,10 +279,13 @@ func Differs(stored, effective PortalAccess) []string {
 		{"feedback", onText(stored.Feedback), onText(effective.Feedback)},
 		{"prompts", onText(stored.Prompts), onText(effective.Prompts)},
 		{"automations", onText(stored.Automations), onText(effective.Automations)},
+		{"sites", onText(stored.Sites), onText(effective.Sites)},
 		{"search", onText(stored.Search), onText(effective.Search)},
 		{"memory", onText(stored.Memory), onText(effective.Memory)},
 		{"download", onText(stored.Download), onText(effective.Download)},
+		{"history", onText(stored.History), onText(effective.History)},
 		{"external_files", stored.ExternalFiles, effective.ExternalFiles},
+		{"verify_assets", onText(stored.VerifyAssets), onText(effective.VerifyAssets)},
 	} {
 		if f.a != f.b {
 			out = append(out, f.area)

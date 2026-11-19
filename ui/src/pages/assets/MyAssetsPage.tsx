@@ -81,6 +81,7 @@ export function MyAssetsPage({ onNavigate }: Props) {
         sortDisabled={browse.searching}
         viewMode={viewMode}
         onViewModeChange={changeViewMode}
+        resultCount={browse.total}
       />
 
       <AssetBulk

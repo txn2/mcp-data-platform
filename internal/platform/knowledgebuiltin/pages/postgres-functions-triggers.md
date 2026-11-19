@@ -51,8 +51,10 @@ its body as SQL standard (`BEGIN ATOMIC`): the table names in it are bound when
 the migration creates it, in the schema the migration is applied to, so each
 environment's copy reads its own environment's table and nothing a caller
 puts on the path at run time. Pin its `search_path` to `pg_catalog, pg_temp`
-(`pg_temp` last) so no other name it uses can be shadowed, and revoke
-`EXECUTE` from `PUBLIC` in the same migration; the platform grants `EXECUTE`
+(`pg_temp` last) so no other name it uses can be shadowed; `SET search_path
+FROM CURRENT` pins `pg_temp` last too, since a migration runs with its schema
+then `pg_temp` on the path, and each environment's copy keeps its own schema.
+Revoke `EXECUTE` from `PUBLIC` in the same migration; the platform grants `EXECUTE`
 to each environment's run role after the migration applies. A function body
 in a quoted string (`LANGUAGE plpgsql`) resolves its names when it runs, and
 an application's migration names no schema, so do not make one `SECURITY

@@ -147,7 +147,7 @@ function TrashList({
 }) {
   return (
     <>
-      <div className="hidden overflow-x-auto rounded-xl border bg-card sm:block">
+      <div className="hidden overflow-x-auto rounded-xl border bg-card md:block">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b text-left text-xs text-muted-foreground">
@@ -166,16 +166,24 @@ function TrashList({
           </tbody>
         </table>
       </div>
-      <ul className="flex flex-col gap-2 sm:hidden">
-        {items.map((it) => (
-          <li key={`${it.kind}:${it.id}`} className="flex flex-col gap-2 rounded-xl border bg-card p-3">
-            <b className="text-sm">{it.name}</b>
-            <span className="text-xs text-muted-foreground">
-              {kindLabel(it)} · deleted {shortDate(it.deleted_at)} · purged on {purgeLabel(it.purge_at).text}
-            </span>
-            <RowActions item={it} onRestore={onRestore} onPurge={onPurge} wide />
-          </li>
-        ))}
+      {/* Below 768px each item is a card (#2723): the purge date on a line of
+          its own, flagged when it is within a week. */}
+      <ul className="flex flex-col gap-2 md:hidden" data-testid="trash-cards">
+        {items.map((it) => {
+          const purge = purgeLabel(it.purge_at);
+          return (
+            <li key={`${it.kind}:${it.id}`} className="flex flex-col gap-1.5 rounded-xl border bg-card p-3">
+              <b className="text-[15px] leading-snug">{it.name}</b>
+              <span className="text-xs text-muted-foreground">
+                {[kindLabel(it), everyone ? it.owner_email : "", `deleted ${shortDate(it.deleted_at)}`].filter(Boolean).join(" · ")}
+              </span>
+              <span className={purge.soon ? "text-xs font-semibold text-destructive" : "text-xs text-muted-foreground"}>
+                Purged on {purge.text}
+              </span>
+              <RowActions item={it} onRestore={onRestore} onPurge={onPurge} wide />
+            </li>
+          );
+        })}
       </ul>
     </>
   );

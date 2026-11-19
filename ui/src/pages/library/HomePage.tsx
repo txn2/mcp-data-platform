@@ -5,6 +5,8 @@ import { usePractitionerWorklist, useSMEWorklist } from "@/api/portal/hooks/thre
 import type { ThreadWithMeta } from "@/api/portal/feedback";
 import type { Asset, PaginatedResponse } from "@/api/portal/types";
 import { formatRelative } from "@/components/feedback/meta";
+import { usePortalAccess } from "@/hooks/usePortalAccess";
+import { SharedSitesSection } from "./SharedSitesSection";
 
 interface Props {
   onNavigate: (path: string) => void;
@@ -24,10 +26,7 @@ export function itemPath(item: { kind: string; id: string }): string {
 export function HomePage({ onNavigate }: Props) {
   const recents = useRecents(8);
   const favorites = useFavorites(8);
-  const drafts = useQuery({
-    queryKey: ["home", "drafts"],
-    queryFn: () => apiFetch<PaginatedResponse<Asset>>("/assets?scope=mine&status=draft&limit=5"),
-  });
+
   const practitioner = usePractitionerWorklist();
   const sme = useSMEWorklist();
   const waiting = [...(practitioner.data?.data ?? []), ...(sme.data?.data ?? [])].slice(0, 5);
@@ -37,9 +36,10 @@ export function HomePage({ onNavigate }: Props) {
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold">Home</h1>
         <p className="text-sm text-muted-foreground">
-          What you opened, what you starred, and what is waiting on you. Assets keeps its own page.
+          What you opened, what you starred, the sites shared with you, and what is waiting on you.
         </p>
       </div>
+      <SharedSitesSection />
       <div className="grid gap-4 md:grid-cols-2">
         <HomeSection
           title="Recent"
@@ -66,19 +66,7 @@ export function HomePage({ onNavigate }: Props) {
           }))}
           onNavigate={onNavigate}
         />
-        <HomeSection
-          title="My drafts"
-          link={{ label: "All drafts in Assets", path: "/assets" }}
-          empty="No drafts. Set an asset's status to Draft to list it here."
-          loading={drafts.isLoading}
-          items={(drafts.data?.data ?? []).map((a) => ({
-            key: a.id,
-            label: a.name,
-            badge: "Draft",
-            path: `/assets/${a.id}`,
-          }))}
-          onNavigate={onNavigate}
-        />
+        <DraftsSection onNavigate={onNavigate} />
         <HomeSection
           title="Waiting on you"
           link={{ label: "Inbox", path: "/feedback" }}
@@ -94,6 +82,31 @@ export function HomePage({ onNavigate }: Props) {
         />
       </div>
     </div>
+  );
+}
+
+/**
+ * DraftsSection is the reader's Draft assets. A reader whose assets level is
+ * shared owns none, so it could only ever be empty for them, an external
+ * person above all, and is left out (#2724).
+ */
+function DraftsSection({ onNavigate }: Props) {
+  const ownsAssets = usePortalAccess().assets !== "shared";
+  const drafts = useQuery({
+    queryKey: ["home", "drafts"],
+    queryFn: () => apiFetch<PaginatedResponse<Asset>>("/assets?scope=mine&status=draft&limit=5"),
+    enabled: ownsAssets,
+  });
+  if (!ownsAssets) return null;
+  return (
+    <HomeSection
+      title="My drafts"
+      link={{ label: "All drafts in Assets", path: "/assets" }}
+      empty="No drafts. Set an asset's status to Draft to list it here."
+      loading={drafts.isLoading}
+      items={(drafts.data?.data ?? []).map((a) => ({ key: a.id, label: a.name, badge: "Draft", path: `/assets/${a.id}` }))}
+      onNavigate={onNavigate}
+    />
   );
 }
 

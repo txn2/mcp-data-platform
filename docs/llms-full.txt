@@ -1469,6 +1469,21 @@ Plain Kubernetes manifests (no Helm, no Operator CRDs) ship in `deployments/obse
 
 Metrics answer "how is the system performing" — they complement, they do not replace.
 
+## Startup heap profiles
+
+A replica whose startup work outgrows its memory limit is killed within seconds,
+before anyone can pull a profile from the `PPROF_ADDR` listener. Setting
+`MCP_PLATFORM_STARTUP_HEAP_PROFILE_DIR` to a directory makes a starting process
+write its own (#2721): one heap profile each time the live heap doubles from
+256 MiB, during its first 10 minutes, named `heap-<unix>-<pid>-<MiB>MiB.pb.gz`
+and read with `go tool pprof`. Each write logs `startup heap profile written`
+with its path. Unset (the default) writes nothing.
+
+A heap profile holds stack traces, function names and allocation sizes, never
+the contents of memory. On Kubernetes, mount an `emptyDir` at the directory: it
+keeps the files across the container restart an OOM kill causes, and
+`kubectl cp` reads them out.
+
 ## PromQL query proxy
 
 The portal reads the scraped metrics back through an authenticated proxy rather than talking to Prometheus directly (which would require CORS, a separate auth path, and exposing an internal service). The platform serves `GET /api/v1/observability/query` and `GET /api/v1/observability/query_range`, forwarding to the configured Prometheus `/api/v1/query` and `/api/v1/query_range` and returning the upstream response body unchanged.
@@ -5070,7 +5085,7 @@ A statement PostgreSQL refuses fails with its SQLSTATE, condition name, and the 
 
 An application's tables are created and changed through versioned migrations the platform keeps, applies and reports, never by ad hoc DDL. A migration belongs to a connection and a schema (namespace, `public` by default): a version, a name, the SQL that applies it, optional SQL that reverts it, its author and a checksum. The platform keeps each migration and its history in its own database. The target database holds the ledger of what was applied in `mcp_schema.migrations` (the schema is `schema_ledger`): version, checksum, when, by whom and how long it took.
 
-A schema exists only inside an [application](applications.md#the-schema-is-a-part) (#2539): `add`, `plan`, `apply` and `down` on a schema no application holds are refused, naming the call that adds it (`manage_application add_part`, `kind: "schema"`, `part_id: "<connection>/<schema>"`), and so is the portal's plan route. `status` names the application holding the schema (`application`) and lists every schema of the connection with migrations that no application holds (`unheld_schemas`), each with that call; the admin migrations report carries the same two fields, `unheld_schemas` only when the platform governs schemas. A migration that creates, alters, drops or grants to a role, `PUBLIC` included (rule `role_named`), or names an object qualified by its own schema (rule `schema_qualified`), is refused, statements in a `DO` block's or a function's body included (#2709): an application's migrations apply to every environment's schema with the search path set to it, and the platform grants each environment's run role what they create. `apply` on a held schema gives the run role those grants.
+A schema exists only inside an [application](applications.md#the-schema-is-a-part) (#2539): `add`, `plan`, `apply` and `down` on a schema no application holds are refused, naming the call that adds it (`manage_application add_part`, `kind: "schema"`, `part_id: "<connection>/<schema>"`), and so is the portal's plan route. `status` names the application holding the schema (`application`) and lists every schema of the connection with migrations that no application holds (`unheld_schemas`), each with that call; the admin migrations report carries the same two fields, `unheld_schemas` only when the platform governs schemas. A migration that creates, alters, drops or grants to a role, `PUBLIC` included (rule `role_named`), or names an object qualified by its own schema (rule `schema_qualified`), is refused, statements in a `DO` block's or a function's body included (#2709): an application's migrations apply to every environment's schema with the search path set to it, and the platform grants each environment's run role what they create. `apply` on a held schema gives the run role those grants. An environment's schema (`<schema>_<env>`) keeps no migrations of its own: `status`, the pending plan and schema drift on it read the application's migrations, so it reports as the application's schema does (#2720). A migration runs with its schema then `pg_temp` on the search path, so a function pinned with `SET search_path FROM CURRENT` keeps `pg_temp` last (#2719).
 
 `manage_schema` takes a `command`, a `connection` (an application database) and an optional `schema`:
 
@@ -5129,7 +5144,7 @@ The review also reads each migration for statements that leave the database open
 
 | Rule | Statement | Severity | Safe form |
 |------|-----------|----------|-----------|
-| `security_definer_search_path` | A `SECURITY DEFINER` function or procedure without `SET search_path` ending in `pg_temp` (`FROM CURRENT` is not taken as pinned) | warning | `SET search_path = <its schemas>, pg_temp` on the function |
+| `security_definer_search_path` | A `SECURITY DEFINER` function or procedure without `SET search_path` ending in `pg_temp` (`FROM CURRENT` is pinned, since a migration runs with its schema then `pg_temp` on the search path, unless an earlier statement of the migration changed `search_path`, #2719) | warning | `SET search_path = <its schemas>, pg_temp` on the function |
 | `security_definer_public_execute` | A `SECURITY DEFINER` function with no `REVOKE ... FROM PUBLIC` covering it in the same migration (on the function, on `ALL FUNCTIONS IN SCHEMA`, or `ALTER DEFAULT PRIVILEGES` before it) | warning | `REVOKE EXECUTE ON FUNCTION <name> FROM PUBLIC`, then `GRANT` it to the roles that call it |
 | `row_security_not_forced` | `ENABLE ROW LEVEL SECURITY` without `FORCE ROW LEVEL SECURITY` on the same table in the same migration: the owner, which migrations and connections without a persona role run as, passes every policy | warning | `FORCE ROW LEVEL SECURITY` in the same migration |
 | `view_bypasses_row_security` | A view reading a table with row-level security (enabled on the server or in the migration) without `security_invoker = true`: the view reads as its owner | warning | `CREATE VIEW ... WITH (security_invoker = true)`, or `ALTER VIEW ... SET (security_invoker = true)` in the same migration |
@@ -5295,7 +5310,7 @@ A schema exists only inside an application (#2539). It is added at any time with
 
 `manage_schema` adds, plans, applies and reverts migrations only on a schema an application holds, and so does the portal's plan route; the refusal names the `add_part` call. Every schema with migrations that no application holds is listed by `manage_schema status` (`unheld_schemas`) and on the admin application database page, with that call. A schema whose migrations were applied before it was added is adopted: its applied version is kept as `schema_adopted_version`, the next release applies nothing already applied and records the schema's version, and a rollback reverts only migrations a release applied.
 
-Adding the schema creates the application's run role on the connection: a login role named `<schema>_run_` and eight characters derived from the database's name, with no `SUPERUSER`, `BYPASSRLS`, `CREATEROLE`, `CREATEDB` or `REPLICATION`, and a password the platform generates. The role is sent its SCRAM-SHA-256 verifier, never the password, and the password is stored in `application_run_roles` sealed with the deployment's encryption key, bound to the application, connection, schema and role; no route, tool, log, audit row, call record, run record or bundle carries it. Creating it needs `CREATEROLE` on the connection's user, and adding a schema without it is refused naming `ALTER ROLE <user> CREATEROLE`; a deployment with no `ENCRYPTION_KEY` adds no schema. Every statement of the application's scripts (a run, a draft, an endpoint request, a form, an event) logs in as the run role of the schema its environment runs in, with that schema as the role's `search_path` (#2709). Its grants come from the platform: after a release or a promote applies migrations to an environment's schema, that environment's run role is granted `USAGE` on the schema and `SELECT`, `INSERT`, `UPDATE` and `DELETE` on every table, sequence and routine in it, and nothing on any other schema; a schema whose migrations defined `<schema>_write` before #2709 also keeps the run role a member of it. A migration that creates, alters, drops or grants to a role, `PUBLIC` included (`role_named`), or names an object qualified by its own schema (`schema_qualified`), in a statement or a function's or `DO` block's body, is refused at add and at import: one migration applies to every environment's schema with the search path set to it. A script of another application, or of none, has no grant on the schema: its statement is refused by the database, and the error names the application holding the schema and says to use its endpoints and exports. Adding a script whose source reads or writes a schema another application holds is refused. Removing the schema drops the run role and its stored password and leaves the schema and its data; on a released application it is for administrators. An application holding a schema from before run roles has none until the schema is added again.
+Adding the schema creates the application's run role on the connection: a login role named `<schema>_run_` and eight characters derived from the database's name, with no `SUPERUSER`, `BYPASSRLS`, `CREATEROLE`, `CREATEDB` or `REPLICATION`, and a password the platform generates. The role is sent its SCRAM-SHA-256 verifier, never the password, and the password is stored in `application_run_roles` sealed with the deployment's encryption key, bound to the application, connection, schema and role; no route, tool, log, audit row, call record, run record or bundle carries it. Creating it needs `CREATEROLE` on the connection's user, and adding a schema without it is refused naming `ALTER ROLE <user> CREATEROLE`; a deployment with no `ENCRYPTION_KEY` adds no schema. Every statement of the application's scripts (a run, a draft, an endpoint request, a form, an event) logs in as the run role of the schema its environment runs in, with that schema as the role's `search_path` (#2709). Its grants come from the platform: after a release or a promote applies migrations to an environment's schema, that environment's run role is granted `USAGE` on the schema and `SELECT`, `INSERT`, `UPDATE` and `DELETE` on every table, sequence and routine in it, and nothing on any other schema; a schema whose migrations defined `<schema>_write` before #2709 also keeps the run role a member of it. A migration that creates, alters, drops or grants to a role, `PUBLIC` included (`role_named`), or names an object qualified by its own schema (`schema_qualified`), in a statement or a function's or `DO` block's body, is refused at add and at import: one migration applies to every environment's schema with the search path set to it. A script of another application, or of none, has no grant on the schema: its statement is refused by the database, and the error names the application holding the schema and says to use its endpoints and exports. Adding a script whose source reads or writes a schema another application holds is refused. Removing the schema drops the run role and its stored password and leaves the schema and its data; on a released application it is for administrators. Dropping a run role (removing the schema, an environment or the application) first grants the connection's user the role's privileges: on PostgreSQL 16 and later a `CREATEROLE` user that created a role holds only `ADMIN` on it, enough to grant itself the role, and `DROP OWNED BY` needs its privileges (#2717). An application holding a schema from before run roles has none until the schema is added again.
 
 Everyone signed in reads an application. Its owner and administrators edit its description and its parts, except that taking out a part the current release pins, or deleting a released application, is for administrators: either puts the part's newest version live, which is what a release does. A part is added by its owner (a webhook source, which only administrators manage, by an administrator). Only administrators release, roll back, export and import: a release changes the code behind a public endpoint and runs migrations on the target database, which is the authority an endpoint handler (`manage_script handler_set kind=endpoint`) and `manage_schema apply` already require. There is no second approver.
 
@@ -6699,7 +6714,567 @@ Someone who does not manage a site sees, in the portal and in the site's API
 answers, only the environments they can open and the domains on them.
 
 The Sites area is a persona's `portal.sites` switch. Unset, it is on for a persona
-holding `manage_site`.
+holding `manage_site`. An external persona never has it: its stored switch is kept
+and reported in the persona editor's capped areas (`capped_by_external`).
+
+Anyone a share names finds those environments on the portal's Home, under
+**Sites shared with you** (#2718), external people included: each environment a
+share to their verified email or to their persona opens, with its address and an
+Open link, an offline one marked Offline with its message and no link. Nothing
+else of the site is listed: not its other environments, not who else it is
+shared with, not who shared it. A person no share names sees no section. The list
+is `GET /api/v1/portal/shared-sites`, which every signed-in person may read.
+
+## Making a domain public
+
+Public is a setting of a domain, not of an environment (#2619). `set_environment`
+with `public` is refused, naming the domain setting. A domain is added private
+unless public is asked for (`add_domain` with `public: true`), and its access
+changes later with `set_domain` (`public: true` or `false`), Make public and Make
+private on the Domains tab, or `PUT /api/v1/portal/sites/{site}/domains/{hostname}`.
+
+Only the owner or an administrator makes a domain public; anyone who manages the
+site makes one private. On an environment that requires approval, an owner's
+request files a request in Approvals (purpose `site_public`, naming the domain)
+and the domain stays private; once it is approved, the same request makes it
+public. An approval holds for the access it was asked against: a domain made
+private and then public again asks again. An administrator's own request goes
+through at once. Every address on the pages domain keeps asking for a sign-in
+whatever its environment's domains are set to.
+
+Caching follows the address: a public domain's answers are cacheable as public
+answers are (`immutable` on a fingerprinted name, `max-age=0, must-revalidate`
+otherwise), and every private address answers `Cache-Control: private,
+no-cache` with `Vary: Cookie`.
+
+## Environments and promotion
+
+A site's environments have a stored order, the path a release takes (#2617):
+
+- `dev` is always first and `prod` always last. Neither can be moved, and
+  neither can be deleted while the site exists.
+- A new environment is placed when it is created, with `after` naming the
+  environment it follows: `dev` or one between `dev` and `prod`. Nothing goes
+  after `prod`. With only `dev` and `prod` there is one place, and a new
+  environment goes there; with more, leaving the place out is refused, naming the
+  environments it could follow.
+- An environment between them can be moved later the same way
+  (`set_environment` with `after`, or Move on its card). Moving one
+  forward past an environment that requires approval is an administrator's:
+  otherwise a release that environment never approved could feed the next one.
+- Every list of a site's environments follows the stored order: the cards, the
+  Sites list, the Promote dialog and `manage_site get`.
+
+**Promotion goes one step.** An environment takes a release only from the
+environment immediately before it, and only the release that environment serves.
+With `dev`, `stage`, `prod`, `prod` takes only what `stage` serves. `promote`
+names the target (`to`); `from`, when given, must be the environment before it,
+and a `release`, when given, must be the one that environment serves. A refusal
+names the environment the release must come from, in the same words from the
+portal, the API and `manage_site`. Nothing is promoted to `dev`, which takes every
+publish and edit directly. Rollback is unchanged: an environment returns to a
+release it served before.
+
+**Applications.** An application release moves each coupled site environment part,
+and each linked part it names in `move_sites` (#2679), to what the environment before
+it serves, and `dev`, which has nothing before it, to the site's newest release. A
+linked part is otherwise moved only by promote and rollback here. A promotion into an
+environment that is a part of an application is refused when the release's
+`_application` file declares a contract range that excludes the application's
+contract version (see [Applications](applications.md#the-compatibility-contract)). Pins are read before any environment moves, so an
+application holding both `stage` and `prod` moves each one step in one release, as
+promoting each would. Application rollback is unchanged.
+
+## Offline and redirecting
+
+Every environment other than `dev` has a status (#2631, #2632): **Online**, the
+default, serves its release; **Offline** answers every address and every path,
+`/endpoints/` included, with `503 Service Unavailable`, the platform's page
+showing the site's name and a message (plain text, at most 1,000 characters,
+with the runes that hide or reorder text removed), `Retry-After` while an
+expected-back time is set and ahead, `Cache-Control: no-store` and
+`X-Robots-Tag: noindex`; **Redirecting** answers every address with `302 Found`
+and `no-store` to an `https://` address, with the request's path and query
+appended when **Keep the path** is set. The request can only add path below the
+target: `//evil.example/x` lands at the target's `/evil.example/x`. One status
+applies at a time, and an environment moves between any two directly.
+
+- The access check runs first: on a private address someone not signed in is
+  asked to sign in, and learns neither the message nor where the environment
+  points.
+- The release pointer is untouched: promote, roll back and publish keep working,
+  and Online serves exactly what the environment then points at.
+- Anyone who manages the site sets it, at once, even on an environment that
+  requires approval: an outage cannot wait in a queue. The exception is a
+  redirect on an environment that requires approval, set by someone who is not an
+  administrator: it waits in Approvals (purpose `site_redirect`, naming the
+  target), the environment keeps answering as it does, and the same request goes
+  through once it is approved. Lifting a redirect is always immediate.
+- A redirect target must be an absolute `https://` URL with a host, no user
+  name or password, no control character, at most 2,048 characters, and none of
+  the environment's own domains, the pages domain or the platform's own
+  hostnames, which would loop.
+- The expected-back time is only what visitors are told: the environment stays
+  offline until someone brings it online.
+- History records `offline` with its message, `redirect` with its target, and
+  `online`.
+
+## Renaming and removing an environment
+
+The environments between `dev` and `prod` can be renamed and removed (#2630);
+`dev` and `prod` cannot.
+
+**Rename** (`set_environment` with `rename_to`, alone, or the PUT route with
+`rename_to`) takes a name that passes the environment-name and address rules and
+is not `dev`, `prod`, `default` or one the site uses. One transaction moves every
+reference: the environment, its domains, its history, its jobs, the main
+address, each share's environments, the application parts and pins written
+`<site>/<env>`, and pending approvals that target it. It answers at
+`<site>--<new>` at once; the old `<site>--<old>` answers "Nothing is published
+here", its domains keep answering, and `mcp:site:<site>/<old>` references written
+elsewhere stop resolving.
+
+**Remove** (`remove_environment`, or `DELETE .../environments/{name}`) is
+refused while the environment has a domain, holds the main address, is a part of
+an application or has a job running, each naming what to do first, and only an
+administrator removes one that requires approval. One transaction removes it,
+withdraws pending approvals that target it, drops it from every share, and
+**deletes a share that named only it**: an empty list means every private
+environment, so emptying one would widen it. Its history stays, marked removed,
+and stops counting toward its release limit, so releases only it kept go at the
+next sweep; an environment created later with the same name starts with no
+history.
+
+## Traffic
+
+The platform records each site's traffic and latency itself (#2647), so a
+site's people see it with no Prometheus backend and no grant beyond seeing the
+site. Each replica tallies every request the gateway answers in memory (one
+status-class count and one latency bucket, for the site and environment and for
+the replica: no allocation, no shared lock, no database call on the request path)
+and once a minute adds its counts into rows its replicas share, one per site and
+environment that had traffic, at the minute and the hour grain, and into its own
+row across all sites: a fixed two statements per replica per minute, however many
+sites or requests. A minute is never counted twice: a flush that fails before it
+commits is held and tried with the next minute (up to an hour of them), and one
+whose commit outcome is unknown is dropped. Minute rows are kept 24 hours and hour
+rows 90 days by default (`sites.traffic`, and Admin > Settings > Sites); the rows
+past their period are swept hourly. A row's key is the resolved route and the
+replica's `X-Platform-Instance` only: the request's path, query, host, client
+address, cookies and user agent never reach a row, a response or the portal. The
+Prometheus series `site_requests_total` and `site_request_duration_seconds` are
+unchanged.
+
+- `GET /api/v1/portal/sites/{site}/traffic?range=1h|24h|7d|30d&environment=`
+  answers requests by status class and p50, p95 and p99 over time, the range's
+  totals and the same by environment; someone who does not manage the site sees
+  the environments they can open.
+- The Sites list carries each site's `traffic.requests_24h` and `traffic.p95_ms`.
+- `manage_site get` answers `traffic`: the last 24 hours, for the site and per
+  environment.
+- `GET /api/v1/admin/sites/traffic/replicas?range=` answers each replica's
+  figures across all sites, for administrators.
+
+## Reading a site file
+
+`GET /api/v1/portal/sites/{site}/file/content?path=<path>[&release=<n>]`
+answers one file's bytes for the portal's viewer (#2629): dev's file without
+`release`, that release's with it. It reads as `/file` does: the people who
+manage the site read dev's source, someone dev is shared with what dev serves; a
+release's file is read by the people who manage the site, and by anyone else only
+while an environment they can open serves it. The bytes go out through the same
+writer every asset and resource uses: a sandbox `Content-Security-Policy`,
+`nosniff`, a parameter-free content type, private caching, HTML, SVG, JavaScript
+and XML as attachments, and byte ranges, so a video seeks without the file being
+read whole. `_redirects` and `_headers` answer their rendered text, and a path
+outside the tree is refused.
+
+## Naming a new site
+
+What a person types in **New site** is input, not the name (#2636). The server
+turns it into the name every address uses (lowercase; spaces, underscores and
+other separators become `-`; any other character outside `a-z` and `0-9` is
+dropped; repeated hyphens collapse; hyphens at the ends go) and checks it:
+`My Website` becomes `my-website`. `POST /api/v1/portal/sites/check-name` with
+`{name}` answers the name, the dev and prod addresses, the longest environment
+name it leaves room for, and the reason it would be refused, creating nothing;
+`create` applies the same rule. A site name is at most 57 characters, since every
+address adds `--` and an environment name to it and one part of an address holds
+63, and a two-character name makes a form DNS reserves.
+
+## Response headers
+
+A `_redirects` rule with status 200 is a rewrite (#2558): the path is answered
+in place, with status 200, by the file of this site the target names, so a
+single-page application answers its own routes (`/* /index.html 200`, or
+`/products/* /index.html 200` for one section). The target is a local path; a
+file the release holds still answers itself first, and a rewrite to a file the
+release lacks answers the 404 page.
+
+A release may carry a `_headers` file (#2557). Like `_redirects` it is read into
+the release rather than served, it travels with the release, so a rollback
+restores the headers that release declared, and it reads and edits like any file
+(`manage_asset` on `mcp:site:<site>/dev/_headers`). A path line starts a block, in
+the form a redirect's `from` takes (`/*` matches everything beneath), and each
+indented `Name: value` line under it is a header every answer under that path
+carries:
+
+```
+/*
+  Content-Security-Policy: default-src 'self'; img-src 'self' data:
+  Permissions-Policy: camera=(), microphone=()
+/embed/*
+  Content-Security-Policy: frame-ancestors https://partner.example
+```
+
+A release may set only `Content-Security-Policy`,
+`Content-Security-Policy-Report-Only`, `Permissions-Policy`,
+`Cross-Origin-Opener-Policy`, `Cross-Origin-Embedder-Policy`,
+`Cross-Origin-Resource-Policy` and `X-Frame-Options`. Any other header (a cookie,
+caching, CORS), a value holding a control character, or a malformed line refuses
+the publish, naming the file and line. Where two blocks match a path, the later
+one's header replaces the earlier one's of the same name.
+
+A release that declares no framing rule is served with
+`Content-Security-Policy: frame-ancestors 'self'`, so nothing on another origin
+can frame it. Declaring `frame-ancestors` in a `Content-Security-Policy`, or
+`X-Frame-Options`, replaces the default; a `Content-Security-Policy` without
+`frame-ancestors` is sent beside it, and a browser enforces both. The platform's
+own sign-in, no-access and not-found pages keep their own policy, and nothing a
+release declares reaches them.
+
+## Signing in to a private environment
+
+Every request to a private environment, on every path and for `HEAD`, on its
+pages address or a domain, is checked first, and a refusal holds nothing of the
+release.
+
+- A `GET` or `HEAD` with no valid sign-in goes straight to the portal's sign-in and
+  comes back to the hostname and path it started on, so someone already signed in
+  to the portal arrives with no click. Any other method gets a sign-in page, since
+  it cannot be carried across a redirect.
+- Signing in hands the portal's session across by a code good for a minute, once,
+  bound to the site, the hostname and the browser that started it. The portal's
+  handoff (`/sites/handoff`) reads the hostname from the request only to choose:
+  it sends the person back only to a hostname the store says serves a private
+  environment of that site, and refuses any other.
+- The hostname then keeps its own HttpOnly, host-only cookie, bound to that site
+  and that hostname, for an hour. It never receives the portal's session.
+- Who may open the environment is read on every request, so removing someone, or
+  changing a persona, takes effect on their next one. Files are
+  `Cache-Control: private, no-cache`, so a browser has to come back and be checked.
+- Administrator, external and persona are read from the live registry, never from
+  the cookie.
+- API keys are not honored, and every answer carries `X-Robots-Tag: noindex`.
+- `/_auth`, `/_signin`, `/_signout`, `/_viewer` and, on an environment that is a
+  part of an application, `/endpoints/` are answered before any file, so a release
+  holding those paths cannot stand in for them.
+
+A domain beside the portal (portal `portal.example.com`, site `docs.example.com`)
+can be added and made private when the session cookie names no `Domain`, as it
+does by default (`__Host-` on https): the site signs people in on its own
+hostname and never receives the portal's session. A deployment whose session
+cookie names a `Domain` refuses hostnames under it.
+
+## Inside a private environment
+
+A site builds its own access control (roles, per-page rules, what a person can see
+or do) and uses the platform's sign-in for who someone is.
+
+- `/_viewer` answers the signed-in person as JSON: `email`, `user_id`, `persona`
+  and `name` (the directory's display name, empty when it has none). It never
+  carries the cookie or anything signed. At a public domain it answers 401,
+  "nobody is signed in on this site".
+- When the environment is a part of an application (`add_part kind=site`), its
+  hosts also serve that application's endpoints at `/endpoints/<name>/...`, run as
+  the signed-in person (`req["caller"]`), as on the application's page origin. Every
+  site and environment under the pages domain is one site to a browser, so the
+  viewer is attached only to a request the browser marks as coming from this
+  origin (`Sec-Fetch-Site: same-origin`, or `none` for an address the person typed);
+  a sibling site's page cannot call an environment's endpoints as its viewer. At a
+  public domain the endpoints run as nobody.
+- The platform makes no decision inside the site beyond who may open the
+  environment.
+
+## Pages
+
+See the `platform-pages-and-sites` knowledge page for how to build one. What an
+operator should know:
+
+- A page origin answers `/endpoints/...`, `/_static/...`, `/_viewer` and `/_auth`,
+  and every other path with the endpoint named after the application: `/` alone
+  when its path is empty, any path when its path ends in a catch-all
+  `/{route...}` (#2553), which the handler routes itself. Portal, admin and MCP
+  routes do not exist there.
+- The portal's session never crosses. A signed-in person is handed over by a code
+  good for a minute, once, bound to the browser that started the sign-in; the
+  origin then keeps its own HttpOnly cookie, scoped to one application, for
+  twelve hours. API keys are not honored on a page origin.
+  The page origin answers on the port of `portal.public_base_url`, and the redirect back to it names the stored hostname and that port, nothing the request sent.
+- A page's content policy is built by the platform per binding: its own origin,
+  `page_cdns` for scripts, styles, images and fonts, and `page_frame_origins`,
+  `page_connect_origins` and `page_form_origins` for `frame-src`, `connect-src`
+  and `form-action` (#2554). Endpoints that do not opt in keep
+  `default-src 'none'; sandbox`, and a page requested on the portal's own origin
+  stays sandboxed.
+- A handler on the application's origin reads and sets application cookies
+  under the prefix `__Host-app-` (`app-` over http), which no platform cookie
+  has (#2555), and so does one a site environment that is a part of the
+  application calls at `/endpoints/<name>` on the site's own address (#2558). A request with a method other than GET or HEAD carries them only
+  when the browser says it came from that origin. Their values are replaced in
+  every audit row the request writes.
+- `req["client_ip"]` and an endpoint's `ip_rate_limit` read the client's address
+  through `server.trusted_proxies` (#2556); see
+  [The client's address](configuration.md#the-clients-address).
+
+## Sites
+
+A file's bytes are kept once per site, under `sites/<id>/objects/<sha256>` in the
+portal bucket with their gzip and brotli variants beside them (files published
+before this stay under `sites/<id>/releases/<release id>/`, named by
+`site_release_files.stored_in`). Promote and rollback only move an environment's
+pointer, and `site_deployments` records every move. Serving
+needs no CDN: strong ETags and `304`, `immutable` on fingerprinted names on a
+domain, range requests, redirects and a custom 404. A CDN can be put in front
+later with no change.
+
+### Changing a site in place
+
+An agent changes a site with the tools it already has. `manage_asset`'s content
+actions (`outline`, `locate`, `get_content`, `stats`, `diff`, `patch`) take
+`mcp:site:<site>/<environment>/<path>` for one file, a path ending in `/` for a
+folder, and `mcp:site:<site>/<environment>` for the whole tree. `version` is the
+release number, and `base_version` is refused when `dev` has moved past it, with
+nothing written. `patch` writes a new release derived from the current one.
+`manage_site publish` with `base` overlays that release: files sent are added or
+replaced, an entry with `delete: true` removes a path, and the rest carries over.
+
+Only `dev` takes a publish, an edit or an overlay, and `promote` moves a finished
+change to any other environment, so a change made in several patches reaches people
+in one step. A publish, overlay or patch aimed at any other environment is refused:
+"environment "prod" is read-only: publish, patch and edits change dev, and a release
+reaches prod by promote". A build pipeline publishes to `dev` and promotes. Patching
+needs manage access and a persona that holds `manage_site`, because `manage_asset`
+would otherwise reach further than `manage_site` does. `diff` and earlier releases
+need manage.
+
+A derived release stores only what differs from its parent, plus a removal row for
+each deleted path, and `Files` reads the whole set by walking the chain. Every
+32nd link stores the whole set again, so a read walks at most 32 releases and a
+patch on a release of 20,000 files writes one row. The manifest digest is computed
+over the whole set, so a rollback is provably the same files. A file set is listed
+with `limit` and `offset`, and a search across a tree reports what it scanned and
+skipped, so a search that could not reach a file does not read as a clean result.
+
+### Rendering
+
+A site with a `_layouts/` folder is rendered during publish, inside the platform,
+with no build tool: `_layouts/` and `_includes/` hold Liquid templates, `_data/<collection>/`
+holds records as JSON, YAML or Markdown, and any `.html`, `.md`, `.xml`, `.json` or
+`.txt` file with front matter is a page. `for_each` generates one page per record or
+taxonomy value and `per_page` makes paged lists. A site with no `_layouts/` folder is
+served exactly as published.
+
+A rendered release holds two trees: the output, which is all the gateway reads, and
+the source, which is what `mcp:site:` references address and what someone who manages
+the site reads. Someone the site is shared with reads the output. Source is unservable because
+it is not in the tree that is served. The record of what each output read is stored
+with the release, and a patch re-renders only the outputs that read a changed file;
+a change to a layout renders every page using it, in one release.
+
+Templates are written by the people who manage a site and their agents, and they run
+in the platform's process, so each render is bounded: one render at a time per
+replica, a five-minute deadline, and limits on loop iterations (50,000,000), include
+depth (32), block nesting (64), the bytes one page can hold (`sites.max_file_bytes`),
+total output (`sites.max_release_bytes`), output files (`sites.max_release_files`)
+and records held in memory (256 MiB). A panic in the template engine fails the page.
+Source and output each count against the limits on their own. A render is a function
+of the source tree: `date` refuses `now`, loops over objects run in key order, and no
+template reaches the network or a file outside the tree. A `for` loop's range bounds,
+and a loop's `limit`, `offset` and `cols`, are whole numbers: a literal, a `size`, the
+result of integer arithmetic (`plus`, `minus`, `times`, `divided_by` or `modulo` on
+whole numbers) or a whole number in a JSON or YAML record (#2633). A float such as
+`6 | divided_by: 2.0` is refused as a bound; `| floor` makes it one. A template error
+refuses the release, lists every file and line that failed, and leaves the environment
+where it was.
+
+A publish or a copy from the portal runs in the background (`site_jobs`): it goes
+on if the browser goes away, and a copy can be stopped. A job nobody has reported
+on for fifteen minutes reads as failed, since the replica running it has stopped.
+
+An environment may require approval: a release reaches it only by promote, and
+someone who is not an administrator files a request in Approvals first. Promote
+and Approvals show the files changed, added and removed and the redirects added.
+
+Every `manage_site` call and every portal write is audited. Requests to a site
+are not audited individually; they are recorded under the HTTP route `site`
+(`pages` for an application's page origin) and counted per site and environment in
+`site_requests_total` and `site_request_duration_seconds`, with
+`site_cache_reads_total` counting where each file came from (see
+[Observability](observability.md)).
+
+A release is never rendered on the portal's origin.
+
+## Releases kept
+
+Each environment keeps its last `keep_releases` distinct releases, the deployment's
+default (`sites.releases.keep_default`, 50, or **Releases kept per environment** in
+Admin > Settings > Sites) unless it has its own: `manage_site set_environment
+keep_releases=N`, `0` for every release, `"default"` to return to the default, also
+in the environment's Settings dialog in the portal. Only the owner or an
+administrator changes it, since a lower limit removes rollback history at the next
+cleanup.
+
+A release stays while it is in any environment's window, an environment points at
+it, an application release pins it, or a pending approval request names it. The
+daily cleanup (one replica at a time, under an advisory lock) removes every other
+release's file rows and the objects no kept release names, compressed forms
+included. A removed release keeps its record, marked `pruned`, so the deployments
+and approvals that name it read as before; it cannot be served, compared, promoted
+or rolled back to, and the refusal names the limits (a comparison's refusal names
+only the release). A move that started while a cleanup was deciding waits for it
+and is then refused if the cleanup removed its release. A kept release that read its
+files through a removed one is rewritten first, onto its nearest kept ancestor or
+whole, and checked to resolve to exactly the files it held. Files stored before
+v1.157.0 under a release's own prefix stay while any kept release names them.
+
+The same cleanup deletes objects under a site that no release names (a render that
+failed, a delete that failed) once they are older than `orphan_grace`, and refuses
+a site where more than half of what it holds reads as orphaned. In report mode it
+decides exactly as delete mode does and deletes nothing.
+
+A publish and a cleanup never overlap on one site's stored files. A publish holds
+them from its first stored file until its release is recorded, and a cleanup holds
+them from before it decides until its deletes finish (`site_object_holds`). The
+cleanup leaves a site with a publish in progress for the next run, and a publish
+that starts while a cleanup is deleting waits up to a minute and is then refused,
+saying the cleanup is running. Holds expire, so a replica that stopped while
+holding one blocks the other only for a few minutes; a publish whose hold ran out
+is refused rather than recorded. A site whose bucket cannot be listed still has
+its releases cleaned up, and the run reports `orphans_unchecked` for it.
+
+| Route | What it does |
+|---|---|
+| `GET /api/v1/admin/sites/retention` | The default, the mode, the grace, the interval, and the recent cleanups' counts |
+| `POST /api/v1/admin/sites/retention/run` | `{mode: "report" or "delete", site?}`: a cleanup now, answering which releases it removes per site and the files, bytes and orphans |
+
+`manage_site get` shows each environment's `keep_releases`,
+`keep_releases_default` and `releases_kept`; `releases` and the portal's release
+reads carry `pruned` and `kept_by` (the environments, `application <name>` and
+`approval` that keep each release).
+
+## Media folders
+
+A site mounts managed-resource folders at URL prefixes for images, video and
+downloads that do not change with its pages:
+
+```
+manage_site command=update site=marketing
+  media=[{"prefix":"/media/","scope":"global","folder":"sites/marketing/media"}]
+```
+
+`media` is the whole list (`[]` removes every mount), also `PATCH
+/api/v1/portal/sites/{site}` with `{"media": [...]}` and the Media tab in the
+portal. A prefix is a path under the site such as `/media/`, never `/`, `/_...` or
+`/.well-known/`; a site has at most 20.
+
+The gateway answers a path from the release first, then the longest mount whose
+prefix it starts with, then the redirects and the 404 page. A mounted file is
+served by range with its validators on every environment, with that environment's
+access; publish, promote and rollback leave media alone and it counts toward no
+release limit. A file replaced with `manage_resource replace_content` shows at once.
+A mount serves only what its folder holds now: a file moved out of it stops
+answering at its old address at once (the library's own reference to the old
+address keeps working for the file's readers), and a file moved within it answers
+at its new path.
+HTML, SVG, JavaScript and XML in a mount are sent as downloads, so a media folder
+cannot become a second, unreviewed site.
+
+Mounting publishes the folder: whoever mounts must manage the site and be able to
+read the folder, and its files are then public at a public domain. A file in a
+mounted folder is refused deletion (`manage_resource delete`, or `DELETE
+/api/v1/resources/{id}` answering 409) unless forced (`force=true`).
+
+## Domains
+
+Whoever manages a site adds a domain with `add_domain`, or Add domain on the site
+page, naming the environment it serves; an environment that does not exist yet is
+created, placed by `after`; `requires_approval` sent with the domain applies to
+the environment whether the request creates it or it exists. The domain is **private** unless the
+request asks for public, which only the owner or an administrator can; on an
+environment that requires approval, someone who is not an administrator adds it
+private and the request to make it public goes to Approvals. `dev` cannot have a
+domain: it is the working copy, not an address people rely on. Only an
+administrator maps a hostname to an application, whose domain answers by the
+application's own rules and has no public setting.
+
+The gateway answers an added hostname before the platform's routes, so the
+portal's hostname, the OAuth and sign-in issuers' hostnames, anything under the
+pages domain and anything under the session cookie's `Domain` are refused. If the
+deployment answers on any other name, such as an internal service name, list it in
+`sites.reserved_hostnames`; that name and everything under it are refused too.
+
+A domain on an environment that requires approval can be removed only by an
+administrator, since moving it to another environment would publish to it
+unapproved.
+
+### Primary and redirecting domains
+
+Most public websites answer at two hostnames and want one of them to win:
+`example.com` serves and `www.example.com` sends its visitors there, or the other
+way around (#2687). One domain of an environment can be its **primary**, the
+canonical hostname. Every other domain of that environment either **serves** the
+release (the default, and every domain added before this) or **redirects**: the
+gateway answers every request with a permanent redirect to the primary, path and
+query kept, `301 Moved Permanently` for `GET` and `HEAD` and `308 Permanent
+Redirect` for any other method, with `Cache-Control: public, max-age=3600`. A
+redirect domain reads no release and serves nothing. It answers anyone when the
+primary is public; when the primary is private it asks for the sign-in, as the
+primary would, before it redirects. Either direction works with no special case
+for `www.`: whichever domain is primary wins.
+
+`add_domain` and `set_domain` take `primary: true` and `mode: serve|redirect`,
+and the site page's Domains tab shows each domain's role, with **Make primary**,
+**Redirect to primary** and **Serve here**. Making a domain primary takes the mark
+from the previous primary, which keeps serving; a primary always serves. A domain
+cannot redirect on an environment with no primary, and a primary that other
+domains redirect to cannot be removed or given up until another domain is primary
+or those domains serve. A change takes effect at once on every replica, and
+promote and rollback leave it alone: it belongs to the environment's domains, not
+to a release. The environment's address, and the site's production address, is
+its primary; a redirect domain is never an address. The temporary,
+environment-wide redirect is a different thing: [Offline and
+redirecting](#offline-and-redirecting) answers `302` with `no-store`.
+
+`GET /api/v1/admin/sites/domains` lists every site address (each main address and
+each `<site>--<env>`) and every domain, with each domain's `primary`, `mode` and,
+for a redirect domain, `redirects_to`, for the system administrator's ingress rules.
+A redirect domain needs the same ingress and certificate as any other hostname;
+the gateway answers the redirect.
+A `<site>--<env>` no certificate can be issued for (a two-character site's, #2611)
+is left out.
+
+## manage_site
+
+| Command | What it does |
+|---|---|
+| `create` | A site with `dev` and `prod`, `prod` holding the main address |
+| `set_environment` | Creates, places or changes an environment: `after` (the environment it goes after, or moves after), `internal_view`, `requires_approval`, `keep_releases` (owner and administrators), and `main: true` to give it the main address. `public` is refused: it is a setting of a domain. `status` (`online`, `offline` with `message` and `back_at`, `redirect` with `redirect_to` and `keep_path`) changes what it answers; `rename_to`, alone, renames it; `agents_may_promote` is refused, an administrator's in the portal |
+| `remove_environment` | Removes an environment between dev and prod with no domain, main address, application part or running job |
+| `update` | `description`, `owner_email`, `main_environment` to move the main address (`""` gives it to none), and `media`, every mounted resource folder |
+| `publish` | A new release into `dev` (files, an archive or a folder; `base` overlays dev's release) |
+| `promote`, `rollback` | Move an environment's pointer; `promote` takes the release of the environment before `to` |
+| `grant` | `email` or `persona`, `level` (`view`; `manage` is for a person, site-wide), and `environments` the view grant opens (none is every private environment) |
+| `revoke` | `email` or `persona` |
+| `add_domain`, `set_domain`, `remove_domain`, `domains` | Domains. `add_domain` with `public` opens the domain to anyone; `set_domain` with `hostname` and `public` changes it later. `primary: true` makes a domain its environment's primary and `mode: redirect` answers it with a permanent redirect to the primary, on either command; `remove_domain` refuses a primary others redirect to. `after` places an environment `add_domain` creates, and `requires_approval` applies to the environment whether it creates it or it exists |
+| `crawl` | Copies an existing site into `dev` |
+| `get`, `list`, `releases`, `deployments` | Read; `get` answers the environments in their order, each environment's `addresses` and `pages_addresses`, the site's `production_address` (the portal list's), the site's `domains` with each one's `public`, `primary`, `mode` and `redirects_to`, and `traffic`, the last 24 hours for the site and per environment. `list` takes `query` (a part of a name, description, owner or domain hostname), `limit` (at most 200) and `offset`, answering `total` and each site's `production_addresses` (#2658) |
+
+`default`, the old name of `dev`, is read as `dev` wherever an environment is named
+for one minor release, and the answer carries a `note` saying so. A reference
+`mcp:site:<site>/default/...` reads as `mcp:site:<site>/dev/...`, and an application
+part `<site>/default` is added as `<site>/dev`.
+
 
 ## Making a domain public
 
@@ -7204,6 +7779,7 @@ part `<site>/default` is added as `<site>/dev`.
 
 | Route | What it does |
 |---|---|
+| `GET /api/v1/portal/shared-sites` | The environments a share to the caller's verified email or persona opens, each `{site, environment, address, online, message?}`, in site name order; `[]` for none. Every signed-in person, external included; nothing else of those sites is named (#2718) |
 | `GET /api/v1/portal/sites?q=&limit=&offset=` | The sites `q` names (a part of a name, description, owner or domain hostname, any case), `limit` at a time (at most 200, every match without it) from `offset`; `total` counts every match (#2658) |
 | `GET /api/v1/portal/sites/{site}/environments/{name}/tile` | The environment's tile, a PNG of the release it serves, to someone who may open the environment; 404 for none drawn yet for its current release, no release, offline or redirecting, or one the caller may not open (#2658). Tiles are drawn by the tile worker from the release's own files read in process, nothing fetched from any hostname, kept in site_tiles (migration 000253) under the release they are of and redrawn when it changes. A tile waits for the fonts and the images in its 1280x960 frame only, never one below the fold (lazy or not), an off-canvas slide or a content-visibility section (#2677); a page that misses the render deadline is the release's failure recorded on its first attempt, carried on the Sites list as the environment's tile_failure and shown as "Can't draw" with the reason; only a renderer that stops answering is retried (#2664) |
 | `PUT /api/v1/portal/sites/{site}/environments/{name}` | Creates, places or changes an environment. Body `{requires_approval?, internal_view?, keep_releases?, after?, agents_may_promote?, status?, message?, back_at?, redirect_to?, keep_path?, reason?, rename_to?}`, a field left out left alone; `keep_releases` is a number or `"default"`, `agents_may_promote` is an administrator's, and `public` is refused. Answers `{site, status, note?, approval?}` |

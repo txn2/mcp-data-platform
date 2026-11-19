@@ -245,12 +245,21 @@ func (s *Service) opens(ctx context.Context, actor Actor, st *site.Site, env str
 	if err != nil {
 		return false, err //nolint:wrapcheck // read by identity
 	}
-	if a.ByPersona || s.internalOpens(ctx, actor, a) {
+	if GrantOpens(actor, a) || s.internalOpens(ctx, actor, a) {
 		return true, nil
 	}
-	verified := actor.Email != "" && !actor.EmailUnverified
-	return verified && (a.ByEmail || strings.EqualFold(actor.Email, a.OwnerEmail)), nil
+	return verified(actor) && strings.EqualFold(actor.Email, a.OwnerEmail), nil
 }
+
+// GrantOpens reports whether a grant opens an environment for the actor: one
+// to their persona, or one to their email once it is verified. It is the part
+// of the access check a grant decides, which the list of environments shared
+// with a person reads too (#2718).
+func GrantOpens(actor Actor, a *site.Access) bool {
+	return a.ByPersona || verified(actor) && a.ByEmail
+}
+
+func verified(actor Actor) bool { return actor.Email != "" && !actor.EmailUnverified }
 
 // internalOpens reports whether an environment open to everyone internal
 // opens for the actor: someone with a persona that is not external.

@@ -5,6 +5,7 @@ import { ThumbCard } from "@/components/cards/ThumbCard";
 import { contentTypeIcon, ContentTypeBadge } from "@/components/ContentTypeBadge";
 import { FeedbackCountBadge } from "@/components/feedback/FeedbackCountBadge";
 import { ShareIndicators } from "@/components/ShareIndicators";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { SharePermissionBadge } from "@/components/SharePermissionBadge";
 import { Badge } from "@/components/ui/badge";
 import { formatBytes } from "@/lib/format";
@@ -41,20 +42,26 @@ export function AssetGrid({
   /** The bulk selection (#2507); omitted, the cards carry no box. */
   selection?: RowSelection;
 }) {
+  const compact = useIsMobile();
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+    // Two narrow cards to a row on a phone (#2723), one row of three on a wide screen.
+    <div className="grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-3">
       {items.map(({ asset, share }) => (
         <div key={asset.id} className="relative">
-          <AssetCard
-            asset={asset}
-            share={share}
-            summary={shareSummaries?.[asset.id]}
-            threadCount={threadCounts?.[asset.id]}
-            isDark={isDark}
-            dateKey={dateKey}
-            onNavigate={onNavigate}
-            selected={selection?.has(asset.id)}
-          />
+          {compact ? (
+            <CompactAssetCard asset={asset} share={share} isDark={isDark} dateKey={dateKey} onNavigate={onNavigate} selected={selection?.has(asset.id)} />
+          ) : (
+            <AssetCard
+              asset={asset}
+              share={share}
+              summary={shareSummaries?.[asset.id]}
+              threadCount={threadCounts?.[asset.id]}
+              isDark={isDark}
+              dateKey={dateKey}
+              onNavigate={onNavigate}
+              selected={selection?.has(asset.id)}
+            />
+          )}
           {selection && (
             <SelectBox
               label={`Select ${asset.name}`}
@@ -159,3 +166,40 @@ function AssetCard({
   );
 }
 
+/** A phone's card (#2723): the tile, the name on two lines, its badges and its date. */
+function CompactAssetCard({
+  asset,
+  share,
+  isDark,
+  dateKey,
+  onNavigate,
+  selected,
+}: {
+  asset: DisplayAsset["asset"];
+  share?: DisplayAsset["share"];
+  isDark: boolean;
+  dateKey: DateColumn;
+  onNavigate: (path: string) => void;
+  selected?: boolean;
+}) {
+  return (
+    <ThumbCard
+      onClick={() => onNavigate(`/assets/${asset.id}`)}
+      thumbnailSrc={assetThumbnailSrc(asset, isDark)}
+      fallbackIcon={contentTypeIcon(asset.content_type)}
+      className={selected ? "border-primary ring-2 ring-primary" : undefined}
+      bodyClassName="flex flex-col gap-1.5 p-2.5"
+    >
+      <span className="line-clamp-2 text-sm leading-snug font-medium" data-testid="asset-card-name">
+        {asset.name}
+      </span>
+      <span className="flex flex-wrap gap-1">
+        <ContentTypeBadge contentType={asset.content_type} />
+        <AssetMarkBadges asset={asset} small />
+      </span>
+      <span className="text-xs text-muted-foreground" title={dateLabelFor(dateKey, !!share)}>
+        {new Date(rowDate(share, asset[dateKey])).toLocaleDateString()}
+      </span>
+    </ThumbCard>
+  );
+}

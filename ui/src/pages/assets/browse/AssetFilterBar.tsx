@@ -1,4 +1,3 @@
-import { LayoutGrid, List } from "lucide-react";
 import { FilterSelect } from "@/components/patterns/FilterSelect";
 import { SearchInput } from "@/components/patterns/SearchInput";
 import { SegmentedControl } from "@/components/patterns/SegmentedControl";
@@ -9,55 +8,11 @@ import type { FacetCount } from "@/api/portal/types";
 import type { AssetStatusFilter } from "@/api/portal/hooks/assets";
 import { ASSET_SORT_OPTIONS, type AssetSortKey, type ListSort } from "@/components/listSort";
 import type { ViewMode } from "@/components/listView";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { CONTENT_TYPES, STATUS_OPTIONS, VIEW_OPTIONS } from "./assetFilterOptions";
+import { PhoneAssetFilterBar } from "./PhoneAssetFilterBar";
 
-/** The content types assets are actually saved as, as a filter facet. */
-const CONTENT_TYPES = [
-  { value: "", label: "All types" },
-  { value: "text/html", label: "HTML" },
-  { value: "text/jsx", label: "JSX" },
-  { value: "image/svg+xml", label: "SVG" },
-  { value: "text/markdown", label: "Markdown" },
-  { value: "text/csv", label: "CSV" },
-];
-
-/** The Status filter's choices (#2502); "" is any status or none. */
-const STATUS_OPTIONS = [
-  { value: "", label: "Any status" },
-  { value: "none", label: "No status" },
-  { value: "draft", label: "Draft" },
-  { value: "published", label: "Published" },
-  { value: "deprecated", label: "Deprecated" },
-];
-
-const VIEW_OPTIONS = [
-  { value: "grid" as const, label: "Grid view", icon: LayoutGrid },
-  { value: "table" as const, label: "Table view", icon: List },
-];
-
-/** Everything that narrows the Assets list, in one row above it. */
-export function AssetFilterBar({
-  scope,
-  onScopeChange,
-  search,
-  onSearchChange,
-  contentType,
-  onContentTypeChange,
-  tag,
-  onTagChange,
-  tagFacets,
-  owners,
-  onOwnersChange,
-  authorFacets,
-  status = "",
-  onStatusChange,
-  verified = false,
-  onVerifiedChange,
-  sort,
-  onSortChange,
-  sortDisabled,
-  viewMode,
-  onViewModeChange,
-}: {
+export interface AssetFilterBarProps {
   scope: Scope;
   onScopeChange: (scope: Scope) => void;
   search: string;
@@ -82,7 +37,39 @@ export function AssetFilterBar({
   sortDisabled: boolean;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
-}) {
+  /** How many assets the filters match, for the phone sheet's button. */
+  resultCount?: number;
+}
+
+/** Everything that narrows the Assets list: one row above it, and on a phone
+ *  the scope and search with the rest folded behind Filters (#2723). */
+export function AssetFilterBar(props: AssetFilterBarProps) {
+  return useIsMobile() ? <PhoneAssetFilterBar {...props} /> : <WideAssetFilterBar {...props} />;
+}
+
+function WideAssetFilterBar({
+  scope,
+  onScopeChange,
+  search,
+  onSearchChange,
+  contentType,
+  onContentTypeChange,
+  tag,
+  onTagChange,
+  tagFacets,
+  owners,
+  onOwnersChange,
+  authorFacets,
+  status = "",
+  onStatusChange,
+  verified = false,
+  onVerifiedChange,
+  sort,
+  onSortChange,
+  sortDisabled,
+  viewMode,
+  onViewModeChange,
+}: AssetFilterBarProps) {
   return (
     <div className="flex flex-wrap items-center gap-3">
       <ScopeFilter value={scope} onChange={onScopeChange} />
@@ -138,3 +125,4 @@ export function AssetFilterBar({
     </div>
   );
 }
+

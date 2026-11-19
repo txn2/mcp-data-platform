@@ -506,6 +506,13 @@ func (t *Toolkit) DropRunRole(ctx context.Context, connection, schema string) er
 		return nil
 	}
 	ident := pgx.Identifier{role}.Sanitize()
+	// On PostgreSQL 16 and later a CREATEROLE user that created the role holds
+	// only ADMIN on it, and DROP OWNED BY needs the role's privileges (#2717).
+	// ADMIN lets the user grant itself the role with them; the grant ends with
+	// the role.
+	if _, err := c.roleQ().Exec(ctx, "/* mcp-data-platform */ GRANT "+ident+" TO CURRENT_USER WITH INHERIT TRUE, SET TRUE"); err != nil {
+		return c.failure(ctx, err)
+	}
 	if _, err := c.roleQ().Exec(ctx, "/* mcp-data-platform */ DROP OWNED BY "+ident); err != nil {
 		return c.failure(ctx, err)
 	}

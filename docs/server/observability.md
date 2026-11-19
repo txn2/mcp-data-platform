@@ -1232,6 +1232,21 @@ cost of the metrics middleware to a single nil-pointer compare per
 request. There is no "lightweight" in-memory metrics mode: either
 the full Prometheus exporter is running or nothing is.
 
+## Startup heap profiles
+
+A replica whose startup work outgrows its memory limit is killed within seconds,
+before anyone can pull a profile from the `PPROF_ADDR` listener. Setting
+`MCP_PLATFORM_STARTUP_HEAP_PROFILE_DIR` to a directory makes a starting process
+write its own (#2721): one heap profile each time the live heap doubles from
+256 MiB, during its first 10 minutes, named `heap-<unix>-<pid>-<MiB>MiB.pb.gz`
+and read with `go tool pprof`. Each write logs `startup heap profile written`
+with its path. Unset (the default) writes nothing.
+
+A heap profile holds stack traces, function names and allocation sizes, never
+the contents of memory. On Kubernetes, mount an `emptyDir` at the directory: it
+keeps the files across the container restart an OOM kill causes, and
+`kubectl cp` reads them out.
+
 ## PromQL query proxy
 
 The metrics above are scraped by Prometheus. To let the portal read

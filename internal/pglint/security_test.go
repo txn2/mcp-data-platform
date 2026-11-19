@@ -33,13 +33,6 @@ func TestLintSecurity_EachRuleAndItsSafeForm(t *testing.T) {
 			target: target17,
 		},
 		{
-			name:   "definer from current",
-			up:     "CREATE FUNCTION f() RETURNS int LANGUAGE sql SECURITY DEFINER SET search_path FROM CURRENT AS $$SELECT 1$$; REVOKE ALL ON ALL FUNCTIONS IN SCHEMA app FROM PUBLIC",
-			safe:   "CREATE FUNCTION f() RETURNS int LANGUAGE sql SECURITY INVOKER AS $$SELECT 1$$",
-			rule:   ruleDefinerSearchPath,
-			target: target17,
-		},
-		{
 			name:   "definer left to PUBLIC",
 			up:     "CREATE OR REPLACE FUNCTION app.f(a int) RETURNS int LANGUAGE sql SECURITY DEFINER SET search_path = app, pg_temp AS $$SELECT a$$",
 			safe:   "CREATE OR REPLACE FUNCTION app.f(a int) RETURNS int LANGUAGE sql SECURITY DEFINER SET search_path = app, pg_temp AS $$SELECT a$$; REVOKE ALL ON FUNCTION app.f(int), g() FROM PUBLIC",
@@ -183,5 +176,51 @@ func TestLintSecurity_PasswordLiteral(t *testing.T) {
 	} {
 		findings, _ := Lint(up, target17)
 		assert.False(t, slices.ContainsFunc(findings, func(f Finding) bool { return f.Rule == rulePasswordLiteral }), up)
+	}
+}
+
+// #2719: FROM CURRENT is pinned only while no earlier statement of the
+// migration moved search_path; a function's own body naming it is not a move.
+func TestLintSecurity_FromCurrentAfterAPathMoveWarns(t *testing.T) {
+	const definer = "CREATE FUNCTION f() RETURNS int LANGUAGE sql SECURITY DEFINER SET search_path FROM CURRENT AS $$SELECT 1$$; " +
+		"REVOKE ALL ON ALL FUNCTIONS IN SCHEMA app FROM PUBLIC"
+	for _, before := range []string{
+		"SET search_path = public",
+		"SET LOCAL search_path TO public",
+		"SELECT set_config('search_path', 'public', true)",
+		"DO $$BEGIN PERFORM set_config('search_path', 'public', true); END$$",
+		"RESET search_path",
+		"RESET ALL",
+		"DISCARD ALL",
+	} {
+		got, _ := Lint(before+"; "+definer, target17)
+		if !slices.Contains(rulesOf(got), ruleDefinerSearchPath) {
+			t.Errorf("FROM CURRENT after %q was taken as pinned: %v", before, rulesOf(got))
+		}
+	}
+	routine := "CREATE FUNCTION g() RETURNS void LANGUAGE plpgsql AS $$BEGIN PERFORM set_config('search_path', 'x', true); END$$; "
+	got, _ := Lint(routine+definer, target17)
+	if slices.Contains(rulesOf(got), ruleDefinerSearchPath) {
+		t.Errorf("a function body naming search_path was read as a move: %v", rulesOf(got))
+	}
+	got, _ = Lint(definer+"; SET search_path = public", target17)
+	if slices.Contains(rulesOf(got), ruleDefinerSearchPath) {
+		t.Errorf("a move after the function changes nothing it pinned: %v", rulesOf(got))
+	}
+}
+
+// #2719: SET search_path FROM CURRENT pins the path the migration runs under,
+// which the applier sets to the schema then pg_temp, so the review takes it as
+// pinned with pg_temp last. A definer with no SET still warns.
+func TestLintSecurity_FromCurrentIsPinned(t *testing.T) {
+	pinned, _ := Lint("CREATE FUNCTION f() RETURNS int LANGUAGE sql SECURITY DEFINER SET search_path FROM CURRENT AS $$SELECT 1$$; "+
+		"REVOKE ALL ON ALL FUNCTIONS IN SCHEMA app FROM PUBLIC", target17)
+	if slices.Contains(rulesOf(pinned), ruleDefinerSearchPath) {
+		t.Errorf("FROM CURRENT was reported as unpinned: %v", rulesOf(pinned))
+	}
+	unpinned, _ := Lint("CREATE FUNCTION f() RETURNS int LANGUAGE sql SECURITY DEFINER AS $$SELECT 1$$; "+
+		"REVOKE ALL ON ALL FUNCTIONS IN SCHEMA app FROM PUBLIC", target17)
+	if !slices.Contains(rulesOf(unpinned), ruleDefinerSearchPath) {
+		t.Errorf("a definer with no SET search_path was not reported: %v", rulesOf(unpinned))
 	}
 }
