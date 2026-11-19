@@ -32,6 +32,7 @@ follows in alphabetical order.
 
 | Page | What it covers |
 |---|---|
+| [Home](home.md) | The landing page: Recent, Favorites, My drafts, Waiting on you; and the Unused, Possible duplicates and Trash tabs |
 | [Assets](assets.md) | The asset viewer, provenance, references, version history, and sharing |
 | [Collections](collections.md) | Grouping assets, and sharing a group as one |
 | [Shared With Me](shared.md) | Work other people shared with you |

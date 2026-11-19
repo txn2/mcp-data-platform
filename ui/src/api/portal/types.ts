@@ -1,3 +1,14 @@
+import type { AssetStatus, AssetVerification } from "./marks";
+
+export type {
+  AssetLinks,
+  AssetMarkEvent,
+  AssetStatus,
+  AssetStatusValue,
+  AssetVerification,
+  LinkedAssetRef,
+} from "./marks";
+
 export interface AssetCollectionRef {
   id: string;
   name: string;
@@ -54,6 +65,10 @@ export interface Asset {
   created_at: string;
   updated_at: string;
   deleted_at?: string;
+  /** How far along the asset is (#2502). Absent: no status. Grants nothing. */
+  status?: AssetStatus;
+  /** The Verified badge (#2503). Absent: never verified, removed or expired. */
+  verification?: AssetVerification;
 }
 
 export interface AssetVersion {

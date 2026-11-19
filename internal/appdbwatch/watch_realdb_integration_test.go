@@ -121,7 +121,11 @@ func TestWatch_RealDB(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, points, 1)
 		assert.True(t, points[0].Sample.Reachable)
-		assert.Equal(t, 1, points[0].Sample.DriftObjects)
+		if !assert.Equal(t, 1, points[0].Sample.DriftObjects) {
+			// An unchecked schema carries why in its result; without it a
+			// failure under a loaded lane says only that drift was missing.
+			t.Logf("drift results: %+v", points[0].Sample.Drift)
+		}
 		assert.GreaterOrEqual(t, points[0].Sample.IdleInTransaction, 1)
 		require.NotEmpty(t, svc.Gauges(ctx))
 

@@ -89,6 +89,16 @@ var saveAssetSchema = json.RawMessage(`{
       "items": {"type": "string", "maxLength": 100},
       "maxItems": 20
     },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "published", "deprecated"],
+      "description": "Optional status telling readers how far along the asset is: draft (work in progress), published (finished) or deprecated (kept for reference; say why in status_note, e.g. what replaced it). A status is informational and grants nothing: who can open the asset is decided by ownership and shares alone. Omit it and the asset has no status."
+    },
+    "status_note": {
+      "type": "string",
+      "maxLength": 500,
+      "description": "Note shown with the status; a deprecated asset shows it to every reader in a banner."
+    },
     "sources": {
       "type": "array",
       "description": "The calls this asset was built from, as the call_id (or mcp:call:<id> reference) each query and API invocation returns. Give these when you know exactly which calls produced the content; they replace the default, which is every data call you made since your last save or export in this session. Only your own calls can be cited.",
@@ -97,7 +107,7 @@ var saveAssetSchema = json.RawMessage(`{
     },
     "references": {
       "type": "array",
-      "description": "The files this content loads: a managed resource by its mcp:// URI, another saved asset by its mcp:asset:<id> reference, or a form by mcp:form:<endpoint> (an endpoint whose script defines form_spec and form_submit), framed where it shows: <iframe src=\"mcp:form:contact\" style=\"width:100%;height:640px;border:0\"></iframe>. A form is rendered by the platform in a frame of its own and is handed the query string of the page the asset is opened at; one asset may embed several. A reference loads another file's content into this document; it is not a link. Write the reference itself where the content is loaded (<img src=\"mcp://global/brand/logo.png\">, <link href=\"...\">, fetch(\"mcp:asset:ast_7c1e\"), url(...)) and list it here; every viewing surface rewrites it to a URL serving the file's bytes, and the stored content keeps the reference. A reference used as a link target (<a href>, a Markdown [text](...) link) is refused, because links between assets are not supported: name the asset in text instead. An anchor with a download attribute (<a href=\"mcp://...\" download>) is not a link: it offers the declared file for the reader to save, and is accepted. A reference the content loads and this list leaves out is reported back as undeclared_references and resolves to nothing. Do not embed a logo, photograph, design element or data table in the markup when it is already a managed resource or an asset. A referenced asset resolves to its CURRENT content on every load, which is how a report reads a data file another job refreshes. Only something you can read may be declared, and declaring it lets everyone this asset is shared with load it through this asset, including anyone holding a public link.",
+      "description": "The files this content loads: a managed resource by its mcp:// URI, another saved asset by its mcp:asset:<id> reference, or a form by mcp:form:<endpoint> (an endpoint whose script defines form_spec and form_submit), framed where it shows: <iframe src=\"mcp:form:contact\" style=\"width:100%;height:640px;border:0\"></iframe>. A form is rendered by the platform in a frame of its own and is handed the query string of the page the asset is opened at; one asset may embed several. A reference loads another file's content into this document; it is not a link. Write the reference itself where the content is loaded (<img src=\"mcp://global/brand/logo.png\">, <link href=\"...\">, fetch(\"mcp:asset:ast_7c1e\"), url(...)) and list it here; every viewing surface rewrites it to a URL serving the file's bytes, and the stored content keeps the reference. A managed resource or form used as a link target (<a href>, a Markdown [text](...) link) is refused: its reference serves bytes and cannot be followed. To link another asset, write mcp:asset:<id> as the link target (<a href=\"mcp:asset:<id>\">, [text](mcp:asset:<id>)) and do not list it here: a link is not a reference, and it grants the reader nothing, since the portal opens the target for each reader with their own access. An anchor with a download attribute (<a href=\"mcp://...\" download>) is not a link: it offers the declared file for the reader to save, and is accepted. A reference the content loads and this list leaves out is reported back as undeclared_references and resolves to nothing. Do not embed a logo, photograph, design element or data table in the markup when it is already a managed resource or an asset. A referenced asset resolves to its CURRENT content on every load, which is how a report reads a data file another job refreshes. Only something you can read may be declared, and declaring it lets everyone this asset is shared with load it through this asset, including anyone holding a public link.",
       "items": {"type": "string"},
       "maxItems": 20
     }
@@ -117,12 +127,50 @@ var manageAssetSchemaBase = json.RawMessage(`{
   "properties": {
     "action": {
       "type": "string",
-      "enum": ["list", "get", "update", "delete", "list_versions", "revert", "search", "provenance", "patch", "locate", "get_content", "outline", "stats", "diff", "share", "list_shares", "revoke_share", "create_collection", "list_collections", "get_collection", "update_collection", "delete_collection", "set_sections"],
-      "description": "Action to perform. Asset actions: list, get, update, delete, list_versions, revert, search, provenance. Content actions: patch, locate, get_content, outline, stats, diff. Sharing actions: share, list_shares, revoke_share. Collection actions: create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections. (Human feedback on assets is handled by the separate manage_feedback tool.)"
+      "enum": ["list", "get", "update", "delete", "list_versions", "revert", "search", "provenance", "patch", "locate", "get_content", "outline", "stats", "diff", "share", "list_shares", "revoke_share", "create_collection", "list_collections", "get_collection", "update_collection", "delete_collection", "set_sections", "list_recents", "list_favorites", "list_trash", "restore", "verify", "unverify"],
+      "description": "Action to perform. Asset actions: list, get, update, delete, list_versions, revert, search, provenance. Content actions: patch, locate, get_content, outline, stats, diff. Sharing actions: share, list_shares, revoke_share. Collection actions: create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections. Library actions: list_recents, list_favorites, list_trash, restore (asset_id or collection_id). Verified badge: verify (asset_id, optional note and expires_at), unverify (asset_id). (Human feedback on assets is handled by the separate manage_feedback tool.)"
     },
     "asset_id": {
       "type": "string",
       "description": "Asset ID (required for get, update, delete, list_versions, revert, provenance, share, list_shares). The content actions (get_content, outline, locate, stats, diff, patch) also take a site's files by reference: mcp:site:<site>/<environment>/<path> for one file, a path ending in / for a folder, or mcp:site:<site>/<environment> for the whole tree. On a site file version is the release number, and patch needs manage access to the site and lands only on the default environment, as a new release derived from the current one; promote it with manage_site to reach any other environment."
+    },
+    "asset_ids": {
+      "type": "array",
+      "description": "Several assets at once, in place of asset_id (update, delete and share actions; at most 500): an agent tidying a library tags, sets the status of, shares or deletes many assets in one call. Each asset is acted on as its own call would be, with its own permission check, and nothing changes on an asset you may not act on. The result lists applied and skipped, each skipped asset with why; one you cannot open, or that does not exist, reads \"not found or no access\". A bulk update changes name, description, tags, status or retention, never content; a bulk share sends no email.",
+      "items": {"type": "string"},
+      "minItems": 1,
+      "maxItems": 500
+    },
+    "add_tags": {
+      "type": "array",
+      "description": "Tags to add (update action) without replacing the ones an asset already carries; a tag it carries in another case keeps the asset's spelling. With asset_ids, added to every asset.",
+      "items": {"type": "string"},
+      "maxItems": 20
+    },
+    "remove_tags": {
+      "type": "array",
+      "description": "Tags to remove (update action), in any case, leaving the asset's other tags. With asset_ids, removed from every asset.",
+      "items": {"type": "string"},
+      "maxItems": 20
+    },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "published", "deprecated", "none"],
+      "description": "Set the asset's status (update action): draft, published or deprecated, or none to clear it. Informational only: it grants and removes no access. The owner sets it; get and list return it."
+    },
+    "status_note": {
+      "type": "string",
+      "maxLength": 500,
+      "description": "Note shown with the status (update action); a deprecated asset shows it to every reader."
+    },
+    "note": {
+      "type": "string",
+      "maxLength": 500,
+      "description": "What was checked (verify action), shown with the Verified badge."
+    },
+    "expires_at": {
+      "type": "string",
+      "description": "When the Verified badge is removed (verify action): a date (2026-12-31, the end of that day in UTC) or an RFC 3339 time. Omit for no expiry. The person who verified and the owner are reminded a week before."
     },
     "recipient": {
       "type": "string",
@@ -196,7 +244,7 @@ var manageAssetSchemaBase = json.RawMessage(`{
     },
     "references": {
       "type": "array",
-      "description": "The files this content loads: a managed resource by its mcp:// URI, another saved asset by its mcp:asset:<id> reference, or a form by mcp:form:<endpoint>, framed as <iframe src=\"mcp:form:contact\"></iframe> (update and patch actions). A reference loads another file's content into this document; it is not a link. Replaces whatever the asset referenced before: omit it to leave the references alone, pass an empty list to remove them all. Write the reference itself where the content is loaded (<img src>, <link href>, fetch, url()) and list it here; every viewing surface rewrites it to a URL serving the file's bytes, and the stored content keeps the reference. A reference used as a link target (<a href>, a Markdown [text](...) link) is refused, because links between assets are not supported: name the asset in text instead. An anchor with a download attribute (<a href=\"mcp://...\" download>) is not a link: it offers the declared file for the reader to save, and is accepted. A reference the content loads and the asset does not declare after the call is reported back as undeclared_references and resolves to nothing. A referenced asset resolves to its CURRENT content on every load, which is how a report reads a data file another job refreshes. Only something you can read may be declared, and declaring it lets everyone this asset is shared with load it through this asset, including anyone holding a public link.",
+      "description": "The files this content loads: a managed resource by its mcp:// URI, another saved asset by its mcp:asset:<id> reference, or a form by mcp:form:<endpoint>, framed as <iframe src=\"mcp:form:contact\"></iframe> (update and patch actions). A reference loads another file's content into this document; it is not a link. Replaces whatever the asset referenced before: omit it to leave the references alone, pass an empty list to remove them all. Write the reference itself where the content is loaded (<img src>, <link href>, fetch, url()) and list it here; every viewing surface rewrites it to a URL serving the file's bytes, and the stored content keeps the reference. A managed resource or form used as a link target (<a href>, a Markdown [text](...) link) is refused: its reference serves bytes and cannot be followed. To link another asset, write mcp:asset:<id> as the link target (<a href=\"mcp:asset:<id>\">, [text](mcp:asset:<id>)) and do not list it here: a link is not a reference, and it grants the reader nothing, since the portal opens the target for each reader with their own access. An anchor with a download attribute (<a href=\"mcp://...\" download>) is not a link: it offers the declared file for the reader to save, and is accepted. A reference the content loads and the asset does not declare after the call is reported back as undeclared_references and resolves to nothing. A referenced asset resolves to its CURRENT content on every load, which is how a report reads a data file another job refreshes. Only something you can read may be declared, and declaring it lets everyone this asset is shared with load it through this asset, including anyone holding a public link.",
       "items": {"type": "string"},
       "maxItems": 20
     },

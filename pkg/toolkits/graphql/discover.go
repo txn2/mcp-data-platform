@@ -157,6 +157,9 @@ func (t *Toolkit) handleDiscover(ctx context.Context, _ *mcp.CallToolRequest, in
 	if in.Connection == "" {
 		return toolkit.ErrorResult("connection is required"), nil, nil
 	}
+	if pending := t.schemaPending(ctx, in.Connection); pending != nil {
+		return pending, nil, nil
+	}
 	c, policy, ok := t.current(ctx, in.Connection)
 	if !ok {
 		return toolkit.ErrorResult(fmt.Sprintf(

@@ -26,7 +26,7 @@ describe("usePortalAccess", () => {
   it("is every area at its highest level when /me sent no block, and the later settings unset", () => {
     signIn(undefined);
     const { result } = renderHook(() => usePortalAccess());
-    expect(result.current).toEqual({ ...FULL_PORTAL, history: false, external_files: "none" });
+    expect(result.current).toEqual({ ...FULL_PORTAL, history: false, external_files: "none", verify_assets: false });
   });
 
   it("takes each area /me sent and fills the rest", () => {

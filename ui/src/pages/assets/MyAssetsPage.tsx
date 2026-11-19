@@ -14,10 +14,13 @@ import { getStoredViewMode, storeViewMode, type ViewMode } from "@/components/li
 import { getStoredScope, scopePhrase, storeScope, type Scope } from "@/components/ScopeFilter";
 import { useResolvedDark } from "@/stores/theme";
 import { AssetFilterBar } from "./browse/AssetFilterBar";
+import type { AssetStatusFilter } from "@/api/portal/hooks/assets";
 import { AssetGrid } from "./browse/AssetGrid";
 import { AssetsEmpty } from "./browse/AssetsEmpty";
 import { AssetTable } from "./browse/AssetTable";
 import { useAssetBrowse } from "./browse/useAssetBrowse";
+import { AssetBulk, rowSelection, type RowSelection } from "./browse/bulk/AssetBulk";
+import { useAssetSelection } from "./browse/bulk/selection";
 
 interface Props {
   onNavigate: (path: string) => void;
@@ -32,11 +35,14 @@ export function MyAssetsPage({ onNavigate }: Props) {
   const [contentType, setContentType] = useState("");
   const [tag, setTag] = useState("");
   const [owners, setOwners] = useState<string[]>([]);
+  const [status, setStatus] = useState<AssetStatusFilter | "">("");
+  const [verified, setVerified] = useState(false);
   const [sort, setSort] = useState<ListSort<AssetSortKey>>(DEFAULT_ASSET_SORT);
   const [viewMode, setViewMode] = useState<ViewMode>(getStoredViewMode);
   const [previewing, setPreviewing] = useState<Previewing | null>(null);
 
-  const browse = useAssetBrowse({ scope, search, contentType, tag, owners, sort });
+  const browse = useAssetBrowse({ scope, search, contentType, tag, owners, sort, status: status || undefined, verified });
+  const selection = useAssetSelection();
 
   function changeViewMode(mode: ViewMode) {
     setViewMode(mode);
@@ -65,6 +71,10 @@ export function MyAssetsPage({ onNavigate }: Props) {
         owners={owners}
         onOwnersChange={setOwners}
         authorFacets={browse.authorFacets}
+        status={status}
+        onStatusChange={setStatus}
+        verified={verified}
+        onVerifiedChange={setVerified}
         sort={sort}
         onSortChange={setSort}
         // Relevance ranking, not a column, decides the order of a search.
@@ -73,8 +83,17 @@ export function MyAssetsPage({ onNavigate }: Props) {
         onViewModeChange={changeViewMode}
       />
 
+      <AssetBulk
+        selection={selection}
+        items={browse.displayItems}
+        total={browse.total}
+        filters={browse.filters}
+        query={browse.query}
+      />
+
       <Results
         browse={browse}
+        selection={rowSelection(selection, browse.displayItems)}
         scope={scope}
         viewMode={viewMode}
         isDark={isDark}
@@ -117,6 +136,7 @@ type BrowseResult = ReturnType<typeof useAssetBrowse>;
 /** The list itself: loading, empty for one of several reasons, or the rows. */
 function Results({
   browse,
+  selection,
   scope,
   viewMode,
   isDark,
@@ -126,6 +146,7 @@ function Results({
   onPreview,
 }: {
   browse: BrowseResult;
+  selection: RowSelection;
   scope: Scope;
   viewMode: ViewMode;
   isDark: boolean;
@@ -154,6 +175,7 @@ function Results({
       isDark={isDark}
       dateKey={dateColumnFor(sort.key)}
       onNavigate={onNavigate}
+      selection={selection}
     />
   ) : (
     <AssetTable
@@ -166,6 +188,7 @@ function Results({
       onSort={browse.searching ? undefined : onSort}
       onNavigate={onNavigate}
       onPreview={onPreview}
+      selection={selection}
     />
   );
 }

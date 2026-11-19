@@ -12,7 +12,7 @@ import { type ScreenshotRoute } from "./route-types";
  * later capture of that section.
  */
 const SECTIONS: { slug: string; path: string }[] = [
-  { slug: "assets", path: "/portal/" },
+  { slug: "assets", path: "/portal/assets" },
   { slug: "prompts", path: "/portal/prompts" },
   { slug: "scripts", path: "/portal/automations" },
   { slug: "applications", path: "/portal/applications" },

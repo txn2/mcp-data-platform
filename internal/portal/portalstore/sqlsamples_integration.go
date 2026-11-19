@@ -32,9 +32,13 @@ func SQLSamples() map[string]string {
 			"550e8400-e29b-41d4-a716-446655440444", "analyst@example.com"),
 		ContentType: "text/csv", Tag: "script", Search: "revenue", Limit: 10, Offset: 20,
 		Tags: []string{"report:sales"}, Metadata: map[string]string{"region": "west"},
+		// The status and verified filters (#2502, #2503) render EXISTS arms
+		// over their own tables.
+		Status: portaldomain.StatusDraft, Verified: true,
 	}
 	listFilterIDOnly := portaldomain.AssetFilter{
-		Owner: portaldomain.NewAssetOwner("550e8400-e29b-41d4-a716-446655440444", ""),
+		Owner:  portaldomain.NewAssetOwner("550e8400-e29b-41d4-a716-446655440444", ""),
+		Status: portaldomain.StatusNone,
 	}
 	// The renderer's claim (#1787): the owed predicate under a locking
 	// subquery, with the listing projection RETURNED.

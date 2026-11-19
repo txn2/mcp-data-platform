@@ -28,7 +28,7 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Knowledge | `apply_knowledge` | Review and promote reviewed captures to the catalog (admin-only) |
 | Memory | `memory_manage` | Manage existing memories: update, forget, list, review_stale, review_duplicates, consolidate (opt-in per persona) |
 | Portal | `save_asset` | Save AI-generated content as an asset (JSX, HTML, SVG, Markdown, CSV, etc.): every document an agent produces, whatever the user calls it |
-| Portal | `manage_asset` | List, get, update, delete, or relevance-search saved assets and collections, edit asset content in place (patch, locate, get_content, outline, stats, diff), and share an asset with a person or as a link (share, list_shares, revoke_share) |
+| Portal | `manage_asset` | List, get, update, delete, or relevance-search saved assets and collections, edit asset content in place (patch, locate, get_content, outline, stats, diff), and share an asset with a person or as a link (share, list_shares, revoke_share); read the caller's library (list_recents, list_favorites, list_trash) and restore from the trash (restore, #2504, #2509); set a status (#2502) and verify (verify, unverify, #2503) |
 | Portal | `manage_table` | Make a stored CSV or JSON-lines file queryable as a table and manage what is registered over it (register, list, unregister), or check that a table could be registered on a connection (check). Takes the `reference` a search hit carries, so it serves an uploaded resource and a saved asset through one action |
 | Portal | `manage_resource` | Manage a file in the managed resource library (create, replace_content, update, get, list, delete, extract): the files a saved asset references, and the members of a stored archive written out as files of their own. A replacement keeps the resource's id, URI and filename, so every asset referencing it serves the new bytes without being re-saved; `create` with `if_exists=replace` makes landing one rolling file idempotent, and a delete is refused while anything still points at the file |
 | Portal | `manage_feedback` | Review, open and respond to feedback (list pending across everything, create, get, reply, resolve, request/respond validation, edit and delete a message) |
@@ -837,12 +837,18 @@ It is how every document is produced, in the words a user asks for it (#1995): a
 | `description` | string | No | - | Description of the asset (max 2000 chars) |
 | `tags` | array | No | [] | Tags for categorization (max 20 tags, each max 100 chars) |
 | `sources` | array | No | session window | The calls this asset was built from, as the `call_id` (or `mcp:call:<id>` reference) each query and API invocation returns. Replaces the default window; only your own calls resolve (max 100) |
+| `status` | string | No | none | `draft`, `published` or `deprecated` (#2502): how far along the asset is. Informational: it grants and removes no access. Omit it and the asset has no status |
+| `status_note` | string | No | - | Note shown with the status; a deprecated asset shows it to every reader in a banner (max 500 chars) |
 
 **Response includes:**
 
 - Asset ID for future reference
 - Portal URL for viewing (if `public_base_url` is configured)
 - Whether provenance was captured, and how many calls it recorded
+- `existing_tags` (#2508), when there are any: tags on the assets you can open that are a case or spelling variant of a tag you gave (the same without case, the same without spaces and punctuation, or one or two letters apart), each with `asset_count` and the tag it is `close_to`. Reuse the existing tag with `manage_asset update` unless the new one is meant to differ
+- `similar_assets` (#2508), when there are any: up to three assets you can open, other than the one just saved, whose stored embedding is within the near-duplicate threshold of the new asset's name, description and tags, each with `asset_id`, `name`, `owner_email` and `similarity`. Tell the person, and offer to save the work as a new version of that asset instead
+
+Neither lookup refuses or holds a save: both run after the asset is stored, within two seconds, and one that fails or runs out of time reports nothing. An asset you cannot open is never returned or counted in either. The threshold is one constant, `assetsimilar.NearDuplicate` (cosine similarity 0.93, `internal/portal/assetsimilar`), shared with the portal's Possible duplicates; the similarity compares the text each asset is indexed by for search, so it needs an embedding provider and finds an asset once the platform has embedded it.
 
 **Writing one that fits the reader's screen.** A saved document is opened on a phone as readily as on a laptop, usually through a share link, and the reader with the narrow screen cannot widen it. The rules an `html`, `jsx` or `svg` document has to follow to reflow into it — which content type is framed by what, the viewport declaration an HTML document owes, rows that wrap, the three things allowed their own horizontal scroll box, and an SVG sized by its `viewBox` rather than its attributes — ship as the built-in knowledge page `mcp:knowledge_page:platform-documents-that-fit-any-screen`, which the instruction baseline names for every caller that can write an asset.
 
@@ -860,8 +866,15 @@ List, retrieve, update, delete, or share saved assets, and edit an asset's conte
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `action` | string | Yes | - | Action to perform: list, get, update, delete, search, patch, locate, get_content, outline, stats, diff, share, list_shares, revoke_share |
+| `action` | string | Yes | - | Action to perform: list, get, update, delete, search, patch, locate, get_content, outline, stats, diff, share, list_shares, revoke_share, list_recents, list_favorites, list_trash, restore, verify, unverify (verify needs the Can verify assets permission or an administrator, #2503) |
 | `asset_id` | string | Conditional | - | Required for get, update, delete, share, list_shares, and every content action |
+| `asset_ids` | array | No | - | Several assets at once in place of `asset_id`, for update, delete and share (#2507; at most 500). Each asset is acted on as its own call would be, with its own permission check, and nothing changes on one you may not act on. The result lists `applied` and `skipped`, each skipped asset with its `reason`: an asset you cannot open, or that does not exist, reads `not found or no access`. A bulk update changes name, description, tags, status or retention, never content; a bulk share sends no email. A JSON string is refused by the schema |
+| `add_tags` | array | No | - | Tags to add (update) without replacing the ones an asset carries; a tag it already carries in another case keeps the asset's spelling. With `asset_ids`, added to every asset |
+| `remove_tags` | array | No | - | Tags to remove (update), in any case, leaving the asset's other tags |
+| `status` | string | No | - | Set the asset's status (update): `draft`, `published`, `deprecated`, or `none` to clear it (#2502). Informational; the owner sets it, and get and list return it |
+| `status_note` | string | No | - | Note shown with the status (update) |
+| `note` | string | No | - | What was checked (verify, #2503), shown with the Verified badge |
+| `expires_at` | string | No | never | When the Verified badge is removed (verify): a date (the end of that day in UTC) or an RFC 3339 time. The person who verified and the owner are reminded a week before |
 | `content` | string | No | - | New content (for update; replaces the whole body) |
 | `name` | string | No | - | New name (for update) |
 | `description` | string | No | - | New description (for update) |

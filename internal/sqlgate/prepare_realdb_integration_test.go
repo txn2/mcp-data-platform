@@ -33,7 +33,11 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/callrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/capacity"
 	scriptstore "github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
+	"github.com/txn2/mcp-data-platform/internal/portal/assetlinks"
+	"github.com/txn2/mcp-data-platform/internal/portal/assetsimilar"
+	"github.com/txn2/mcp-data-platform/internal/portal/assettags"
 	"github.com/txn2/mcp-data-platform/internal/portal/foldergrant"
+	"github.com/txn2/mcp-data-platform/internal/portal/library"
 	portalstore "github.com/txn2/mcp-data-platform/internal/portal/portalstore"
 	"github.com/txn2/mcp-data-platform/internal/portal/reachstore"
 	"github.com/txn2/mcp-data-platform/internal/sqlgate"
@@ -115,6 +119,10 @@ var sampleSources = map[string]source{
 	"github.com/txn2/mcp-data-platform/internal/portal/foldergrant":   {foldergrant.SQLSamples, 3},
 	"github.com/txn2/mcp-data-platform/internal/portal/portalstore":   {portalstore.SQLSamples, 7},
 	"github.com/txn2/mcp-data-platform/internal/portal/reachstore":    {reachstore.SQLSamples, 3},
+	"github.com/txn2/mcp-data-platform/internal/portal/assetlinks":    {assetlinks.SQLSamples, 0},
+	"github.com/txn2/mcp-data-platform/internal/portal/assetsimilar":  {assetsimilar.SQLSamples, 0},
+	"github.com/txn2/mcp-data-platform/internal/portal/library":       {library.SQLSamples, 1},
+	"github.com/txn2/mcp-data-platform/internal/portal/assettags":     {assettags.SQLSamples, 1},
 	"github.com/txn2/mcp-data-platform/internal/sqlrank":              {sqlrank.SQLSamples, 0},
 	"github.com/txn2/mcp-data-platform/pkg/prompt/postgres":           {promptpg.SQLSamples, 5},
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore": {scriptstore.SQLSamples, 4},

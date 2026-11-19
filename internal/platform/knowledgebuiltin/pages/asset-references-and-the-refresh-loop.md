@@ -81,19 +81,30 @@ reports those back: `save_asset` and `manage_asset` `update` and `patch` return
 not declare once the call is done (the `references` you passed, or the asset's
 existing declaration when you passed none).
 
-## A reference loads a file; it is not a link
+## A reference loads a file; a link opens an asset
 
 The rewrite turns a reference into a URL serving the target's bytes. An `img`,
 a stylesheet, a `fetch` or a CSS `url()` can use that. A reader cannot follow
 it: the frame an HTML or JSX asset renders in blocks navigation, and a file's
-raw bytes are not a page. Links between assets are not supported.
+raw bytes are not a page.
 
-A write that uses a reference as a link target is refused, naming each one,
-and nothing is written: an `<a href="mcp:asset:...">` (or `<area>`, or an SVG
-`xlink:href` on an `<a>`) in HTML, JSX, SVG or markdown, and a markdown
-`[text](mcp:asset:...)` link or `<mcp:asset:...>` autolink. A markdown image,
-`![alt](mcp:asset:...)`, loads the file and is accepted. To point a reader at
-another asset, name it in text.
+A link to another asset is written with `mcp:asset:<id>` as the link target:
+an `<a href="mcp:asset:...">` (or `<area>`, or an SVG `xlink:href` on an
+`<a>`) in HTML, JSX, SVG or markdown, and a markdown `[text](mcp:asset:...)`
+link or `<mcp:asset:...>` autolink. A link is not a reference: do not list it
+in `references`, it takes no reference slot, and nothing about the target is
+checked when the asset is saved. The portal opens the target's page when the
+reader clicks it, and that page decides what the reader sees: the asset if
+they can open it, a request for access otherwise. A link grants no access, and
+in a public share it leads to the target's portal address, which asks for
+sign-in. The target lists the assets linking to it ("Linked from"), only the
+ones its reader can open. A markdown image, `![alt](mcp:asset:...)`, loads the
+file and is a reference.
+
+A write that uses a managed resource or a form as a link target
+(`<a href="mcp://...">`, `[text](mcp://...)`) is refused, naming each one, and
+nothing is written: its reference serves a file's bytes, which a reader cannot
+follow.
 
 ## Offering a file for download
 
@@ -105,7 +116,7 @@ link and is accepted: declare the file in `references` and write
 file as an attachment, and the reader gets the file. A page can also build a
 file in script, a CSV of the table it renders through a `Blob` and an
 `<a download>` it clicks, and the download goes ahead when the reader starts
-it. A plain `<a href>` to a reference, with no `download`, is still refused.
+it. A plain `<a href>` to a managed resource, with no `download`, is still refused.
 
 ## What this looks like in the assets you actually write
 

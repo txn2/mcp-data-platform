@@ -4432,6 +4432,110 @@ definitions:
         example: 24
         type: integer
     type: object
+  assetbulk.Request:
+    properties:
+      action:
+        description: |-
+          Action is add_tags, remove_tags, add_to_collection, set_status,
+          clear_status, share or delete.
+        example: add_tags
+        type: string
+      asset_ids:
+        description: AssetIDs are the assets to act on, at most 500.
+        items:
+          type: string
+        type: array
+      collection_id:
+        description: |-
+          CollectionID and SectionID name where add_to_collection files the
+          assets; an empty section is the collection's last.
+        type: string
+      note:
+        type: string
+      section_id:
+        type: string
+      share:
+        allOf:
+        - $ref: '#/definitions/assetbulk.ShareSpec'
+        description: Share is who share shares with. A bulk share sends no email.
+      status:
+        description: Status and Note are what set_status sets.
+        example: deprecated
+        type: string
+      tags:
+        description: Tags are added or removed (add_tags, remove_tags).
+        example:
+        - finance
+        items:
+          type: string
+        type: array
+    type: object
+  assetbulk.Result:
+    properties:
+      action:
+        type: string
+      applied:
+        items:
+          type: string
+        type: array
+      requested:
+        type: integer
+      skipped:
+        items:
+          $ref: '#/definitions/assetbulk.Skipped'
+        type: array
+    type: object
+  assetbulk.ShareSpec:
+    properties:
+      permission:
+        description: Permission is viewer (the default) or editor.
+        example: viewer
+        type: string
+      shared_with_email:
+        example: colleague@example.com
+        type: string
+      shared_with_persona:
+        example: finance
+        type: string
+      shared_with_user_id:
+        type: string
+    type: object
+  assetbulk.Skipped:
+    properties:
+      asset_id:
+        type: string
+      reason:
+        type: string
+    type: object
+  assetlinks.Ref:
+    properties:
+      content_type:
+        example: text/markdown
+        type: string
+      id:
+        example: asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK
+        type: string
+      name:
+        example: Reports index
+        type: string
+    type: object
+  assetlinks.linksResponse:
+    properties:
+      linked_from:
+        description: |-
+          LinkedFrom are the assets whose current content links to this one,
+          limited to those the caller can open.
+        items:
+          $ref: '#/definitions/assetlinks.Ref'
+        type: array
+      links:
+        description: |-
+          Links are the ids the asset's current content links to. The portal
+          follows a link from the asset's frame only to one of these.
+        items:
+          type: string
+        type: array
+    type: object
   assetrefapi.audience:
     properties:
       public:
@@ -4609,6 +4713,117 @@ definitions:
           implicit for the reason Hidden is: a short list read as a complete one
           is the mistake this surface exists to prevent.
         type: boolean
+    type: object
+  assetstatus.Event:
+    properties:
+      actor:
+        example: alice@example.com
+        type: string
+      at:
+        type: string
+      from:
+        example: draft
+        type: string
+      kind:
+        example: status
+        type: string
+      note:
+        type: string
+      to:
+        example: published
+        type: string
+    type: object
+  assetstatus.historyResponse:
+    properties:
+      events:
+        items:
+          $ref: '#/definitions/assetstatus.Event'
+        type: array
+    type: object
+  assetstatus.statusRequest:
+    properties:
+      note:
+        description: Note is shown with the status; a deprecated asset shows it to
+          readers.
+        example: Replaced by the Q4 report
+        type: string
+      status:
+        description: Status is draft, published or deprecated.
+        example: deprecated
+        type: string
+    type: object
+  assettags.MergeRequest:
+    properties:
+      from:
+        example:
+        - fin
+        - Finance
+        items:
+          type: string
+        type: array
+      into:
+        example: finance
+        type: string
+    type: object
+  assettags.Page:
+    properties:
+      tags:
+        items:
+          $ref: '#/definitions/assettags.Tag'
+        type: array
+      total:
+        type: integer
+    type: object
+  assettags.RenameRequest:
+    properties:
+      from:
+        example: fin
+        type: string
+      to:
+        example: finance
+        type: string
+    type: object
+  assettags.RetagResult:
+    properties:
+      moved:
+        example: 14
+        type: integer
+      tag:
+        example: finance
+        type: string
+    type: object
+  assettags.Spelling:
+    properties:
+      count:
+        example: 9
+        type: integer
+      tag:
+        example: Finance
+        type: string
+    type: object
+  assettags.Tag:
+    properties:
+      count:
+        example: 14
+        type: integer
+      spellings:
+        items:
+          $ref: '#/definitions/assettags.Spelling'
+        type: array
+      tag:
+        example: finance
+        type: string
+    type: object
+  assetverify.verifyRequest:
+    properties:
+      expires_at:
+        description: ExpiresAt is when the badge is removed (RFC 3339); absent never
+          expires.
+        type: string
+      note:
+        description: Note is shown with the badge.
+        example: Numbers checked against the ledger
+        type: string
     type: object
   attachhttp.AttachmentView:
     properties:
@@ -9078,6 +9293,195 @@ definitions:
       warning:
         type: number
     type: object
+  library.DuplicateGroup:
+    properties:
+      digest:
+        example: 9f2c4e
+        type: string
+      members:
+        items:
+          $ref: '#/definitions/library.DuplicateMember'
+        type: array
+      similarity:
+        description: Similarity is the closest pair's similarity, as a percentage.
+        example: 96
+        type: integer
+    type: object
+  library.DuplicateMember:
+    properties:
+      id:
+        example: asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK
+        type: string
+      name:
+        example: Q3 revenue by region
+        type: string
+      opens:
+        example: 41
+        type: integer
+      owner_email:
+        example: jane@example.com
+        type: string
+      status:
+        example: published
+        type: string
+      updated_at:
+        type: string
+      version:
+        example: 4
+        type: integer
+    type: object
+  library.Item:
+    properties:
+      at:
+        description: |-
+          At is when the person last opened the item (recents) or starred it
+          (favorites).
+        type: string
+      content_type:
+        example: text/html
+        type: string
+      id:
+        example: asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK
+        type: string
+      kind:
+        allOf:
+        - $ref: '#/definitions/library.Kind'
+        example: asset
+      name:
+        example: Q3 revenue by region
+        type: string
+      owner_email:
+        example: jane@example.com
+        type: string
+    type: object
+  library.Kind:
+    enum:
+    - asset
+    - collection
+    type: string
+    x-enum-varnames:
+    - KindAsset
+    - KindCollection
+  library.TrashItem:
+    properties:
+      content_type:
+        example: text/html
+        type: string
+      deleted_at:
+        type: string
+      id:
+        example: asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK
+        type: string
+      kind:
+        allOf:
+        - $ref: '#/definitions/library.Kind'
+        example: asset
+      name:
+        example: Old pricing model
+        type: string
+      owner_email:
+        example: jane@example.com
+        type: string
+      purge_at:
+        description: |-
+          PurgeAt is when the retention sweep removes it for good: its deletion
+          plus portal.deleted_retention_days.
+        type: string
+    type: object
+  library.UnusedItem:
+    properties:
+      content_type:
+        example: text/csv
+        type: string
+      created_at:
+        type: string
+      id:
+        example: asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK
+        type: string
+      last_opened:
+        description: LastOpened is the last open by anyone, nil when it was never
+          opened.
+        type: string
+      name:
+        example: Vendor list export
+        type: string
+      opens:
+        description: |-
+          Opens is how many times it was opened in the portal, by anyone, since
+          opens were first recorded.
+        example: 0
+        type: integer
+      owner_email:
+        example: jane@example.com
+        type: string
+      status:
+        description: |-
+          Status is the asset's status (draft, published, deprecated), empty when
+          it has none.
+        example: draft
+        type: string
+    type: object
+  libraryapi.DismissRequest:
+    properties:
+      digest:
+        example: 9f2c4e
+        type: string
+    type: object
+  libraryapi.DuplicatesResponse:
+    properties:
+      groups:
+        items:
+          $ref: '#/definitions/library.DuplicateGroup'
+        type: array
+    type: object
+  libraryapi.ItemsResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/library.Item'
+        type: array
+    type: object
+  libraryapi.OpenRequest:
+    properties:
+      id:
+        example: asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK
+        type: string
+      kind:
+        example: asset
+        type: string
+    type: object
+  libraryapi.TrashResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/library.TrashItem'
+        type: array
+      retention_days:
+        description: RetentionDays is how long a deleted item stays before it is purged.
+        example: 30
+        type: integer
+      total:
+        type: integer
+    type: object
+  libraryapi.UnusedResponse:
+    properties:
+      days:
+        description: Days is the period the page was read for.
+        example: 90
+        type: integer
+      items:
+        items:
+          $ref: '#/definitions/library.UnusedItem'
+        type: array
+      total:
+        type: integer
+    type: object
+  libraryapi.statusResponse:
+    properties:
+      status:
+        example: restored
+        type: string
+    type: object
   libraryuse.Use:
     properties:
       display_name:
@@ -9897,6 +10301,13 @@ definitions:
           is off; an internal persona's people upload by their Resources level
           and this is dropped from its resolved block.
         type: boolean
+      verify_assets:
+        description: |-
+          VerifyAssets lets the persona's people mark an asset they can open
+          Verified, and remove the badge (#2503); the persona editor shows it as
+          "Can verify assets". Unset is off: an administrator verifies whatever
+          this says, and an external persona never does.
+        type: boolean
     type: object
   personaaccess.Assignment:
     properties:
@@ -10333,6 +10744,13 @@ definitions:
       size_bytes:
         example: 4200
         type: integer
+      status:
+        allOf:
+        - $ref: '#/definitions/portaldomain.AssetStatus'
+        description: |-
+          Status is how far along the asset is (#2502): draft, published or
+          deprecated. Nil is no status, which every asset has until someone sets
+          one. It is informational and changes no access.
       tags:
         items:
           type: string
@@ -10401,6 +10819,13 @@ definitions:
         type: integer
       updated_at:
         type: string
+      verification:
+        allOf:
+        - $ref: '#/definitions/portaldomain.AssetVerification'
+        description: |-
+          Verification is the Verified badge (#2503): who checked the asset, the
+          version they checked and until when. Nil when it was never verified, was
+          unverified, or its expiry has passed.
     type: object
   portal.AssetVersion:
     properties:
@@ -10794,6 +11219,13 @@ definitions:
       size_bytes:
         example: 4200
         type: integer
+      status:
+        allOf:
+        - $ref: '#/definitions/portaldomain.AssetStatus'
+        description: |-
+          Status is how far along the asset is (#2502): draft, published or
+          deprecated. Nil is no status, which every asset has until someone sets
+          one. It is informational and changes no access.
       tags:
         items:
           type: string
@@ -10862,6 +11294,13 @@ definitions:
         type: integer
       updated_at:
         type: string
+      verification:
+        allOf:
+        - $ref: '#/definitions/portaldomain.AssetVerification'
+        description: |-
+          Verification is the Verified badge (#2503): who checked the asset, the
+          version they checked and until when. Nil when it was never verified, was
+          unverified, or its expiry has passed.
     type: object
   portal.backlinksResponse:
     properties:
@@ -11594,6 +12033,169 @@ definitions:
         example: Key Findings
         type: string
     type: object
+  portaldomain.Asset:
+    properties:
+      collections:
+        items:
+          $ref: '#/definitions/portaldomain.AssetCollectionRef'
+        type: array
+      content_type:
+        example: text/html
+        type: string
+      created_at:
+        type: string
+      current_version:
+        example: 1
+        type: integer
+      deleted_at:
+        type: string
+      description:
+        example: Interactive revenue breakdown by region
+        type: string
+      id:
+        example: asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK
+        type: string
+      idempotency_key:
+        example: export-2026-04-18-abc123
+        type: string
+      max_versions:
+        description: |-
+          MaxVersions is the asset's own version-retention cap. Nil means the
+          asset has no opinion and inherits the deployment's portal.max_versions;
+          0 means it keeps every version; N means it keeps the newest N. See
+          EffectiveMaxVersions.
+        example: 100
+        type: integer
+      name:
+        example: Q4 Revenue Dashboard
+        type: string
+      owner_email:
+        example: alice@example.com
+        type: string
+      owner_id:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+      provenance:
+        allOf:
+        - $ref: '#/definitions/portaldomain.Provenance'
+        description: |-
+          Provenance is the asset's record of what produced it. A listing never
+          carries it -- it grows by one capture per write and is unbounded, and
+          carrying it made a library of 52 assets a megabyte of JSON (#1623). A
+          listing row carries ProvenanceSummary instead, and a single asset read
+          carries the newest ProvenanceCapturesInline captures with CapturesTotal
+          set; the rest are read a page at a time.
+      provenance_summary:
+        allOf:
+        - $ref: '#/definitions/portaldomain.ProvenanceSummary'
+        description: |-
+          ProvenanceSummary describes the provenance of a listing row without
+          carrying it. Nil on a single asset read, where Provenance is what the
+          reader gets.
+      released_version:
+        description: |-
+          ReleasedVersion is the version the current release of the application
+          the asset belongs to pins (#2411), 0 for an asset in no released
+          application. Set only by that release. While set it is the version the
+          asset's content routes serve: a new version changes nothing live until
+          the next release. ServedVersion reads the two.
+        example: 2
+        type: integer
+      s3_bucket:
+        example: portal-assets
+        type: string
+      s3_key:
+        example: assets/01HK7R8Z/content.html
+        type: string
+      session_id:
+        example: sess_abc123
+        type: string
+      size_bytes:
+        example: 4200
+        type: integer
+      status:
+        allOf:
+        - $ref: '#/definitions/portaldomain.AssetStatus'
+        description: |-
+          Status is how far along the asset is (#2502): draft, published or
+          deprecated. Nil is no status, which every asset has until someone sets
+          one. It is informational and changes no access.
+      tags:
+        items:
+          type: string
+        type: array
+      thumbnail_dark_s3_key:
+        description: |-
+          ThumbnailDarkS3Key holds the dark-mode thumbnail variant. Only populated
+          for content types rendered on a forced background (markdown, CSV, JSON,
+          NDJSON); types with a built-in theme (HTML, JSX, SVG) reuse
+          ThumbnailS3Key in both modes.
+          Empty means callers should fall back to ThumbnailS3Key.
+        example: assets/01HK7R8Z/.thumbnail_dark.png
+        type: string
+      thumbnail_dark_version:
+        example: 3
+        type: integer
+      thumbnail_failed_version:
+        example: 0
+        type: integer
+      thumbnail_failure:
+        description: |-
+          ThumbnailFailure is why the renderer could not draw this asset's tile,
+          and ThumbnailFailedVersion the version it tried. The failure holds until
+          the content changes or the tile is asked for again, so a document the
+          renderer cannot draw is not retried forever and the reason is visible.
+        example: the document did not finish drawing before the deadline
+        type: string
+      thumbnail_renderer:
+        description: |-
+          ThumbnailRenderer is the generation of the renderer that drew the tile.
+          A tile from an older generation still serves and is drawn again (#1787).
+          A reader puts it in the tile's URL beside the version: a redraw by a new
+          generation keeps the version, and without it a browser would show the
+          old picture for the hour it is cached for (#1789).
+        example: 2
+        type: integer
+      thumbnail_s3_key:
+        example: assets/01HK7R8Z/thumb.png
+        type: string
+      thumbnail_skipped:
+        description: |-
+          ThumbnailSkipped says why this asset is never given a tile, and
+          ThumbnailSourceLimit the bound it is held to: "over_source_limit" when
+          it is larger than thumbnails.max_source_bytes (or large_source_bytes
+          for its family). Empty when it is drawn, pending, or of a type no tile
+          is drawn for, which is what tells "skipped" from "not drawn yet"
+          (#2072). Derived on read, never stored.
+        example: over_source_limit
+        type: string
+      thumbnail_source_limit:
+        example: 1048576
+        type: integer
+      thumbnail_version:
+        description: |-
+          ThumbnailVersion is the asset version ThumbnailS3Key was captured from,
+          and ThumbnailDarkVersion the same for the dark variant. Below
+          CurrentVersion means the capture has not caught up with the content: the
+          image still serves, and the asset is what a refresh queue looks for. Zero
+          with a key recorded cannot occur -- see migration 000122 -- so it means
+          no capture has ever been taken.
+
+          The two variants are stamped independently because they are captured and
+          uploaded independently, and a pass that lands one and throws on the other
+          leaves exactly that state.
+        example: 3
+        type: integer
+      updated_at:
+        type: string
+      verification:
+        allOf:
+        - $ref: '#/definitions/portaldomain.AssetVerification'
+        description: |-
+          Verification is the Verified badge (#2503): who checked the asset, the
+          version they checked and until when. Nil when it was never verified, was
+          unverified, or its expiry has passed.
+    type: object
   portaldomain.AssetCollectionRef:
     properties:
       id:
@@ -11602,6 +12204,41 @@ definitions:
       name:
         example: Q4 Performance Review
         type: string
+    type: object
+  portaldomain.AssetStatus:
+    properties:
+      note:
+        example: Replaced by the Q4 report
+        type: string
+      set_at:
+        type: string
+      set_by:
+        example: alice@example.com
+        type: string
+      value:
+        example: deprecated
+        type: string
+    type: object
+  portaldomain.AssetVerification:
+    properties:
+      changed_since_verified:
+        description: |-
+          ChangedSinceVerified is true when the asset has a version newer than the
+          one that was verified. Derived on read.
+        type: boolean
+      expires_at:
+        type: string
+      note:
+        example: Numbers checked against the ledger
+        type: string
+      verified_at:
+        type: string
+      verified_by:
+        example: carol@example.com
+        type: string
+      verified_version:
+        example: 3
+        type: integer
     type: object
   portaldomain.Collection:
     properties:
@@ -29200,6 +29837,112 @@ paths:
       summary: List table registrations
       tags:
       - Tables
+  /admin/tags:
+    get:
+      description: Every tag on every live asset in the deployment, compared without
+        case, with how many assets carry it and the spellings it covers, most carried
+        first (#2508). q narrows to tags beginning with it.
+      parameters:
+      - description: Tags beginning with this, without case
+        in: query
+        name: q
+        type: string
+      - description: Tags per page (default 50, max 500)
+        in: query
+        name: limit
+        type: integer
+      - description: Offset into the tags
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/assettags.Page'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List every tag
+      tags:
+      - Assets
+  /admin/tags/merge:
+    post:
+      consumes:
+      - application/json
+      description: Rewrites every tag named in from, in any spelling, and every other
+        spelling of into, to into, on every asset that carries one, keeping each asset's
+        tag order and carrying into once (#2508). moved is how many assets changed.
+        Recorded in the audit log.
+      parameters:
+      - description: The tags and the tag they merge into
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/assettags.MergeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/assettags.RetagResult'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Merge tags
+      tags:
+      - Assets
+  /admin/tags/rename:
+    post:
+      consumes:
+      - application/json
+      description: Rewrites one tag on every asset that carries it, in any spelling,
+        to the new name, keeping each asset's tag order and carrying the new name
+        once (#2508). moved is how many assets changed. Recorded in the audit log.
+      parameters:
+      - description: The tag and its new name
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/assettags.RenameRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/assettags.RetagResult'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Rename a tag
+      tags:
+      - Assets
   /admin/tools:
     get:
       description: Returns all registered tools across all toolkits and platform-level
@@ -31871,6 +32614,19 @@ paths:
         in: query
         name: metadata.key
         type: string
+      - description: Filter by status, or none for assets without one
+        enum:
+        - draft
+        - published
+        - deprecated
+        - none
+        in: query
+        name: status
+        type: string
+      - description: Only assets carrying an unexpired verification
+        in: query
+        name: verified
+        type: boolean
       - description: 'Results per page (default: 20)'
         in: query
         name: limit
@@ -32569,6 +33325,43 @@ paths:
       summary: Set an asset's general link
       tags:
       - Shares
+  /portal/assets/{id}/links:
+    get:
+      description: 'The asset ids this asset''s current content links to (mcp:asset:<id>
+        link targets), and the assets whose current content links to this one, limited
+        to the ones the caller can open: an asset the caller cannot open is neither
+        listed nor counted (#2432). A link grants nothing.'
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/assetlinks.linksResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List an asset's links
+      tags:
+      - Portal
   /portal/assets/{id}/pdf:
     get:
       description: Prints the HTML document the route's .../content sibling serves,
@@ -33113,6 +33906,132 @@ paths:
       summary: Download an HTML or JSX asset as a self-contained file
       tags:
       - Portal
+  /portal/assets/{id}/status:
+    delete:
+      description: Removes an asset's status, so it has none (#2502). The owner and
+        editors may clear it.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portaldomain.Asset'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Clear an asset's status
+      tags:
+      - Portal
+    put:
+      consumes:
+      - application/json
+      description: Sets an asset's status to draft, published or deprecated, with
+        an optional note a deprecated asset shows its readers (#2502). The status
+        is informational and changes no access. The owner and editors may set it.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Status
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/assetstatus.statusRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portaldomain.Asset'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Set an asset's status
+      tags:
+      - Portal
+  /portal/assets/{id}/status/history:
+    get:
+      description: 'Every change to an asset''s status or Verified badge, newest first:
+        who, when, from and to (#2502, #2503). Anyone who can open the asset may read
+        it.'
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/assetstatus.historyResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List an asset's status and verification changes
+      tags:
+      - Portal
   /portal/assets/{id}/tables:
     get:
       description: Returns the registrations built over one portal asset under a `table_registrations`
@@ -33400,6 +34319,97 @@ paths:
       summary: List assets referencing an asset
       tags:
       - Portal
+  /portal/assets/{id}/verification:
+    delete:
+      description: Removes the Verified badge (#2503). Open to the person who verified
+        it, any holder of the Can verify assets permission and administrators.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portaldomain.Asset'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Remove an asset's verification
+      tags:
+      - Portal
+    put:
+      consumes:
+      - application/json
+      description: Marks an asset Verified at its current version, with an optional
+        note and expiry (#2503). Needs the Can verify assets permission (verify_assets)
+        or an administrator, and the caller must be able to open the asset. Verifying
+        again replaces the verification.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Verification
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/assetverify.verifyRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portaldomain.Asset'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Verify an asset
+      tags:
+      - Portal
   /portal/assets/{id}/versions:
     get:
       description: 'Returns paginated version history for an asset. A caller whose
@@ -33628,6 +34638,48 @@ paths:
       summary: Revert to version
       tags:
       - Assets
+  /portal/assets/bulk:
+    post:
+      consumes:
+      - application/json
+      description: 'Applies one action to up to 500 assets in one request (#2507):
+        add_tags or remove_tags (tags), add_to_collection (collection_id, optional
+        section_id), set_status (status, optional note) or clear_status, share with
+        one person or persona (share; a bulk share sends no email), or delete (to
+        the trash). Each asset is acted on through its own single-asset route with
+        the caller''s identity, so each is authorized by that route''s rule, and nothing
+        changes on an asset the caller may not act on. applied lists the assets acted
+        on; skipped lists the rest with the reason, which is "not found or no access"
+        for an asset that does not exist or the caller cannot open, and the single
+        route''s refusal otherwise.'
+      parameters:
+      - description: The action and the assets
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/assetbulk.Request'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/assetbulk.Result'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Act on several assets at once
+      tags:
+      - Assets
   /portal/assets/facets:
     get:
       description: Lists the tags and the authors (owner addresses) on the assets
@@ -33662,6 +34714,19 @@ paths:
           type: string
         name: owner
         type: array
+      - description: Filter by status, or none for assets without one
+        enum:
+        - draft
+        - published
+        - deprecated
+        - none
+        in: query
+        name: status
+        type: string
+      - description: Only assets carrying an unexpired verification
+        in: query
+        name: verified
+        type: boolean
       produces:
       - application/json
       responses:
@@ -33726,6 +34791,19 @@ paths:
           type: string
         name: owner
         type: array
+      - description: Filter by status, or none for assets without one
+        enum:
+        - draft
+        - published
+        - deprecated
+        - none
+        in: query
+        name: status
+        type: string
+      - description: Only assets carrying an unexpired verification
+        in: query
+        name: verified
+        type: boolean
       - description: 'Results per page (default: 20, max: 100)'
         in: query
         name: limit
@@ -35496,6 +36574,83 @@ paths:
       summary: Download through a signed URL
       tags:
       - Assets
+  /portal/duplicates:
+    get:
+      description: Groups of the caller's assets whose name, description and tags
+        are nearly the same, by the closeness save_asset's similar_assets uses (#2509),
+        most alike first. A group the caller dismissed is left out until one of its
+        assets gets a new version. An administrator may pass everyone=true; each group
+        is still one owner's.
+      parameters:
+      - description: Every owner's groups (administrators)
+        in: query
+        name: everyone
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/libraryapi.DuplicatesResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List my possible duplicates
+      tags:
+      - Library
+  /portal/duplicates/dismissals:
+    post:
+      consumes:
+      - application/json
+      description: Hides a group from the caller until one of its assets gets a new
+        version or the group gains or loses a member (#2509).
+      parameters:
+      - description: The group's digest
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/libraryapi.DismissRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Dismiss a possible-duplicates group
+      tags:
+      - Library
+  /portal/duplicates/dismissals/{digest}:
+    delete:
+      description: Shows a dismissed possible-duplicates group again.
+      parameters:
+      - description: The group's digest
+        in: path
+        name: digest
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Undo a dismissal
+      tags:
+      - Library
   /portal/events/{id}:
     get:
       description: 'Returns one audit event of the calling user''s own, by event id.
@@ -35538,6 +36693,93 @@ paths:
       summary: Get one of my own calls
       tags:
       - Sessions
+  /portal/favorites:
+    get:
+      description: The assets and collections the caller starred, newest first, that
+        they can still open (#2504). Favorites are private to the caller and grant
+        nothing.
+      parameters:
+      - description: Entries (default 20, at most 200)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/libraryapi.ItemsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List my favorites
+      tags:
+      - Library
+  /portal/favorites/{kind}/{id}:
+    delete:
+      description: Removes an item from the caller's favorites. Removing one that
+        is not starred is not an error.
+      parameters:
+      - description: asset or collection
+        in: path
+        name: kind
+        required: true
+        type: string
+      - description: Item id
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Remove a favorite
+      tags:
+      - Library
+    put:
+      description: Adds an asset or collection the caller can open to their favorites
+        (#2504). Starring grants nothing and is private to the caller; an item the
+        caller cannot open answers 404.
+      parameters:
+      - description: asset or collection
+        in: path
+        name: kind
+        required: true
+        type: string
+      - description: Item id
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Star an item
+      tags:
+      - Library
   /portal/feedback/activity:
     get:
       description: Lists feedback threads across every asset, collection, and prompt
@@ -38007,6 +39249,63 @@ paths:
       summary: Prompt usage stats (portal)
       tags:
       - Prompts
+  /portal/recents:
+    get:
+      description: The assets and collections the caller opened in the portal, newest
+        first, that they can still open (#2504). An item whose share was revoked is
+        left out, with no placeholder or count.
+      parameters:
+      - description: Entries (default 20, at most 200)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/libraryapi.ItemsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List what I opened recently
+      tags:
+      - Library
+    post:
+      consumes:
+      - application/json
+      description: 'The portal reports each asset and collection page a person opens,
+        which is what Recent and the Unused counts read (#2504, #2509). An item the
+        caller cannot open answers 404 and records nothing.'
+      parameters:
+      - description: The item opened
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/libraryapi.OpenRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Record that I opened an item
+      tags:
+      - Library
   /portal/resources/{id}/access-request:
     get:
       description: 'What the page shown to a signed-in person who cannot open an item
@@ -41802,6 +43101,47 @@ paths:
       summary: Check a new site's name
       tags:
       - Sites
+  /portal/tags:
+    get:
+      description: The tags on every asset the caller can open (their own and those
+        shared with them), compared without case, with how many of those assets carry
+        each, most carried first. prefix narrows to tags beginning with it, without
+        case. The tag input suggests from this; a tag only on assets the caller cannot
+        open is never listed or counted (#2508).
+      parameters:
+      - description: Tags beginning with this, without case
+        in: query
+        name: prefix
+        type: string
+      - description: Tags per page (default 50, max 500)
+        in: query
+        name: limit
+        type: integer
+      - description: Offset into the tags
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/assettags.Page'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List the tags on the assets you can open
+      tags:
+      - Assets
   /portal/threads:
     get:
       description: Lists feedback threads scoped to a single target (asset_id, collection_id,
@@ -42454,6 +43794,157 @@ paths:
       summary: Count open threads per target
       tags:
       - Feedback
+  /portal/trash:
+    get:
+      description: The caller's deleted assets and collections, most recently deleted
+        first, each with the day the retention sweep purges it for good (#2509). An
+        administrator may pass everyone=true for every owner's trash; anyone else
+        asking is refused with 403.
+      parameters:
+      - description: Every owner's trash (administrators)
+        in: query
+        name: everyone
+        type: boolean
+      - description: Entries (default 20, at most 200)
+        in: query
+        name: limit
+        type: integer
+      - description: Entries to skip
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/libraryapi.TrashResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List my trash
+      tags:
+      - Library
+  /portal/trash/{kind}/{id}:
+    delete:
+      description: Removes a deleted asset or collection for good now, with its versions,
+        stored files, shares and comments, as the retention sweep would after the
+        grace period (#2509). Its owner or an administrator only; anyone else, and
+        an item not in the trash, gets 404.
+      parameters:
+      - description: asset or collection
+        in: path
+        name: kind
+        required: true
+        type: string
+      - description: Item id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/libraryapi.statusResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete permanently
+      tags:
+      - Library
+  /portal/trash/{kind}/{id}/restore:
+    post:
+      description: Takes a deleted asset or collection out of the trash with its versions,
+        shares and collection memberships (#2509). Its owner or an administrator only;
+        anyone else, and an item not in the trash, gets 404.
+      parameters:
+      - description: asset or collection
+        in: path
+        name: kind
+        required: true
+        type: string
+      - description: Item id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/libraryapi.statusResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Restore from the trash
+      tags:
+      - Library
+  /portal/unused:
+    get:
+      description: The caller's assets nobody has opened in the portal in the last
+        days (30, 90 or 180; default 90), never opened first, with open counts and
+        the last open but never who opened (#2509). Opens are counted from the release
+        that started recording them. An administrator may pass everyone=true.
+      parameters:
+      - description: 30, 90 or 180
+        in: query
+        name: days
+        type: integer
+      - description: Every owner's assets (administrators)
+        in: query
+        name: everyone
+        type: boolean
+      - description: Entries (default 20, at most 200)
+        in: query
+        name: limit
+        type: integer
+      - description: Entries to skip
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/libraryapi.UnusedResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List my unused assets
+      tags:
+      - Library
   /portal/users:
     get:
       description: 'Returns the known-users directory so a user can pick a teammate
@@ -44326,6 +45817,8 @@ tags:
     description: "The directory of known people, keyed by email. Administrative counterpart to the single-identity User tag."
   - name: "Access requests"
     description: "A signed-in person asking an item's owner for access to an asset, collection or prompt they cannot open, the owner's answer, and how long a request waits."
+  - name: "Library"
+    description: "A person's way back to their work: the assets and collections they opened and starred, and the trash, unused assets and possible duplicates an owner tidies from."
   - name: "External users"
     description: "Accounts for people outside the organization under an external persona, signed in by an emailed one-time link, and how long their session and links last."
 
@@ -44345,6 +45838,7 @@ x-tagGroups:
       - "Feedback"
       - "Gateway"
       - "Knowledge"
+      - "Library"
       - "Memory"
       - "Portal"
       - "Portal Assets"

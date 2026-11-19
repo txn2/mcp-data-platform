@@ -19,6 +19,7 @@ import { PeopleSection } from "./PeopleSection";
 import { ReferencesPanel } from "./ReferencesPanel";
 import { ProducersPanel } from "@/components/producers/ProducersPanel";
 import { UsedByAssets } from "@/components/references/UsedByAssets";
+import { AssetMarksSidebar } from "@/components/assetmarks/AssetMarksSidebar";
 import type { RetentionMode } from "./AssetRetentionField";
 import type { MutationLike } from "./types";
 
@@ -63,6 +64,9 @@ interface AssetMetadataSidebarProps {
   /** Where a script that produced this asset opens for this reader (#1569). */
   scriptPath?: (scriptId: string) => string;
   onNavigate?: (path: string) => void;
+  /** The Status and Verify controls, shown here on a phone, where the
+   * toolbar is one row (#2601). */
+  markControls?: ReactNode;
   versions?: AssetVersion[];
   versionsLoading?: boolean;
   /** Which route this reader reads an asset's stored tile through. */
@@ -96,6 +100,7 @@ export function AssetMetadataSidebar({
   assetPath,
   scriptPath,
   onNavigate,
+  markControls,
   versions,
   versionsLoading,
   assetApiBase,
@@ -205,6 +210,10 @@ export function AssetMetadataSidebar({
             render: an asset that references nothing, with a reader who cannot
             add one, is shown nothing.
           */}
+          {/* Verified, Linked from and Status history (#2503, #2432, #2502). */}
+          <MarkControlsRow controls={markControls} />
+          <AssetMarksSidebar asset={asset} assetPath={assetPath} onNavigate={onNavigate} />
+
           <ReferencesPanel
             assetId={asset.id}
             resourcePath={resourcePath}
@@ -316,4 +325,14 @@ function AssetIncompleteNotice({ asset, versions }: { asset: Asset; versions?: A
   }
   const current = versions?.find((v) => v.version === asset.current_version);
   return <IncompleteNotice label={truncationLabel(truncationOf(current?.metadata))} />;
+}
+
+/** MarkControlsRow is the Status and Verify controls on a phone, or nothing. */
+function MarkControlsRow({ controls }: { controls?: ReactNode }) {
+  if (!controls) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-2" data-testid="phone-mark-controls">
+      {controls}
+    </div>
+  );
 }

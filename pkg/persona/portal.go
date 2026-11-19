@@ -119,6 +119,11 @@ type PortalAccess struct {
 	// ExternalFiles is every external person's personal folder: none, view
 	// or manage (#2290). Unset is none; an external persona has none.
 	ExternalFiles string `json:"external_files,omitempty" yaml:"external_files,omitempty"`
+	// VerifyAssets lets the persona's people mark an asset they can open
+	// Verified, and remove the badge (#2503); the persona editor shows it as
+	// "Can verify assets". Unset is off: an administrator verifies whatever
+	// this says, and an external persona never does.
+	VerifyAssets *bool `json:"verify_assets,omitempty" yaml:"verify_assets,omitempty"`
 	// External is reported, never set: the persona is external (#2092), so
 	// the portal offers its people no people directory and no API keys.
 	External bool `json:"external,omitempty" yaml:"-"`
@@ -161,6 +166,7 @@ func (p *Persona) PortalPermissions(granted []string) PortalAccess {
 		Download:      switchOr(set.Download),
 		History:       offOr(set.History),
 		ExternalFiles: levelOr(set.ExternalFiles, PortalNone),
+		VerifyAssets:  offOr(set.VerifyAssets),
 	}
 	// A block resolved for an external persona carries External, so reading
 	// it again keeps the limits.
@@ -208,7 +214,7 @@ func externalLimits(a PortalAccess) PortalAccess {
 		a.Resources = PortalShared
 	}
 	a.Knowledge, a.Catalog, a.APIs, a.ScratchTables, a.ExternalFiles = PortalNone, PortalNone, PortalNone, PortalNone, PortalNone
-	a.Search, a.Prompts, a.Automations, a.Memory, a.Sites = off(), off(), off(), off(), off()
+	a.Search, a.Prompts, a.Automations, a.Memory, a.Sites, a.VerifyAssets = off(), off(), off(), off(), off(), off()
 	a.External = true
 	return a
 }
@@ -221,7 +227,7 @@ func FullPortalAccess() PortalAccess {
 		Assets: PortalOwn, Resources: PortalPersonaFolders, Knowledge: PortalWrite,
 		Catalog: PortalWrite, APIs: PortalBrowse, ScratchTables: PortalRegister,
 		Feedback: on(), Prompts: on(), Automations: on(), Sites: on(), Search: on(), Memory: on(), Download: on(),
-		History: on(), ExternalFiles: PortalManage,
+		History: on(), ExternalFiles: PortalManage, VerifyAssets: on(),
 	}
 }
 

@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ContentRenderer } from "./components/renderers/ContentRenderer";
 import { resolveRenderer } from "./components/renderers/registry";
+import { AssetLinkContext, contentAssetLinks, portalAssetHref, type AssetLinkFollower } from "./lib/assetLinks";
 
 // The markdown viewer is behind the same lazy boundary the other families use,
 // so the entry chunk this page always loads carries React and the registry and
@@ -192,15 +193,28 @@ if (dataEl) {
         ? <ShareDownload downloadURL={downloadURL} name={name} contentType={contentType} slot={document.getElementById("content-actions")} />
         : null;
       createRoot(root).render(
-        <>
+        <AssetLinkContext.Provider value={shareLinkFollower(serveFromURL ? "" : content)}>
           {sourceLabel
             ? <WithSourceToggle label={sourceLabel} content={content}>{viewer}</WithSourceToggle>
             : guarded(viewer)}
           {download}
-        </>,
+        </AssetLinkContext.Provider>,
       );
     }
   }
+}
+
+/**
+ * Links between assets on a share page (#2432). A link leads to the target's
+ * portal page, which requires signing in like any portal page: sharing this
+ * asset makes no other asset public. With no route to ask, a link from the
+ * asset's frame is followed only to an id the content this page loaded links.
+ */
+function shareLinkFollower(content: string | undefined): AssetLinkFollower {
+  return {
+    links: contentAssetLinks(typeof content === "string" ? content : ""),
+    open: (id) => window.location.assign(portalAssetHref(id)),
+  };
 }
 
 // Expose MarkdownRenderer for pages that need to render multiple markdown blocks

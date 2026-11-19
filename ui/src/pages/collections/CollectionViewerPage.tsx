@@ -15,6 +15,8 @@ import { CollectionViewerActions } from "./viewer/CollectionViewerActions";
 import { type ThumbSize } from "./viewer/thumbSize";
 import { useAuthStore } from "@/stores/auth";
 import { NoAccess } from "@/components/access/RequestAccessPanel";
+import { RecordOpen } from "@/components/library/RecordOpen";
+import { StarButton } from "@/components/library/StarButton";
 
 interface Props {
   collectionId: string;
@@ -31,6 +33,7 @@ export function CollectionViewerPage({ collectionId, onNavigate, onBack }: Props
   const canShare = useAuthStore((s) => s.canShare());
 
   const thumbSize: ThumbSize = (coll?.config?.thumbnail_size as ThumbSize) || "large";
+
 
   function changeThumbSize(size: ThumbSize) {
     if (!coll) return;
@@ -73,6 +76,10 @@ export function CollectionViewerPage({ collectionId, onNavigate, onBack }: Props
         icon={FolderOpen}
         title={coll.name}
         actions={
+          <>
+          {/* Opening the collection is what Recent reads (#2504). */}
+          <RecordOpen kind="collection" id={coll.id} />
+          <StarButton kind="collection" id={collectionId} />
           <CollectionViewerActions
             collectionId={collectionId}
             isOwner={coll.is_owner}
@@ -86,6 +93,7 @@ export function CollectionViewerPage({ collectionId, onNavigate, onBack }: Props
             deletePending={deleteMutation.isPending}
             onNavigate={onNavigate}
           />
+          </>
         }
       />
 

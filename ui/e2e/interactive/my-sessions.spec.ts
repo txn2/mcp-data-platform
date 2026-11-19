@@ -91,8 +91,11 @@ test.describe("My Sessions", () => {
     await expect(page.getByRole("columnheader", { name: "Purpose" })).toBeVisible();
 
     // The session lists what it produced, which is where the walk started.
-    await expect(page.getByText("Q4 Revenue Dashboard")).toBeVisible();
-    await page.getByText("Q4 Revenue Dashboard").click();
+    // The produced asset in the session's list; the sidebar's Favorites
+    // (#2504) may name the same asset.
+    const produced = page.getByRole("main").getByText("Q4 Revenue Dashboard");
+    await expect(produced).toBeVisible();
+    await produced.click();
     await expect(page).toHaveURL(/\/portal\/assets\/ast-001$/);
   });
 });

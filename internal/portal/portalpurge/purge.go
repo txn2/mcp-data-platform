@@ -117,9 +117,10 @@ const selectPurgeableAssetsQuery = `
 // The asset purge removes the rows that reference an asset without a cascade
 // (its shares, its places in collections, its feedback threads, whose events
 // cascade) and the producers recorded against it, then the asset, whose
-// versions and content references cascade. Nothing restores a deleted asset
-// or collection, so the ids a batch listed are still deleted when it removes
-// them; the final statement repeats the cutoff all the same.
+// versions and content references cascade. A deleted asset or collection can
+// be restored from the trash (#2509), so the final statement repeats the
+// deletion and the cutoff: an item restored after its batch was listed keeps
+// its row.
 const (
 	purgeAssetSharesQuery    = `DELETE FROM portal_shares WHERE asset_id = ANY($1)`
 	purgeAssetItemsQuery     = `DELETE FROM portal_collection_items WHERE asset_id = ANY($1)`
@@ -154,7 +155,13 @@ func (p *Purger) purgeAssets(ctx context.Context, cutoff time.Time) (listed, rem
 }
 
 func (p *Purger) purgeableAssets(ctx context.Context, cutoff time.Time) ([]purgeableAsset, error) {
-	rows, err := p.db.QueryContext(ctx, selectPurgeableAssetsQuery, cutoff, purgeBatch)
+	return p.scanAssets(ctx, selectPurgeableAssetsQuery, cutoff, purgeBatch)
+}
+
+// scanAssets runs a statement selecting deleted assets with the objects each
+// names, in the columns selectPurgeableAssetsQuery selects.
+func (p *Purger) scanAssets(ctx context.Context, query string, args ...any) ([]purgeableAsset, error) {
+	rows, err := p.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("listing deleted assets to purge: %w", err)
 	}

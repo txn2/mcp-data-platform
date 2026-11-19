@@ -108,6 +108,9 @@ const (
 	// NameIntegrations applies each integration's finished run and starts the
 	// next one it is owed (#2659).
 	NameIntegrations = "integrations"
+	// NameVerificationReminders tells the person who verified an asset and
+	// its owner that the verification expires within a week (#2503).
+	NameVerificationReminders = "verification_reminders"
 
 	// LISTEN connections (Listen). The two pglisten channels report under
 	// "listen_" + their channel name.

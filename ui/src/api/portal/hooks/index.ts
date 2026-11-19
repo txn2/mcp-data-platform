@@ -17,3 +17,6 @@ export * from "./accessRequests";
 export * from "./shareAccess";
 export * from "./changesets";
 export * from "./generalFeedback";
+export * from "./library";
+export * from "./bulk";
+export * from "./assetMarks";

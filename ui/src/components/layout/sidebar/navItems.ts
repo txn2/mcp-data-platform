@@ -20,6 +20,7 @@ import {
   PhoneCall,
   Settings,
   HardDrive,
+  Tags,
   History,
   Table2,
   Network,
@@ -29,6 +30,7 @@ import {
   type LucideIcon,
   BadgeCheck,
   Globe,
+  House,
 } from "lucide-react";
 
 export interface NavItem {
@@ -37,13 +39,13 @@ export interface NavItem {
   icon: LucideIcon;
 }
 
-// The portal rail opens with the two sections people come for, Assets and
-// Resources, set apart as their own group; every other section follows,
-// alphabetized by label (case-insensitive), so a new one has one place to go.
-// Assets leads because it is the landing view, as Dashboard leads the admin
-// rail (#1932).
+// The portal rail opens with Home, the landing page (#2504), and the two
+// sections people come for, Assets and Resources, set apart as their own
+// group; every other section follows, alphabetized by label
+// (case-insensitive), so a new one has one place to go.
 export const portalPinnedNavItems: NavItem[] = [
-  { path: "/", label: "Assets", icon: LayoutGrid },
+  { path: "/", label: "Home", icon: House },
+  { path: "/assets", label: "Assets", icon: LayoutGrid },
   { path: "/resources", label: "Resources", icon: FileUp },
 ];
 
@@ -90,6 +92,7 @@ export const adminNavItems: NavItem[] = [
   { path: "/admin/sessions", label: "Sessions", icon: History },
   { path: "/admin/settings", label: "Settings", icon: Settings },
   { path: "/admin/storage", label: "Storage", icon: HardDrive },
+  { path: "/admin/tags", label: "Tags", icon: Tags },
   { path: "/admin/tools", label: "Tools", icon: Wrench },
   { path: "/admin/users", label: "Users", icon: Contact },
   { path: "/admin/webhooks", label: "Webhooks", icon: Webhook },
@@ -111,7 +114,10 @@ const EXACT_MATCH_ONLY = new Set(["/admin", "/prompts"]);
  */
 function isAssetsSection(route: string): boolean {
   return (
-    route === "/" ||
+    route === "/assets" ||
+    route === "/unused" ||
+    route === "/duplicates" ||
+    route === "/trash" ||
     route === "/collections" ||
     route.startsWith("/collections/") ||
     route.startsWith("/assets/") ||
@@ -148,7 +154,8 @@ export function isNavActive(itemPath: string, currentPath: string): boolean {
 
   const route = currentPath.split(/[?#]/)[0] ?? "/";
 
-  if (itemPath === "/") return isAssetsSection(route);
+  if (itemPath === "/") return route === "/";
+  if (itemPath === "/assets") return isAssetsSection(route);
   if (itemPath === "/admin/assets") return isAdminAssetsSection(route);
   if (EXACT_MATCH_ONLY.has(itemPath)) return route === itemPath;
   // Knowledge keeps its nav item active across the URL-addressable page routes

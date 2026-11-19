@@ -34,6 +34,10 @@ type Ranking struct {
 	Embedding  []float32 // nil ranks lexically
 	Limit      int
 	Offset     int
+	// Prefer names a boolean candidate column ordered after the score, true
+	// first, so it breaks ties between equally relevant rows (#2503). Empty
+	// orders by name and id alone.
+	Prefer string
 }
 
 // hybridSemanticWeight and the lexical match value blend a row's normalized
@@ -71,14 +75,18 @@ func BuildRanked(r Ranking) (query string, args []any) {
 		keep = "c.lex"
 	}
 	// #nosec G201 -- the candidate statement is builder-rendered with bound
-	// placeholders, FTS is a column name the store chooses, the weights and
+	// placeholders, FTS and Prefer are column names the store chooses, the weights and
 	// floor are constants, and limit and offset are clamped ints. No caller
 	// text reaches the statement.
+	prefer := ""
+	if r.Prefer != "" {
+		prefer = "c." + r.Prefer + " DESC, "
+	}
 	query = fmt.Sprintf(
 		"WITH c AS MATERIALIZED (SELECT r.*, (r.%s @@ %s) AS lex FROM (%s) r) "+
 			"SELECT c.id, %s AS score, COUNT(*) OVER () AS total FROM c WHERE %s "+
-			"ORDER BY score DESC, c.name, c.id LIMIT %d OFFSET %d",
-		r.FTS, tsq, r.Candidates, score, keep, limit, offset)
+			"ORDER BY score DESC, %sc.name, c.id LIMIT %d OFFSET %d",
+		r.FTS, tsq, r.Candidates, score, keep, prefer, limit, offset)
 	return query, args
 }
 

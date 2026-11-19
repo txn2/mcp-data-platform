@@ -6,10 +6,12 @@ import { SectionIntro } from "./SectionIntro";
 import { SECTION_INTROS, sectionIntroFor, sectionIntroPath } from "./sectionIntros";
 
 describe("section intro copy", () => {
-  it("covers every reader-facing nav section except Settings", () => {
+  // Home (#2504) is the landing page and says what it is in its own heading,
+  // so it carries no intro above it.
+  it("covers every reader-facing nav section except Settings and Home", () => {
     const covered = new Set(SECTION_INTROS.map((i) => i.path));
     const missing = portalNavItems
-      .filter((item) => item.path !== "/settings")
+      .filter((item) => item.path !== "/settings" && item.path !== "/")
       .filter((item) => !covered.has(item.path))
       .map((item) => item.label);
     expect(missing, "nav sections with no intro copy").toEqual([]);
@@ -59,8 +61,11 @@ describe("section intro copy", () => {
 describe("sectionIntroPath", () => {
   it("heads every listing surface of a section with that section's intro", () => {
     const cases: [string, string][] = [
-      ["/", "/"],
-      ["/collections", "/"],
+      ["/assets", "/assets"],
+      ["/collections", "/assets"],
+      ["/unused", "/assets"],
+      ["/duplicates", "/assets"],
+      ["/trash", "/assets"],
       ["/prompts", "/prompts"],
       ["/automations", "/automations"],
       ["/resources", "/resources"],

@@ -35,6 +35,7 @@ it did not.
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
 import re
@@ -142,6 +143,8 @@ def cmd_split(_args: argparse.Namespace) -> int:
 
     BUILD.mkdir(parents=True, exist_ok=True)
     (BUILD / "acceptance.jsonl").write_text("".join(raw), encoding="utf-8")
+    if per_issue:
+        record_run(len(per_issue), run_minutes(raw))
     for issue, lines in per_issue.items():
         path = stream_path(issue)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -150,6 +153,74 @@ def cmd_split(_args: argparse.Namespace) -> int:
     if not per_issue:
         print("acceptance: the run produced no TestIssue<n>_ events to record.")
     return 0
+
+
+# ---------------------------------------------------------------- run cost (#2710)
+
+
+RUNS = REPO_ROOT / "scripts" / "acceptance-runs.tsv"
+KEEP_RUNS = 20
+
+
+def run_minutes(raw: list[str]) -> float:
+    """The wall clock a go test -json stream covers, first event to last."""
+    times: list[datetime.datetime] = []
+    for line in raw:
+        try:
+            stamp = json.loads(line).get("Time")
+        except (json.JSONDecodeError, AttributeError):
+            continue
+        if stamp:
+            try:
+                times.append(datetime.datetime.fromisoformat(stamp.replace("Z", "+00:00")))
+            except ValueError:
+                continue
+    if len(times) < 2:
+        return 0.0
+    return round((max(times) - min(times)).total_seconds() / 60, 1)
+
+
+def read_runs(path: Path = RUNS) -> tuple[list[str], list[tuple[str, int, float]]]:
+    """The file's comment and budget lines, and its run rows."""
+    head: list[str] = []
+    runs: list[tuple[str, int, float]] = []
+    if not path.is_file():
+        return head, runs
+    for line in path.read_text(encoding="utf-8").splitlines():
+        cols = line.split("\t")
+        if cols[0] == "run" and len(cols) == 4:
+            runs.append((cols[1], int(cols[2]), float(cols[3])))
+        elif line.strip():
+            head.append(line)
+    return head, runs
+
+
+def record_run(tickets: int, minutes: float, path: Path = RUNS) -> None:
+    """Append one recording's ticket count and minutes, keeping the newest."""
+    head, runs = read_runs(path)
+    when = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    runs = (runs + [(when, tickets, minutes)])[-KEEP_RUNS:]
+    body = head + [f"run\t{w}\t{n}\t{m}" for w, n, m in runs]
+    path.write_text("\n".join(body) + "\n", encoding="utf-8")
+    print(f"acceptance: {tickets} ticket(s) recorded in {minutes} minutes ({path.relative_to(REPO_ROOT)})")
+
+
+def minutes_per_ticket(path: Path = RUNS) -> float | None:
+    """The measured recording minutes per ticket, None with no runs."""
+    _, runs = read_runs(path)
+    tickets = sum(n for _, n, _ in runs)
+    if not tickets:
+        return None
+    return sum(m for _, _, m in runs) / tickets
+
+
+def estimate_line(required: int, path: Path = RUNS) -> str:
+    """What acceptance-check says a change's local recordings will cost."""
+    per = minutes_per_ticket(path)
+    if per is None:
+        return f"acceptance-check: {required} ticket(s) require a local recording; no recording is measured yet."
+    return (f"acceptance-check: {required} ticket(s) require a local recording; at {per:.1f} minutes per ticket "
+            f"(measured in {RUNS.relative_to(REPO_ROOT)}), about {required * per:.0f} minutes.")
 
 
 # ---------------------------------------------------------------- shared verdict
@@ -1313,6 +1384,8 @@ def cmd_check(args: argparse.Namespace) -> int:
               f"{', '.join('#' + n for n in tickets)}. ACCEPTANCE_STALE_STRICT=1 records them here instead.")
     if not by_issue and not stale:
         return 0
+    required = set(by_issue) | {m[1] for m in (ISSUE_PREFIX.match(s) for s in stale) if m}
+    print(estimate_line(len(required)))
 
     problems: list[str] = list(stale)
     for issue, files in sorted(by_issue.items()):

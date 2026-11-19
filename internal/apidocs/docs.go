@@ -13139,6 +13139,168 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/tags": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Every tag on every live asset in the deployment, compared without case, with how many assets carry it and the spellings it covers, most carried first (#2508). q narrows to tags beginning with it.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Assets"
+                ],
+                "summary": "List every tag",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Tags beginning with this, without case",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Tags per page (default 50, max 500)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset into the tags",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/assettags.Page"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/tags/merge": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Rewrites every tag named in from, in any spelling, and every other spelling of into, to into, on every asset that carries one, keeping each asset's tag order and carrying into once (#2508). moved is how many assets changed. Recorded in the audit log.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Assets"
+                ],
+                "summary": "Merge tags",
+                "parameters": [
+                    {
+                        "description": "The tags and the tag they merge into",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/assettags.MergeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/assettags.RetagResult"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/tags/rename": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Rewrites one tag on every asset that carries it, in any spelling, to the new name, keeping each asset's tag order and carrying the new name once (#2508). moved is how many assets changed. Recorded in the audit log.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Assets"
+                ],
+                "summary": "Rename a tag",
+                "parameters": [
+                    {
+                        "description": "The tag and its new name",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/assettags.RenameRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/assettags.RetagResult"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/tools": {
             "get": {
                 "security": [
@@ -17077,6 +17239,24 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "enum": [
+                            "draft",
+                            "published",
+                            "deprecated",
+                            "none"
+                        ],
+                        "type": "string",
+                        "description": "Filter by status, or none for assets without one",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Only assets carrying an unexpired verification",
+                        "name": "verified",
+                        "in": "query"
+                    },
+                    {
                         "type": "integer",
                         "description": "Results per page (default: 20)",
                         "name": "limit",
@@ -17209,6 +17389,60 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/assets/bulk": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Applies one action to up to 500 assets in one request (#2507): add_tags or remove_tags (tags), add_to_collection (collection_id, optional section_id), set_status (status, optional note) or clear_status, share with one person or persona (share; a bulk share sends no email), or delete (to the trash). Each asset is acted on through its own single-asset route with the caller's identity, so each is authorized by that route's rule, and nothing changes on an asset the caller may not act on. applied lists the assets acted on; skipped lists the rest with the reason, which is \"not found or no access\" for an asset that does not exist or the caller cannot open, and the single route's refusal otherwise.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Assets"
+                ],
+                "summary": "Act on several assets at once",
+                "parameters": [
+                    {
+                        "description": "The action and the assets",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/assetbulk.Request"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/assetbulk.Result"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/assets/facets": {
             "get": {
                 "security": [
@@ -17263,6 +17497,24 @@ const docTemplate = `{
                         "collectionFormat": "multi",
                         "description": "Filter by owner address; repeat it for several",
                         "name": "owner",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "draft",
+                            "published",
+                            "deprecated",
+                            "none"
+                        ],
+                        "type": "string",
+                        "description": "Filter by status, or none for assets without one",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Only assets carrying an unexpired verification",
+                        "name": "verified",
                         "in": "query"
                     }
                 ],
@@ -17349,6 +17601,24 @@ const docTemplate = `{
                         "collectionFormat": "multi",
                         "description": "Filter by owner address; repeat it for several",
                         "name": "owner",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "draft",
+                            "published",
+                            "deprecated",
+                            "none"
+                        ],
+                        "type": "string",
+                        "description": "Filter by status, or none for assets without one",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Only assets carrying an unexpired verification",
+                        "name": "verified",
                         "in": "query"
                     },
                     {
@@ -18312,6 +18582,61 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/assets/{id}/links": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The asset ids this asset's current content links to (mcp:asset:\u003cid\u003e link targets), and the assets whose current content links to this one, limited to the ones the caller can open: an asset the caller cannot open is neither listed nor counted (#2432). A link grants nothing.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Portal"
+                ],
+                "summary": "List an asset's links",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/assetlinks.linksResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/assets/{id}/pdf": {
             "get": {
                 "security": [
@@ -19120,6 +19445,199 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/assets/{id}/status": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Sets an asset's status to draft, published or deprecated, with an optional note a deprecated asset shows its readers (#2502). The status is informational and changes no access. The owner and editors may set it.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Portal"
+                ],
+                "summary": "Set an asset's status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Status",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/assetstatus.statusRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portaldomain.Asset"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Removes an asset's status, so it has none (#2502). The owner and editors may clear it.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Portal"
+                ],
+                "summary": "Clear an asset's status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portaldomain.Asset"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/assets/{id}/status/history": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Every change to an asset's status or Verified badge, newest first: who, when, from and to (#2502, #2503). Anyone who can open the asset may read it.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Portal"
+                ],
+                "summary": "List an asset's status and verification changes",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/assetstatus.historyResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/assets/{id}/tables": {
             "get": {
                 "security": [
@@ -19518,6 +20036,144 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/assetrefapi.usedByResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/assets/{id}/verification": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Marks an asset Verified at its current version, with an optional note and expiry (#2503). Needs the Can verify assets permission (verify_assets) or an administrator, and the caller must be able to open the asset. Verifying again replaces the verification.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Portal"
+                ],
+                "summary": "Verify an asset",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Verification",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/assetverify.verifyRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portaldomain.Asset"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Removes the Verified badge (#2503). Open to the person who verified it, any holder of the Can verify assets permission and administrators.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Portal"
+                ],
+                "summary": "Remove an asset's verification",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portaldomain.Asset"
                         }
                     },
                     "401": {
@@ -22467,6 +23123,127 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/duplicates": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Groups of the caller's assets whose name, description and tags are nearly the same, by the closeness save_asset's similar_assets uses (#2509), most alike first. A group the caller dismissed is left out until one of its assets gets a new version. An administrator may pass everyone=true; each group is still one owner's.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Library"
+                ],
+                "summary": "List my possible duplicates",
+                "parameters": [
+                    {
+                        "type": "boolean",
+                        "description": "Every owner's groups (administrators)",
+                        "name": "everyone",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/libraryapi.DuplicatesResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/duplicates/dismissals": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Hides a group from the caller until one of its assets gets a new version or the group gains or loses a member (#2509).",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Library"
+                ],
+                "summary": "Dismiss a possible-duplicates group",
+                "parameters": [
+                    {
+                        "description": "The group's digest",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/libraryapi.DismissRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/duplicates/dismissals/{digest}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Shows a dismissed possible-duplicates group again.",
+                "tags": [
+                    "Library"
+                ],
+                "summary": "Undo a dismissal",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "The group's digest",
+                        "name": "digest",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/events/{id}": {
             "get": {
                 "security": [
@@ -22515,6 +23292,140 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/favorites": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The assets and collections the caller starred, newest first, that they can still open (#2504). Favorites are private to the caller and grant nothing.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Library"
+                ],
+                "summary": "List my favorites",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Entries (default 20, at most 200)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/libraryapi.ItemsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/favorites/{kind}/{id}": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Adds an asset or collection the caller can open to their favorites (#2504). Starring grants nothing and is private to the caller; an item the caller cannot open answers 404.",
+                "tags": [
+                    "Library"
+                ],
+                "summary": "Star an item",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "asset or collection",
+                        "name": "kind",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Item id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Removes an item from the caller's favorites. Removing one that is not starred is not an error.",
+                "tags": [
+                    "Library"
+                ],
+                "summary": "Remove a favorite",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "asset or collection",
+                        "name": "kind",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Item id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -26271,6 +27182,94 @@ const docTemplate = `{
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/recents": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The assets and collections the caller opened in the portal, newest first, that they can still open (#2504). An item whose share was revoked is left out, with no placeholder or count.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Library"
+                ],
+                "summary": "List what I opened recently",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Entries (default 20, at most 200)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/libraryapi.ItemsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The portal reports each asset and collection page a person opens, which is what Recent and the Unused counts read (#2504, #2509). An item the caller cannot open answers 404 and records nothing.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Library"
+                ],
+                "summary": "Record that I opened an item",
+                "parameters": [
+                    {
+                        "description": "The item opened",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/libraryapi.OpenRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -31758,6 +32757,66 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/tags": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The tags on every asset the caller can open (their own and those shared with them), compared without case, with how many of those assets carry each, most carried first. prefix narrows to tags beginning with it, without case. The tag input suggests from this; a tag only on assets the caller cannot open is never listed or counted (#2508).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Assets"
+                ],
+                "summary": "List the tags on the assets you can open",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Tags beginning with this, without case",
+                        "name": "prefix",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Tags per page (default 50, max 500)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset into the tags",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/assettags.Page"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/threads": {
             "get": {
                 "security": [
@@ -32739,6 +33798,232 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/trash": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The caller's deleted assets and collections, most recently deleted first, each with the day the retention sweep purges it for good (#2509). An administrator may pass everyone=true for every owner's trash; anyone else asking is refused with 403.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Library"
+                ],
+                "summary": "List my trash",
+                "parameters": [
+                    {
+                        "type": "boolean",
+                        "description": "Every owner's trash (administrators)",
+                        "name": "everyone",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Entries (default 20, at most 200)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Entries to skip",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/libraryapi.TrashResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/trash/{kind}/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Removes a deleted asset or collection for good now, with its versions, stored files, shares and comments, as the retention sweep would after the grace period (#2509). Its owner or an administrator only; anyone else, and an item not in the trash, gets 404.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Library"
+                ],
+                "summary": "Delete permanently",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "asset or collection",
+                        "name": "kind",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Item id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/libraryapi.statusResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/trash/{kind}/{id}/restore": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Takes a deleted asset or collection out of the trash with its versions, shares and collection memberships (#2509). Its owner or an administrator only; anyone else, and an item not in the trash, gets 404.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Library"
+                ],
+                "summary": "Restore from the trash",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "asset or collection",
+                        "name": "kind",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Item id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/libraryapi.statusResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/unused": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The caller's assets nobody has opened in the portal in the last days (30, 90 or 180; default 90), never opened first, with open counts and the last open but never who opened (#2509). Opens are counted from the release that started recording them. An administrator may pass everyone=true.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Library"
+                ],
+                "summary": "List my unused assets",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "30, 90 or 180",
+                        "name": "days",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Every owner's assets (administrators)",
+                        "name": "everyone",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Entries (default 20, at most 200)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Entries to skip",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/libraryapi.UnusedResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -41180,6 +42465,147 @@ const docTemplate = `{
                 }
             }
         },
+        "assetbulk.Request": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "description": "Action is add_tags, remove_tags, add_to_collection, set_status,\nclear_status, share or delete.",
+                    "type": "string",
+                    "example": "add_tags"
+                },
+                "asset_ids": {
+                    "description": "AssetIDs are the assets to act on, at most 500.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "collection_id": {
+                    "description": "CollectionID and SectionID name where add_to_collection files the\nassets; an empty section is the collection's last.",
+                    "type": "string"
+                },
+                "note": {
+                    "type": "string"
+                },
+                "section_id": {
+                    "type": "string"
+                },
+                "share": {
+                    "description": "Share is who share shares with. A bulk share sends no email.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/assetbulk.ShareSpec"
+                        }
+                    ]
+                },
+                "status": {
+                    "description": "Status and Note are what set_status sets.",
+                    "type": "string",
+                    "example": "deprecated"
+                },
+                "tags": {
+                    "description": "Tags are added or removed (add_tags, remove_tags).",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "finance"
+                    ]
+                }
+            }
+        },
+        "assetbulk.Result": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string"
+                },
+                "applied": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "requested": {
+                    "type": "integer"
+                },
+                "skipped": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/assetbulk.Skipped"
+                    }
+                }
+            }
+        },
+        "assetbulk.ShareSpec": {
+            "type": "object",
+            "properties": {
+                "permission": {
+                    "description": "Permission is viewer (the default) or editor.",
+                    "type": "string",
+                    "example": "viewer"
+                },
+                "shared_with_email": {
+                    "type": "string",
+                    "example": "colleague@example.com"
+                },
+                "shared_with_persona": {
+                    "type": "string",
+                    "example": "finance"
+                },
+                "shared_with_user_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "assetbulk.Skipped": {
+            "type": "object",
+            "properties": {
+                "asset_id": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                }
+            }
+        },
+        "assetlinks.Ref": {
+            "type": "object",
+            "properties": {
+                "content_type": {
+                    "type": "string",
+                    "example": "text/markdown"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Reports index"
+                }
+            }
+        },
+        "assetlinks.linksResponse": {
+            "type": "object",
+            "properties": {
+                "linked_from": {
+                    "description": "LinkedFrom are the assets whose current content links to this one,\nlimited to those the caller can open.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/assetlinks.Ref"
+                    }
+                },
+                "links": {
+                    "description": "Links are the ids the asset's current content links to. The portal\nfollows a link from the asset's frame only to one of these.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "assetrefapi.audience": {
             "type": "object",
             "properties": {
@@ -41349,6 +42775,164 @@ const docTemplate = `{
                 "truncated": {
                     "description": "Truncated says the answer was cut at the bound rather than being the\nwhole of what references this target. It is reported rather than left\nimplicit for the reason Hidden is: a short list read as a complete one\nis the mistake this surface exists to prevent.",
                     "type": "boolean"
+                }
+            }
+        },
+        "assetstatus.Event": {
+            "type": "object",
+            "properties": {
+                "actor": {
+                    "type": "string",
+                    "example": "alice@example.com"
+                },
+                "at": {
+                    "type": "string"
+                },
+                "from": {
+                    "type": "string",
+                    "example": "draft"
+                },
+                "kind": {
+                    "type": "string",
+                    "example": "status"
+                },
+                "note": {
+                    "type": "string"
+                },
+                "to": {
+                    "type": "string",
+                    "example": "published"
+                }
+            }
+        },
+        "assetstatus.historyResponse": {
+            "type": "object",
+            "properties": {
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/assetstatus.Event"
+                    }
+                }
+            }
+        },
+        "assetstatus.statusRequest": {
+            "type": "object",
+            "properties": {
+                "note": {
+                    "description": "Note is shown with the status; a deprecated asset shows it to readers.",
+                    "type": "string",
+                    "example": "Replaced by the Q4 report"
+                },
+                "status": {
+                    "description": "Status is draft, published or deprecated.",
+                    "type": "string",
+                    "example": "deprecated"
+                }
+            }
+        },
+        "assettags.MergeRequest": {
+            "type": "object",
+            "properties": {
+                "from": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "fin",
+                        "Finance"
+                    ]
+                },
+                "into": {
+                    "type": "string",
+                    "example": "finance"
+                }
+            }
+        },
+        "assettags.Page": {
+            "type": "object",
+            "properties": {
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/assettags.Tag"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "assettags.RenameRequest": {
+            "type": "object",
+            "properties": {
+                "from": {
+                    "type": "string",
+                    "example": "fin"
+                },
+                "to": {
+                    "type": "string",
+                    "example": "finance"
+                }
+            }
+        },
+        "assettags.RetagResult": {
+            "type": "object",
+            "properties": {
+                "moved": {
+                    "type": "integer",
+                    "example": 14
+                },
+                "tag": {
+                    "type": "string",
+                    "example": "finance"
+                }
+            }
+        },
+        "assettags.Spelling": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer",
+                    "example": 9
+                },
+                "tag": {
+                    "type": "string",
+                    "example": "Finance"
+                }
+            }
+        },
+        "assettags.Tag": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer",
+                    "example": 14
+                },
+                "spellings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/assettags.Spelling"
+                    }
+                },
+                "tag": {
+                    "type": "string",
+                    "example": "finance"
+                }
+            }
+        },
+        "assetverify.verifyRequest": {
+            "type": "object",
+            "properties": {
+                "expires_at": {
+                    "description": "ExpiresAt is when the badge is removed (RFC 3339); absent never expires.",
+                    "type": "string"
+                },
+                "note": {
+                    "description": "Note is shown with the badge.",
+                    "type": "string",
+                    "example": "Numbers checked against the ledger"
                 }
             }
         },
@@ -47066,6 +48650,267 @@ const docTemplate = `{
                 }
             }
         },
+        "library.DuplicateGroup": {
+            "type": "object",
+            "properties": {
+                "digest": {
+                    "type": "string",
+                    "example": "9f2c4e"
+                },
+                "members": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/library.DuplicateMember"
+                    }
+                },
+                "similarity": {
+                    "description": "Similarity is the closest pair's similarity, as a percentage.",
+                    "type": "integer",
+                    "example": 96
+                }
+            }
+        },
+        "library.DuplicateMember": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "example": "asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Q3 revenue by region"
+                },
+                "opens": {
+                    "type": "integer",
+                    "example": 41
+                },
+                "owner_email": {
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "published"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "integer",
+                    "example": 4
+                }
+            }
+        },
+        "library.Item": {
+            "type": "object",
+            "properties": {
+                "at": {
+                    "description": "At is when the person last opened the item (recents) or starred it\n(favorites).",
+                    "type": "string"
+                },
+                "content_type": {
+                    "type": "string",
+                    "example": "text/html"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"
+                },
+                "kind": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/library.Kind"
+                        }
+                    ],
+                    "example": "asset"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Q3 revenue by region"
+                },
+                "owner_email": {
+                    "type": "string",
+                    "example": "jane@example.com"
+                }
+            }
+        },
+        "library.Kind": {
+            "type": "string",
+            "enum": [
+                "asset",
+                "collection"
+            ],
+            "x-enum-varnames": [
+                "KindAsset",
+                "KindCollection"
+            ]
+        },
+        "library.TrashItem": {
+            "type": "object",
+            "properties": {
+                "content_type": {
+                    "type": "string",
+                    "example": "text/html"
+                },
+                "deleted_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"
+                },
+                "kind": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/library.Kind"
+                        }
+                    ],
+                    "example": "asset"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Old pricing model"
+                },
+                "owner_email": {
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "purge_at": {
+                    "description": "PurgeAt is when the retention sweep removes it for good: its deletion\nplus portal.deleted_retention_days.",
+                    "type": "string"
+                }
+            }
+        },
+        "library.UnusedItem": {
+            "type": "object",
+            "properties": {
+                "content_type": {
+                    "type": "string",
+                    "example": "text/csv"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"
+                },
+                "last_opened": {
+                    "description": "LastOpened is the last open by anyone, nil when it was never opened.",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Vendor list export"
+                },
+                "opens": {
+                    "description": "Opens is how many times it was opened in the portal, by anyone, since\nopens were first recorded.",
+                    "type": "integer",
+                    "example": 0
+                },
+                "owner_email": {
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "status": {
+                    "description": "Status is the asset's status (draft, published, deprecated), empty when\nit has none.",
+                    "type": "string",
+                    "example": "draft"
+                }
+            }
+        },
+        "libraryapi.DismissRequest": {
+            "type": "object",
+            "properties": {
+                "digest": {
+                    "type": "string",
+                    "example": "9f2c4e"
+                }
+            }
+        },
+        "libraryapi.DuplicatesResponse": {
+            "type": "object",
+            "properties": {
+                "groups": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/library.DuplicateGroup"
+                    }
+                }
+            }
+        },
+        "libraryapi.ItemsResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/library.Item"
+                    }
+                }
+            }
+        },
+        "libraryapi.OpenRequest": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "example": "asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"
+                },
+                "kind": {
+                    "type": "string",
+                    "example": "asset"
+                }
+            }
+        },
+        "libraryapi.TrashResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/library.TrashItem"
+                    }
+                },
+                "retention_days": {
+                    "description": "RetentionDays is how long a deleted item stays before it is purged.",
+                    "type": "integer",
+                    "example": 30
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "libraryapi.UnusedResponse": {
+            "type": "object",
+            "properties": {
+                "days": {
+                    "description": "Days is the period the page was read for.",
+                    "type": "integer",
+                    "example": 90
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/library.UnusedItem"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "libraryapi.statusResponse": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "example": "restored"
+                }
+            }
+        },
         "libraryuse.Use": {
             "type": "object",
             "properties": {
@@ -48137,6 +49982,10 @@ const docTemplate = `{
                 "uploads": {
                     "description": "Uploads lets the people of an external persona upload files to their\nown folder (#2258, #2290), which staff reach through ExternalFiles. Unset\nis off; an internal persona's people upload by their Resources level\nand this is dropped from its resolved block.",
                     "type": "boolean"
+                },
+                "verify_assets": {
+                    "description": "VerifyAssets lets the persona's people mark an asset they can open\nVerified, and remove the badge (#2503); the persona editor shows it as\n\"Can verify assets\". Unset is off: an administrator verifies whatever\nthis says, and an external persona never does.",
+                    "type": "boolean"
                 }
             }
         },
@@ -48732,6 +50581,14 @@ const docTemplate = `{
                     "type": "integer",
                     "example": 4200
                 },
+                "status": {
+                    "description": "Status is how far along the asset is (#2502): draft, published or\ndeprecated. Nil is no status, which every asset has until someone sets\none. It is informational and changes no access.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/portaldomain.AssetStatus"
+                        }
+                    ]
+                },
                 "tags": {
                     "type": "array",
                     "items": {
@@ -48781,6 +50638,14 @@ const docTemplate = `{
                 },
                 "updated_at": {
                     "type": "string"
+                },
+                "verification": {
+                    "description": "Verification is the Verified badge (#2503): who checked the asset, the\nversion they checked and until when. Nil when it was never verified, was\nunverified, or its expiry has passed.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/portaldomain.AssetVerification"
+                        }
+                    ]
                 }
             }
         },
@@ -49293,6 +51158,14 @@ const docTemplate = `{
                     "type": "integer",
                     "example": 4200
                 },
+                "status": {
+                    "description": "Status is how far along the asset is (#2502): draft, published or\ndeprecated. Nil is no status, which every asset has until someone sets\none. It is informational and changes no access.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/portaldomain.AssetStatus"
+                        }
+                    ]
+                },
                 "tags": {
                     "type": "array",
                     "items": {
@@ -49342,6 +51215,14 @@ const docTemplate = `{
                 },
                 "updated_at": {
                     "type": "string"
+                },
+                "verification": {
+                    "description": "Verification is the Verified badge (#2503): who checked the asset, the\nversion they checked and until when. Nil when it was never verified, was\nunverified, or its expiry has passed.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/portaldomain.AssetVerification"
+                        }
+                    ]
                 }
             }
         },
@@ -50293,6 +52174,163 @@ const docTemplate = `{
                 }
             }
         },
+        "portaldomain.Asset": {
+            "type": "object",
+            "properties": {
+                "collections": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portaldomain.AssetCollectionRef"
+                    }
+                },
+                "content_type": {
+                    "type": "string",
+                    "example": "text/html"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "current_version": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "deleted_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string",
+                    "example": "Interactive revenue breakdown by region"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"
+                },
+                "idempotency_key": {
+                    "type": "string",
+                    "example": "export-2026-04-18-abc123"
+                },
+                "max_versions": {
+                    "description": "MaxVersions is the asset's own version-retention cap. Nil means the\nasset has no opinion and inherits the deployment's portal.max_versions;\n0 means it keeps every version; N means it keeps the newest N. See\nEffectiveMaxVersions.",
+                    "type": "integer",
+                    "example": 100
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Q4 Revenue Dashboard"
+                },
+                "owner_email": {
+                    "type": "string",
+                    "example": "alice@example.com"
+                },
+                "owner_id": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                },
+                "provenance": {
+                    "description": "Provenance is the asset's record of what produced it. A listing never\ncarries it -- it grows by one capture per write and is unbounded, and\ncarrying it made a library of 52 assets a megabyte of JSON (#1623). A\nlisting row carries ProvenanceSummary instead, and a single asset read\ncarries the newest ProvenanceCapturesInline captures with CapturesTotal\nset; the rest are read a page at a time.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/portaldomain.Provenance"
+                        }
+                    ]
+                },
+                "provenance_summary": {
+                    "description": "ProvenanceSummary describes the provenance of a listing row without\ncarrying it. Nil on a single asset read, where Provenance is what the\nreader gets.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/portaldomain.ProvenanceSummary"
+                        }
+                    ]
+                },
+                "released_version": {
+                    "description": "ReleasedVersion is the version the current release of the application\nthe asset belongs to pins (#2411), 0 for an asset in no released\napplication. Set only by that release. While set it is the version the\nasset's content routes serve: a new version changes nothing live until\nthe next release. ServedVersion reads the two.",
+                    "type": "integer",
+                    "example": 2
+                },
+                "s3_bucket": {
+                    "type": "string",
+                    "example": "portal-assets"
+                },
+                "s3_key": {
+                    "type": "string",
+                    "example": "assets/01HK7R8Z/content.html"
+                },
+                "session_id": {
+                    "type": "string",
+                    "example": "sess_abc123"
+                },
+                "size_bytes": {
+                    "type": "integer",
+                    "example": 4200
+                },
+                "status": {
+                    "description": "Status is how far along the asset is (#2502): draft, published or\ndeprecated. Nil is no status, which every asset has until someone sets\none. It is informational and changes no access.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/portaldomain.AssetStatus"
+                        }
+                    ]
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "thumbnail_dark_s3_key": {
+                    "description": "ThumbnailDarkS3Key holds the dark-mode thumbnail variant. Only populated\nfor content types rendered on a forced background (markdown, CSV, JSON,\nNDJSON); types with a built-in theme (HTML, JSX, SVG) reuse\nThumbnailS3Key in both modes.\nEmpty means callers should fall back to ThumbnailS3Key.",
+                    "type": "string",
+                    "example": "assets/01HK7R8Z/.thumbnail_dark.png"
+                },
+                "thumbnail_dark_version": {
+                    "type": "integer",
+                    "example": 3
+                },
+                "thumbnail_failed_version": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "thumbnail_failure": {
+                    "description": "ThumbnailFailure is why the renderer could not draw this asset's tile,\nand ThumbnailFailedVersion the version it tried. The failure holds until\nthe content changes or the tile is asked for again, so a document the\nrenderer cannot draw is not retried forever and the reason is visible.",
+                    "type": "string",
+                    "example": "the document did not finish drawing before the deadline"
+                },
+                "thumbnail_renderer": {
+                    "description": "ThumbnailRenderer is the generation of the renderer that drew the tile.\nA tile from an older generation still serves and is drawn again (#1787).\nA reader puts it in the tile's URL beside the version: a redraw by a new\ngeneration keeps the version, and without it a browser would show the\nold picture for the hour it is cached for (#1789).",
+                    "type": "integer",
+                    "example": 2
+                },
+                "thumbnail_s3_key": {
+                    "type": "string",
+                    "example": "assets/01HK7R8Z/thumb.png"
+                },
+                "thumbnail_skipped": {
+                    "description": "ThumbnailSkipped says why this asset is never given a tile, and\nThumbnailSourceLimit the bound it is held to: \"over_source_limit\" when\nit is larger than thumbnails.max_source_bytes (or large_source_bytes\nfor its family). Empty when it is drawn, pending, or of a type no tile\nis drawn for, which is what tells \"skipped\" from \"not drawn yet\"\n(#2072). Derived on read, never stored.",
+                    "type": "string",
+                    "example": "over_source_limit"
+                },
+                "thumbnail_source_limit": {
+                    "type": "integer",
+                    "example": 1048576
+                },
+                "thumbnail_version": {
+                    "description": "ThumbnailVersion is the asset version ThumbnailS3Key was captured from,\nand ThumbnailDarkVersion the same for the dark variant. Below\nCurrentVersion means the capture has not caught up with the content: the\nimage still serves, and the asset is what a refresh queue looks for. Zero\nwith a key recorded cannot occur -- see migration 000122 -- so it means\nno capture has ever been taken.\n\nThe two variants are stamped independently because they are captured and\nuploaded independently, and a pass that lands one and throws on the other\nleaves exactly that state.",
+                    "type": "integer",
+                    "example": 3
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "verification": {
+                    "description": "Verification is the Verified badge (#2503): who checked the asset, the\nversion they checked and until when. Nil when it was never verified, was\nunverified, or its expiry has passed.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/portaldomain.AssetVerification"
+                        }
+                    ]
+                }
+            }
+        },
         "portaldomain.AssetCollectionRef": {
             "type": "object",
             "properties": {
@@ -50303,6 +52341,53 @@ const docTemplate = `{
                 "name": {
                     "type": "string",
                     "example": "Q4 Performance Review"
+                }
+            }
+        },
+        "portaldomain.AssetStatus": {
+            "type": "object",
+            "properties": {
+                "note": {
+                    "type": "string",
+                    "example": "Replaced by the Q4 report"
+                },
+                "set_at": {
+                    "type": "string"
+                },
+                "set_by": {
+                    "type": "string",
+                    "example": "alice@example.com"
+                },
+                "value": {
+                    "type": "string",
+                    "example": "deprecated"
+                }
+            }
+        },
+        "portaldomain.AssetVerification": {
+            "type": "object",
+            "properties": {
+                "changed_since_verified": {
+                    "description": "ChangedSinceVerified is true when the asset has a version newer than the\none that was verified. Derived on read.",
+                    "type": "boolean"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "note": {
+                    "type": "string",
+                    "example": "Numbers checked against the ledger"
+                },
+                "verified_at": {
+                    "type": "string"
+                },
+                "verified_by": {
+                    "type": "string",
+                    "example": "carol@example.com"
+                },
+                "verified_version": {
+                    "type": "integer",
+                    "example": 3
                 }
             }
         },
@@ -60826,7 +62911,7 @@ const docTemplate = `{
             "in": "header"
         }
     }
-,"tags":[{"name": "User", "description": "Current user identity, roles, persona, and available tools."}, {"name": "Sites", "description": "Static sites and browser pages the platform serves on hostnames of their own: the hostnames the deployment's ingress needs and the certificate that covers them."}, {"name": "Applications", "description": "Applications built on the platform: one record naming an application database schema with its migrations, managed scripts (an endpoint or a form is its script's binding), webhook sources and portal assets, released together as a pinned set. While a part belongs to a released application its release's version is the one that runs and is served. Everyone signed in reads; the owner and administrators edit; administrators release, roll back, export and import."}, {"name": "Approvals", "description": "The Approvals queue: a request for an administrator's decision. A form is served to callers with no session only at a version an administrator approved; its owner files the request, and administrators decide every request, their own included."}, {"name": "Activity", "description": "Personal analytics for the authenticated user's tool usage. Timeseries, breakdowns, and summary statistics scoped to the calling user."}, {"name": "Assets", "description": "AI-generated assets \u2014 dashboards, reports, visualizations, and data exports. Supports HTML, JSX, SVG, Markdown, and CSV content types with versioning, thumbnails, and sharing."}, {"name": "Collections", "description": "Curated groups of assets organized into ordered sections with markdown descriptions. Collections support sharing via public links and user-level permissions."}, {"name": "Knowledge", "description": "Domain knowledge captured during AI sessions. Insights go through an admin review workflow before being written back to the data catalog. Includes insight statistics and governance lifecycle tracking."}, {"name": "Memory", "description": "Persistent memory records accumulated across sessions \u2014 corrections, preferences, business context, and data quality observations. Backed by PostgreSQL with pgvector for semantic search."}, {"name": "Prompts", "description": "Reusable prompt templates with argument placeholders. Users manage personal prompts and browse available global, persona, and system prompts."}, {"name": "Resources", "description": "Human-uploaded reference materials \u2014 SQL templates, runbooks, checklists, and brand assets. Scoped by visibility (global, persona, user) and accessible to AI agents via the MCP resources protocol."}, {"name": "Shares", "description": "Asset and collection sharing via public links (token-based, time-limited) and user shares (email-based with viewer/editor permissions)."}, {"name": "API Keys", "description": "The API keys a person issues for their own account. A key authenticates as its owner and carries the roles they hold, so a client that speaks only bearer tokens reaches the platform as the same identity their signed-in session does. A key value is readable once, at creation."}, {"name": "Audit", "description": "Platform-wide audit log of every tool call. Paginated event queries with filtering, aggregate statistics, performance percentiles, enrichment metrics, and discovery pattern analytics."}, {"name": "Auth Keys", "description": "API key management for programmatic access. Create, list, and revoke keys with role assignment and expiration. Keys from the config file are read-only."}, {"name": "Config", "description": "Platform configuration management. Read the active config, export as YAML, and manage per-key database overrides for whitelisted settings with hot-reload."}, {"name": "Connections", "description": "Toolkit connection management for Trino, S3, API, GraphQL and MCP backends. View file-configured connections, create database-managed instances, and inspect connection details."}, {"name": "Personas", "description": "Role-based access control profiles that determine which tools and connections a user can access. Each persona defines allow/deny patterns, context overrides, and priority-based role mapping."}, {"name": "Calls", "description": "The data-access calls the platform recorded: every query and API invocation with the purpose stated for it, what it addressed, and an outcome derived from what was later built from it. A satisfied record can be promoted, which turns a query into a catalog Query entity and an API call into a saved example on its endpoint."}, {"name": "Sessions", "description": "Sessions read back from the audit log. A session is not a stored row: it is every tool call sharing one session id, so the list reaches as far back as audit retention. One session opens onto the assets and insights it produced and the ordered record of its calls, each with the purpose the agent stated."}, {"name": "Endpoints", "description": "Every endpoint binding on the deployment, a managed script answering HTTP under /endpoints/{name}, with its script and owner, its access and limits, and over a day or a week the requests it answered by status class, their duration, its failures and callers, and the requests it refused before its handler ran. An endpoint is turned on, off and edited through its script's endpoint routes."}, {"name": "Scripts", "description": "Managed-script review and approval. Browse scripts and their version history, read a version alongside the capabilities and connections its source reaches for, and approve a version \u2014 which binds the capability grant it executes under and is the only thing that makes a script executable."}, {"name": "Secrets", "description": "Stored secrets a request references by placeholder: {{secret:<name>}} in an api_invoke_endpoint or api_export request's body, query_params, path_params or headers is filled in as the gateway sends it and redacted from the response. Each secret names the connections it may be sent through and, optionally, the personas that may use it. Values are write-only."}, {"name": "Integrations", "description": "Operations only a deployment's environment knows how to do, handed to a script an administrator chooses: Site routing first, which hands the script every hostname the platform serves for sites and applications. List each operation with its script, its last run and each item's status, list the scripts that define its function, choose or clear its script, and retry it now."}, {"name": "Catalog", "description": "The platform catalog's scan of every connection: how often it runs, the catalogs, schemas and operations each connection keeps out of the catalog, each connection's last scan, and a request to scan now."}, {"name": "Webhooks", "description": "Inbound webhook sources: the addresses external systems post events to at /hooks/{source}. Create, change, rotate the secret of, and delete a source, and read its status: request counts by outcome, when it last received an event, compaction progress, and its recently rejected requests. Secrets are write-only."}, {"name": "Storage", "description": "Storage capacity: every store the platform writes to (the database, the SeaweedFS cluster, each bucket, each replica's webhook spool volume), used and free, its growth over 7 and 30 days and when it would fill, a store's history, and the buckets, reconcile and tables behind them. Its settings are under Settings."}, {"name": "System", "description": "Platform identity, version, runtime feature availability, registered tools, and toolkit connections."}, {"name": "Tools", "description": "Tool schema introspection and interactive execution. Browse JSON schemas for all registered tools and execute tool calls with parameter validation."}, {"name": "Data Catalog", "description": "The platform catalog behind the portal: find and browse datasets, read a dataset with its columns, curation, lineage and history, edit and roll back its curation, and manage the glossary, tags, domains and data products."}, {"name": "Tables", "description": "Query-engine tables registered against a managed resource or a portal asset, so a file's contents can be queried through the platform's SQL surface."}, {"name": "Gateway", "description": "The API gateway data plane: call a configured upstream connection over REST, enveloped or streamed. This is what a non-MCP client (NiFi, Airflow, curl) uses in place of the api_invoke_endpoint tool."}, {"name": "APIs", "description": "The caller's view of the API catalogs: browse the connections this identity may reach, read an operation's parameters and schemas, and copy the gateway call."}, {"name": "API Catalogs", "description": "Administration of the OpenAPI documents behind API connections. Register a spec inline, by URL, or by upload, refresh it, and manage its embedding jobs."}, {"name": "Portal", "description": "Portal surfaces that are not asset content: navigation, search, and the pages the web UI is assembled from."}, {"name": "Portal Assets", "description": "Asset operations served to the portal UI: references, attachments, versions, and the managed resources an asset's content points at."}, {"name": "Feedback", "description": "Review threads on assets and knowledge: comments, activity, worklists, sign-off, and capturing a thread's conclusion as an insight."}, {"name": "Notifications", "description": "Email notification preferences, delivery history, and per-user unsubscribe. Mail-server settings live under Settings."}, {"name": "Settings", "description": "Deployment settings an administrator edits at runtime: the mail server and the review-queue alert thresholds."}, {"name": "Users", "description": "The directory of known people, keyed by email. Administrative counterpart to the single-identity User tag."}, {"name": "Access requests", "description": "A signed-in person asking an item's owner for access to an asset, collection or prompt they cannot open, the owner's answer, and how long a request waits."}, {"name": "External users", "description": "Accounts for people outside the organization under an external persona, signed in by an emailed one-time link, and how long their session and links last."}],"x-tagGroups":[{"name": "User API", "tags": ["User", "Access requests", "Activity", "Applications", "Approvals", "API Keys", "APIs", "Assets", "Collections", "Data Catalog", "Feedback", "Gateway", "Knowledge", "Memory", "Portal", "Portal Assets", "Prompts", "Resources", "Shares", "Tables"]}, {"name": "Admin API", "tags": ["Sites", "API Catalogs", "Audit", "Auth Keys", "Calls", "Catalog", "Config", "Connections", "Endpoints", "External users", "Integrations", "Notifications", "Personas", "Scripts", "Secrets", "Sessions", "Settings", "Storage", "System", "Tools", "Users", "Webhooks"]}]}`
+,"tags":[{"name": "User", "description": "Current user identity, roles, persona, and available tools."}, {"name": "Sites", "description": "Static sites and browser pages the platform serves on hostnames of their own: the hostnames the deployment's ingress needs and the certificate that covers them."}, {"name": "Applications", "description": "Applications built on the platform: one record naming an application database schema with its migrations, managed scripts (an endpoint or a form is its script's binding), webhook sources and portal assets, released together as a pinned set. While a part belongs to a released application its release's version is the one that runs and is served. Everyone signed in reads; the owner and administrators edit; administrators release, roll back, export and import."}, {"name": "Approvals", "description": "The Approvals queue: a request for an administrator's decision. A form is served to callers with no session only at a version an administrator approved; its owner files the request, and administrators decide every request, their own included."}, {"name": "Activity", "description": "Personal analytics for the authenticated user's tool usage. Timeseries, breakdowns, and summary statistics scoped to the calling user."}, {"name": "Assets", "description": "AI-generated assets \u2014 dashboards, reports, visualizations, and data exports. Supports HTML, JSX, SVG, Markdown, and CSV content types with versioning, thumbnails, and sharing."}, {"name": "Collections", "description": "Curated groups of assets organized into ordered sections with markdown descriptions. Collections support sharing via public links and user-level permissions."}, {"name": "Knowledge", "description": "Domain knowledge captured during AI sessions. Insights go through an admin review workflow before being written back to the data catalog. Includes insight statistics and governance lifecycle tracking."}, {"name": "Memory", "description": "Persistent memory records accumulated across sessions \u2014 corrections, preferences, business context, and data quality observations. Backed by PostgreSQL with pgvector for semantic search."}, {"name": "Prompts", "description": "Reusable prompt templates with argument placeholders. Users manage personal prompts and browse available global, persona, and system prompts."}, {"name": "Resources", "description": "Human-uploaded reference materials \u2014 SQL templates, runbooks, checklists, and brand assets. Scoped by visibility (global, persona, user) and accessible to AI agents via the MCP resources protocol."}, {"name": "Shares", "description": "Asset and collection sharing via public links (token-based, time-limited) and user shares (email-based with viewer/editor permissions)."}, {"name": "API Keys", "description": "The API keys a person issues for their own account. A key authenticates as its owner and carries the roles they hold, so a client that speaks only bearer tokens reaches the platform as the same identity their signed-in session does. A key value is readable once, at creation."}, {"name": "Audit", "description": "Platform-wide audit log of every tool call. Paginated event queries with filtering, aggregate statistics, performance percentiles, enrichment metrics, and discovery pattern analytics."}, {"name": "Auth Keys", "description": "API key management for programmatic access. Create, list, and revoke keys with role assignment and expiration. Keys from the config file are read-only."}, {"name": "Config", "description": "Platform configuration management. Read the active config, export as YAML, and manage per-key database overrides for whitelisted settings with hot-reload."}, {"name": "Connections", "description": "Toolkit connection management for Trino, S3, API, GraphQL and MCP backends. View file-configured connections, create database-managed instances, and inspect connection details."}, {"name": "Personas", "description": "Role-based access control profiles that determine which tools and connections a user can access. Each persona defines allow/deny patterns, context overrides, and priority-based role mapping."}, {"name": "Calls", "description": "The data-access calls the platform recorded: every query and API invocation with the purpose stated for it, what it addressed, and an outcome derived from what was later built from it. A satisfied record can be promoted, which turns a query into a catalog Query entity and an API call into a saved example on its endpoint."}, {"name": "Sessions", "description": "Sessions read back from the audit log. A session is not a stored row: it is every tool call sharing one session id, so the list reaches as far back as audit retention. One session opens onto the assets and insights it produced and the ordered record of its calls, each with the purpose the agent stated."}, {"name": "Endpoints", "description": "Every endpoint binding on the deployment, a managed script answering HTTP under /endpoints/{name}, with its script and owner, its access and limits, and over a day or a week the requests it answered by status class, their duration, its failures and callers, and the requests it refused before its handler ran. An endpoint is turned on, off and edited through its script's endpoint routes."}, {"name": "Scripts", "description": "Managed-script review and approval. Browse scripts and their version history, read a version alongside the capabilities and connections its source reaches for, and approve a version \u2014 which binds the capability grant it executes under and is the only thing that makes a script executable."}, {"name": "Secrets", "description": "Stored secrets a request references by placeholder: {{secret:<name>}} in an api_invoke_endpoint or api_export request's body, query_params, path_params or headers is filled in as the gateway sends it and redacted from the response. Each secret names the connections it may be sent through and, optionally, the personas that may use it. Values are write-only."}, {"name": "Integrations", "description": "Operations only a deployment's environment knows how to do, handed to a script an administrator chooses: Site routing first, which hands the script every hostname the platform serves for sites and applications. List each operation with its script, its last run and each item's status, list the scripts that define its function, choose or clear its script, and retry it now."}, {"name": "Catalog", "description": "The platform catalog's scan of every connection: how often it runs, the catalogs, schemas and operations each connection keeps out of the catalog, each connection's last scan, and a request to scan now."}, {"name": "Webhooks", "description": "Inbound webhook sources: the addresses external systems post events to at /hooks/{source}. Create, change, rotate the secret of, and delete a source, and read its status: request counts by outcome, when it last received an event, compaction progress, and its recently rejected requests. Secrets are write-only."}, {"name": "Storage", "description": "Storage capacity: every store the platform writes to (the database, the SeaweedFS cluster, each bucket, each replica's webhook spool volume), used and free, its growth over 7 and 30 days and when it would fill, a store's history, and the buckets, reconcile and tables behind them. Its settings are under Settings."}, {"name": "System", "description": "Platform identity, version, runtime feature availability, registered tools, and toolkit connections."}, {"name": "Tools", "description": "Tool schema introspection and interactive execution. Browse JSON schemas for all registered tools and execute tool calls with parameter validation."}, {"name": "Data Catalog", "description": "The platform catalog behind the portal: find and browse datasets, read a dataset with its columns, curation, lineage and history, edit and roll back its curation, and manage the glossary, tags, domains and data products."}, {"name": "Tables", "description": "Query-engine tables registered against a managed resource or a portal asset, so a file's contents can be queried through the platform's SQL surface."}, {"name": "Gateway", "description": "The API gateway data plane: call a configured upstream connection over REST, enveloped or streamed. This is what a non-MCP client (NiFi, Airflow, curl) uses in place of the api_invoke_endpoint tool."}, {"name": "APIs", "description": "The caller's view of the API catalogs: browse the connections this identity may reach, read an operation's parameters and schemas, and copy the gateway call."}, {"name": "API Catalogs", "description": "Administration of the OpenAPI documents behind API connections. Register a spec inline, by URL, or by upload, refresh it, and manage its embedding jobs."}, {"name": "Portal", "description": "Portal surfaces that are not asset content: navigation, search, and the pages the web UI is assembled from."}, {"name": "Portal Assets", "description": "Asset operations served to the portal UI: references, attachments, versions, and the managed resources an asset's content points at."}, {"name": "Feedback", "description": "Review threads on assets and knowledge: comments, activity, worklists, sign-off, and capturing a thread's conclusion as an insight."}, {"name": "Notifications", "description": "Email notification preferences, delivery history, and per-user unsubscribe. Mail-server settings live under Settings."}, {"name": "Settings", "description": "Deployment settings an administrator edits at runtime: the mail server and the review-queue alert thresholds."}, {"name": "Users", "description": "The directory of known people, keyed by email. Administrative counterpart to the single-identity User tag."}, {"name": "Access requests", "description": "A signed-in person asking an item's owner for access to an asset, collection or prompt they cannot open, the owner's answer, and how long a request waits."}, {"name": "Library", "description": "A person's way back to their work: the assets and collections they opened and starred, and the trash, unused assets and possible duplicates an owner tidies from."}, {"name": "External users", "description": "Accounts for people outside the organization under an external persona, signed in by an emailed one-time link, and how long their session and links last."}],"x-tagGroups":[{"name": "User API", "tags": ["User", "Access requests", "Activity", "Applications", "Approvals", "API Keys", "APIs", "Assets", "Collections", "Data Catalog", "Feedback", "Gateway", "Knowledge", "Library", "Memory", "Portal", "Portal Assets", "Prompts", "Resources", "Shares", "Tables"]}, {"name": "Admin API", "tags": ["Sites", "API Catalogs", "Audit", "Auth Keys", "Calls", "Catalog", "Config", "Connections", "Endpoints", "External users", "Integrations", "Notifications", "Personas", "Scripts", "Secrets", "Sessions", "Settings", "Storage", "System", "Tools", "Users", "Webhooks"]}]}`
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{

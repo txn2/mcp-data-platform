@@ -142,6 +142,9 @@ func queryTool() *mcp.Tool {
 
 // handleQuery serves graphql_query.
 func (t *Toolkit) handleQuery(ctx context.Context, _ *mcp.CallToolRequest, in QueryInput) (*mcp.CallToolResult, any, error) {
+	if pending := t.schemaPending(ctx, in.Connection); pending != nil {
+		return pending, nil, nil
+	}
 	prepared, errMsg := t.prepare(ctx, in)
 	if errMsg != "" {
 		return toolkit.ErrorResult(errMsg), nil, nil

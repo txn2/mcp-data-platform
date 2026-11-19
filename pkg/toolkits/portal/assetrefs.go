@@ -40,26 +40,29 @@ func contentRefusal(body, contentType string) *mcp.CallToolResult {
 	return nil
 }
 
-// linkRefusal refuses a body that uses a reference as a link target (#1875),
-// naming each one, or returns nil when it uses none.
+// linkRefusal refuses a body that uses a managed resource or a form as a
+// link target (#1875), naming each one, or returns nil when it uses none.
 //
 // A reference loads another file's content into the document: the serving
 // rewrite turns it into a URL for the target's bytes, which an <img>, a
 // stylesheet or a fetch can use and a reader cannot follow, since the frame a
 // document renders in blocks navigation. Stored as a link it goes nowhere, so
-// the write is refused before anything is written rather than accepted.
+// the write is refused before anything is written rather than accepted. A link
+// to another asset, written mcp:asset:<id>, is a link between assets (#2432):
+// the portal follows it, and it is accepted.
 func linkRefusal(body, contentType string) *mcp.CallToolResult {
-	linked := contentrefs.Linked(body, contentType)
-	if len(linked) == 0 {
+	refused := contentrefs.RefusedLinks(body, contentType)
+	if len(refused) == 0 {
 		return nil
 	}
 	return toolkit.ErrorResult(fmt.Sprintf(
-		"links between assets are not supported, and this content uses %s as a link target "+
-			"(an <a href> or a Markdown [text](...) link). A reference loads another file's content into "+
+		"a managed resource or form cannot be a link target, and this content uses %s as one "+
+			"(an <a href> or a Markdown [text](...) link). A reference loads a file's content into "+
 			"this document, as an <img src>, a stylesheet or a fetch; it cannot be followed. "+
-			"Reference the asset to load its content, name it in text, or add a download attribute "+
-			"(<a href=\"...\" download>) to offer it as a file to save. Nothing was written.",
-		strings.Join(linked, ", ")))
+			"Reference it to load its content, name it in text, or add a download attribute "+
+			"(<a href=\"...\" download>) to offer it as a file to save. To link another asset, "+
+			"write mcp:asset:<id> as the link target. Nothing was written.",
+		strings.Join(refused, ", ")))
 }
 
 // undeclaredRefs returns the references body names that the asset does not

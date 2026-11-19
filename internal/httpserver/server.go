@@ -24,6 +24,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/alertwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/apichangewire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/appdbwire"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/assetwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/catalogwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/corshttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/endpointwire"
@@ -163,6 +164,8 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	// through the substrate above, so it starts after it and stops before it.
 	stopAlerts := alertwire.StartReviewAlerts(ctx, p, notify)
 	defer stopAlerts()
+	stopReminders := assetwire.StartReminders(ctx, p, notify)
+	defer stopReminders()
 
 	// Connection-revocation alerts (#1694). The sink is attached to the
 	// auth-event writer here, once the substrate it enqueues into exists; the

@@ -31,7 +31,7 @@ function extractUnionMembers(source: string, typeName: string): string[] {
 
 describe("route manifest sync", () => {
   it("covers all pageTitles routes from AppShell", () => {
-    const source = readSource("../../src/components/layout/AppShell.tsx");
+    const source = readSource("../../src/components/layout/pageTitles.ts");
 
     const pageTitlesMatch = source.match(/const pageTitles[^{]*\{([^}]+)\}/s);
     expect(pageTitlesMatch).toBeTruthy();

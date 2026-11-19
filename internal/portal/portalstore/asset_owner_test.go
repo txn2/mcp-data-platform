@@ -107,9 +107,10 @@ func TestRankedCandidatesAreTheListing(t *testing.T) {
 	}
 }
 
-// whereOf is a statement's WHERE clause.
+// whereOf is a statement's WHERE clause on portal_assets (a selected column may hold a
+// subquery with its own).
 func whereOf(stmt string) string {
-	_, where, _ := strings.Cut(stmt, " WHERE ")
+	_, where, _ := strings.Cut(stmt, " FROM portal_assets WHERE ")
 	return where
 }
 

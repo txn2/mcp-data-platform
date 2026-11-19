@@ -1,7 +1,7 @@
-import { LayoutGrid, FolderOpen } from "lucide-react";
+import { LayoutGrid, FolderOpen, EyeOff, Copy, Trash2 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-export type AssetsTab = "assets" | "collections";
+export type AssetsTab = "assets" | "collections" | "unused" | "duplicates" | "trash";
 
 interface Props {
   active: AssetsTab;
@@ -10,8 +10,8 @@ interface Props {
   admin?: boolean;
 }
 
-const TABS: { id: AssetsTab; label: string; icon: typeof LayoutGrid; path: string; adminPath: string }[] = [
-  { id: "assets", label: "Assets", icon: LayoutGrid, path: "/", adminPath: "/admin/assets" },
+const TABS: { id: AssetsTab; label: string; icon: typeof LayoutGrid; path: string; adminPath?: string }[] = [
+  { id: "assets", label: "Assets", icon: LayoutGrid, path: "/assets", adminPath: "/admin/assets" },
   {
     id: "collections",
     label: "Collections",
@@ -19,6 +19,11 @@ const TABS: { id: AssetsTab; label: string; icon: typeof LayoutGrid; path: strin
     path: "/collections",
     adminPath: "/admin/collections",
   },
+  // A person's tidying views (#2509). The admin face has none: an
+  // administrator reaches everyone's from these with the "Everyone's" switch.
+  { id: "unused", label: "Unused", icon: EyeOff, path: "/unused" },
+  { id: "duplicates", label: "Possible duplicates", icon: Copy, path: "/duplicates" },
+  { id: "trash", label: "Trash", icon: Trash2, path: "/trash" },
 ];
 
 /**
@@ -39,14 +44,14 @@ export function AssetsTabs({ active, onNavigate, admin = false }: Props) {
       activationMode="manual"
       onValueChange={(next) => {
         const tab = TABS.find((t) => t.id === next);
-        if (tab) onNavigate(admin ? tab.adminPath : tab.path);
+        if (tab) onNavigate(admin && tab.adminPath ? tab.adminPath : tab.path);
       }}
     >
       <TabsList
         variant="line"
-        className="group-data-[orientation=horizontal]/tabs:h-auto w-full justify-start gap-0 border-b p-0"
+        className="group-data-[orientation=horizontal]/tabs:h-auto w-full justify-start gap-0 overflow-x-auto border-b p-0"
       >
-        {TABS.map((t) => {
+        {TABS.filter((t) => !admin || t.adminPath).map((t) => {
           const Icon = t.icon;
           return (
             <TabsTrigger
@@ -57,7 +62,7 @@ export function AssetsTabs({ active, onNavigate, admin = false }: Props) {
               // one leads to is a route, not a TabsContent, so the stamped id
               // would resolve to nothing.
               aria-controls={undefined}
-              className="flex-none gap-2 px-3 py-2 group-data-[orientation=horizontal]/tabs:after:bottom-[-1px]"
+              className="flex-none gap-2 whitespace-nowrap px-3 py-2 group-data-[orientation=horizontal]/tabs:after:bottom-[-1px]"
             >
               <Icon />
               {t.label}

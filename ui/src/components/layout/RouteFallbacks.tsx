@@ -72,7 +72,7 @@ export function PageNotFound({
       icon={Compass}
       className="mx-auto max-w-md"
       action={
-        <Button type="button" variant="secondary" size="sm" onClick={() => onNavigate("/")}>
+        <Button type="button" variant="secondary" size="sm" onClick={() => onNavigate("/assets")}>
           Go to your assets
         </Button>
       }

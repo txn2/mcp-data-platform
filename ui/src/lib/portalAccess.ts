@@ -39,6 +39,8 @@ export interface PortalAccess {
   history?: boolean;
   /** Every external person's personal folder (#2290). */
   external_files?: ExternalFilesLevel;
+  /** Mark an asset Verified and remove the badge (#2503). */
+  verify_assets?: boolean;
 }
 
 export type ResolvedPortal = Required<PortalAccess>;
@@ -62,11 +64,16 @@ export const FULL_PORTAL: ResolvedPortal = {
   uploads: false,
   history: true,
   external_files: "manage",
+  verify_assets: true,
 };
 
 // What a setting added after the portal had every area reads when a server
 // does not report it: what the server resolves it to unset (#2290).
-const UNSET_LATER: Pick<ResolvedPortal, "history" | "external_files"> = { history: false, external_files: "none" };
+const UNSET_LATER: Pick<ResolvedPortal, "history" | "external_files" | "verify_assets"> = {
+  history: false,
+  external_files: "none",
+  verify_assets: false,
+};
 
 export function resolvePortal(p?: PortalAccess | null): ResolvedPortal {
   return { ...FULL_PORTAL, ...UNSET_LATER, ...stripUndefined(p ?? {}) };

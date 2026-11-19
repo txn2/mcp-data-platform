@@ -16,9 +16,10 @@ import (
 // be followed, and nothing reported the undeclared reference either.
 //
 // What these hold, against the running platform: save_asset, manage_asset
-// update and manage_asset patch refuse a body that uses a reference as a link
-// target (an HTML <a href> and a Markdown [text](ref) link), naming it and
-// writing nothing; the same three calls save a body that loads an undeclared
+// update and manage_asset patch refuse a body that uses a managed resource as
+// a link target (an HTML <a href> and a Markdown [text](ref) link), naming it
+// and writing nothing (#2432 made an mcp:asset:<id> link target a link between
+// assets, which issue_2432_test.go holds); the same three calls save a body that loads an undeclared
 // reference and return it as undeclared_references; and both tools' references
 // descriptions say a reference loads content and is not a link.
 //
@@ -97,7 +98,7 @@ func assertLinkRefusal(t *testing.T, isError bool, text, ref string) {
 	if !isError {
 		t.Fatalf("the write was accepted; want a refusal: %s", text)
 	}
-	for _, want := range []string{ref, "links between assets are not supported", "name it in text"} {
+	for _, want := range []string{ref, "cannot be a link target", "name it in text"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the refusal does not say %q: %s", want, text)
 		}
@@ -105,12 +106,12 @@ func assertLinkRefusal(t *testing.T, isError bool, text, ref string) {
 }
 
 // TestIssue1875_ASaveUsingAReferenceAsALinkIsRefused is the ticket's
-// reproduction, in both link forms: refused, naming the reference, and no
-// asset left behind.
+// reproduction, in both link forms, with a managed resource as the target:
+// refused, naming the reference, and no asset left behind.
 func TestIssue1875_ASaveUsingAReferenceAsALinkIsRefused(t *testing.T) {
 	c := connect(t)
 	stamp := fmt.Sprintf("%d", time.Now().UnixNano())
-	ref := dataAsset1875(t, c, stamp)
+	ref, _ := dataFiles2127(t, c)
 
 	for form, body := range map[string]struct{ contentType, content string }{
 		"html":     {"text/html", `<html><body><p>The data: <a href="` + ref + `">regional totals</a></p></body></html>`},
@@ -143,7 +144,7 @@ func TestIssue1875_ASaveUsingAReferenceAsALinkIsRefused(t *testing.T) {
 func TestIssue1875_AnUpdateOrPatchUsingAReferenceAsALinkIsRefused(t *testing.T) {
 	c := connect(t)
 	stamp := fmt.Sprintf("%d", time.Now().UnixNano())
-	ref := dataAsset1875(t, c, stamp)
+	ref, _ := dataFiles2127(t, c)
 	out := c.call("save_asset", map[string]any{
 		"name": "acc-1875-report-" + stamp, "content_type": "text/markdown", "content": "# Report\n\nTotals below.\n",
 	})

@@ -215,6 +215,10 @@ TAG_DESCRIPTIONS = {
         "A signed-in person asking an item's owner for access to an asset, collection or "
         "prompt they cannot open, the owner's answer, and how long a request waits."
     ),
+    "Library": (
+        "A person's way back to their work: the assets and collections they opened and "
+        "starred, and the trash, unused assets and possible duplicates an owner tidies from."
+    ),
     "External users": (
         "Accounts for people outside the organization under an external persona, signed in "
         "by an emailed one-time link, and how long their session and links last."
@@ -238,6 +242,7 @@ TAG_GROUPS = [
             "Feedback",
             "Gateway",
             "Knowledge",
+            "Library",
             "Memory",
             "Portal",
             "Portal Assets",

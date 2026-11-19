@@ -22,6 +22,14 @@ Assets and Collections are two faces of one section, so the page opens on a tab 
 
 Every one of those actions works on an asset the admin does not own, Share included. This matters most for content produced by a non-human principal: an agent session authenticated with an API key owns its assets under an identity like `<key name>@apikey.local`, which nobody can sign in as. Without an admin share, such an asset could be read but never handed to the person who needs it. The same authority covers collections and personal prompts: an admin can share one, read its share list, and revoke a share on it. Shares an admin creates are attributed to the admin, so the audit trail names who actually granted the access.
 
+## Tags (Admin)
+
+**Admin > Tags** lists every tag on every live asset in the deployment with how many assets carry it, most carried first (#2508). Tags are compared without regard to case: `Finance` and `finance` are one row, shown in the spelling most assets use, and **Spellings in use** lists each spelling with its own count. **Find a tag** narrows the list to tags beginning with what you type.
+
+**Rename** rewrites the tag, in every spelling, to a new name on every asset that carries it; when the new name is already a tag the dialog says so and the change becomes a merge. **Merge into…** rewrites the tag, and every other spelling of the tag it merges into, to that tag. Each asset keeps its tag order and carries the resulting tag once, so an asset that carried both keeps one. Deleted assets are rewritten too, so restoring one does not bring a merged spelling back, and each changed asset is embedded again for search. Both are recorded in the audit log (`admin_tags_rename`, `admin_tags_merge`, with the tags and how many assets moved).
+
+The routes are `GET /api/v1/admin/tags` (`q`, `limit`, `offset`), `POST /api/v1/admin/tags/rename` (`from`, `to`) and `POST /api/v1/admin/tags/merge` (`from` as a list, `into`), behind the admin API's authentication.
+
 ## Collections (Admin)
 
 The Collections face of the admin Assets page lists every asset collection on the platform, whoever owns it.

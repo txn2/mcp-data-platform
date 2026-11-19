@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { AssetRetentionField, retentionCountValid, type RetentionMode } from "./AssetRetentionField";
+import { TagSuggestInput } from "./TagSuggestInput";
 
 /**
  * The sidebar's edit mode: an asset's name, description, tags and how much
@@ -70,7 +71,7 @@ export function AssetMetadataForm({
         <Label htmlFor={`${id}-tags`} className="text-xs text-muted-foreground">
           Tags (comma-separated)
         </Label>
-        <Input id={`${id}-tags`} type="text" value={tags} onChange={(e) => onTagsChange(e.target.value)} />
+        <TagSuggestInput id={`${id}-tags`} value={tags} onChange={onTagsChange} />
       </div>
       {canSetRetention && (
         <AssetRetentionField
