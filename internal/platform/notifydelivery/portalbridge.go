@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"log/slog"
+	"net/url"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
@@ -85,6 +86,12 @@ type EventRetractor interface {
 	RetractEvent(ctx context.Context, eventID string) error
 }
 
+// PendingDropper removes the not-yet-sent notifications of one kind about one
+// item (#2725). Satisfied by the PostgreSQL queue store.
+type PendingDropper interface {
+	DropPending(ctx context.Context, kind, itemID string) (int64, error)
+}
+
 // ThreadGrantees lists the addresses holding an explicit grant on a thread
 // target: its owner and the recipients of active shares. Satisfied by
 // pkg/portal/mention.Audience.
@@ -101,6 +108,7 @@ type PortalNotifier struct {
 	stores  PortalStores
 	baseURL string
 	retract EventRetractor
+	drop    PendingDropper
 }
 
 // NewPortalNotifier builds a notifier over an enqueuer directly; tests and
@@ -118,6 +126,7 @@ func (h *Handle) PortalNotifier(stores PortalStores, baseURL string) *PortalNoti
 	}
 	n := NewPortalNotifier(h.enqueuer, stores, baseURL)
 	n.retract = h.retract
+	n.drop = h.drop
 	return n
 }
 
@@ -187,16 +196,37 @@ func (n *PortalNotifier) NotifyAccessDecision(ctx context.Context, a AccessNotic
 // NotifyApprovalRequest tells each approver that a request waits on them
 // (#2437, #2494), once, with the link to the Approvals page.
 func (n *PortalNotifier) NotifyApprovalRequest(ctx context.Context, approvers []string, a AccessNotice) {
-	a.Link = notification.PortalLink(n.baseURL, "/approvals")
+	a.Link = ApprovalLink(n.baseURL, a.ItemID)
 	for _, to := range approvers {
 		a.To = to
 		n.enqueueKind(ctx, notification.KindApprovalRequest, a, "approval request")
 	}
 }
 
+// ApprovalLink opens one request on the Approvals page (#2725), whatever its
+// status, rather than the Pending list a decided request is no longer in.
+func ApprovalLink(baseURL, requestID string) string {
+	if requestID == "" {
+		return notification.PortalLink(baseURL, "/approvals")
+	}
+	return notification.PortalLink(baseURL, "/approvals?request="+url.QueryEscape(requestID))
+}
+
+// WithdrawApprovalRequest drops the approvers' notices of a request that were
+// not sent yet: a request decided before they went out asks nobody (#2725).
+func (n *PortalNotifier) WithdrawApprovalRequest(ctx context.Context, requestID string) {
+	if n.drop == nil {
+		return
+	}
+	if _, err := n.drop.DropPending(ctx, notification.KindApprovalRequest, requestID); err != nil {
+		slog.WarnContext(ctx, "notification: withdrawing an approval request's notices failed", // #nosec G706 -- error sanitized
+			logKeyError, logsan.SanitizeForLog(err.Error()))
+	}
+}
+
 // NotifyApprovalDecision tells a requester how their request was decided.
 func (n *PortalNotifier) NotifyApprovalDecision(ctx context.Context, a AccessNotice) {
-	a.Link = notification.PortalLink(n.baseURL, "/approvals")
+	a.Link = ApprovalLink(n.baseURL, a.ItemID)
 	n.enqueueKind(ctx, notification.KindApprovalDecision, a, "approval decision")
 }
 

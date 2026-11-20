@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 )
@@ -322,6 +323,11 @@ func (t *Toolkit) template(ctx context.Context, c, srv *conn, scope string, migr
 	if _, err := s.Exec(ctx, "SELECT pg_advisory_lock(hashtext('mcp_test_template'), hashtext($1))", c.cfg.ConnectionName); err != nil {
 		return "", srv.failure(ctx, err)
 	}
+	// The lock is released before the session goes back to the pool, which
+	// would otherwise hold it for as long as the pooled connection lives.
+	defer func() {
+		_, _ = s.Exec(context.WithoutCancel(ctx), "SELECT pg_advisory_unlock(hashtext('mcp_test_template'), hashtext($1))", c.cfg.ConnectionName)
+	}()
 	var exists bool
 	if err := s.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)", name).Scan(&exists); err != nil {
 		return "", srv.failure(ctx, err)
@@ -342,10 +348,27 @@ func (t *Toolkit) template(ctx context.Context, c, srv *conn, scope string, migr
 	}
 	if err := s.Script(ctx, "ALTER DATABASE "+build+" RENAME TO "+name); err != nil {
 		srv.dropDatabase(build)
+		// An advisory lock holds within one database while database names are
+		// the server's: two builders connected to different databases on one
+		// server (two connections sharing a name, two tests' target databases)
+		// both take it, and the second rename finds the name taken. The
+		// template it names is the one this build made (its name is the head
+		// of the same migrations), so it is used rather than refused.
+		if databaseExists(err) {
+			return name, nil
+		}
 		return "", srv.failure(ctx, err)
 	}
 	dropOlderTemplates(ctx, s, templateFamily(c.cfg.ConnectionName, scope), name)
 	return name, nil
+}
+
+// databaseExists reports whether err is PostgreSQL refusing a database name
+// another database already has: duplicate_database, or the unique violation a
+// concurrent rename meets in pg_database.
+func databaseExists(err error) bool {
+	pg, ok := errors.AsType[*pgconn.PgError](err)
+	return ok && (pg.Code == "42P04" || (pg.Code == "23505" && pg.ConstraintName == "pg_database_datname_index"))
 }
 
 // mayCreate refuses a test server whose user cannot create databases, naming

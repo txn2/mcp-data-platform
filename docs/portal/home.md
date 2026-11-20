@@ -4,7 +4,7 @@ description: "Home in the portal: what you opened, what you starred, your drafts
 
 # Home
 
-Home is the portal's landing page, at `/`. It brings back what you were working on: the assets and collections you opened recently, the ones you starred, your drafts, and what is waiting on you. The Assets gallery has its own page at `/assets`; every asset and collection address that worked before still opens the same page.
+Home is the portal's landing page, at `/`. It brings back what you were working on: the assets and collections you opened recently, the ones you starred, your drafts, and what is waiting on you. The Assets gallery is at `/assets`.
 
 Home has up to five sections, one column on a phone:
 
@@ -15,6 +15,8 @@ Home has up to five sections, one column on a phone:
 - **Waiting on you** — The feedback threads that need your answer or your sign-off, from the same lists as the Inbox.
 
 Each section says what belongs in it when it is empty.
+
+In **Recent** and **Favorites**, a line under each name says whose the item is and when it last changed (#2734): **Shared by** and the owner's address for another person's item, **Yours** for your own, and **Changed** with the time, as "3m ago" within a day and as a date ("Nov 19") after that, with the year when it is not this one. A collection's line starts with **Collection**. The right-hand column keeps when you opened the item (Recent) or what it is (Favorites).
 
 ## Favorites
 

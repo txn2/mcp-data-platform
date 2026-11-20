@@ -17,6 +17,7 @@
 package scriptprintf
 
 import (
+	"fmt"
 	"strings"
 	"unicode/utf8"
 )
@@ -37,6 +38,29 @@ type spec struct {
 
 // newSpec is a spec with nothing set.
 func newSpec() spec { return spec{fill: ' ', width: -1, prec: -1} }
+
+// MaxField is the widest field and the longest precision a format may ask
+// for (#2713). The text a field pads or a precision prints to is allocated
+// whole, outside the run's memory budget until the next host call, so
+// "%100000000000000c" asked one replica for a hundred terabytes and ended it
+// (found by FuzzFormatting). Python refuses such a field too.
+const MaxField = 1 << 20
+
+// checkField refuses a width or precision past MaxField; -1 is none.
+func checkField(what string, n int) error {
+	if n > MaxField || n < -MaxField {
+		return fmt.Errorf("a %s over %d is refused", what, MaxField)
+	}
+	return nil
+}
+
+// checkFields refuses a spec whose width or precision is past MaxField.
+func checkFields(sp spec) error {
+	if err := checkField("width", sp.width); err != nil {
+		return err
+	}
+	return checkField("precision", sp.prec)
+}
 
 // parts is a rendered value before padding: the sign, the base prefix
 // (0x, 0o, 0b), and the rest. Zero padding goes between the prefix and the

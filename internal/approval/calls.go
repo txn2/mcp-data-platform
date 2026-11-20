@@ -100,9 +100,7 @@ func (s *Service) SubmitCall(ctx context.Context, actor Actor, in CallRequest) (
 	if err := s.Store.Insert(ctx, r); err != nil {
 		return nil, fmt.Errorf("filing the request: %w", err)
 	}
-	if s.Notifier != nil {
-		s.Notifier.Requested(ctx, r, s.callApprovers(ctx, r))
-	}
+	s.notifyRequested(ctx, actor, r, func(ctx context.Context) []string { return s.callApprovers(ctx, r) })
 	return r, nil
 }
 

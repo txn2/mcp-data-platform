@@ -1,6 +1,7 @@
 package portalperm
 
 import (
+	"context"
 	"net/http"
 	"testing"
 
@@ -140,4 +141,17 @@ func TestRefusedHoldsTheScratchTableRoutes(t *testing.T) {
 	ext := (&persona.Persona{Name: "vendors", External: true}).PortalPermissions(nil)
 	assert.Equal(t, AreaScratchTables, Refused(ext, http.MethodGet, "/api/v1/tables"), "External takes scratch tables away")
 	assert.Empty(t, Refused(persona.FullPortalAccess(), http.MethodPost, "/api/v1/resources/r1/tables"))
+}
+
+// #2735: the permissions the gate admitted a request with answer whether the
+// caller reaches another area; a context the gate did not admit reaches none.
+func TestAdmits(t *testing.T) {
+	ctx := context.Background()
+	assert.False(t, Admits(ctx, http.MethodGet, "/api/v1/portal/applications"), "no permissions on the context admit nothing")
+	full := WithAccess(ctx, persona.FullPortalAccess())
+	assert.True(t, Admits(full, http.MethodGet, "/api/v1/portal/applications"))
+	off := false
+	noAutomations := WithAccess(ctx, persona.PortalAccess{Automations: &off})
+	assert.False(t, Admits(noAutomations, http.MethodGet, "/api/v1/portal/applications"),
+		"applications are opened in the Automations area")
 }

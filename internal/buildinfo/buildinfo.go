@@ -18,3 +18,18 @@ var Commit = "none"
 
 // Date is the build timestamp, set at build time via ldflags.
 var Date = "unknown"
+
+// unknownCommit is Commit in a build that stamped none.
+const unknownCommit = "none"
+
+// Build is the identity the platform names itself by on every HTTP response
+// and in the portal page it serves (#2727): the version and the commit, so two
+// builds of one version from different commits (two dev builds) differ. A
+// build that stamped no commit is its version alone. --version reports both
+// halves.
+func Build() string {
+	if Commit == "" || Commit == unknownCommit {
+		return Version
+	}
+	return Version + "+" + Commit
+}

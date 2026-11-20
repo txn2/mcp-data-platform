@@ -6,6 +6,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/testdb"
@@ -85,4 +86,36 @@ func TestInboxRealDB(t *testing.T) {
 	marked, err = store.MarkRead(ctx, "b@example.com", nil)
 	require.NoError(t, err)
 	require.Zero(t, marked)
+}
+
+// TestDropPendingRealDB holds #2725 on a migrated database: a decided
+// approval request's approver notices not sent yet are dropped, a sent one and
+// another request's are kept.
+func TestDropPendingRealDB(t *testing.T) {
+	db := testdb.New(t)
+	store := NewPostgresStore(db)
+	ctx := context.Background()
+	enqueue := func(recipient, kind, item string) {
+		require.NoError(t, store.Enqueue(ctx, notification.Notification{
+			Recipient: recipient, Category: notification.CategoryShare,
+			Payload: notification.Payload{Kind: kind, ItemID: item},
+		}))
+	}
+	enqueue("a1@example.com", notification.KindApprovalRequest, "apr_1")
+	enqueue("a2@example.com", notification.KindApprovalRequest, "apr_1")
+	enqueue("a1@example.com", notification.KindApprovalRequest, "apr_2")
+	enqueue("j@example.com", notification.KindApprovalDecision, "apr_1")
+	sent, err := store.List(ctx, notification.HistoryFilter{Recipient: "a2@example.com"})
+	require.NoError(t, err)
+	require.Len(t, sent, 1)
+	require.NoError(t, store.MarkSent(ctx, []int64{sent[0].ID}))
+
+	dropped, err := store.DropPending(ctx, notification.KindApprovalRequest, "apr_1")
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), dropped, "only the unsent notice of apr_1 is dropped")
+	for to, want := range map[string]int{"a1@example.com": 1, "a2@example.com": 1, "j@example.com": 1} {
+		rows, err := store.List(ctx, notification.HistoryFilter{Recipient: to})
+		require.NoError(t, err)
+		assert.Len(t, rows, want, to)
+	}
 }

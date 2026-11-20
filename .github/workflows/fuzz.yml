@@ -1,0 +1,82 @@
+# Fuzzing (#2713): every fuzz target in the module, fuzzed for a fixed time.
+#
+# Fuzz targets used to be replayed from their seed corpus by go test and never
+# fuzzed. This runs each `Fuzz*` target with -fuzz for FUZZTIME, one at a
+# time. A target that fails fails the run: its minimized input is uploaded as
+# the fuzz-crashers artifact, and the "Fuzzing is failing" issue names the
+# target and the input (#2730). The input is committed under the package's
+# testdata/fuzz/<Target>/ with the fix, so go test replays it from then on.
+#
+# A scheduled workflow, not ClusterFuzzLite or OSS-Fuzz (#2713, decided with
+# the epic #2733): one Go toolchain, the targets go test already runs, the
+# report every scheduled workflow files, and no second build to keep working.
+name: Fuzzing
+
+on:
+  schedule:
+    # Daily, 05:00 UTC.
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+    inputs:
+      fuzztime:
+        description: "How long each target is fuzzed (a go duration)"
+        default: "60s"
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: Fuzz every target
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.4"
+          cache: true
+
+      - name: Fuzz
+        env:
+          FUZZTIME: ${{ inputs.fuzztime || '60s' }}
+        run: make fuzz
+
+      - name: Keep the failing inputs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-crashers
+          path: |
+            **/testdata/fuzz/**
+            build/fuzz/*.log
+          if-no-files-found: warn
+          retention-days: 30
+
+  # The verdict goes to the "<workflow> is failing" issue (#2730): opened or
+  # commented on when the run failed, closed when it passed. Main only, on
+  # success and failure; a cancelled run says nothing. issues: write is this
+  # job's alone.
+  report:
+    name: Report to the tracking issue
+    needs: [fuzz]
+    if: (success() || failure()) && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Report
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OUTCOME: ${{ contains(needs.*.result, 'failure') && 'failure' || 'success' }}
+        run: python3 scripts/scheduled_report.py report "$OUTCOME"

@@ -946,7 +946,9 @@ export MCP_PLATFORM_APPDB_TEST_SWEEP_INTERVAL="${MCP_PLATFORM_APPDB_TEST_SWEEP_I
 # rebuild too (dev/.air.toml).
 bash scripts/dev-embed.sh || fail "The portal the server embeds did not build (make frontend-build)"
 info "Compiling the server..."
-if ! go build -o ./build/air/mcp-data-platform ./cmd/mcp-data-platform > "$AIR_LOG" 2>&1; then
+# Every dev build goes through scripts/dev-build.sh, which stamps the commit
+# both replicas name as their build (#2727).
+if ! bash scripts/dev-build.sh ./build/air/mcp-data-platform > "$AIR_LOG" 2>&1; then
   tail -20 "$AIR_LOG" 2>/dev/null | sed 's/^/    /'
   fail "The server did not compile"
 fi
@@ -979,7 +981,7 @@ if [ "$DEV_REPLICAS" = 2 ]; then
   MCP_PLATFORM_DEPLOYMENT_ID="${DEV_DEPLOYMENT_ID_B:-$MCP_PLATFORM_DEPLOYMENT_ID}" \
   DEV_API_PORT="$DEV_API_PORT_B" OTEL_METRICS_ADDR=":9465" air -c dev/.air.toml \
     -tmp_dir build/air-b \
-    -build.cmd "bash scripts/dev-embed.sh && go build -o ./build/air-b/mcp-data-platform ./cmd/mcp-data-platform" \
+    -build.cmd "bash scripts/dev-build.sh ./build/air-b/mcp-data-platform" \
     -build.bin ./build/air-b/mcp-data-platform \
     -build.full_bin "TMPDIR=$DEV_PLATFORM_TMPDIR ./build/air-b/mcp-data-platform" \
     > "$AIR_B_LOG" 2>&1 &

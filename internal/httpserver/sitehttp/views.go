@@ -54,6 +54,10 @@ type SiteView struct {
 	// its name and "--" leave the rest of one DNS label (#2636).
 	EnvironmentNameRoom int           `json:"environment_name_room" example:"32"`
 	Domains             []site.Domain `json:"domains"`
+	// Applications are the applications that use the site, each with the
+	// site's environments it holds (#2735), named only to a caller whose
+	// persona reaches the Applications pages; [] otherwise and when none does.
+	Applications []site.Application `json:"applications"`
 	// PagesRouting is the Site routing script's status for each environment's
 	// pages address, by environment (#2659); absent when no script is chosen,
 	// and on the Sites list.

@@ -104,3 +104,28 @@ func TestHistoryWhereUnread(t *testing.T) {
 		t.Errorf("clause = %q args = %v", clause, args)
 	}
 }
+
+func TestDropPending(t *testing.T) {
+	store, mock, done := newMockQueueStore(t)
+	defer done()
+	if n, err := store.DropPending(context.Background(), "", "apr_1"); err != nil || n != 0 {
+		t.Fatalf("no kind drops nothing: %d %v", n, err)
+	}
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM notifications WHERE status = $1 AND payload ->> 'kind' = $2 AND payload ->> 'item_id' = $3`)).
+		WithArgs(notification.StatusPending, notification.KindApprovalRequest, "apr_1").WillReturnResult(sqlmock.NewResult(0, 2))
+	n, err := store.DropPending(context.Background(), notification.KindApprovalRequest, "apr_1")
+	if err != nil || n != 2 {
+		t.Fatalf("DropPending = %d, %v", n, err)
+	}
+	mock.ExpectExec("DELETE").WillReturnError(errors.New("boom"))
+	if _, err := store.DropPending(context.Background(), notification.KindApprovalRequest, "apr_1"); err == nil {
+		t.Error("expected an error")
+	}
+	mock.ExpectExec("DELETE").WillReturnResult(sqlmock.NewErrorResult(errors.New("no count")))
+	if _, err := store.DropPending(context.Background(), notification.KindApprovalRequest, "apr_1"); err == nil {
+		t.Error("expected an error")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
+	}
+}

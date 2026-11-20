@@ -70,6 +70,9 @@ type Item struct {
 	// At is when the person last opened the item (recents) or starred it
 	// (favorites).
 	At time.Time `json:"at"`
+	// UpdatedAt is when the item last changed, which Home shows under its name
+	// beside whose it is (#2734).
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // Store reads and writes a person's library.
@@ -190,7 +193,7 @@ func (s *Store) items(ctx context.Context, src perPerson, userID string, reach *
 	for rows.Next() {
 		var it Item
 		var kind string
-		if err := rows.Scan(&kind, &it.ID, &it.Name, &it.ContentType, &it.OwnerEmail, &it.At); err != nil {
+		if err := rows.Scan(&kind, &it.ID, &it.Name, &it.ContentType, &it.OwnerEmail, &it.At, &it.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scanning a library entry: %w", err)
 		}
 		it.Kind = Kind(kind)
@@ -206,14 +209,14 @@ func (s *Store) items(ctx context.Context, src perPerson, userID string, reach *
 // table, each joined to its item under the reach, newest first.
 func buildItems(table, at, userID string, reach *portaldomain.Reach, limit int) (query string, args []any, err error) {
 	assets := sq.Select("'asset'", "portal_assets.id", "portal_assets.name",
-		"portal_assets.content_type", "portal_assets.owner_email", "e."+at+" AS at").
+		"portal_assets.content_type", "portal_assets.owner_email", "e."+at+" AS at", "portal_assets.updated_at").
 		From(table + " e").
 		Join("portal_assets ON portal_assets.id = e.target_id").
 		Where(sq.Eq{"e.user_id": userID, "e.target_type": string(KindAsset)}).
 		Where("portal_assets.deleted_at IS NULL").
 		Where(reachstore.AssetPredicate(reach))
 	colls := sq.Select("'collection'", "portal_collections.id", "portal_collections.name",
-		"''", "portal_collections.owner_email", "e."+at+" AS at").
+		"''", "portal_collections.owner_email", "e."+at+" AS at", "portal_collections.updated_at").
 		From(table + " e").
 		Join("portal_collections ON portal_collections.id = e.target_id").
 		Where(sq.Eq{"e.user_id": userID, "e.target_type": string(KindCollection)}).

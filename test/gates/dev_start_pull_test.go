@@ -63,7 +63,7 @@ func TestDevStartCompilesBeforeTheHealthWait(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(src)
-	build := strings.Index(s, "if ! go build -o ./build/air/mcp-data-platform ./cmd/mcp-data-platform")
+	build := strings.Index(s, "if ! bash scripts/dev-build.sh ./build/air/mcp-data-platform")
 	air := strings.Index(s, "air -c dev/.air.toml > \"$AIR_LOG\"")
 	wait := strings.Index(s, "Go server did not become healthy within 60s")
 	if build < 0 || air < 0 || wait < 0 || build > air || air > wait {

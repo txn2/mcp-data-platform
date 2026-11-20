@@ -92,6 +92,37 @@ export function useApprovals(filter: { status?: ApprovalStatus | ""; scriptId?: 
   });
 }
 
+/**
+ * useApproval reads one request the caller may read, whatever its status: the
+ * one an approval email links to (#2725). A request they may not read answers
+ * 404, the same as one that does not exist.
+ */
+export function useApproval(id: string) {
+  return useQuery({
+    queryKey: [...approvalsKey, "one", id],
+    queryFn: () => apiFetch<ApprovalRequest>(`/approvals/${encodeURIComponent(id)}`),
+    enabled: !!id,
+    retry: false,
+  });
+}
+
+/** RECENT_DECISION_DAYS is how far back the Pending list's empty state looks (#2725). */
+export const RECENT_DECISION_DAYS = 7;
+
+/** useRecentDecisions lists the requests decided in the last days, most recent first, under the caller's read rule. */
+export function useRecentDecisions(enabled: boolean, days = RECENT_DECISION_DAYS) {
+  return useQuery({
+    queryKey: [...approvalsKey, "recent", days],
+    queryFn: () => {
+      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+      return apiFetch<{ requests: ApprovalRequest[]; count: number }>(
+        `/approvals?decided_since=${encodeURIComponent(since)}`,
+      ).then((r) => r.requests);
+    },
+    enabled,
+  });
+}
+
 /** useRequestApproval asks the administrators to approve a version of a form. */
 export function useRequestApproval(scriptId: string) {
   const queryClient = useQueryClient();

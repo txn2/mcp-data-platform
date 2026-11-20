@@ -25,6 +25,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/reqlog"
+
 	"github.com/txn2/mcp-data-platform/internal/contentenc"
 	"github.com/txn2/mcp-data-platform/internal/httpobs"
 	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
@@ -230,7 +232,7 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, host string) {
 		notPublished(w, r, host)
 		return
 	case err != nil:
-		slog.ErrorContext(r.Context(), "sites: reading a route failed", logKeyError, logsan.SanitizeForLog(err.Error()))
+		reqlog.Failed(r, "sites: reading a route failed", err)
 		http.Error(w, "this site could not be read", http.StatusServiceUnavailable)
 		return
 	}
@@ -447,7 +449,7 @@ func (g *Gateway) serveSite(w http.ResponseWriter, r *http.Request, route *site.
 	}
 	m, err := g.manifestOf(r.Context(), route.Release)
 	if err != nil {
-		slog.ErrorContext(r.Context(), "sites: reading a manifest failed", logKeyError, logsan.SanitizeForLog(err.Error()))
+		reqlog.Failed(r, "sites: reading a manifest failed", err)
 		http.Error(w, "this site could not be read", http.StatusServiceUnavailable)
 		return
 	}
@@ -632,7 +634,7 @@ func suffix(enc string) string {
 }
 
 func (*Gateway) unreadable(w http.ResponseWriter, r *http.Request, err error) {
-	slog.ErrorContext(r.Context(), "sites: reading a file failed", logKeyError, logsan.SanitizeForLog(err.Error()))
+	reqlog.Failed(r, "sites: reading a file failed", err)
 	w.Header().Del(headerContentEnc)
 	http.Error(w, "this file could not be read", http.StatusServiceUnavailable)
 }

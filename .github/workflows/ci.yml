@@ -482,6 +482,71 @@ jobs:
             p/golang
             .semgrep/
 
+  # Allocations per call on the hot paths, held to scripts/bench-allocs.tsv
+  # (#2716). Allocation counts are deterministic for a fixed input and
+  # iteration count, so a shared runner gates on them as a laptop does; ns/op
+  # is tracked weekly by bench-trend.yml and never gated here.
+  bench-allocs:
+    name: Benchmark allocations
+    needs: delta
+    if: ${{ !cancelled() && needs.delta.outputs.skip_test != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.4'
+          cache: true
+
+      - name: Hold the hot paths to their allocation baseline
+        run: make bench-allocs
+
+  # Mutation testing on the lines a pull request changes, in pkg/ and
+  # internal/ (#2732): a mutant that survives on a changed line of a package
+  # scripts/mutation-security-packages.txt lists fails; elsewhere it is
+  # printed. The weekly run reads every line, days after a change merged.
+  mutation:
+    name: Mutation (changed lines)
+    needs: delta
+    if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.4'
+          cache: true
+
+      # The base a follow-up push is checked against (#2535), as the other
+      # diff-scoped jobs read it.
+      - name: Rebuild the delta base
+        if: needs.delta.outputs.mode == 'delta'
+        env:
+          OLD_HEAD: ${{ needs.delta.outputs.old_head }}
+          OLD_MAIN: ${{ needs.delta.outputs.old_main }}
+        run: echo "DELTA_BASE=$(python3 scripts/ci-delta.py rebuild "$OLD_HEAD" "$OLD_MAIN")" >> "$GITHUB_ENV"
+
+      - name: Install gremlins
+        # GREMLINS_VERSION in the Makefile.
+        run: GOTOOLCHAIN=local go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
+
+      - name: Mutate the changed lines
+        run: make mutate-diff
+
   # A pull request that changes how the dev stack starts or how the acceptance
   # suite is launched runs one acceptance group on the runner's OS before it
   # merges (#2274): the suite otherwise runs on Linux only in the E2E Nightly,

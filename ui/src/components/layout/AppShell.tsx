@@ -97,6 +97,8 @@ import {
 } from "@/lib/portalRoutes";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { confirmLeave } from "@/lib/navigationGuard";
+import { currentBuildWatch } from "@/lib/buildWatch";
+import { BuildNotice } from "./BuildNotice";
 import { pageTitles } from "./pageTitles";
 
 // detailTitles names what a section's detail route is showing, keyed by the
@@ -225,6 +227,23 @@ function readPath(): string {
   return route + search + hash;
 }
 
+/**
+ * leave decides what a navigation to target does: a replace (a redirect to
+ * where the reader already is) always goes; a form with unsaved changes is
+ * asked about first (#2093); and when the platform was upgraded while the page
+ * was open, the destination is loaded in full, which fetches the new
+ * index.html and runs the new build, once per new build (#2727).
+ */
+function leave(target: string, replace?: boolean): "go" | "stay" | "reloaded" {
+  if (replace) return "go";
+  if (!confirmLeave()) return "stay";
+  if (currentBuildWatch().reloadOnNavigate()) {
+    window.location.assign(target);
+    return "reloaded";
+  }
+  return "go";
+}
+
 export function AppShell() {
   const [currentPath, setCurrentPath] = useState(readPath);
   const isAdmin = useAuthStore((s) => s.isAdmin());
@@ -294,9 +313,7 @@ export function AppShell() {
       setCurrentPath(path);
       return;
     }
-    // A form with unsaved changes is asked about before it is left (#2093). A
-    // replace is a redirect to where the reader already is, not a leaving.
-    if (!opts?.replace && !confirmLeave()) return;
+    if (leave(target, opts?.replace) !== "go") return;
     // Record the path we are leaving so a detail view can offer a wiki-style Back:
     // return to the previous knowledge page when that is where we came from, and
     // fall back to the section index otherwise (an asset viewer, a search result,
@@ -440,6 +457,7 @@ export function AppShell() {
           title={title}
           onMenuClick={isMobile ? () => setMobileSidebarOpen(true) : undefined}
         />
+        <BuildNotice />
         <PageArea>
           <SectionIntro route={route} />
           {/* Two boundaries around the page area, both scoped to it so the

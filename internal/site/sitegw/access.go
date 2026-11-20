@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/reqlog"
+
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epformpage"
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
@@ -163,7 +165,7 @@ func (a *Access) allow(w http.ResponseWriter, r *http.Request, route *site.Route
 	v.Persona = a.livePersona(v)
 	verdict, err := a.decide(r.Context(), route, v)
 	if err != nil {
-		slog.ErrorContext(r.Context(), "sites: reading access failed", logKeyError, logsan.SanitizeForLog(err.Error()))
+		reqlog.Failed(r, "sites: reading access failed", err)
 		h.Set(hdrCache, noStore)
 		http.Error(w, "this site could not be read", http.StatusServiceUnavailable)
 		return epform.Viewer{}, false

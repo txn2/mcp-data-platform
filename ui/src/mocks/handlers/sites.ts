@@ -99,7 +99,21 @@ function makeSites(): Site[] {
       [domain("go.example.com", "marketing", "stage"), { ...domain("example.com", "marketing", "prod", true), primary: true }, { ...domain("www.example.com", "marketing", "prod"), mode: "redirect" as DomainMode, redirects_to: "example.com" }],
       admin,
     ),
-  ].map((st) => ({ ...st, media: st.name === "marketing" ? [media("/media/", "sites/marketing/media"), media("/downloads/", "sites/marketing/downloads")] : [] }));
+  ].map((st) => ({
+    ...st,
+    media: st.name === "marketing" ? [media("/media/", "sites/marketing/media"), media("/downloads/", "sites/marketing/downloads")] : [],
+    ...withApplication(st, st.name === "annual-report" ? { id: "app_reports", name: "reports" } : undefined),
+  }));
+}
+
+// withApplication makes every environment of st a part of app (#2735), as the
+// server reads an application's site parts back; [] when app is absent.
+function withApplication(st: Site, app?: { id: string; name: string }): Pick<Site, "environments" | "applications"> {
+  if (!app) return { environments: st.environments, applications: [] };
+  return {
+    environments: st.environments.map((e) => ({ ...e, application: app })),
+    applications: [{ ...app, environments: st.environments.map((e) => e.name) }],
+  };
 }
 
 // crowdedSite is the row that ran the Sites list off its card (#2612): a long

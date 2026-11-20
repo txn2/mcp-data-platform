@@ -480,3 +480,29 @@ func TestDeploymentMovesRelease(t *testing.T) {
 	_, err = RollbackTarget(env, history, 1, nil)
 	require.Error(t, err)
 }
+
+// #2735: the applications that use a site, each once with its environments in
+// the site's order; [] when none does.
+func TestApplicationsOf(t *testing.T) {
+	hello := &EnvironmentApplication{ID: "app_1", Name: "hello"}
+	other := &EnvironmentApplication{ID: "app_2", Name: "other"}
+	got := ApplicationsOf([]Environment{{Name: "dev", Application: hello}, {Name: "staging"}, {Name: "prod", Application: hello}, {Name: "demo", Application: other}})
+	want := []Application{{ID: "app_1", Name: "hello", Environments: []string{"dev", "prod"}}, {ID: "app_2", Name: "other", Environments: []string{"demo"}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ApplicationsOf = %+v, want %+v", got, want)
+	}
+	if got := ApplicationsOf([]Environment{{Name: "dev"}}); got == nil || len(got) != 0 {
+		t.Errorf("no application: %#v, want []", got)
+	}
+}
+
+func TestWithoutApplications(t *testing.T) {
+	s := Site{Environments: []Environment{{Name: "prod", Application: &EnvironmentApplication{ID: "app_1", Name: "hello"}}}}
+	got := s.WithoutApplications()
+	if got.Environments[0].Application != nil {
+		t.Error("an environment still names its application")
+	}
+	if s.Environments[0].Application == nil {
+		t.Error("the site given was changed")
+	}
+}

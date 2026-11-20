@@ -15,10 +15,10 @@ const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
 function item(kind: "asset" | "collection", id: string, at: string): LibraryItem | null {
   if (kind === "collection") {
     const c = mockCollections.find((x) => x.id === id);
-    return c ? { kind, id, name: c.name, owner_email: c.owner_email, at } : null;
+    return c ? { kind, id, name: c.name, owner_email: c.owner_email, at, updated_at: c.updated_at } : null;
   }
   const a = mockAssets.find((x) => x.id === id);
-  return a ? { kind, id, name: a.name, content_type: a.content_type, owner_email: a.owner_email, at } : null;
+  return a ? { kind, id, name: a.name, content_type: a.content_type, owner_email: a.owner_email, at, updated_at: a.updated_at } : null;
 }
 
 const recents = (): LibraryItem[] =>

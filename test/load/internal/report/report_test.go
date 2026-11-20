@@ -126,3 +126,36 @@ func TestHumanSummaryFlagsNonReleaseBuild(t *testing.T) {
 		t.Error("expected a non-release-build warning in the summary")
 	}
 }
+
+func TestHumanSummaryListsWhyAnOperationFailed(t *testing.T) {
+	r := sampleReport()
+	r.Operations = []stats.OpSummary{{
+		Operation: "portal_public_view", Count: 10, Errors: 10, ErrorRate: 1,
+		ErrorReasons: map[string]int{"status 403": 9, "status 500": 1},
+	}}
+	out := r.HumanSummary()
+	i403 := strings.Index(out, "9  status 403")
+	i500 := strings.Index(out, "1  status 500")
+	if i403 < 0 || i500 < 0 {
+		t.Fatalf("summary does not list the failure reasons:\n%s", out)
+	}
+	if i403 > i500 {
+		t.Errorf("most frequent reason should come first:\n%s", out)
+	}
+}
+
+func TestWriteJSONKeepsTheFailureReasons(t *testing.T) {
+	r := sampleReport()
+	r.Operations[0].ErrorReasons = map[string]int{"status 403": 2}
+	path := filepath.Join(t.TempDir(), "r.json")
+	if err := r.WriteJSON(path); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"error_reasons": {`) || !strings.Contains(string(data), `"status 403": 2`) {
+		t.Errorf("report JSON lacks error_reasons:\n%s", data)
+	}
+}

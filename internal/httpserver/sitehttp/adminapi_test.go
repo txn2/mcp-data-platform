@@ -35,7 +35,7 @@ const (
 var (
 	adminDomainCols = []string{"hostname", "site_id", "name", "environment", "application_id", "application", "created_by", "created_at", "public", "access_changed_at", "is_primary", "mode", "redirects_to", "primary_public"}
 	adminSiteCols   = []string{"id", "name", "description", "owner_email", "main_environment", "created_by", "created_at", "updated_at"}
-	adminEnvCols    = []string{"name", "release_number", "requires_approval", "internal_view", "updated_by", "updated_at", "keep_releases", "status", "status_message", "back_at", "redirect_to", "redirect_keep_path", "status_changed_by", "status_changed_at", "agents_may_promote", "kept", "public_domains", "tile_failure"}
+	adminEnvCols    = []string{"name", "release_number", "requires_approval", "internal_view", "updated_by", "updated_at", "keep_releases", "status", "status_message", "back_at", "redirect_to", "redirect_keep_path", "status_changed_by", "status_changed_at", "agents_may_promote", "kept", "public_domains", "tile_failure", "application_id", "application_name"}
 	stamp           = time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
 )
 
@@ -94,7 +94,7 @@ func (f *adminFixture) expectSites(names ...string) {
 	f.mock.ExpectQuery(regexp.QuoteMeta("FROM sites ORDER BY name")).WillReturnRows(rows)
 	for range names {
 		f.mock.ExpectQuery(regexp.QuoteMeta("FROM site_environments")).WillReturnRows(
-			sqlmock.NewRows(adminEnvCols).AddRow("dev", 1, false, false, "", stamp, nil, "online", "", nil, "", false, "", nil, false, 0, "{}", ""))
+			sqlmock.NewRows(adminEnvCols).AddRow("dev", 1, false, false, "", stamp, nil, "online", "", nil, "", false, "", nil, false, 0, "{}", "", "", ""))
 	}
 }
 

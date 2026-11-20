@@ -1,6 +1,7 @@
 import { useSite, useSiteCompare, type Site } from "@/api/portal/hooks/sites";
 import { useState } from "react";
 import {
+  useApproval,
   useApprovals,
   useDecideApproval,
   useRecentCalls,
@@ -18,6 +19,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuthStore } from "@/stores/auth";
 import { PreviewButton } from "@/pages/scripts/endpoints/FormPublish";
 import { formatWhen } from "@/pages/scripts/runFormat";
+import { AllRequestsLink, DecidedNote, NothingPending, STATUS_VARIANT } from "./ApprovalViews";
 
 // ApprovalsPage is the Approvals queue (#2437, #2494). An administrator reads
 // every request and decides the pending ones, their own included; anyone else
@@ -42,18 +44,46 @@ const KINDS: { value: ApprovalKind | ""; label: string }[] = [
   { value: "site", label: "Sites" },
 ];
 
-const STATUS_VARIANT: Record<ApprovalStatus, "warning" | "success" | "danger" | "muted"> = {
-  pending: "warning",
-  approved: "success",
-  denied: "danger",
-  withdrawn: "muted",
-};
-
 export function ApprovalsPage({ onNavigate }: { onNavigate: (path: string) => void }) {
   const isAdmin = useAuthStore((s) => s.isAdmin());
+  // An approval email opens one request (#2725): /approvals?request=<id>.
+  const requestId = new URLSearchParams(window.location.search).get("request") ?? "";
+  if (requestId) return <OneRequest id={requestId} isAdmin={isAdmin} onNavigate={onNavigate} />;
+  return <RequestList isAdmin={isAdmin} onNavigate={onNavigate} />;
+}
+
+// OneRequest is the request an approval email links to, whatever its status:
+// pending with its decision controls, or decided with who decided it and
+// nothing left to do (#2725).
+function OneRequest({ id, isAdmin, onNavigate }: { id: string; isAdmin: boolean; onNavigate: (path: string) => void }) {
+  const { data, isLoading, error } = useApproval(id);
+  return (
+    <div className="space-y-4">
+      <AllRequestsLink onNavigate={onNavigate} />
+      {isLoading && <p className="text-sm text-muted-foreground">Loading...</p>}
+      {error && (
+        <div className="max-w-xl space-y-1 rounded-md border p-4" data-testid="approval-unavailable">
+          <p className="font-medium">This request can&apos;t be shown.</p>
+          <p className="text-sm text-muted-foreground">
+            It was deleted, or it is not one you can read. Requests you can read are under All requests.
+          </p>
+        </div>
+      )}
+      {data && <RequestCard request={data} isAdmin={isAdmin} onNavigate={onNavigate} standalone />}
+    </div>
+  );
+}
+
+/** isNothingPending is the unfiltered Pending list read empty (#2725). */
+function isNothingPending(status: string, kind: string, data?: ApprovalRequest[]): boolean {
+  return status === "pending" && kind === "" && data?.length === 0;
+}
+
+function RequestList({ isAdmin, onNavigate }: { isAdmin: boolean; onNavigate: (path: string) => void }) {
   const [status, setStatus] = useState<ApprovalStatus | "">("pending");
   const [kind, setKind] = useState<ApprovalKind | "">("");
   const { data, isLoading, error } = useApprovals({ status, kind });
+  const nothingPending = isNothingPending(status, kind, data);
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
@@ -94,7 +124,8 @@ export function ApprovalsPage({ onNavigate }: { onNavigate: (path: string) => vo
           <AlertDescription>The requests could not be read.</AlertDescription>
         </Alert>
       )}
-      {data && data.length === 0 && <p className="text-sm text-muted-foreground">No requests.</p>}
+      {nothingPending && <NothingPending onNavigate={onNavigate} />}
+      {data && data.length === 0 && !nothingPending && <p className="text-sm text-muted-foreground">No requests.</p>}
       <ul className="space-y-3">
         {(data ?? []).map((r) => (
           <li key={r.id}>
@@ -265,20 +296,39 @@ function SiteRequestChanges({ site, target, release }: { site: string; target: s
   );
 }
 
-function RequestCard({ request: r, isAdmin, onNavigate }: { request: ApprovalRequest; isAdmin: boolean; onNavigate: (path: string) => void }) {
+function RequestCard({
+  request: r,
+  isAdmin,
+  onNavigate,
+  standalone = false,
+}: {
+  request: ApprovalRequest;
+  isAdmin: boolean;
+  onNavigate: (path: string) => void;
+  /** The request on its own page, from its email: a decided one says who decided it (#2725). */
+  standalone?: boolean;
+}) {
   const me = useAuthStore((s) => s.user);
   const decides = r.status === "pending" && mayDecide(r, isAdmin, me?.email ?? "", me?.persona ?? "");
   return (
     <div className="space-y-2 rounded-md border p-3" data-testid={`approval-${r.id}`}>
       <RequestBody request={r} onNavigate={onNavigate} decides={decides} />
-      {r.decided_by && (
+      <Decided request={r} standalone={standalone} />
+      {decides && <Decide request={r} />}
+    </div>
+  );
+}
+
+// Decided is how a decided request says who decided it: on its own page, the
+// note with nothing left to do (#2725); in the list, one line.
+function Decided({ request: r, standalone }: { request: ApprovalRequest; standalone: boolean }) {
+  if (standalone) return r.status === "pending" ? null : <DecidedNote request={r} />;
+  if (!r.decided_by) return null;
+  return (
         <p className="text-xs text-muted-foreground">
           {r.status} by {r.decided_by} {r.decided_at ? formatWhen(r.decided_at) : ""}
           {r.decision_comment ? `: ${r.decision_comment}` : ""}
         </p>
-      )}
-      {decides && <Decide request={r} />}
-    </div>
   );
 }
 

@@ -930,6 +930,18 @@ each domain with its access and **Make public** or **Make private**. The Access
 tab lists **Who manages** and **Shared with**. Someone a site is shared with sees
 only the environments open to them.
 
+A site that an application holds as one of its parts names it (#2735): an
+**Application** fact beside Owner, Production address, Domains and Created gives
+each application's name, linking to its page, and the site's environments it
+uses (`hello (dev, prod)`), and each environment card it uses says **Used by the
+application** with the same link. A site no application uses shows neither. The
+names are shown only to a reader whose persona reaches the Applications pages
+(its Automations area); to anyone else the site reads as if no application used
+it. The site read (`GET /api/v1/portal/sites/{site}`) answers them as
+`applications`, each with its `id`, `name` and `environments` (`[]` when none),
+and each environment's `application` (`id`, `name`), under the same rule; the
+Sites list carries each environment's `application` too.
+
 ## Worked examples
 
 **An intranet** for people who already have platform accounts. `dev` is for the

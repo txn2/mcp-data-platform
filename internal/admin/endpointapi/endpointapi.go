@@ -21,6 +21,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/reqlog"
+
 	"github.com/txn2/mcp-data-platform/internal/botcheck"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/eprefusal"
@@ -422,7 +424,7 @@ func refusalsByEndpoint(counts []eprefusal.Count) map[string]map[string]int64 {
 
 // fail logs a read that failed and answers 500.
 func fail(w http.ResponseWriter, r *http.Request, err error) {
-	slog.ErrorContext(r.Context(), "admin endpoints: a read failed", "error", logsan.SanitizeForLog(err.Error()))
+	reqlog.Failed(r, "admin endpoints: a read failed", err)
 	httpjson.WriteError(w, http.StatusInternalServerError, "the endpoints could not be read")
 }
 

@@ -179,6 +179,7 @@ func Approvers(users Users, isAdmin func([]string) bool, configured ...string) f
 type Bridge interface {
 	NotifyApprovalRequest(ctx context.Context, approvers []string, a notifydelivery.AccessNotice)
 	NotifyApprovalDecision(ctx context.Context, a notifydelivery.AccessNotice)
+	WithdrawApprovalRequest(ctx context.Context, requestID string)
 }
 
 // Notifier sends the queue's two emails through the portal's notifier.
@@ -189,6 +190,12 @@ func (n Notifier) Requested(ctx context.Context, r *approval.Request, approvers 
 	n.Bridge.NotifyApprovalRequest(ctx, approvers, notifydelivery.AccessNotice{
 		Actor: r.RequesterEmail, ItemID: r.ID, ItemTitle: subject(r), Message: r.Reason,
 	})
+}
+
+// Withdraw drops the approvers' notices of a decided request not sent yet
+// (#2725).
+func (n Notifier) Withdraw(ctx context.Context, r *approval.Request) {
+	n.Bridge.WithdrawApprovalRequest(ctx, r.ID)
 }
 
 // Decided tells the requester how their request was decided.

@@ -80,8 +80,11 @@ func (s *endpointBytes) NewWorker(_ context.Context, env *harness.Env, _ int) (h
 // Assess holds every request to success and states the bytes per view before
 // and after, passing when compression sends fewer.
 func (s *endpointBytes) Assess(_ *harness.Env, rep *report.Report) []report.Assertion {
-	out := []report.Assertion{errorRateAssertion(rep, bytesOpIdentity, 0), errorRateAssertion(rep, bytesOpCompressed, 0)}
-	return append(out, bytesAssertion(s.views.Load(), s.identity.Load(), s.compressed.Load()))
+	return []report.Assertion{
+		errorRateAssertion(rep, bytesOpIdentity, 0),
+		errorRateAssertion(rep, bytesOpCompressed, 0),
+		bytesAssertion(s.views.Load(), s.identity.Load(), s.compressed.Load()),
+	}
 }
 
 // bytesAssertion is the bytes per view before and after.

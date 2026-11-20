@@ -10,6 +10,7 @@
 package portalperm
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -191,4 +192,22 @@ func isWrite(method string) bool {
 		return false
 	}
 	return true
+}
+
+// accessKey carries the caller's resolved portal permissions on a request's
+// context.
+type accessKey struct{}
+
+// WithAccess puts the caller's resolved portal permissions on ctx: the access
+// gate does, after admitting the request, so a handler can ask whether the
+// caller reaches another area before naming something in it (#2735).
+func WithAccess(ctx context.Context, a persona.PortalAccess) context.Context {
+	return context.WithValue(ctx, accessKey{}, a)
+}
+
+// Admits reports whether the permissions on ctx admit a request of method to
+// path. A context the gate did not admit admits nothing.
+func Admits(ctx context.Context, method, path string) bool {
+	a, ok := ctx.Value(accessKey{}).(persona.PortalAccess)
+	return ok && Refused(a, method, path) == ""
 }

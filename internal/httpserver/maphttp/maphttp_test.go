@@ -1,10 +1,13 @@
 package maphttp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -141,4 +144,34 @@ func TestRangeEnd(t *testing.T) {
 func TestRegionsPathIsTheOneTheKnowledgePageNames(t *testing.T) {
 	assert.Equal(t, maps.RegionsPath, regionsPath)
 	assert.Equal(t, PathPrefix+"sf.pmtiles", maps.ArchivePath("sf"))
+}
+
+// TestACancelledReadIsNotLoggedAsAnError holds #2728 through the real route: a
+// read that fails because the caller went away is logged at DEBUG, and one
+// that fails with the caller still there at ERROR.
+func TestACancelledReadIsNotLoggedAsAnError(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	read := func(svcErr error, ctx context.Context) map[string]any {
+		t.Helper()
+		buf.Reset()
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, PathPrefix+"united-states.pmtiles", http.NoBody).WithContext(ctx)
+		newMux(&service{err: svcErr}).ServeHTTP(httptest.NewRecorder(), req)
+		var rec map[string]any
+		require.NoError(t, json.Unmarshal(buf.Bytes(), &rec), buf.String())
+		return rec
+	}
+
+	gone, cancel := context.WithCancel(context.Background())
+	cancel()
+	rec := read(fmt.Errorf("reading map region: %w", context.Canceled), gone)
+	assert.Equal(t, "DEBUG", rec["level"], "a read the caller abandoned: %v", rec)
+	assert.Equal(t, "maps: reading an archive", rec["msg"])
+
+	rec = read(errors.New("reading map region: no such key"), context.Background())
+	assert.Equal(t, "ERROR", rec["level"], "a read that failed with the caller waiting: %v", rec)
+	assert.Equal(t, "united-states", rec["region"])
 }

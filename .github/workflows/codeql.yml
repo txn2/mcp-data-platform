@@ -40,3 +40,29 @@ jobs:
         uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           category: "/language:go"
+
+  # Every scheduled workflow reports its result (#2730).
+  # The verdict goes to the "<workflow> is failing" issue (#2730): opened or
+  # commented on when the run failed, closed when it passed. Main only, on
+  # success and failure; a cancelled run says nothing. issues: write is this
+  # job's alone.
+  report:
+    name: Report to the tracking issue
+    needs: [analyze]
+    if: (success() || failure()) && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Report
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OUTCOME: ${{ contains(needs.*.result, 'failure') && 'failure' || 'success' }}
+        run: python3 scripts/scheduled_report.py report "$OUTCOME"

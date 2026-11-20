@@ -37,7 +37,7 @@ cd "$REPO_ROOT"
 RATIO_FLOOR="1.25"
 PKG_FLOOR="2.0"
 HIGH_RATIO_PKGS="pkg/oauth pkg/middleware"
-FUZZ_PKGS="pkg/auth pkg/middleware pkg/oauth pkg/platform"
+FUZZ_PKGS="pkg/auth pkg/middleware pkg/oauth pkg/platform internal/pglex internal/pgtext internal/sqltables internal/webhook/jsonpath internal/webhook/whevent internal/webhook/whauth internal/hmacsig internal/unarchive internal/pmtiles internal/imapmail internal/mailtrust internal/untrusted internal/gqlschema internal/swagger2 internal/pathtemplate internal/tableparquet internal/scriptprintf internal/scriptre internal/totp"
 # Every page that carries the posture block. All three are grounding sources an
 # agent may read instead of the repository, so none may drift from the others.
 CLAIM_PAGES="README.md docs/llms.txt docs/llms-full.txt"

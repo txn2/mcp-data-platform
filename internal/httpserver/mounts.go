@@ -585,8 +585,13 @@ func gateSPAShell(p *platform.Platform, spa http.Handler) http.Handler {
 	gate := portalAccessGate(p, shellPersonaResolver(p))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		info, err := browserAuth.AuthenticateHTTP(r)
-		if err != nil || info == nil || gate.Allows(info.Roles) {
+		if err != nil || info == nil {
 			spa.ServeHTTP(w, r)
+			return
+		}
+		if gate.Allows(info.Roles) {
+			// A signed-in reader's page names the build it runs (#2727).
+			spa.ServeHTTP(w, r.WithContext(ui.WithBuild(r.Context())))
 			return
 		}
 		gate.Deny(w, r, info.Email)

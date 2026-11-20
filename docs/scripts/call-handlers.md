@@ -195,6 +195,28 @@ call request is decided by the approvers its policies named or an administrator,
 never by its requester unless an administrator (recorded as self-approved).
 Approvers are told once at submission and the requester at the decision.
 
+Who is emailed about any request in the queue (#2725):
+
+- the requester is never emailed about their own request;
+- a request its requester can decide notifies no other approver when it is
+  filed: an administrator's own request, other than a held call, which its
+  requester never decides. Left waiting, it reaches the others through the
+  Approvals queue alert below, as any request left waiting does;
+- a notification still waiting to be sent when its request is decided is not
+  sent;
+- each email links to its request, `/portal/approvals?request=<id>`, which
+  opens that request whatever its status: one still pending with its Approve
+  and Deny controls, one decided with who decided it and when ("Approved by
+  sam@example.com on ...") and nothing left to do. A request the reader may not
+  read, or one deleted, reads "This request can't be shown."
+
+With nothing pending, the Approvals page says "Nothing is waiting for a
+decision." and lists the requests decided in the last 7 days, each with who
+asked, the decision, who made it and when, linking to the request. The list
+reads `GET /api/v1/portal/approvals?decided_since=<RFC 3339 time>`, which
+answers the requests decided at or after that time, most recently decided
+first, under the same read rule as the rest of the queue.
+
 The **Approvals queue alert** (Admin > Settings > Approvals,
 `GET`/`PUT /api/v1/admin/settings/approval-queue-alert`) emails its recipients
 and channels when requests wait past a count or an age (2 days by default), at

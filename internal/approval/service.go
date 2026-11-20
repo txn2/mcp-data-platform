@@ -24,11 +24,13 @@ type Scripts interface {
 }
 
 // Notifier tells approvers a request is waiting and a requester how theirs
-// was decided. Its failures are its own: a request stands whether or not the
-// mail went out.
+// was decided, and withdraws the approvers' notices of a decided request that
+// were not sent yet (#2725). Its failures are its own: a request stands
+// whether or not the mail went out.
 type Notifier interface {
 	Requested(ctx context.Context, r *Request, approvers []string)
 	Decided(ctx context.Context, r *Request)
+	Withdraw(ctx context.Context, r *Request)
 }
 
 // Actor is who is asking.
@@ -119,9 +121,7 @@ func (s *Service) Submit(ctx context.Context, actor Actor, in Submit) (*Request,
 		}
 		return nil, fmt.Errorf("filing the request: %w", err)
 	}
-	if s.Notifier != nil && s.Approvers != nil {
-		s.Notifier.Requested(ctx, r, s.Approvers(ctx))
-	}
+	s.notifyRequested(ctx, actor, r, s.Approvers)
 	return r, nil
 }
 
@@ -288,17 +288,49 @@ func (s *Service) decideVersion(ctx context.Context, actor Actor, cur *Request, 
 	return s.record(ctx, actor, cur, d)
 }
 
-// record stores a decision on cur and tells its requester, unless the
-// requester made it.
+// record stores a decision on cur, withdraws the approvers' notices not sent
+// yet (#2725), and tells its requester, unless the requester made it.
 func (s *Service) record(ctx context.Context, actor Actor, cur *Request, d Decision) (*Request, error) {
 	r, err := s.Store.Decide(ctx, cur.ID, d)
 	if err != nil {
 		return nil, err //nolint:wrapcheck // read by identity
 	}
-	if s.Notifier != nil && r.RequesterEmail != actor.Email {
+	if s.Notifier == nil {
+		return r, nil
+	}
+	s.Notifier.Withdraw(ctx, r)
+	if !strings.EqualFold(r.RequesterEmail, actor.Email) {
 		s.Notifier.Decided(ctx, r)
 	}
 	return r, nil
+}
+
+// requesterMayDecide reports whether the person filing r could decide it
+// themselves: an administrator, for every request but a held call, which its
+// requester never decides (mayDecideCall).
+func requesterMayDecide(actor Actor, r *Request) bool {
+	return actor.Admin && r.SubjectKind != SubjectCall
+}
+
+// notifyRequested tells the approvers a request waits on them (#2725), never
+// its requester, and nobody when the requester may decide it themselves: an
+// administrator who files and approves their own request sent every other
+// administrator a request already answered. One left waiting reaches them
+// through the approvals queue alert (#2437), as any request left waiting does.
+func (s *Service) notifyRequested(ctx context.Context, actor Actor, r *Request, approvers func(context.Context) []string) {
+	if s.Notifier == nil || approvers == nil || requesterMayDecide(actor, r) {
+		return
+	}
+	to := []string{}
+	for _, a := range approvers(ctx) {
+		if !strings.EqualFold(a, r.RequesterEmail) {
+			to = append(to, a)
+		}
+	}
+	if len(to) == 0 {
+		return
+	}
+	s.Notifier.Requested(ctx, r, to)
 }
 
 // statusOf is the status a decision moves a request to.
@@ -431,9 +463,7 @@ func (s *Service) SubmitRelease(ctx context.Context, actor Actor, in SubmitRelea
 		}
 		return nil, fmt.Errorf("filing the request: %w", err)
 	}
-	if s.Notifier != nil && s.Approvers != nil {
-		s.Notifier.Requested(ctx, r, s.Approvers(ctx))
-	}
+	s.notifyRequested(ctx, actor, r, s.Approvers)
 	return r, nil
 }
 
@@ -491,9 +521,7 @@ func (s *Service) SubmitEnvironment(ctx context.Context, actor Actor, in SubmitE
 		}
 		return nil, fmt.Errorf("filing the request: %w", err)
 	}
-	if s.Notifier != nil && s.Approvers != nil {
-		s.Notifier.Requested(ctx, r, s.Approvers(ctx))
-	}
+	s.notifyRequested(ctx, actor, r, s.Approvers)
 	return r, nil
 }
 

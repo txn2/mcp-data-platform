@@ -225,3 +225,19 @@ func TestRecentCallsRoute(t *testing.T) {
 	who = &approval.Actor{Email: "bob@example.com"}
 	assert.Equal(t, http.StatusNotFound, get().Code, "someone who may not read the request")
 }
+
+// #2725: decided_since is an RFC 3339 time; anything else is refused.
+func TestListDecidedSince(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, func(h http.Handler) http.Handler { return h }, Config{
+		Service: &approval.Service{Store: &store{rows: map[string]*approval.Request{}}},
+		Actor:   func(*http.Request) *approval.Actor { return &approval.Actor{Email: "a@b.io", Admin: true} },
+	})
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), "GET", Prefix+"?decided_since=2026-11-13T00:00:00Z", http.NoBody))
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.JSONEq(t, `{"requests":[],"count":0}`, w.Body.String())
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), "GET", Prefix+"?decided_since=last-week", http.NoBody))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}

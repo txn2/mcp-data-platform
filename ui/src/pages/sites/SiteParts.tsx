@@ -86,3 +86,24 @@ export function ShareChip({ label, kind, external }: { label: string; kind: "per
     </span>
   );
 }
+
+/**
+ * ApplicationLink opens an application's page in the portal (#2735): an
+ * address a reader can open in a new tab, and an in-app move on a plain click.
+ */
+export function ApplicationLink({ name, onNavigate }: { name: string; onNavigate: (path: string) => void }) {
+  const path = `/applications/${encodeURIComponent(name)}`;
+  return (
+    <a
+      href={`/portal${path}`}
+      className="text-primary hover:underline"
+      onClick={(e) => {
+        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        e.preventDefault();
+        onNavigate(path);
+      }}
+    >
+      {name}
+    </a>
+  );
+}

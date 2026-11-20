@@ -25,11 +25,19 @@ go build ./... && go vet ./... && go test ./...
 golangci-lint run ./...
 ```
 
-Or from the repo root: `make load-test`.
+Or from the repo root: `make load-test` (build, vet, test) and `make load-lint`
+(the full module, with this directory's `.golangci.yml` and the root Makefile's
+`GOLANGCI_LINT_VERSION`).
 
-Like mutation testing, load testing is **deliberately not part of `make verify`**
-— it stands up Docker services and a real server binary and runs for tens of
-seconds to an hour per scenario. Do not add `load-*` to the `verify` target.
+Those two checks are part of `make verify`, skipped while nothing under
+`test/load` changed since they last passed, and the Load workflow runs them on a
+pull request that changes `test/load` (#2729). Before that only the weekly run
+checked the module, and a lint finding reached main and failed every week after.
+
+The scenarios are **deliberately not part of `make verify`**, like mutation
+testing: they stand up Docker services and a real server binary and run for
+tens of seconds to an hour each. Do not add `load-up`, `load-run` or a scenario
+to the `verify` target.
 
 ## Running
 
@@ -81,6 +89,11 @@ and latency percentiles, the before/during/after metric scrapes and their
 deltas, scenario pass/fail assertions, and captured pprof profile paths. A
 `-release-build` flag records whether the target was a release build; numbers
 from a non-release target are flagged not publishable.
+
+An operation that failed says why: `error_reasons` counts its failures by what
+each said (`status 403`, or an error's text), up to 20 distinct texts with the
+rest under `(other)`, and the printed table lists them under the operation's
+row, most frequent first (#2729).
 
 Published reference numbers live in
 [`docs/reference/tuning-and-scaling.md`](../../docs/reference/tuning-and-scaling.md)

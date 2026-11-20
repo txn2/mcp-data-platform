@@ -145,8 +145,17 @@ services:
     # copies it somewhere writable, imports the certificate, and points the JVM
     # at the copy. Everything the JDK already trusted is still trusted: the
     # copy is the JDK's own cacerts with one certificate added.
+    #
+    # -Xmx2G caps the heap. The image's jvm.config sizes it at 80% of the
+    # host's memory, and on a 16 GB acceptance runner shared with every other
+    # service the heap grew past 5 GiB until the host swapped: every statement
+    # the platform made waited up to six minutes, and the criteria running then
+    # failed with nothing wrong in them (#2731, runs 42339457750 and
+    # 42844717407). An explicit maximum heap overrides MaxRAMPercentage, and
+    # config.properties caps a query at 512 MB, well inside 2 GB.
     environment:
       JAVA_TOOL_OPTIONS: >-
+        -Xmx2G
         -Djavax.net.ssl.trustStore=/tmp/dev-truststore.jks
         -Djavax.net.ssl.trustStorePassword=changeit
     entrypoint:

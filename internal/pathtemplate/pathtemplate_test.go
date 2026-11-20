@@ -111,7 +111,7 @@ func TestSegmentHelpers(t *testing.T) {
 // that would reach another host once joined to the base URL, and one a route
 // rule would match differently from the path the upstream receives.
 func TestValidateCallerPath(t *testing.T) {
-	for _, ok := range []string{"/v1/users", "/v1/users/", "/v1/users/%20name"} {
+	for _, ok := range []string{"/v1/users", "/v1/users/", "/v1/users/%20name", "/v1/orders?limit=100", "/v1/orders#top"} {
 		if err := ValidateCallerPath(ok); err != nil {
 			t.Errorf("ValidateCallerPath(%q) = %v; want accepted", ok, err)
 		}
@@ -120,6 +120,9 @@ func TestValidateCallerPath(t *testing.T) {
 		"", "v1/users", "//evil.example/foo", "/foo@evil.example/bar", "/foo\rEvil: x", "/foo\nEvil: x", "/foo\x00bar",
 		"/v1/users/..", "/v1/users/.", "/v1/../etc/passwd", "/v1//admin/secret", "/v1///admin",
 		"/v1/users/%2E%2E", "/v1/users/%2e%2e", "/v1/users/%2E", "/v1/users/%2",
+		// A dot segment the router reads once the query or fragment is
+		// stripped (#2713): "/..#" was accepted, and the router read "/..".
+		"/..#", "/v1/users/..?x=1", "/v1/./orders#frag", "/v1/%2e%2e?limit=1",
 	} {
 		if err := ValidateCallerPath(bad); err == nil {
 			t.Errorf("ValidateCallerPath(%q) accepted; want rejection", bad)

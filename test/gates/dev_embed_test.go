@@ -65,18 +65,29 @@ func TestDevEmbedBuildsAnEmptyEmbed(t *testing.T) {
 
 // TestDevStackBuildsTheEmbedBeforeEachCompile pins where it runs: make dev
 // before it compiles the server, and air (both replicas) before each rebuild.
+// Every dev build goes through scripts/dev-build.sh, which builds the embed and
+// then compiles with the commit stamped, so both replicas name one build
+// (#2727); a build that bypasses it is refused here.
 func TestDevStackBuildsTheEmbedBeforeEachCompile(t *testing.T) {
 	t.Parallel()
 	start := readRepoFile(t, "dev/start.sh")
 	embed := strings.Index(start, "bash scripts/dev-embed.sh ||")
-	compile := strings.Index(start, `if ! go build -o ./build/air/mcp-data-platform`)
+	compile := strings.Index(start, `if ! bash scripts/dev-build.sh ./build/air/mcp-data-platform`)
 	if embed < 0 || compile < 0 || embed > compile {
 		t.Errorf("dev/start.sh must run scripts/dev-embed.sh before it compiles the server (embed at %d, compile at %d)", embed, compile)
 	}
-	if !strings.Contains(start, `-build.cmd "bash scripts/dev-embed.sh && go build -o ./build/air-b/`) {
-		t.Error("the second replica's air rebuilds without scripts/dev-embed.sh")
+	if !strings.Contains(start, `-build.cmd "bash scripts/dev-build.sh ./build/air-b/`) {
+		t.Error("the second replica's air rebuilds without scripts/dev-build.sh")
 	}
-	if !strings.Contains(readRepoFile(t, "dev/.air.toml"), `cmd = "bash scripts/dev-embed.sh && go build `) {
-		t.Error("dev/.air.toml rebuilds without scripts/dev-embed.sh")
+	if !strings.Contains(readRepoFile(t, "dev/.air.toml"), `cmd = "bash scripts/dev-build.sh `) {
+		t.Error("dev/.air.toml rebuilds without scripts/dev-build.sh")
+	}
+	if strings.Contains(start, "go build -o ./build/air") {
+		t.Error("dev/start.sh compiles a replica without scripts/dev-build.sh, so it names no commit")
+	}
+	build := readRepoFile(t, "scripts/dev-build.sh")
+	e, c := strings.Index(build, "bash scripts/dev-embed.sh"), strings.Index(build, "go build")
+	if e < 0 || c < 0 || e > c || !strings.Contains(build, "internal/buildinfo.Commit=") {
+		t.Error("scripts/dev-build.sh must build the embed, then compile with the commit stamped")
 	}
 }

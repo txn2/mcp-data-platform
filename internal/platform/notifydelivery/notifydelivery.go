@@ -90,8 +90,10 @@ type Handle struct {
 	activity channelActivityReader
 	// inbox is the same store's read state of each person's own rows
 	// (#2512), and retract its removal of a deleted message's text (#2514).
-	inbox    notification.InboxStore
-	retract  EventRetractor
+	inbox   notification.InboxStore
+	retract EventRetractor
+	// drop removes an item's unsent notices of one kind (#2725).
+	drop     PendingDropper
 	enqueuer *notification.Enqueuer
 	renderer *notifyrender.Renderer
 	sender   notifysend.Sender
@@ -126,6 +128,7 @@ func New(cfg Config) (*Handle, error) {
 		activity: queue,
 		inbox:    queue,
 		retract:  queue,
+		drop:     queue,
 		renderer: renderer,
 		sender:   notifysend.NewSMTPSender(),
 	}

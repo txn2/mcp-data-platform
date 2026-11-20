@@ -10,14 +10,14 @@ package handlerhttp
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/reqlog"
+
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
-	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/callhandler"
 	"github.com/txn2/mcp-data-platform/internal/platform/scripthandler"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -147,7 +147,7 @@ func write(w http.ResponseWriter, r *http.Request, status int, out any, err erro
 	case scripthandler.Missing(err):
 		httpjson.WriteError(w, http.StatusNotFound, err.Error())
 	case scripthandler.Failed(err):
-		slog.ErrorContext(r.Context(), "handlers: the store failed", "error", logsan.SanitizeForLog(err.Error()))
+		reqlog.Failed(r, "handlers: the store failed", err)
 		httpjson.WriteError(w, http.StatusInternalServerError, "the handler could not be read or written")
 	default:
 		httpjson.WriteError(w, http.StatusBadRequest, err.Error())

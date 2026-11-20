@@ -1,0 +1,24 @@
+# The security-critical packages for mutation testing on changed lines (#2732).
+#
+# scripts/mutation-diff.py (the mutate-diff target) mutates the lines a change
+# touches in every package under pkg/ and internal/. In a package listed here,
+# a mutant that survives on a changed line fails the step: these hold a secret,
+# verify a signature or token, or decide what reaches an upstream or a stored
+# row, so a change whose tests cannot tell a flipped comparison from the real
+# one does not merge. In any other package survivors are printed and the step
+# passes.
+#
+# One package directory per line, relative to the repository root.
+# TestMutationSecurityPackagesExist (test/gates) fails on a line naming none.
+internal/auditredact     # values one request must never leave in an audit row
+internal/botcheck        # proof-of-work, Turnstile and hCaptcha verification
+internal/egressguard     # the SSRF guard
+internal/hmacsig         # webhook HMAC signatures, signed and verified
+internal/scripttoken     # tokens a script mints and verifies
+internal/secretref       # filling and redacting stored secrets
+internal/secretstore     # stored secrets, write-only and encrypted
+internal/upstreamauth    # every credential an HTTP connection sends
+internal/webhook/whauth  # inbound webhook authentication
+pkg/auth                 # API keys, OIDC tokens, claims
+pkg/oauth                # the OAuth 2.1 authorization server
+pkg/platform/fieldcrypt  # encryption at rest

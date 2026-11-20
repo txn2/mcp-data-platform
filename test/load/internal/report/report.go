@@ -161,6 +161,26 @@ func writeOpsTable(b *strings.Builder, ops []stats.OpSummary) {
 	for _, o := range ops {
 		fmt.Fprintf(b, "  %-22s %8d %7.2f%% %9.1f %9.1f %9.1f %9.1f %9.1f\n",
 			o.Operation, o.Count, o.ErrorRate*100, o.ThroughputPerSec, o.P50Ms, o.P95Ms, o.P99Ms, o.MaxMs)
+		writeErrorReasons(b, o.ErrorReasons)
+	}
+}
+
+// writeErrorReasons lists an operation's failures by what each said, most
+// frequent first, under its row of the table (#2729): a failed operation says
+// why, not only how often.
+func writeErrorReasons(b *strings.Builder, reasons map[string]int) {
+	texts := make([]string, 0, len(reasons))
+	for t := range reasons {
+		texts = append(texts, t)
+	}
+	sort.Slice(texts, func(i, j int) bool {
+		if reasons[texts[i]] != reasons[texts[j]] {
+			return reasons[texts[i]] > reasons[texts[j]]
+		}
+		return texts[i] < texts[j]
+	})
+	for _, t := range texts {
+		fmt.Fprintf(b, "      %8d  %s\n", reasons[t], t)
 	}
 }
 

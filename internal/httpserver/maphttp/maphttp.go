@@ -13,10 +13,11 @@ package maphttp
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/txn2/mcp-data-platform/internal/reqlog"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
@@ -57,7 +58,7 @@ func Mount(mux *http.ServeMux, svc Service) {
 	mux.HandleFunc("GET "+regionsPath, func(w http.ResponseWriter, r *http.Request) {
 		state, err := svc.State(r.Context())
 		if err != nil {
-			slog.ErrorContext(r.Context(), "maps: listing regions", "error", logsan.SanitizeForLog(err.Error()))
+			reqlog.Failed(r, "maps: listing regions", err)
 			httpjson.WriteError(w, http.StatusInternalServerError, "the map regions could not be read")
 			return
 		}
@@ -81,8 +82,7 @@ func serveArchive(w http.ResponseWriter, r *http.Request, svc Service) {
 		return
 	}
 	if err != nil {
-		slog.ErrorContext(r.Context(), "maps: reading an archive", "region", logsan.SanitizeForLog(id),
-			"error", logsan.SanitizeForLog(err.Error()))
+		reqlog.Failed(r, "maps: reading an archive", err, "region", logsan.SanitizeForLog(id))
 		httpjson.WriteError(w, http.StatusInternalServerError, "the map archive could not be read")
 		return
 	}

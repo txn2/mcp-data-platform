@@ -2,6 +2,7 @@ package stats
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -102,5 +103,55 @@ func TestRecordConcurrent(t *testing.T) {
 	got := m.Summarize(time.Second)
 	if got[0].Count != 800 {
 		t.Fatalf("count = %d, want 800", got[0].Count)
+	}
+}
+
+func TestSummarizeCountsEachFailureByWhatItSaid(t *testing.T) {
+	m := NewMultiRecorder()
+	for range 3 {
+		m.Record("view", time.Millisecond, errors.New("status 403"))
+	}
+	m.Record("view", time.Millisecond, errors.New("status 500"))
+	m.Record("view", time.Millisecond, nil)
+
+	got := m.Summarize(time.Second)[0]
+	want := map[string]int{"status 403": 3, "status 500": 1}
+	if len(got.ErrorReasons) != len(want) {
+		t.Fatalf("ErrorReasons = %v, want %v", got.ErrorReasons, want)
+	}
+	for k, v := range want {
+		if got.ErrorReasons[k] != v {
+			t.Errorf("ErrorReasons[%q] = %d, want %d", k, got.ErrorReasons[k], v)
+		}
+	}
+}
+
+func TestSummarizeBoundsTheDistinctFailureTexts(t *testing.T) {
+	m := NewMultiRecorder()
+	extra := 7
+	for i := range MaxErrorReasons + extra {
+		m.Record("op", time.Millisecond, fmt.Errorf("failure %d", i))
+	}
+	got := m.Summarize(time.Second)[0]
+	if len(got.ErrorReasons) != MaxErrorReasons+1 {
+		t.Fatalf("distinct reasons = %d, want %d", len(got.ErrorReasons), MaxErrorReasons+1)
+	}
+	if got.ErrorReasons[OtherErrorReason] != extra {
+		t.Errorf("%s = %d, want %d", OtherErrorReason, got.ErrorReasons[OtherErrorReason], extra)
+	}
+	total := 0
+	for _, v := range got.ErrorReasons {
+		total += v
+	}
+	if total != got.Errors {
+		t.Errorf("reasons sum to %d, errors = %d", total, got.Errors)
+	}
+}
+
+func TestSummarizeOmitsReasonsWhenNothingFailed(t *testing.T) {
+	m := NewMultiRecorder()
+	m.Record("op", time.Millisecond, nil)
+	if r := m.Summarize(time.Second)[0].ErrorReasons; r != nil {
+		t.Errorf("ErrorReasons = %v, want nil", r)
 	}
 }

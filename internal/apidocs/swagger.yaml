@@ -9353,6 +9353,11 @@ definitions:
       owner_email:
         example: jane@example.com
         type: string
+      updated_at:
+        description: |-
+          UpdatedAt is when the item last changed, which Home shows under its name
+          beside whose it is (#2734).
+        type: string
     type: object
   library.Kind:
     enum:
@@ -16873,6 +16878,22 @@ definitions:
         example: editor
         type: string
     type: object
+  site.Application:
+    properties:
+      environments:
+        example:
+        - dev
+        - prod
+        items:
+          type: string
+        type: array
+      id:
+        example: app_01HK7R8Z8M0Y6A5G1R6FQ2VQNK
+        type: string
+      name:
+        example: hello
+        type: string
+    type: object
   site.Contract:
     properties:
       application:
@@ -16975,6 +16996,12 @@ definitions:
           here go ahead without a person's decision (#2643). Off by default;
           only an administrator turns it on.
         type: boolean
+      application:
+        allOf:
+        - $ref: '#/definitions/site.EnvironmentApplication'
+        description: |-
+          Application is the application that holds the environment as one of its
+          parts (#2735), absent when none does. A part belongs to one application.
       back_at:
         description: |-
           BackAt is when an offline environment's visitors are told it is
@@ -17049,6 +17076,15 @@ definitions:
       updated_at:
         type: string
       updated_by:
+        type: string
+    type: object
+  site.EnvironmentApplication:
+    properties:
+      id:
+        example: app_01HK7R8Z8M0Y6A5G1R6FQ2VQNK
+        type: string
+      name:
+        example: hello
         type: string
     type: object
   site.File:
@@ -18239,6 +18275,14 @@ definitions:
           of its domains, otherwise its address on the pages domain, "" for
           none. manage_site get answers the same (#2607).
         type: object
+      applications:
+        description: |-
+          Applications are the applications that use the site, each with the
+          site's environments it holds (#2735), named only to a caller whose
+          persona reaches the Applications pages; [] otherwise and when none does.
+        items:
+          $ref: '#/definitions/site.Application'
+        type: array
       created_at:
         type: string
       created_by:
@@ -32412,7 +32456,8 @@ paths:
       description: The caller's own requests and the held calls whose policies name
         them, or for an administrator every request, newest first. status filters
         by pending, approved or denied; script_id by script; kind by call, handler_version,
-        form or site.
+        form or site; decided_since to the requests decided at or after a time, most
+        recently decided first.
       parameters:
       - description: pending, approved or denied
         in: query
@@ -32426,6 +32471,11 @@ paths:
         in: query
         name: kind
         type: string
+      - description: 'RFC 3339 time: only requests decided at or after it, most recently
+          decided first'
+        in: query
+        name: decided_since
+        type: string
       produces:
       - application/json
       responses:
@@ -32433,6 +32483,10 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/apprhttp.listResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "401":
           description: Unauthorized
           schema:

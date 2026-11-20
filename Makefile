@@ -5,7 +5,8 @@ BINARY_NAME := mcp-data-platform
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_TIME := $(shell date -u '+%Y-%m-%d_%H:%M:%S')
 GO_VERSION := $(shell go version | cut -d ' ' -f 3)
-LDFLAGS := -ldflags "-X github.com/txn2/mcp-data-platform/internal/buildinfo.Version=$(VERSION)"
+COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
+LDFLAGS := -ldflags "-X github.com/txn2/mcp-data-platform/internal/buildinfo.Version=$(VERSION) -X github.com/txn2/mcp-data-platform/internal/buildinfo.Commit=$(COMMIT)"
 
 # Directories
 CMD_DIR := ./cmd/mcp-data-platform
@@ -54,7 +55,7 @@ GOFMT := gofmt
 GOLINT := golangci-lint
 
 .PHONY: all migrate-check-diff build test lint lint-full fmt clean install help docs-serve docs-build docs-images-check verify verify-release alert-rules-test builtin-pages-check \
-	load-endpoint-up load-platform tools-check dead-code mutate patch-coverage patch-coverage-check coverage-summary doc-check acceptance acceptance-release acceptance-check acceptance-release-check release-tag-check schedule-lane schedule-lane-ui realdb-lane state-readers-check e2e-copy-check acceptance-copy-check route-manifest-check posture-check migrate-check-lane swagger swagger-check verify-checks verify-go verify-static verify-docker verify-ui verify-static-ui vet-tags e2e-standalone \
+	load-endpoint-up load-platform load-test load-lint mutate-diff fuzz bench-allocs bench-allocs-update bench-trend tools-check dead-code mutate patch-coverage patch-coverage-check coverage-summary doc-check acceptance acceptance-release acceptance-check acceptance-release-check release-tag-check schedule-lane schedule-lane-ui realdb-lane state-readers-check e2e-copy-check acceptance-copy-check route-manifest-check posture-check migrate-check-lane swagger swagger-check verify-checks verify-go verify-static verify-docker verify-ui verify-static-ui vet-tags e2e-standalone \
 	semgrep semgrep-diff semgrep-changed codeql sast osv osv-release embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer content-viewer-embed \
 	frontend-dev frontend-mock frontend-test frontend-lint frontend-e2e \
@@ -656,9 +657,25 @@ dead-code:
 	fi
 
 ## mutate: Run mutation testing with 60% efficacy threshold
+## MUTATE_PKGS is what mutate reads. verify-release reads ./pkg/...; the weekly
+## workflow (.github/workflows/mutation.yml) adds ./internal/... (#2732), which
+## takes hours alone and has no place in a local pre-tag gate. A change's own
+## lines in both trees are mutate-diff's, on every pull request.
+MUTATE_PKGS ?= ./pkg/...
 mutate:
-	@echo "Running mutation testing..."
-	gremlins unleash --workers 1 --timeout-coefficient 3 --threshold-efficacy 60 ./pkg/...
+	@echo "Running mutation testing over $(MUTATE_PKGS)..."
+	@set -e; for p in $(MUTATE_PKGS); do \
+		gremlins unleash --workers 1 --timeout-coefficient 3 --threshold-efficacy 60 $$p; \
+	done
+
+## mutate-diff: Mutation testing on the lines a change touches, pkg/ and internal/ (#2732)
+##
+## gremlins on each package whose production Go the change touches, mutating
+## only the changed lines, against DELTA_BASE or the merge base with main. A
+## survivor in a package scripts/mutation-security-packages.txt lists fails;
+## elsewhere it is printed. Skips when no production Go changed.
+mutate-diff:
+	@python3 scripts/mutation-diff.py
 
 ## coverage-report: Print coverage summary (fails below COVERAGE_MIN)
 coverage-report: test
@@ -1258,7 +1275,9 @@ verify-go:
 	@# than after the whole module's unit run (#1856), then that unit run and
 	@# the two steps that read the coverage.out it writes.
 	@python3 scripts/verify-step.py $(MAKE) bench-report-check
+	@python3 scripts/verify-step.py $(MAKE) load-test
 	@python3 scripts/verify-step.py $(MAKE) bench-test
+	@python3 scripts/verify-step.py $(MAKE) bench-allocs
 	@python3 scripts/verify-step.py $(MAKE) schedule-lane
 	@python3 scripts/verify-step.py $(MAKE) test
 	@python3 scripts/verify-step.py $(MAKE) coverage-summary
@@ -1341,6 +1360,7 @@ migrate-check-lane:
 ## they start with the other lanes and report in the first minutes.
 verify-static:
 	@echo "[lane start $$(date +%T)] verify-static"
+	@python3 scripts/verify-step.py $(MAKE) load-lint
 	@python3 scripts/verify-step.py $(MAKE) bench-lint
 	@python3 scripts/verify-step.py $(MAKE) semgrep
 	@python3 scripts/verify-step.py $(MAKE) security
@@ -1732,10 +1752,48 @@ load-down:
 	fi
 	@$(MAKE) e2e-down
 
-## load-test: Build, vet, lint, and unit-test the harness module itself
+## load-test: Build, vet, and unit-test the load harness module (test/load)
+##
+## test/load is a separate Go module, so the root build, vet, test and lint
+## never reach it. Before #2729 only the weekly Load workflow checked it, and a
+## lint finding from #2544 reached main and failed every week after. verify runs
+## this and load-lint (skipped while test/load is unchanged since they passed),
+## and the Load workflow runs both on a pull request that changes test/load.
 load-test:
 	@echo "Testing the load harness module..."
 	@cd test/load && $(GO) build ./... && $(GO) vet ./... && $(GO) test ./...
+
+## load-lint: Full-module lint of the test/load harness, as bench-lint does bench/
+load-lint:
+	@echo "Linting the load harness module (full module, matching the Load workflow's harness job)..."
+	@cd test/load && $(GOLINT) run ./...
+
+# =============================================================================
+# Hot-path microbenchmarks (#2716)
+# =============================================================================
+#
+# Go benchmarks on the code every tools/call and HTTP request crosses: the
+# tool-call and audit layers, persona filtering, SQL table extraction, route
+# template resolution, secret redaction, the JSON walk and path template
+# matching. Allocations per call are held to scripts/bench-allocs.tsv;
+# ns/op is tracked weekly by .github/workflows/bench-trend.yml, never gated.
+# Unrelated to bench/, the agent-effectiveness harness below.
+
+## fuzz: Run every fuzz target for FUZZTIME each (default 30s); a failing input lands in testdata/fuzz (#2713)
+fuzz:
+	@python3 scripts/fuzz-all.py
+
+## bench-allocs: Fail when a hot-path benchmark allocates more than its baseline (#2716)
+bench-allocs:
+	@python3 scripts/bench-allocs.py check
+
+## bench-allocs-update: Rewrite scripts/bench-allocs.tsv from a run of the hot-path benchmarks
+bench-allocs-update:
+	@python3 scripts/bench-allocs.py update
+
+## bench-trend: Run the hot-path benchmarks -count=10 into build/bench/current.txt for benchstat
+bench-trend:
+	@python3 scripts/bench-allocs.py trend build/bench/current.txt
 
 # =============================================================================
 # Agent-Effectiveness Benchmark (issue #930, phase 1: #942)

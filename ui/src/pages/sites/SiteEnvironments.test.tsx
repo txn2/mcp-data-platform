@@ -428,3 +428,30 @@ describe("tilePlaceholder (#2658)", () => {
     expect(screen.getByText("Can't draw")).toBeInTheDocument();
   });
 });
+
+describe("A site names the application that uses it (#2735)", () => {
+  it("shows the application among the facts and on each environment it holds, each linking to it", async () => {
+    serve();
+    signIn("admin@example.com", true);
+    const onNavigate = vi.fn();
+    renderWithQuery(<SiteDetailPage site="annual-report" tab="environments" onNavigate={onNavigate} />);
+
+    const fact = await screen.findByTestId("site-application-reports");
+    expect(fact).toHaveTextContent("reports (dev, prod)");
+    const link = within(fact).getByRole("link", { name: "reports" });
+    expect(link).toHaveAttribute("href", "/portal/applications/reports");
+    fireEvent.click(link);
+    expect(onNavigate).toHaveBeenCalledWith("/applications/reports");
+
+    expect(await screen.findByTestId("env-application-prod")).toHaveTextContent("Used by the application reports");
+  });
+
+  it("names none for a site no application uses", async () => {
+    serve();
+    signIn("admin@example.com", true);
+    open();
+    await screen.findByTestId("env-dev");
+    expect(screen.queryByText("Application")).toBeNull();
+    expect(screen.queryByTestId(/^env-application-/)).toBeNull();
+  });
+});

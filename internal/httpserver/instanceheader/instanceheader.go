@@ -13,6 +13,15 @@ import (
 // Header is the response header that carries the process name.
 const Header = "X-Platform-Instance"
 
+// BuildHeader names the build that served a response (#2727): the version and
+// commit buildinfo.Build reports. An open portal page compares it with the
+// build it loaded and moves to a new one, so a fix that shipped reaches a page
+// left open across the upgrade. Only an answer to a signed-in caller the
+// portal's access gate admitted carries it (accessgate.Require): the build is
+// not told to an anonymous caller, a site's visitor, an endpoint's caller or a
+// share's reader.
+const BuildHeader = "X-Platform-Build"
+
 // unknownHost stands in for a hostname the operating system would not report.
 const unknownHost = "unknown"
 

@@ -14,6 +14,7 @@ import (
 	"github.com/andybalholm/brotli"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/txn2/mcp-data-platform/internal/buildinfo"
 )
 
 // testFS builds a synthetic in-memory filesystem for testing the SPA handler
@@ -291,4 +292,38 @@ func TestSPAHandler_ADirectoryIsNotServed(t *testing.T) {
 func TestContentTypeOf_SniffsAnUnknownExtension(t *testing.T) {
 	assert.Contains(t, contentTypeOf("assets/blob.zzz", []byte("<!doctype html><p>x")), "text/html")
 	assert.Contains(t, contentTypeOf("assets/app.css", nil), "text/css")
+}
+
+// TestIndexNamesTheBuild holds #2727: a signed-in reader's index.html names
+// the build this binary is, which is the build of the bundle it embeds, and an
+// anonymous visitor's does not.
+func TestIndexNamesTheBuild(t *testing.T) {
+	prevV, prevC := buildinfo.Version, buildinfo.Commit
+	buildinfo.Version, buildinfo.Commit = "v9.9.9", "abc1234"
+	t.Cleanup(func() { buildinfo.Version, buildinfo.Commit = prevV, prevC })
+
+	fsys := fstest.MapFS{"index.html": {Data: []byte("<html><head><title>x</title></head><body></body></html>")}}
+	h := newSPAHandler(fsys)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/assets-list", http.NoBody)
+	h.ServeHTTP(rec, req.WithContext(WithBuild(req.Context())))
+	want := `<meta name="mcp-platform-build" content="v9.9.9+abc1234"></head>`
+	if !strings.Contains(rec.Body.String(), want) {
+		t.Errorf("index.html = %q; want it to carry %q", rec.Body.String(), want)
+	}
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/assets-list", http.NoBody))
+	if strings.Contains(rec.Body.String(), "mcp-platform-build") || strings.Contains(rec.Body.String(), "v9.9.9") {
+		t.Errorf("an anonymous visitor's page names the build: %q", rec.Body.String())
+	}
+}
+
+func TestWithBuildEscapesAndLeavesAHeadlessPageAlone(t *testing.T) {
+	got := string(indexWithBuild([]byte("<head></head>"), `v1"><script>`))
+	if strings.Contains(got, "<script>") || !strings.Contains(got, "&#34;&gt;&lt;script&gt;") {
+		t.Errorf("the build was not escaped: %q", got)
+	}
+	if got := string(indexWithBuild([]byte("<p>no head</p>"), "v1")); got != "<p>no head</p>" {
+		t.Errorf("a page with no head was changed: %q", got)
+	}
 }

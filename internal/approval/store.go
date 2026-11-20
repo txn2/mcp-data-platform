@@ -42,7 +42,11 @@ type Filter struct {
 	// empty for every kind; Purpose one purpose.
 	Kind    string
 	Purpose string
-	Limit   int
+	// DecidedSince, when set, lists only the requests decided at or after it,
+	// most recently decided first: the Approvals page's recent decisions when
+	// nothing is pending (#2725).
+	DecidedSince time.Time
+	Limit        int
 }
 
 // Decision is what an administrator decided about a request.
@@ -169,6 +173,12 @@ func listQuery(f Filter) (q string, args []any) {
 	if clause, ok := kindClauses[f.Kind]; ok {
 		where = append(where, clause)
 	}
+	order := ` ORDER BY r.created_at DESC, r.id`
+	if !f.DecidedSince.IsZero() {
+		args = append(args, f.DecidedSince)
+		where = append(where, "r.decided_at >= $"+strconv.Itoa(len(args)))
+		order = ` ORDER BY r.decided_at DESC, r.id`
+	}
 	q = `SELECT ` + requestColumns + requestFrom
 	if len(where) > 0 {
 		q += ` WHERE ` + strings.Join(where, " AND ")
@@ -177,7 +187,7 @@ func listQuery(f Filter) (q string, args []any) {
 	if limit <= 0 || limit > maxLimit {
 		limit = defaultLimit
 	}
-	return q + ` ORDER BY r.created_at DESC, r.id LIMIT ` + strconv.Itoa(limit), args
+	return q + order + ` LIMIT ` + strconv.Itoa(limit), args
 }
 
 // kindClauses are the conditions each kind a list filters by reads.

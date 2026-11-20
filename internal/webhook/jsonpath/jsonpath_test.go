@@ -50,7 +50,7 @@ func TestLookup(t *testing.T) {
 }
 
 func TestParseRefuses(t *testing.T) {
-	for _, bad := range []string{"", "  ", "$.", "$.a..b", "$[", "$[x]", "$[-1]", "$.a[1"} {
+	for _, bad := range []string{"", "  ", "$.", "$.a..b", "$[", "$[x]", "$[-1]", "$.a[1", "[0]]", "$.a[0]x", "$[k]y"} {
 		_, err := Parse(bad)
 		assert.Error(t, err, bad)
 	}

@@ -3,17 +3,21 @@ package ui
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
+	"html"
 	"io/fs"
 	"mime"
 	"net/http"
 	pathpkg "path"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/buildinfo"
 	"github.com/txn2/mcp-data-platform/internal/contentenc"
 )
 
@@ -62,6 +66,7 @@ func newSPAHandler(root fs.FS) http.Handler {
 	// 301 redirect loop: FileServer treats index.html as a directory
 	// index and redirects to "./" which resolves back to the same URL.
 	indexHTML, _ := fs.ReadFile(root, "index.html")
+	indexWithBuild := indexWithBuild(indexHTML, buildinfo.Build())
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Clean the path: strip leading slash for fs lookup
@@ -90,6 +95,10 @@ func newSPAHandler(root fs.FS) http.Handler {
 		// every load.
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
+		if buildRequested(r.Context()) {
+			_, _ = w.Write(indexWithBuild)
+			return
+		}
 		_, _ = w.Write(indexHTML)
 	})
 }
@@ -213,4 +222,36 @@ func (f *staticFile) serve(w http.ResponseWriter, r *http.Request, hashed bool) 
 	// request for one encoding with the bytes of another.
 	h.Set("ETag", `"`+tag+`"`)
 	http.ServeContent(w, r, f.name, time.Time{}, bytes.NewReader(body))
+}
+
+// BuildMeta names the meta element the served index.html carries for a
+// signed-in reader: the build this binary is, which embeds the bundle the page
+// runs (#2727). The page compares it with the X-Platform-Build header of each
+// answer and moves to a build that is new to it.
+const BuildMeta = "mcp-platform-build"
+
+// buildKey marks a request whose index.html names the build.
+type buildKey struct{}
+
+// WithBuild marks the request as one from a signed-in reader the portal's gate
+// admits: its index.html names the build. An anonymous visitor's sign-in page
+// does not, so the platform's version is not told to a stranger.
+func WithBuild(ctx context.Context) context.Context {
+	return context.WithValue(ctx, buildKey{}, true)
+}
+
+func buildRequested(ctx context.Context) bool {
+	v, _ := ctx.Value(buildKey{}).(bool)
+	return v
+}
+
+// indexWithBuild puts the build's meta element before </head>, or returns the page
+// unchanged when it has no head to put it in.
+func indexWithBuild(index []byte, build string) []byte {
+	i := bytes.Index(index, []byte("</head>"))
+	if i < 0 {
+		return index
+	}
+	meta := `<meta name="` + BuildMeta + `" content="` + html.EscapeString(build) + `">`
+	return slices.Concat(index[:i], []byte(meta), index[i:])
 }

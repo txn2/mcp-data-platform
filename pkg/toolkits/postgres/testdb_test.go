@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 	"regexp"
 	"slices"
 	"strconv"
@@ -400,4 +401,44 @@ func TestScratchServesOneConnectionWithTheGuard(t *testing.T) {
 	bad.SSLMode = SSLModeVerifyFull
 	_, err = tk.scratch("shop", bad)
 	assert.Error(t, err)
+}
+
+// A builder connected to another database on the same server can rename its
+// template into place first: the advisory lock holds within one database and
+// database names are the server's. The template it made is this one, so a
+// rename that finds the name taken uses it, and the build is dropped (found by
+// TestWatch_RealDB beside the drift tests on one PostgreSQL 18).
+func TestTemplateUsesTheTemplateAnotherBuilderRenamedFirst(t *testing.T) {
+	srv := newServer(true)
+	tk, _ := testServerToolkit(srv, baseConfig())
+	ms := []Migration{migration(1, "CREATE TABLE a (id int)", "", true)}
+	want := templateName("shop", "", ms)
+	srv.fail = func(sql string) error {
+		if renameRE.MatchString(sql) {
+			srv.databases[want] = true // the other builder renamed first
+			return &pgconn.PgError{Code: "23505", ConstraintName: "pg_database_datname_index"}
+		}
+		return nil
+	}
+	c := tk.connections["shop"]
+	got, err := tk.template(context.Background(), c, c, "", ms)
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+	assert.Empty(t, srv.has(buildPrefix), "the build that lost the rename is dropped")
+
+	srv.fail = func(sql string) error {
+		if renameRE.MatchString(sql) {
+			return &pgconn.PgError{Code: "42501"}
+		}
+		return nil
+	}
+	_, err = tk.template(context.Background(), c, c, "", []Migration{migration(2, "CREATE TABLE b (id int)", "", true)})
+	require.Error(t, err, "any other refusal of the rename is still a failure")
+}
+
+func TestDatabaseExists(t *testing.T) {
+	assert.True(t, databaseExists(&pgconn.PgError{Code: "42P04"}))
+	assert.True(t, databaseExists(fmt.Errorf("wrapped: %w", &pgconn.PgError{Code: "23505", ConstraintName: "pg_database_datname_index"})))
+	assert.False(t, databaseExists(&pgconn.PgError{Code: "23505", ConstraintName: "orders_pkey"}))
+	assert.False(t, databaseExists(errors.New("connection reset")))
 }
