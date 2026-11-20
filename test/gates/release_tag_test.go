@@ -16,6 +16,8 @@ import (
 const (
 	releaseTagScript = "scripts/release-tag.py"
 	nightlyScript    = "scripts/e2e_nightly.py"
+	// scheduledReportScript is what the nightly's report goes through (#2730).
+	scheduledReportScript = "scripts/scheduled_report.py"
 )
 
 // releaseRepo lays out a repository with the real scripts and this history:
@@ -30,6 +32,9 @@ func releaseRepo(t *testing.T) (root string, commits []string) {
 	nightly, err := os.ReadFile(filepath.Join("..", "..", nightlyScript))
 	require(t, err)
 	writeFile(t, root, nightlyScript, string(nightly))
+	shared, err := os.ReadFile(filepath.Join("..", "..", scheduledReportScript))
+	require(t, err)
+	writeFile(t, root, scheduledReportScript, string(shared))
 	commit := func(msg string) string {
 		writeFile(t, root, "README.md", msg+"\n")
 		runIn(t, root, "git", "add", "-A")
@@ -48,7 +53,9 @@ func releaseRepo(t *testing.T) (root string, commits []string) {
 
 // fakeGH puts a gh on PATH that answers the nightly's run list with runs, a
 // run's failed log with log, and the issue list with issues, and records every
-// other call it is given in calls.txt under root. A run list with no --branch
+// other call it is given in calls.txt under root. An issue list over every
+// state is answered from issues-all.json and an issue read from issue-<n>.json
+// when a test wrote them (scripts/scheduled_report.py, #2731). A run list with no --branch
 // is answered from runs-all.json when a test wrote one, and a commit read
 // through the API from trees/<sha>. The env it returns is what the script runs
 // under.
@@ -68,7 +75,12 @@ case "$1 $2" in
     sha="${2##*/}"
     if [ -f "$FAKE/trees/$sha" ]; then cat "$FAKE/trees/$sha"; else exit 1; fi ;;
   "run view") cat "$FAKE/log.txt" ;;
-  "issue list") cat "$FAKE/issues.json" ;;
+  "issue list")
+    case "$*" in
+      *"--state all"*) if [ -f "$FAKE/issues-all.json" ]; then cat "$FAKE/issues-all.json"; else echo '[]'; fi ;;
+      *) cat "$FAKE/issues.json" ;;
+    esac ;;
+  "issue view") if [ -f "$FAKE/issue-$3.json" ]; then cat "$FAKE/issue-$3.json"; else echo '{}'; fi ;;
   "api graphql") cat "$FAKE/graphql.json" ;;
   *) printf '%s\n' "$*" >> "$FAKE/calls.txt" ;;
 esac

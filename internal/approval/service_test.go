@@ -62,7 +62,8 @@ func (m *memStore) List(_ context.Context, f Filter) ([]Request, error) {
 	for _, r := range m.rows {
 		if (f.Status == "" || r.Status == f.Status) && (f.Requester == "" || r.RequesterEmail == f.Requester) &&
 			(f.ScriptID == "" || r.ScriptID == f.ScriptID) && (f.SiteID == "" || r.SiteID == f.SiteID) &&
-			(f.Purpose == "" || r.Purpose == f.Purpose) {
+			(f.Purpose == "" || r.Purpose == f.Purpose) &&
+			(f.DecidedSince.IsZero() || (r.DecidedAt != nil && !r.DecidedAt.Before(f.DecidedSince))) {
 			out = append(out, *r)
 		}
 	}
@@ -162,12 +163,16 @@ func (f *fakeScripts) GetVersion(_ context.Context, _ string, v int) (*script.Ve
 type notices struct {
 	requested [][]string
 	decided   []string
+	withdrawn []string
 }
 
 func (n *notices) Requested(_ context.Context, _ *Request, approvers []string) {
 	n.requested = append(n.requested, approvers)
 }
+
 func (n *notices) Decided(_ context.Context, r *Request) { n.decided = append(n.decided, r.Status) }
+
+func (n *notices) Withdraw(_ context.Context, r *Request) { n.withdrawn = append(n.withdrawn, r.ID) }
 
 var (
 	jane  = Actor{Email: "jane@example.com", Persona: "analyst"}
@@ -671,4 +676,60 @@ func TestSubmitEnvironment_Refusals(t *testing.T) {
 		st.failApproved = errors.New("down")
 		assert.False(t, svc.EnvironmentApproved(ctx, "site_1", "prod", "public:t0"))
 	})
+}
+
+// #2725: a request its requester can decide notifies no other approver when it
+// is filed, the requester is never emailed about their own request, and a
+// decision withdraws the approvers' notices not sent yet, the requester's own
+// decision included.
+func TestNotices_ARequestItsRequesterCanDecideAsksNobody(t *testing.T) {
+	ctx := context.Background()
+	svc, _, n := service()
+	svc.Approvers = func(context.Context) []string { return []string{"admin@example.com", "other-admin@example.com"} }
+
+	r, err := svc.SubmitRelease(ctx, admin, SubmitRelease{ReleaseID: "srel_9", Site: "docs", Number: 7, Target: "prod", Digest: "d7"})
+	require.NoError(t, err)
+	_, err = svc.SubmitEnvironment(ctx, admin, prodPublic)
+	require.NoError(t, err)
+	assert.Empty(t, n.requested, "an administrator's own request is told to no other administrator")
+
+	_, err = svc.Decide(ctx, admin, r.ID, DecisionApprove, "")
+	require.NoError(t, err)
+	assert.Equal(t, []string{r.ID}, n.withdrawn, "a self-approval withdraws any notice still queued")
+	assert.Empty(t, n.decided, "the requester is not told of their own decision")
+}
+
+func TestNotices_ARequestFiledBySomeoneWhoCannotDecideItTellsEveryApproverButThem(t *testing.T) {
+	ctx := context.Background()
+	svc, _, n := service()
+	svc.Approvers = func(context.Context) []string {
+		return []string{"admin@example.com", "Jane@Example.com", "other-admin@example.com"}
+	}
+	r, err := svc.SubmitRelease(ctx, jane, prodRelease)
+	require.NoError(t, err)
+	assert.Equal(t, [][]string{{"admin@example.com", "other-admin@example.com"}}, n.requested,
+		"every approver is told, the requester never, whatever the case of their address")
+
+	_, err = svc.Decide(ctx, admin, r.ID, DecisionDeny, "not yet")
+	require.NoError(t, err)
+	assert.Equal(t, []string{r.ID}, n.withdrawn)
+	assert.Equal(t, []string{StatusDenied}, n.decided, "the requester is told")
+}
+
+func TestNotices_AnAdministratorsHeldCallStillAsksTheOthers(t *testing.T) {
+	ctx := context.Background()
+	svc, _, n := service()
+	_, err := svc.SubmitCall(ctx, admin, heldCall("carol@example.com", "admin@example.com"))
+	require.NoError(t, err)
+	assert.Equal(t, [][]string{{"carol@example.com"}}, n.requested,
+		"a requester never decides their own held call, so its approvers are told, the requester left out")
+}
+
+func TestNotices_NoApproverLeftAsksNobody(t *testing.T) {
+	ctx := context.Background()
+	svc, _, n := service()
+	svc.Approvers = func(context.Context) []string { return []string{"jane@example.com"} }
+	_, err := svc.SubmitRelease(ctx, jane, prodRelease)
+	require.NoError(t, err)
+	assert.Empty(t, n.requested)
 }

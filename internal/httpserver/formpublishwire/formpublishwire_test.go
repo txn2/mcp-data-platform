@@ -56,6 +56,11 @@ type bridge struct {
 	requested []notifydelivery.AccessNotice
 	to        [][]string
 	decided   []notifydelivery.AccessNotice
+	withdrawn []string
+}
+
+func (b *bridge) WithdrawApprovalRequest(_ context.Context, id string) {
+	b.withdrawn = append(b.withdrawn, id)
 }
 
 func (b *bridge) NotifyApprovalRequest(_ context.Context, to []string, a notifydelivery.AccessNotice) {
@@ -83,6 +88,8 @@ func TestNotifier(t *testing.T) {
 	r.DecisionComment = ""
 	n.Decided(context.Background(), r)
 	assert.Equal(t, "a@b.io approved it.", b.decided[1].Message)
+	n.Withdraw(context.Background(), r)
+	assert.Equal(t, []string{"apr_1"}, b.withdrawn, "a decided request's unsent notices are withdrawn by its id (#2725)")
 }
 
 func TestActorAndOpener(t *testing.T) {

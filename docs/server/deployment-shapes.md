@@ -113,6 +113,16 @@ A database-backed deployment of any shape can run several replicas of the platfo
 
 Every HTTP response carries an `X-Platform-Instance` header naming the process that served it: its hostname and listen port, such as `mcp-data-platform-7d9f-abcde:8080`. The hostname separates pods; the port separates two processes on one machine. When two replicas answer the same read differently, the header says which replica gave which answer.
 
+### An open portal page after an upgrade
+
+A portal page opened before an upgrade used to keep running the build it loaded for as long as it stayed open, so a fix that shipped looked as if it never landed. Now every answer to a signed-in portal caller the access gate admits carries an `X-Platform-Build` header naming the build that served it, its version and commit (`v1.166.2+8b91e56`, `--version`'s two values), and the `index.html` served to that reader names the build it loads (a `mcp-platform-build` meta element). When an answer names a build the tab has not run (#2727):
+
+- the page loads the next page you move to in full, which fetches the current `index.html` and runs the new build, losing nothing;
+- while you have unsaved changes or a dialog open, it shows one line instead: "The portal has been updated. Save your changes, then reload to use the new version." with **Reload**;
+- it reloads by itself at most once per new build, and an answer from a replica still on an older build the tab has already moved past causes no reload, so a rolling update cannot loop it. A reload that lands back on the old build (an old replica served the `index.html`) shows the line rather than reloading again.
+
+The build is told only to a signed-in caller the gate admits: an anonymous visitor, the sign-in page, a site's visitors, an endpoint's or form's callers and a public share's readers are not told the platform's version.
+
 ### Connections across replicas
 
 A connection exists because the connection store holds a row for it. That row is committed before the admin API's save returns, so every replica can see the connection from that moment; a replica also keeps a live object for each connection it serves — an HTTP client, a parsed spec set, a compiled GraphQL schema, a Trino pool — which is what answers a call, and which it builds for itself.

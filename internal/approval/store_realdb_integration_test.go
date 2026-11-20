@@ -5,6 +5,7 @@ package approval
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -75,6 +76,19 @@ func TestRealDB_TheQueueOnPostgres(t *testing.T) {
 	mine, err := svc.List(ctx, jane, Filter{Status: StatusApproved, ScriptID: sc.ID, Limit: 10})
 	require.NoError(t, err)
 	assert.Len(t, mine, 2)
+
+	// #2725: the recent decisions, most recently decided first, under the
+	// reader's own reach; a time after both decisions lists none.
+	recent, err := svc.List(ctx, jane, Filter{DecidedSince: decided.DecidedAt.Add(-time.Minute), Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, recent, 2)
+	assert.Equal(t, r2.ID, recent[0].ID, "the request decided last comes first")
+	none, err := svc.List(ctx, jane, Filter{DecidedSince: time.Now().Add(time.Hour), Limit: 10})
+	require.NoError(t, err)
+	assert.Empty(t, none)
+	other, err := svc.List(ctx, Actor{Email: "bob@example.com"}, Filter{DecidedSince: decided.DecidedAt.Add(-time.Minute), Limit: 10})
+	require.NoError(t, err)
+	assert.Empty(t, other, "a reader who may not read a request does not see it decided")
 
 	_, err = scripts.Delete(ctx, sc.ID)
 	require.NoError(t, err)

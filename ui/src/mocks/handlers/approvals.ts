@@ -147,9 +147,16 @@ export const approvalHandlers = [
     const status = url.searchParams.get("status");
     const script = url.searchParams.get("script_id");
     const kind = url.searchParams.get("kind");
+    const since = url.searchParams.get("decided_since");
     const out = requests.filter(
-      (r) => (!status || r.status === status) && (!script || r.script_id === script) && (!kind || kindOf(r) === kind),
+      (r) =>
+        (!status || r.status === status) &&
+        (!script || r.script_id === script) &&
+        (!kind || kindOf(r) === kind) &&
+        (!since || (!!r.decided_at && r.decided_at >= since)),
     );
+    // decided_since lists the most recently decided first, as the server does (#2725).
+    if (since) out.sort((a, b) => (b.decided_at ?? "").localeCompare(a.decided_at ?? ""));
     return HttpResponse.json({ requests: out, count: out.length });
   }),
 

@@ -29,6 +29,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/reqlog"
+
 	"github.com/txn2/mcp-data-platform/internal/botcheck"
 	"github.com/txn2/mcp-data-platform/internal/contentenc"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
@@ -339,7 +341,7 @@ func (h *Handler) resolve(w http.ResponseWriter, r *http.Request, name, env stri
 		httpjson.WriteError(w, http.StatusNotFound, "no endpoint answers at this path")
 		return nil, false
 	case err != nil:
-		slog.ErrorContext(r.Context(), "endpoint: resolving the endpoint failed", logKeyError, logsan.SanitizeForLog(err.Error()))
+		reqlog.Failed(r, "endpoint: resolving the endpoint failed", err)
 		httpjson.WriteError(w, http.StatusInternalServerError, "the endpoint could not be read")
 		return nil, false
 	}

@@ -90,9 +90,8 @@ func (s *Service) HandlerVersionSaved(ctx context.Context, actor Actor, sc *scri
 	if err != nil {
 		return err
 	}
-	r, err := s.Store.Get(ctx, id)
-	if err == nil && s.Notifier != nil && s.Approvers != nil {
-		s.Notifier.Requested(ctx, r, s.Approvers(ctx))
+	if r, err := s.Store.Get(ctx, id); err == nil {
+		s.notifyRequested(ctx, actor, r, s.Approvers)
 	}
 	return nil
 }

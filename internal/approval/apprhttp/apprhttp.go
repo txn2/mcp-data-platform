@@ -95,13 +95,15 @@ type (
 // list answers the requests the caller may read.
 //
 // @Summary      List approval requests
-// @Description  The caller's own requests and the held calls whose policies name them, or for an administrator every request, newest first. status filters by pending, approved or denied; script_id by script; kind by call, handler_version, form or site.
+// @Description  The caller's own requests and the held calls whose policies name them, or for an administrator every request, newest first. status filters by pending, approved or denied; script_id by script; kind by call, handler_version, form or site; decided_since to the requests decided at or after a time, most recently decided first.
 // @Tags         Approvals
 // @Produce      json
 // @Param        status     query  string  false  "pending, approved or denied"
 // @Param        script_id  query  string  false  "One script's requests"
 // @Param        kind       query  string  false  "call, handler_version, form or site"
+// @Param        decided_since  query  string  false  "RFC 3339 time: only requests decided at or after it, most recently decided first"
 // @Success      200  {object}  listResponse
+// @Failure      400  {object}  httpjson.ProblemDetail
 // @Failure      401  {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
@@ -112,7 +114,16 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
-	rs, err := h.cfg.Service.List(r.Context(), actor, approval.Filter{Status: q.Get("status"), ScriptID: q.Get("script_id"), Kind: q.Get("kind")})
+	f := approval.Filter{Status: q.Get("status"), ScriptID: q.Get("script_id"), Kind: q.Get("kind")}
+	if v := q.Get("decided_since"); v != "" {
+		since, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			httpjson.WriteError(w, http.StatusBadRequest, "decided_since: an RFC 3339 time, such as 2026-11-13T00:00:00Z")
+			return
+		}
+		f.DecidedSince = since
+	}
+	rs, err := h.cfg.Service.List(r.Context(), actor, f)
 	if err != nil {
 		answer(w, nil, err)
 		return

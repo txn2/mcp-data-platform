@@ -22,7 +22,9 @@ tmp_dir = "build/air"
   # scripts/dev-embed.sh builds the embedded portal and tile page when make
   # verify's embed-clean has emptied them, so a rebuild after a verify still
   # draws tiles (#2548); otherwise it returns at once.
-  cmd = "bash scripts/dev-embed.sh && go build -o ./build/air/mcp-data-platform ./cmd/mcp-data-platform"
+  # scripts/dev-build.sh builds the embedded portal when it is missing and
+  # stamps the commit, so both replicas name one build (#2727).
+  cmd = "bash scripts/dev-build.sh ./build/air/mcp-data-platform"
   delay = 500
   exclude_dir = ["ui", "build", "dist", "_dist", "node_modules", "dev", "test", "apps", "docs", ".git", "internal/apidocs", "internal/ui/dist", "internal/contentviewer/dist"]
   exclude_regex = ["_test\\.go$"]

@@ -3,11 +3,11 @@ package generalfeedback
 import (
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 
+	"github.com/txn2/mcp-data-platform/internal/reqlog"
+
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
-	"github.com/txn2/mcp-data-platform/internal/logsan"
 )
 
 const (
@@ -77,7 +77,7 @@ func (h *handler) put(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, ErrNoStore):
 		httpjson.WriteError(w, http.StatusConflict, err.Error())
 	case err != nil:
-		slog.ErrorContext(r.Context(), "general feedback: saving the list failed", "error", logsan.SanitizeForLog(err.Error())) // #nosec G706 -- sanitized
+		reqlog.Failed(r, "general feedback: saving the list failed", err)
 		httpjson.WriteError(w, http.StatusInternalServerError, "the list could not be saved")
 	default:
 		httpjson.WriteJSON(w, http.StatusOK, view)

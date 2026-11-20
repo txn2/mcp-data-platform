@@ -6,6 +6,8 @@ import type { ThreadWithMeta } from "@/api/portal/feedback";
 import type { Asset, PaginatedResponse } from "@/api/portal/types";
 import { formatRelative } from "@/components/feedback/meta";
 import { usePortalAccess } from "@/hooks/usePortalAccess";
+import { useAuthStore } from "@/stores/auth";
+import { itemDetail } from "./homeFormat";
 import { SharedSitesSection } from "./SharedSitesSection";
 
 interface Props {
@@ -26,6 +28,7 @@ export function itemPath(item: { kind: string; id: string }): string {
 export function HomePage({ onNavigate }: Props) {
   const recents = useRecents(8);
   const favorites = useFavorites(8);
+  const me = useAuthStore((s) => s.user?.email ?? "");
 
   const practitioner = usePractitionerWorklist();
   const sme = useSMEWorklist();
@@ -49,7 +52,8 @@ export function HomePage({ onNavigate }: Props) {
           items={(recents.data ?? []).map((it) => ({
             key: `${it.kind}:${it.id}`,
             label: it.name,
-            meta: `${it.kind === "collection" ? "Collection · " : ""}${formatRelative(it.at)}`,
+            detail: itemDetail(it, me),
+            meta: `Opened ${formatRelative(it.at)}`,
             path: itemPath(it),
           }))}
           onNavigate={onNavigate}
@@ -61,6 +65,7 @@ export function HomePage({ onNavigate }: Props) {
           items={(favorites.data ?? []).map((it: LibraryItem) => ({
             key: `${it.kind}:${it.id}`,
             label: it.name,
+            detail: itemDetail(it, me),
             meta: it.kind === "collection" ? "Collection" : "Asset",
             path: itemPath(it),
           }))}
@@ -120,6 +125,8 @@ function threadPath(t: ThreadWithMeta): string {
 interface Row {
   key: string;
   label: string;
+  /** A second line under the label: whose it is and when it changed (#2734). */
+  detail?: string;
   meta?: string;
   badge?: string;
   path: string;
@@ -164,7 +171,10 @@ function HomeSection({
               onClick={() => onNavigate(r.path)}
               className="flex min-h-11 w-full items-center justify-between gap-3 py-2 text-left text-sm hover:text-primary"
             >
-              <span className="min-w-0 truncate">{r.label}</span>
+              <span className="flex min-w-0 flex-col gap-0.5">
+                <span className="truncate">{r.label}</span>
+                {r.detail && <span className="truncate text-xs text-muted-foreground">{r.detail}</span>}
+              </span>
               {r.badge ? (
                 <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{r.badge}</span>
               ) : (

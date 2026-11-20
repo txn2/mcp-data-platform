@@ -3,13 +3,13 @@ package sitehttp
 import (
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/reqlog"
+
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
-	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/settingsjson"
 	"github.com/txn2/mcp-data-platform/internal/site"
 	"github.com/txn2/mcp-data-platform/internal/site/siteaddr"
@@ -164,7 +164,7 @@ func (a *adminAPI) settings(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case errors.Is(err, settingsjson.ErrNotFound):
 	case err != nil:
-		slog.ErrorContext(r.Context(), "sites: reading the settings failed", "error", logsan.SanitizeForLog(err.Error()))
+		reqlog.Failed(r, "sites: reading the settings failed", err)
 		httpjson.WriteError(w, http.StatusInternalServerError, "the settings could not be read")
 		return
 	default:

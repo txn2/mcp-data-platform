@@ -2,11 +2,11 @@ package sitegw
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
 	"time"
 
-	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/reqlog"
+
 	"github.com/txn2/mcp-data-platform/internal/site"
 	"github.com/txn2/mcp-data-platform/pkg/blobserve"
 )
@@ -62,7 +62,7 @@ func (g *Gateway) serveMedia(w http.ResponseWriter, r *http.Request, route *site
 	}
 	mounts, err := g.mountsOf(r.Context(), route.SiteID)
 	if err != nil {
-		slog.ErrorContext(r.Context(), "sites: reading a site's media failed", logKeyError, logsan.SanitizeForLog(err.Error()))
+		reqlog.Failed(r, "sites: reading a site's media failed", err)
 		return false
 	}
 	m, rel, ok := site.MountFor(mounts, p)

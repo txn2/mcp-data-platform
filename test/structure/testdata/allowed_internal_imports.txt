@@ -34,7 +34,7 @@ internal/admin/auditapi -> internal/httpjson
 internal/admin/auditapi -> pkg/audit
 internal/admin/botcheckapi -> internal/botcheck
 internal/admin/botcheckapi -> internal/httpjson
-internal/admin/botcheckapi -> internal/logsan
+internal/admin/botcheckapi -> internal/reqlog
 internal/admin/callapi -> internal/httpjson
 internal/admin/callapi -> internal/platform/callrecord
 internal/admin/catalogapi -> internal/gqlschema
@@ -68,6 +68,7 @@ internal/admin/endpointapi -> internal/endpoint/epbinding
 internal/admin/endpointapi -> internal/endpoint/eprefusal
 internal/admin/endpointapi -> internal/httpjson
 internal/admin/endpointapi -> internal/logsan
+internal/admin/endpointapi -> internal/reqlog
 internal/admin/endpointapi -> pkg/script
 internal/admin/graphqlapi -> internal/httpjson
 internal/admin/graphqlapi -> pkg/registry
@@ -327,6 +328,7 @@ internal/endpoint/epformpage -> internal/endpoint/epform
 internal/endpoint/epformpage -> internal/endpoint/eprun
 internal/endpoint/epformpage -> internal/logsan
 internal/endpoint/epformpage -> internal/portal/assetrefs
+internal/endpoint/epformpage -> internal/reqlog
 internal/endpoint/ephttp -> internal/botcheck
 internal/endpoint/ephttp -> internal/contentenc
 internal/endpoint/ephttp -> internal/endpoint/epbinding
@@ -336,6 +338,7 @@ internal/endpoint/ephttp -> internal/endpoint/eprun
 internal/endpoint/ephttp -> internal/httpjson
 internal/endpoint/ephttp -> internal/httpobs
 internal/endpoint/ephttp -> internal/logsan
+internal/endpoint/ephttp -> internal/reqlog
 internal/endpoint/ephttp -> pkg/ratelimit
 internal/endpoint/eppreview -> internal/endpoint/epform
 internal/endpoint/eppreview -> internal/endpoint/eprun
@@ -343,6 +346,7 @@ internal/endpoint/eppreview -> internal/httpjson
 internal/endpoint/eppreview -> internal/logsan
 internal/endpoint/eppreview -> internal/platform/scriptdialect
 internal/endpoint/eppreview -> internal/platform/scriptdraft
+internal/endpoint/eppreview -> internal/reqlog
 internal/endpoint/eppreview -> internal/wirejson
 internal/endpoint/eppreview -> pkg/script
 internal/endpoint/eprefusal -> internal/bgloop
@@ -523,6 +527,8 @@ internal/httpserver -> pkg/toolkits/graphql
 internal/httpserver -> pkg/toolkits/knowledge
 internal/httpserver -> pkg/toolkits/portal
 internal/httpserver -> pkg/toolkits/trino
+internal/httpserver/accessgate -> internal/buildinfo
+internal/httpserver/accessgate -> internal/httpserver/instanceheader
 internal/httpserver/accessgate -> internal/logsan
 internal/httpserver/accessgate -> internal/portal/portaldomain
 internal/httpserver/accessgate -> internal/portal/portalperm
@@ -750,6 +756,7 @@ internal/httpserver/integrationwire -> pkg/platform
 internal/httpserver/maphttp -> internal/httpjson
 internal/httpserver/maphttp -> internal/logsan
 internal/httpserver/maphttp -> internal/maps
+internal/httpserver/maphttp -> internal/reqlog
 internal/httpserver/maphttp -> pkg/blobserve
 internal/httpserver/mapwire -> internal/admin/mapsapi
 internal/httpserver/mapwire -> internal/httpserver/maphttp
@@ -903,9 +910,9 @@ internal/httpserver/scripthttp/granthttp -> internal/logsan
 internal/httpserver/scripthttp/granthttp -> internal/platform/scriptgrant
 internal/httpserver/scripthttp/handlerhttp -> internal/endpoint/epcmd
 internal/httpserver/scripthttp/handlerhttp -> internal/httpjson
-internal/httpserver/scripthttp/handlerhttp -> internal/logsan
 internal/httpserver/scripthttp/handlerhttp -> internal/platform/callhandler
 internal/httpserver/scripthttp/handlerhttp -> internal/platform/scripthandler
+internal/httpserver/scripthttp/handlerhttp -> internal/reqlog
 internal/httpserver/scripthttp/handlerhttp -> pkg/script
 internal/httpserver/scripthttp/outputshttp -> internal/httpjson
 internal/httpserver/scripthttp/outputshttp -> pkg/script
@@ -935,6 +942,8 @@ internal/httpserver/sitehttp -> internal/objectobs
 internal/httpserver/sitehttp -> internal/platform/notifydelivery
 internal/httpserver/sitehttp -> internal/platform/scriptstore
 internal/httpserver/sitehttp -> internal/platform/settingsjson
+internal/httpserver/sitehttp -> internal/portal/portalperm
+internal/httpserver/sitehttp -> internal/reqlog
 internal/httpserver/sitehttp -> internal/selfcall
 internal/httpserver/sitehttp -> internal/site
 internal/httpserver/sitehttp -> internal/site/siteaddr
@@ -2097,8 +2106,8 @@ internal/portal/access -> pkg/persona
 internal/portal/access -> pkg/portal/threads
 internal/portal/access -> pkg/prompt
 internal/portal/accessreq -> internal/httpjson
-internal/portal/accessreq -> internal/logsan
 internal/portal/accessreq -> internal/portal/access
+internal/portal/accessreq -> internal/reqlog
 internal/portal/assetbulk -> internal/httpjson
 internal/portal/assetbulk -> internal/portal/access
 internal/portal/assetbulk -> internal/portal/portaldomain
@@ -2178,9 +2187,9 @@ internal/portal/foldergrant -> pkg/audit
 internal/portal/foldergrant -> pkg/middleware
 internal/portal/foldergrant -> pkg/resource
 internal/portal/generalfeedback -> internal/httpjson
-internal/portal/generalfeedback -> internal/logsan
 internal/portal/generalfeedback -> internal/notification/notifyalert
 internal/portal/generalfeedback -> internal/platform/settingsjson
+internal/portal/generalfeedback -> internal/reqlog
 internal/portal/generalfeedback -> pkg/notification
 internal/portal/library -> internal/portal/assetsimilar
 internal/portal/library -> internal/portal/portaldomain
@@ -2252,6 +2261,7 @@ internal/producedview -> internal/portal/portaldomain
 internal/producedview -> internal/producedby
 internal/producedview -> pkg/resource
 internal/producedview -> pkg/script
+internal/reqlog -> internal/logsan
 internal/schemaref -> internal/platform/scriptlib
 internal/schemaref -> internal/platform/scriptrun
 internal/scriptdate -> pkg/script
@@ -2289,6 +2299,7 @@ internal/site/sitegw -> internal/httpjson
 internal/site/sitegw -> internal/httpobs
 internal/site/sitegw -> internal/logsan
 internal/site/sitegw -> internal/portal/portaldomain
+internal/site/sitegw -> internal/reqlog
 internal/site/sitegw -> internal/site
 internal/site/sitegw -> internal/site/siteconfig
 internal/site/sitegw -> internal/site/sitestatus
@@ -2311,7 +2322,7 @@ internal/site/siterouting -> internal/logsan
 internal/site/siterouting -> internal/platform/integration
 internal/site/siterouting -> internal/site
 internal/site/siteshared -> internal/httpjson
-internal/site/siteshared -> internal/logsan
+internal/site/siteshared -> internal/reqlog
 internal/site/siteshared -> internal/site
 internal/site/siteshared -> internal/site/sitesvc
 internal/site/siteshared -> internal/wirejson
@@ -2387,6 +2398,7 @@ internal/thumbtypes -> pkg/contenttype
 internal/toolanswer -> pkg/registry
 internal/toolanswer -> pkg/toolkit
 internal/toolwrite -> internal/gqlschema
+internal/ui -> internal/buildinfo
 internal/ui -> internal/contentenc
 internal/upstreamauth -> internal/apigwtls
 internal/upstreamauth -> internal/cfgmap

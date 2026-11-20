@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import "./index.css";
 import "./stores/theme"; // Apply system theme before first paint
 import { App } from "./App";
+import { installBuildWatch } from "./lib/buildWatch";
 
 async function enableMocking() {
   if (import.meta.env.DEV && import.meta.env.VITE_MSW === "true") {
@@ -13,6 +14,10 @@ async function enableMocking() {
     });
   }
 }
+
+// Every answer names the build that served it; the page moves to a new one
+// (#2727).
+installBuildWatch();
 
 function render() {
   createRoot(document.getElementById("root")!).render(

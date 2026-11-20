@@ -108,6 +108,9 @@ func parseSpec(text string) (spec, error) {
 	if err != nil {
 		return sp, err
 	}
+	if err := checkFields(sp); err != nil {
+		return sp, err
+	}
 	if len(s) > 1 || s == " " || (s != "" && !strings.Contains(formatTypes, s)) {
 		return sp, fmt.Errorf("invalid format spec %q; a spec is [[fill]align][sign][#][0][width][,][.precision][type] with type one of %s", text, formatTypes)
 	}

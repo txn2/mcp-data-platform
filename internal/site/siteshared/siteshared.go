@@ -11,13 +11,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/reqlog"
+
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
-	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/site"
 	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
@@ -137,8 +137,7 @@ func Handler(store Store, addressing func() site.Addressing, actorOf func(http.R
 		}
 		envs, err := Shared(r.Context(), store, addressing(), actor)
 		if err != nil {
-			slog.ErrorContext(r.Context(), "sites: listing the environments shared with a person failed",
-				"error", logsan.SanitizeForLog(err.Error()))
+			reqlog.Failed(r, "sites: listing the environments shared with a person failed", err)
 			httpjson.WriteError(w, http.StatusInternalServerError, "the sites shared with you could not be read")
 			return
 		}

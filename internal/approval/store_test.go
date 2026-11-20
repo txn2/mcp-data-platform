@@ -81,6 +81,11 @@ func TestStoreGetAndList(t *testing.T) {
 	require.Len(t, rs, 1)
 	assert.Nil(t, rs[0].DecidedAt)
 
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE r.decided_at >= $1 ORDER BY r.decided_at DESC, r.id LIMIT 10")).
+		WithArgs(at).WillReturnRows(sqlmock.NewRows(columns))
+	_, err = s.List(ctx, Filter{DecidedSince: at, Limit: 10})
+	require.NoError(t, err, "decided_since lists the recent decisions, most recently decided first (#2725)")
+
 	mock.ExpectQuery(regexp.QuoteMeta("ORDER BY r.created_at DESC, r.id LIMIT 100")).WillReturnRows(sqlmock.NewRows(columns))
 	rs, err = s.List(ctx, Filter{Limit: 9999})
 	require.NoError(t, err)

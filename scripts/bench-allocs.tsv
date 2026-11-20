@@ -1,0 +1,24 @@
+# Allocations per call each hot-path benchmark may take (#2716).
+#
+# Columns: package, benchmark, allocs/op. scripts/bench-allocs.py check (the
+# bench-allocs target, a verify step and a pull request job) runs each 200
+# iterations three times and fails when the lowest allocs/op exceeds its row,
+# or when a listed package declares a benchmark with no row. A change that
+# adds an allocation on purpose updates its row in the same diff: the
+# bench-allocs-update target rewrites this table from a run. ns/op is not
+# here: it is tracked weekly (.github/workflows/bench-trend.yml), never gated.
+./internal/httpobs	BenchmarkRoutedTemplate	4
+./internal/jsonwalk	BenchmarkStringsOverArguments	17
+./internal/pathtemplate	BenchmarkMatchAgainstASpec	32
+./internal/secretref	BenchmarkRedactAnAnswer	2
+./internal/sqltables	BenchmarkExtract	24
+./internal/sqltables	BenchmarkStatementKindAndSummary	29
+./pkg/middleware	BenchmarkAuditLayer	46
+./pkg/middleware	BenchmarkMCPTracingMiddleware_Disabled	0
+./pkg/middleware	BenchmarkMCPTracingMiddleware_Enabled	18
+./pkg/middleware	BenchmarkToolCallChain	46
+./pkg/middleware	BenchmarkToolCallLayer	33
+./pkg/persona	BenchmarkFilterTools	5
+./pkg/persona	BenchmarkIsConnectionAllowed	0
+./pkg/semantic	BenchmarkDetectInjection	0
+./pkg/semantic	BenchmarkSanitizeString	77

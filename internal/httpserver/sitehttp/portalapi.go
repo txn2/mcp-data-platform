@@ -10,6 +10,9 @@ import (
 	"slices"
 	"strconv"
 
+	"github.com/txn2/mcp-data-platform/internal/portal/portalperm"
+	"github.com/txn2/mcp-data-platform/internal/reqlog"
+
 	"github.com/txn2/mcp-data-platform/internal/application"
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
@@ -173,7 +176,7 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 			return
 		}
 	}
-	slog.ErrorContext(r.Context(), "sites: a portal request failed", "error", logsan.SanitizeForLog(err.Error()))
+	reqlog.Failed(r, "sites: a portal request failed", err)
 	httpjson.WriteError(w, http.StatusInternalServerError, "this could not be done; try again")
 }
 
@@ -255,6 +258,7 @@ func (a *portalAPI) view(ctx context.Context, c *caller, st *site.Site, domains 
 		st = &trimmed
 		domains = slices.DeleteFunc(slices.Clone(domains), func(d site.Domain) bool { return trimmed.Environment(d.Environment) == nil })
 	}
+	st = withApplications(ctx, st)
 	at := a.svc().Addressing()
 	address, more := at.ProductionAddress(st, domains)
 	return SiteView{
@@ -262,7 +266,19 @@ func (a *portalAPI) view(ctx context.Context, c *caller, st *site.Site, domains 
 		Site: *st, Addresses: at.Addresses(st, domains), PagesAddresses: at.PagesAddresses(st),
 		EnvironmentNameRoom: site.EnvironmentNameRoom(st.Name),
 		AddressNote:         at.AddressNote(st), Domains: domains, Permissions: perms,
+		Applications: site.ApplicationsOf(st.Environments),
 	}, nil
+}
+
+// withApplications is st as the caller may see it: the applications its
+// environments are parts of are named only to a caller whose persona reaches
+// the Applications pages, where the name links to (#2735).
+func withApplications(ctx context.Context, st *site.Site) *site.Site {
+	if portalperm.Admits(ctx, http.MethodGet, "/api/v1/portal/applications") {
+		return st
+	}
+	trimmed := st.WithoutApplications()
+	return &trimmed
 }
 
 // envScope is what a caller may know of a site's environments: every one for

@@ -16,8 +16,9 @@ permissions:
 jobs:
   mutation:
     runs-on: ubuntu-latest
-    # Mutation testing over ./pkg/... is expensive; cap the run generously.
-    timeout-minutes: 120
+    # Mutation testing over ./pkg/... and ./internal/... is expensive; cap the
+    # run generously (a job may run up to six hours).
+    timeout-minutes: 340
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -32,5 +33,33 @@ jobs:
         # Keep this version in sync with GREMLINS_VERSION in the Makefile.
         run: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
 
+      # pkg/ and internal/ (#2732): internal/ holds most of the code the
+      # security-design rules are about, and the run used to read pkg/ alone.
       - name: Run mutation testing
-        run: make mutate
+        run: make mutate MUTATE_PKGS="./pkg/... ./internal/..."
+
+  # Every scheduled workflow reports its result (#2730).
+  # The verdict goes to the "<workflow> is failing" issue (#2730): opened or
+  # commented on when the run failed, closed when it passed. Main only, on
+  # success and failure; a cancelled run says nothing. issues: write is this
+  # job's alone.
+  report:
+    name: Report to the tracking issue
+    needs: [mutation]
+    if: (success() || failure()) && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Report
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OUTCOME: ${{ contains(needs.*.result, 'failure') && 'failure' || 'success' }}
+        run: python3 scripts/scheduled_report.py report "$OUTCOME"

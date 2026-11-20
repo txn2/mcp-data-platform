@@ -8,12 +8,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
+
+	"github.com/txn2/mcp-data-platform/internal/reqlog"
 
 	"github.com/txn2/mcp-data-platform/internal/botcheck"
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
-	"github.com/txn2/mcp-data-platform/internal/logsan"
 )
 
 // The routes.
@@ -233,6 +233,6 @@ func (h *handler) view(c botcheck.Check, used []string) View {
 }
 
 func fail(w http.ResponseWriter, r *http.Request, err error) {
-	slog.ErrorContext(r.Context(), "bot checks: the store failed", "error", logsan.SanitizeForLog(err.Error()))
+	reqlog.Failed(r, "bot checks: the store failed", err)
 	httpjson.WriteError(w, http.StatusInternalServerError, "the bot checks could not be read or written")
 }

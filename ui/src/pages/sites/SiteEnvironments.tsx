@@ -22,7 +22,7 @@ import { useAuthStore } from "@/stores/auth";
 import { EnvironmentDialogs, type EnvDialog } from "./SiteEnvironmentDialogs";
 import { EnvironmentMenu } from "./SiteEnvironmentMenu";
 import { StatusBadge, StatusBlock } from "./SiteStatus";
-import { AccessBadge, AddressAccess, AddressLink, EVERYONE_INTERNAL, Failure, ShareChip, grantName, grantOpens } from "./SiteParts";
+import { AccessBadge, AddressAccess, AddressLink, ApplicationLink, EVERYONE_INTERNAL, Failure, ShareChip, grantName, grantOpens } from "./SiteParts";
 import { PublishBanner } from "./SitePublishJob";
 import { KeptLine } from "./SiteRetention";
 import { bareAddress, cardAddresses, errorText, orderedEnvironments, when } from "./siteFormat";
@@ -85,7 +85,7 @@ export function SiteEnvironmentsTab({ site, onNavigate }: { site: Site; onNaviga
                 <ArrowRight className="h-5 w-5 rotate-90 lg:rotate-0" />
               </div>
             )}
-            <EnvironmentCard site={site} env={e} access={access} canEdit={canEdit} movable={canMove(site, e.name)} onAct={setDialog} />
+            <EnvironmentCard site={site} env={e} access={access} canEdit={canEdit} movable={canMove(site, e.name)} onAct={setDialog} onNavigate={onNavigate} />
           </div>
         ))}
       </div>
@@ -210,6 +210,16 @@ function Explainer({ site, onHide }: { site: Site; onHide: () => void }) {
   );
 }
 
+/** UsedBy names the application an environment is a part of (#2735), or nothing. */
+function UsedBy({ env, onNavigate }: { env: SiteEnvironment; onNavigate: (path: string) => void }) {
+  if (!env.application) return null;
+  return (
+    <p className="text-xs text-muted-foreground" data-testid={`env-application-${env.name}`}>
+      Used by the application <ApplicationLink name={env.application.name} onNavigate={onNavigate} />
+    </p>
+  );
+}
+
 function EnvironmentCard({
   site,
   env,
@@ -217,6 +227,7 @@ function EnvironmentCard({
   canEdit,
   movable,
   onAct,
+  onNavigate,
 }: {
   site: Site;
   env: SiteEnvironment;
@@ -224,6 +235,7 @@ function EnvironmentCard({
   canEdit: boolean;
   movable: boolean;
   onAct: (d: EnvDialog) => void;
+  onNavigate: (path: string) => void;
 }) {
   const working = env.name === DEV_ENVIRONMENT;
   const fixed = working ? "Always first" : env.name === PROD_ENVIRONMENT ? "Always last" : "";
@@ -233,6 +245,7 @@ function EnvironmentCard({
         <div>
           <p className="text-base font-semibold">{env.name}</p>
           <p className="text-xs text-muted-foreground">{working ? "Working copy" : "Changes by Promote and Roll back"}</p>
+          <UsedBy env={env} onNavigate={onNavigate} />
         </div>
         <div className="flex flex-wrap justify-end gap-2">
           <StatusBadge env={env} />

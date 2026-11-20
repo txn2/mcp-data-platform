@@ -17,7 +17,12 @@
 # behavior) — loadgen exits non-zero when they fail — not on throughput
 # thresholds, which would flake on shared runners.
 #
-# Manual (workflow_dispatch) plus a weekly schedule. Not part of `make verify`.
+# Manual (workflow_dispatch) plus a weekly schedule. A pull request that
+# changes test/load or this workflow runs the harness job alone (#2729): the
+# module is separate from the root one, so nothing else on a pull request
+# builds, vets, tests or lints it, and a lint finding from #2544 reached main
+# and failed every weekly run after. `make verify` runs the same checks
+# (load-test, load-lint). The scenarios are not part of `make verify`.
 name: Load Test
 
 on:
@@ -25,10 +30,16 @@ on:
   schedule:
     # 08:00 UTC Mondays — after the weekly mutation run, low-traffic hour.
     - cron: "0 8 * * 1"
+  pull_request:
+    paths:
+      - "test/load/**"
+      - ".github/workflows/load.yml"
 
 concurrency:
-  group: load-test
-  cancel-in-progress: false
+  # A pull request's run is its own; the scheduled and dispatched runs on main
+  # share one group so two never load one another's runner pool at once.
+  group: load-test-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -60,6 +71,7 @@ jobs:
 
   smoke:
     name: Load smoke (indicative)
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -110,17 +122,29 @@ jobs:
   # platform on it: no Trino, object store or indexer competes with the requests
   # measured, which on a shared acceptance runner is what the percentile read.
   #
-  # ENDPOINT_P99_BOUND_MS is the bound. It stays empty, reporting and holding
-  # the endpoint to none, until five runs of main are recorded in this comment
-  # with the bound chosen from them.
+  # ENDPOINT_P99_BOUND_MS is the bound, chosen from five runs of this job on
+  # main (#2544):
+  #
+  #   run           date        commit     p50     p99
+  #   42670550224   2026-11-09  8ae5f9f0d  -       9.1 ms
+  #   43921248338   2026-11-16  32b79f616  -      14.2 ms
+  #   44652552404   2026-11-20  8b91e56d6  2.5 ms  8.5 ms
+  #   44653368352   2026-11-20  8b91e56d6  2.5 ms  8.2 ms
+  #   44654020057   2026-11-20  8b91e56d6  3.9 ms 11.7 ms
+  #
+  # Every request of every run succeeded. 30 ms is about twice the slowest of
+  # the five, so a runner's noise does not fail it and a change that doubles
+  # the tail does. The same load inside the shared acceptance runner reads
+  # 15 to 238 ms on one code, which is why the bound lives here and not there.
   endpoint-latency:
     name: Endpoint latency
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       LOAD_KEY: load-admin-key
       ENCRYPTION_KEY: 58ebbd3d1ca6c9b7a855e755fffb25ab3d2c0c644ec629e796a91283ea53e891
-      ENDPOINT_P99_BOUND_MS: ""
+      ENDPOINT_P99_BOUND_MS: "30"
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -157,3 +181,29 @@ jobs:
       - name: Tear down
         if: always()
         run: make load-down
+
+  # Load failed every week from August to November unnoticed (#2729).
+  # The verdict goes to the "<workflow> is failing" issue (#2730): opened or
+  # commented on when the run failed, closed when it passed. Main only, on
+  # success and failure; a cancelled run says nothing. issues: write is this
+  # job's alone.
+  report:
+    name: Report to the tracking issue
+    needs: [harness, smoke, endpoint-latency]
+    if: (success() || failure()) && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Report
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OUTCOME: ${{ contains(needs.*.result, 'failure') && 'failure' || 'success' }}
+        run: python3 scripts/scheduled_report.py report "$OUTCOME"

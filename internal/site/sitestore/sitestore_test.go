@@ -27,7 +27,7 @@ var (
 
 var (
 	siteCols    = []string{"id", "name", "description", "owner_email", "main_environment", "created_by", "created_at", "updated_at"}
-	envCols     = []string{"name", "release_number", "requires_approval", "internal_view", "updated_by", "updated_at", "keep_releases", "status", "status_message", "back_at", "redirect_to", "redirect_keep_path", "status_changed_by", "status_changed_at", "agents_may_promote", "kept", "public_domains", "tile_failure"}
+	envCols     = []string{"name", "release_number", "requires_approval", "internal_view", "updated_by", "updated_at", "keep_releases", "status", "status_message", "back_at", "redirect_to", "redirect_keep_path", "status_changed_by", "status_changed_at", "agents_may_promote", "kept", "public_domains", "tile_failure", "application_id", "application_name"}
 	releaseCols = []string{"id", "site_id", "number", "source", "note", "file_count", "total_bytes", "manifest_sha256", "redirects", "created_by", "created_at", "base_number", "manifest_parent", "manifest_depth", "rendered", "pruned_at", "headers", "contract"}
 	fileCols    = []string{"path", "sha256", "content_type", "size", "gzip_size", "brotli_size", "stored_in"}
 	deployCols  = []string{"environment", "action", "from_release", "to_release", "actor", "detail", "decided_by", "removed", "created_at"}
@@ -130,11 +130,11 @@ func TestGetAndGetByName(t *testing.T) {
 	ctx := context.Background()
 	s, mock := newMock(t)
 	env := func() *sqlmock.Rows {
-		return sqlmock.NewRows(envCols).AddRow("dev", 3, false, false, "jane@example.com", rowTime, nil, "online", "", nil, "", false, "", nil, false, 0, "{}", "the page did not finish drawing within 20s").AddRow("prod", 0, true, false, "", rowTime, 5, "online", "", nil, "", false, "", nil, false, 3, "{www.example.org}", "")
+		return sqlmock.NewRows(envCols).AddRow("dev", 3, false, false, "jane@example.com", rowTime, nil, "online", "", nil, "", false, "", nil, false, 0, "{}", "the page did not finish drawing within 20s", "app_1", "hello").AddRow("prod", 0, true, false, "", rowTime, 5, "online", "", nil, "", false, "", nil, false, 3, "{www.example.org}", "", "", "")
 	}
 
 	mock.ExpectQuery(q("FROM sites WHERE id = $1")).WithArgs("site_1").WillReturnRows(siteRows("marketing"))
-	mock.ExpectQuery(q("FROM site_environments e WHERE e.site_id = $1")).WithArgs("site_1", siteconfig.DefaultKeepReleases).WillReturnRows(env())
+	mock.ExpectQuery(q("LEFT JOIN applications a ON a.id = p.application_id WHERE e.site_id = $1")).WithArgs("site_1", siteconfig.DefaultKeepReleases).WillReturnRows(env())
 	mock.ExpectQuery(q("FROM site_media WHERE site_id = $1")).WithArgs("site_1").WillReturnRows(
 		sqlmock.NewRows([]string{"prefix", "scope", "scope_id", "folder", "created_by", "created_at"}).AddRow("/media/", "global", "", "sites/m", "jane@example.com", rowTime))
 	got, err := s.Get(ctx, "site_1")
@@ -147,6 +147,9 @@ func TestGetAndGetByName(t *testing.T) {
 	assert.Equal(t, "the page did not finish drawing within 20s", got.Environment("dev").TileFailure, "why its release has no tile is read back (#2664)")
 	assert.Empty(t, got.Environment("prod").TileFailure)
 	assert.True(t, got.Environment("prod").RequiresApproval)
+	assert.Equal(t, &site.EnvironmentApplication{ID: "app_1", Name: "hello"}, got.Environment("dev").Application,
+		"the application an environment is a part of is read back (#2735)")
+	assert.Nil(t, got.Environment("prod").Application, "an environment no application holds names none")
 	require.Len(t, got.Media, 1, "a read of one site carries its media")
 	assert.Equal(t, "/media/", got.Media[0].Prefix)
 	dev, prod := got.Environment("dev"), got.Environment("prod")
@@ -191,7 +194,7 @@ func TestGetAndGetByName(t *testing.T) {
 
 	mock.ExpectQuery(q("FROM sites WHERE id = $1")).WillReturnRows(siteRows("marketing"))
 	mock.ExpectQuery(q("FROM site_environments")).WillReturnRows(
-		sqlmock.NewRows(envCols).AddRow("dev", 1, false, false, "", rowTime, nil, "online", "", nil, "", false, "", nil, false, 0, "{}", "").RowError(0, errDown))
+		sqlmock.NewRows(envCols).AddRow("dev", 1, false, false, "", rowTime, nil, "online", "", nil, "", false, "", nil, false, 0, "{}", "", "", "").RowError(0, errDown))
 	_, err = s.Get(ctx, "site_1")
 	require.ErrorContains(t, err, "list environments")
 }
@@ -204,7 +207,7 @@ func TestList(t *testing.T) {
 		sqlmock.NewRows(siteCols).
 			AddRow("site_1", "a", "", "o", false, "o", rowTime, rowTime).
 			AddRow("site_2", "b", "", "o", false, "o", rowTime, rowTime))
-	mock.ExpectQuery(q("FROM site_environments")).WithArgs("site_1", siteconfig.DefaultKeepReleases).WillReturnRows(sqlmock.NewRows(envCols).AddRow("dev", 1, false, false, "", rowTime, nil, "online", "", nil, "", false, "", nil, false, 0, "{}", ""))
+	mock.ExpectQuery(q("FROM site_environments")).WithArgs("site_1", siteconfig.DefaultKeepReleases).WillReturnRows(sqlmock.NewRows(envCols).AddRow("dev", 1, false, false, "", rowTime, nil, "online", "", nil, "", false, "", nil, false, 0, "{}", "", "", ""))
 	mock.ExpectQuery(q("FROM site_environments")).WithArgs("site_2", siteconfig.DefaultKeepReleases).WillReturnRows(sqlmock.NewRows(envCols))
 	got, err := s.List(ctx)
 	require.NoError(t, err)

@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/reqlog"
+
 	"go.starlark.net/starlark"
 
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
@@ -242,7 +244,7 @@ func (p *Portal) open(w http.ResponseWriter, r *http.Request) {
 	case errors.As(err, &refused):
 		httpjson.WriteError(w, http.StatusUnprocessableEntity, refused.Msg)
 	case err != nil:
-		slog.ErrorContext(r.Context(), "form preview: opening the preview failed", "error", logsan.SanitizeForLog(err.Error()))
+		reqlog.Failed(r, "form preview: opening the preview failed", err)
 		httpjson.WriteError(w, http.StatusInternalServerError, "the preview could not be opened")
 	default:
 		httpjson.WriteJSON(w, http.StatusOK, opened)

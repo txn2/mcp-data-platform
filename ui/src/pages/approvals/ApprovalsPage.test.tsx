@@ -186,3 +186,83 @@ describe("mayDecide", () => {
     expect(mayDecide({ subject_kind: "script_version" } as never, false, "sam@example.com", "ops-leads")).toBe(false);
   });
 });
+
+// #2725: an approval email opens its request, whatever its status, and the
+// Pending list with nothing waiting says so and names the recent decisions.
+describe("ApprovalsPage opened from an email (#2725)", () => {
+  afterEach(() => window.history.replaceState({}, "", "/"));
+
+  function openRequest(id: string) {
+    window.history.replaceState({}, "", `/portal/approvals?request=${id}`);
+    const onNavigate = vi.fn();
+    renderWithQuery(<ApprovalsPage onNavigate={onNavigate} />);
+    return onNavigate;
+  }
+
+  it("shows a request another administrator approved, who approved it and when, and no Approve control", async () => {
+    serve();
+    signIn("admin@example.com", true);
+    const onNavigate = openRequest("apr_call_leads");
+    const decided = await screen.findByTestId("approval-decided");
+    expect(decided).toHaveTextContent("Approved by ana@example.com on");
+    expect(decided).toHaveTextContent("Nothing is left to do.");
+    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "All requests" }));
+    expect(onNavigate).toHaveBeenCalledWith("/approvals");
+  });
+
+  it("shows a pending request with its decision controls", async () => {
+    serve();
+    signIn("admin@example.com", true);
+    openRequest("apr_handler_paying");
+    expect(await screen.findByTestId("approval-apr_handler_paying")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
+    expect(screen.queryByTestId("approval-decided")).toBeNull();
+  });
+
+  it("says a request it cannot show can't be shown", async () => {
+    serve();
+    signIn("admin@example.com", true);
+    openRequest("apr_gone");
+    expect(await screen.findByTestId("approval-unavailable")).toHaveTextContent("This request can't be shown.");
+  });
+
+  it("with nothing pending, names the requests decided recently and who decided each", async () => {
+    const sent: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string) => {
+        const url = new URL(input, window.location.origin);
+        sent.push(url.pathname + url.search);
+        if (url.searchParams.get("status") === "pending") return Response.json({ requests: [], count: 0 });
+        if (url.searchParams.has("decided_since")) {
+          return Response.json({
+            requests: [
+              {
+                id: "apr_r1", subject_kind: "site_release", purpose: "site_promote", script_id: "", site_name: "docs-site",
+                target: "prod", version: 7, source_sha256: "", requester_email: "dana@example.com",
+                changes: { approved_version: 0, added: 0, removed: 0 }, status: "approved", decided_by: "sam@example.com",
+                decided_at: "2026-11-19T14:14:00Z", self_approved: false, created_at: "2026-11-19T14:10:00Z",
+              },
+            ],
+            count: 1,
+          });
+        }
+        return Response.json({ detail: "no handler" }, { status: 404 });
+      }),
+    );
+    signIn("admin@example.com", true);
+    const onNavigate = vi.fn();
+    renderWithQuery(<ApprovalsPage onNavigate={onNavigate} />);
+    const empty = await screen.findByTestId("approvals-nothing-pending");
+    expect(empty).toHaveTextContent("Nothing is waiting for a decision.");
+    const row = await screen.findByTestId("recent-apr_r1");
+    expect(row).toHaveTextContent("docs-site release 7 in prod");
+    expect(row).toHaveTextContent("dana@example.com");
+    expect(row).toHaveTextContent("sam@example.com");
+    expect(screen.queryByText("No requests.")).toBeNull();
+    expect(sent.some((p) => p.includes("decided_since="))).toBe(true);
+    fireEvent.click(within(row).getByRole("button", { name: "docs-site release 7 in prod" }));
+    expect(onNavigate).toHaveBeenCalledWith("/approvals?request=apr_r1");
+  });
+});

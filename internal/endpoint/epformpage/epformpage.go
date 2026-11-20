@@ -35,6 +35,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/reqlog"
+
 	"github.com/txn2/mcp-data-platform/internal/contentenc"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
@@ -183,7 +185,7 @@ func (h *Handler) page(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No form answers at this address.", http.StatusNotFound)
 		return
 	case err != nil:
-		slog.ErrorContext(r.Context(), "form page: resolving the endpoint failed", logKeyError, logsan.SanitizeForLog(err.Error()))
+		reqlog.Failed(r, "form page: resolving the endpoint failed", err)
 		http.Error(w, "The form could not be read.", http.StatusInternalServerError)
 		return
 	}
@@ -234,7 +236,7 @@ func (h *Handler) preview(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "This preview does not exist or has expired. Open a new one from the script's page.", http.StatusNotFound)
 		return
 	case err != nil:
-		slog.ErrorContext(r.Context(), "form preview: reading the preview failed", logKeyError, logsan.SanitizeForLog(err.Error()))
+		reqlog.Failed(r, "form preview: reading the preview failed", err)
 		http.Error(w, "The preview could not be read.", http.StatusInternalServerError)
 		return
 	}

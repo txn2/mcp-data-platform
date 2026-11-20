@@ -63,11 +63,14 @@ preamble	migrate-check-diff	31.5	-	@go dev/seed.sql
 preamble	vet-tags	49.8	-	@go
 preamble	lint	387.8	-	@go .golangci.yml replay
 verify-go	bench-report-check	0.4	-	-
+verify-go	load-test	1.5	-	test/load
 verify-go	bench-test	1.6	-	bench
+verify-go	bench-allocs	4.3	-	.
 verify-go	schedule-lane	141.4	-	.
 verify-go	test	338.0	-	. out:coverage.out
 verify-go	coverage-summary	2.7	test	-
 verify-go	patch-coverage-check	0.2	test	-
+verify-static	load-lint	2.1	-	test/load
 verify-static	bench-lint	3.1	-	bench .golangci.yml
 verify-static	semgrep	9.7	-	-
 verify-static	security	55.6	-	-

@@ -16897,7 +16897,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "The caller's own requests and the held calls whose policies name them, or for an administrator every request, newest first. status filters by pending, approved or denied; script_id by script; kind by call, handler_version, form or site.",
+                "description": "The caller's own requests and the held calls whose policies name them, or for an administrator every request, newest first. status filters by pending, approved or denied; script_id by script; kind by call, handler_version, form or site; decided_since to the requests decided at or after a time, most recently decided first.",
                 "produces": [
                     "application/json"
                 ],
@@ -16923,6 +16923,12 @@ const docTemplate = `{
                         "description": "call, handler_version, form or site",
                         "name": "kind",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "RFC 3339 time: only requests decided at or after it, most recently decided first",
+                        "name": "decided_since",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -16930,6 +16936,12 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/apprhttp.listResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "401": {
@@ -48772,6 +48784,10 @@ const docTemplate = `{
                 "owner_email": {
                     "type": "string",
                     "example": "jane@example.com"
+                },
+                "updated_at": {
+                    "description": "UpdatedAt is when the item last changed, which Home shows under its name\nbeside whose it is (#2734).",
+                    "type": "string"
                 }
             }
         },
@@ -57906,6 +57922,29 @@ const docTemplate = `{
                 }
             }
         },
+        "site.Application": {
+            "type": "object",
+            "properties": {
+                "environments": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "dev",
+                        "prod"
+                    ]
+                },
+                "id": {
+                    "type": "string",
+                    "example": "app_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "hello"
+                }
+            }
+        },
         "site.Contract": {
             "type": "object",
             "properties": {
@@ -58023,6 +58062,14 @@ const docTemplate = `{
                     "description": "AgentsMayPromote lets an agent's promote, rollback or public domain\nhere go ahead without a person's decision (#2643). Off by default;\nonly an administrator turns it on.",
                     "type": "boolean"
                 },
+                "application": {
+                    "description": "Application is the application that holds the environment as one of its\nparts (#2735), absent when none does. A part belongs to one application.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/site.EnvironmentApplication"
+                        }
+                    ]
+                },
                 "back_at": {
                     "description": "BackAt is when an offline environment's visitors are told it is\nexpected back.",
                     "type": "string"
@@ -58096,6 +58143,19 @@ const docTemplate = `{
                 },
                 "updated_by": {
                     "type": "string"
+                }
+            }
+        },
+        "site.EnvironmentApplication": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "example": "app_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "hello"
                 }
             }
         },
@@ -59597,6 +59657,13 @@ const docTemplate = `{
                     "type": "object",
                     "additionalProperties": {
                         "type": "string"
+                    }
+                },
+                "applications": {
+                    "description": "Applications are the applications that use the site, each with the\nsite's environments it holds (#2735), named only to a caller whose\npersona reaches the Applications pages; [] otherwise and when none does.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/site.Application"
                     }
                 },
                 "created_at": {

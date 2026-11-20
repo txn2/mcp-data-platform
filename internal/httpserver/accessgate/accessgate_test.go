@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/txn2/mcp-data-platform/internal/httpserver/accessgate"
+	"github.com/txn2/mcp-data-platform/internal/portal/portalperm"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
@@ -362,5 +363,20 @@ func TestRequire_RefusesAPortalAreaThePersonaLacks(t *testing.T) {
 				t.Errorf("refusal %v does not name the area", body)
 			}
 		})
+	}
+}
+
+// #2735: the permissions a request was admitted with travel with it, so a
+// handler can ask whether the caller reaches another area.
+func TestRequire_PutsThePermissionsOnTheRequest(t *testing.T) {
+	var admits bool
+	next := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		admits = portalperm.Admits(r.Context(), http.MethodGet, "/api/v1/portal/knowledge-pages")
+	})
+	newGate().Require(next).ServeHTTP(httptest.NewRecorder(), requestAs(t, http.MethodGet, "", &portal.User{
+		UserID: "u1", Email: "a@example.com", Roles: []string{analystRole},
+	}))
+	if !admits {
+		t.Error("the handler behind the gate could not read the permissions it was admitted with")
 	}
 }

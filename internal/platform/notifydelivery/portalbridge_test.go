@@ -704,8 +704,8 @@ func TestNotifyAccessRequestAndDecision(t *testing.T) {
 	}
 }
 
-// #2494: each approver is told of a request once, with the link to the
-// Approvals page, and the requester of the decision.
+// #2494: each approver is told of a request once, and the requester of the
+// decision; #2725: each email links to that request on the Approvals page.
 func TestNotifyApprovalRequestAndDecision(t *testing.T) {
 	n, queue := bridgeUnderTest(t, PortalStores{}, "https://x.io")
 	n.NotifyApprovalRequest(context.Background(), []string{"a1@b.io", "a2@b.io"}, AccessNotice{
@@ -719,11 +719,46 @@ func TestNotifyApprovalRequestAndDecision(t *testing.T) {
 		t.Fatalf("expected 3 rows, got %d", len(rows))
 	}
 	for i, to := range []string{"a1@b.io", "a2@b.io"} {
-		if rows[i].Recipient != to || rows[i].Payload.Kind != notification.KindApprovalRequest || rows[i].Payload.Link != "https://x.io/portal/approvals" {
+		if rows[i].Recipient != to || rows[i].Payload.Kind != notification.KindApprovalRequest || rows[i].Payload.Link != "https://x.io/portal/approvals?request=apr_1" {
 			t.Errorf("request row %d: %+v", i, rows[i])
 		}
 	}
-	if rows[2].Recipient != "jane@b.io" || rows[2].Payload.Kind != notification.KindApprovalDecision {
+	if rows[2].Recipient != "jane@b.io" || rows[2].Payload.Kind != notification.KindApprovalDecision ||
+		rows[2].Payload.Link != "https://x.io/portal/approvals?request=apr_1" {
 		t.Errorf("decision row: %+v", rows[2])
+	}
+}
+
+// #2725: a decided request's approver notices not sent yet are dropped by
+// kind and request id, and a failure to drop them is the notifier's own.
+func TestWithdrawApprovalRequest(t *testing.T) {
+	n := NewPortalNotifier(nil, PortalStores{}, "https://x.io")
+	n.WithdrawApprovalRequest(context.Background(), "apr_1") // no dropper: nothing to do
+	d := &fakeDropper{}
+	n.drop = d
+	n.WithdrawApprovalRequest(context.Background(), "apr_1")
+	if len(d.calls) != 1 || d.calls[0] != notification.KindApprovalRequest+"/apr_1" {
+		t.Fatalf("drop calls = %v", d.calls)
+	}
+	d.err = errors.New("db down")
+	n.WithdrawApprovalRequest(context.Background(), "apr_2")
+	if len(d.calls) != 2 {
+		t.Fatalf("drop calls = %v", d.calls)
+	}
+}
+
+type fakeDropper struct {
+	calls []string
+	err   error
+}
+
+func (f *fakeDropper) DropPending(_ context.Context, kind, itemID string) (int64, error) {
+	f.calls = append(f.calls, kind+"/"+itemID)
+	return 1, f.err
+}
+
+func TestApprovalLinkWithNoRequestIsTheList(t *testing.T) {
+	if got := ApprovalLink("https://x.io", ""); got != "https://x.io/portal/approvals" {
+		t.Errorf("ApprovalLink = %q", got)
 	}
 }

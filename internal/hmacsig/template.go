@@ -226,10 +226,23 @@ func (p Pattern) Read(value string) (signature, timestamp string, ok bool) {
 // the literal that follows it, which it consumes, or the whole of rest for the
 // last segment. compileSegments guarantees a literal follows a placeholder
 // that is not last. An empty value does not have the layout.
+//
+// A literal that ends the pattern is the value's suffix, so the value runs to
+// its last occurrence: "{signature}0" read "300" as "3" when a hex signature
+// "30" held the literal's character (#2713, found by FuzzPatternRoundTrip).
+// A literal between two placeholders is cut at its first occurrence; a value
+// that could hold it cannot be told from the next one by any reading.
 func (p Pattern) cutValue(rest string, i int) (value, after string, ok bool) {
-	if i+1 < len(p.segs) {
+	switch {
+	case i+2 == len(p.segs):
+		lit := p.segs[i+1].text
+		if !strings.HasSuffix(rest, lit) {
+			return "", "", false
+		}
+		value, after, ok = rest[:len(rest)-len(lit)], "", true
+	case i+1 < len(p.segs):
 		value, after, ok = strings.Cut(rest, p.segs[i+1].text)
-	} else {
+	default:
 		value, after, ok = rest, "", true
 	}
 	return value, after, ok && value != ""

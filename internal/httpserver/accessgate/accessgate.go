@@ -20,6 +20,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/buildinfo"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/instanceheader"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/internal/portal/portalperm"
@@ -142,7 +144,14 @@ func (g *Gate) Require(next http.Handler) http.Handler {
 		}
 		// A share addressed to a persona is matched against the persona the
 		// caller resolves to now (#2089).
-		next.ServeHTTP(w, r.WithContext(portaldomain.WithCallerPersona(r.Context(), info.Name)))
+		// An admitted caller is told the build that answered, which an open
+		// portal page moves to when it is new (#2727). Only here: an anonymous
+		// caller is not told the platform's version.
+		w.Header().Set(instanceheader.BuildHeader, buildinfo.Build())
+		// The permissions travel with the request, so a handler can ask whether
+		// the caller reaches another area before naming something in it (#2735).
+		ctx := portalperm.WithAccess(portaldomain.WithCallerPersona(r.Context(), info.Name), perms)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 

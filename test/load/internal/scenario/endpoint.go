@@ -166,8 +166,10 @@ func (s *endpointAppDB) NewWorker(_ context.Context, env *harness.Env, _ int) (h
 // Assess holds every request to success, always states the percentiles, and
 // holds p99 to the bound the workflow states when it states one.
 func (*endpointAppDB) Assess(_ *harness.Env, rep *report.Report) []report.Assertion {
-	out := []report.Assertion{errorRateAssertion(rep, endpointOp, 0)}
-	return append(out, latencyAssertion(rep, os.Getenv(EndpointBoundEnv)))
+	return []report.Assertion{
+		errorRateAssertion(rep, endpointOp, 0),
+		latencyAssertion(rep, os.Getenv(EndpointBoundEnv)),
+	}
 }
 
 // latencyAssertion reads the endpoint's percentiles against bound, which is

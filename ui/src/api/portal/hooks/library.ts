@@ -17,6 +17,8 @@ export interface LibraryItem {
   owner_email?: string;
   /** When last opened (recents) or starred (favorites). */
   at: string;
+  /** When the item last changed (#2734). */
+  updated_at?: string;
 }
 
 export interface TrashItem {

@@ -60,10 +60,16 @@ func Parse(text string) (Path, error) {
 
 // nextStep reads the step at the front of rest and returns what follows it.
 func nextStep(rest string) (step, string, error) {
-	if rest[0] == '.' {
+	switch rest[0] {
+	case '.':
 		return memberStep(rest[1:])
+	case '[':
+		return bracketStep(rest)
 	}
-	return bracketStep(rest)
+	// A step starts with "." or "["; anything else after a step ("[0]]",
+	// "['a']x") is refused rather than read as a bracket it is not, which
+	// panicked on "[0]]" (#2713, found by FuzzParseAndLookup).
+	return step{}, "", fmt.Errorf("unexpected %q after a step", rest[:1])
 }
 
 // memberStep reads ".name", given what follows the dot.

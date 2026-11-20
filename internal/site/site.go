@@ -18,6 +18,7 @@ import (
 	"math"
 	"net"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -172,6 +173,54 @@ type Environment struct {
 	AgentsMayPromote bool      `json:"agents_may_promote"`
 	UpdatedBy        string    `json:"updated_by,omitempty"`
 	UpdatedAt        time.Time `json:"updated_at"`
+	// Application is the application that holds the environment as one of its
+	// parts (#2735), absent when none does. A part belongs to one application.
+	Application *EnvironmentApplication `json:"application,omitempty"`
+}
+
+// EnvironmentApplication names the application an environment is a part of.
+type EnvironmentApplication struct {
+	ID   string `json:"id" example:"app_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"`
+	Name string `json:"name" example:"hello"`
+}
+
+// Application is an application that uses a site, with the site's
+// environments it holds as parts, in the site's order (#2735).
+type Application struct {
+	ID           string   `json:"id" example:"app_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"`
+	Name         string   `json:"name" example:"hello"`
+	Environments []string `json:"environments" example:"dev,prod"`
+}
+
+// WithoutApplications is s with no environment naming the application it is
+// a part of: what a reader who may not open applications is shown (#2735).
+// s itself is left as it was.
+func (s Site) WithoutApplications() Site {
+	s.Environments = slices.Clone(s.Environments)
+	for i := range s.Environments {
+		s.Environments[i].Application = nil
+	}
+	return s
+}
+
+// ApplicationsOf lists the applications that use envs, each once, in the
+// order their first environment comes; [] when none does.
+func ApplicationsOf(envs []Environment) []Application {
+	out := []Application{}
+	at := map[string]int{}
+	for _, e := range envs {
+		if e.Application == nil {
+			continue
+		}
+		i, ok := at[e.Application.ID]
+		if !ok {
+			i = len(out)
+			at[e.Application.ID] = i
+			out = append(out, Application{ID: e.Application.ID, Name: e.Application.Name, Environments: []string{}})
+		}
+		out[i].Environments = append(out[i].Environments, e.Name)
+	}
+	return out
 }
 
 // Online reports whether the environment serves its release.

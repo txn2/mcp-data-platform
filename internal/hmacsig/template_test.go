@@ -189,3 +189,19 @@ func TestTemplateValidators(t *testing.T) {
 		assert.True(t, ok, n)
 	}
 }
+
+// A literal that ends a pattern is the value's suffix (#2713): a signature
+// holding the literal's characters reads back whole.
+func TestPatternReadsAValueBeforeATrailingLiteralWhole(t *testing.T) {
+	p, err := CompilePattern("{signature}0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig, _, ok := p.Read(p.Write("3030", ""))
+	if !ok || sig != "3030" {
+		t.Fatalf("Read = %q, %t; want 3030", sig, ok)
+	}
+	if _, _, ok := p.Read("3031"); ok {
+		t.Fatal("a value without the trailing literal was read")
+	}
+}

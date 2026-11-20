@@ -137,6 +137,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read
       issues: write
     steps:
       - name: Checkout code

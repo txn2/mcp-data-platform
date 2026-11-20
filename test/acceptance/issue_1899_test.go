@@ -205,17 +205,22 @@ func TestIssue1899_AnUploadRaisesTheResourcesCountBeforeTheListing(t *testing.T)
 		scanned := scrapeScalar(body, "storage_scan_objects")
 
 		uploadResource1568(t, c, fmt.Sprintf("capacity-%d.csv", time.Now().UnixNano()), "text/csv", []byte(strings.Repeat("a,b\n1,2\n", uploaded1899/8)))
-		got := waitForGauge(t, "storage_bucket_objects", labels, 25*time.Second, func(v float64) bool { return v >= objects+1 })
+		// The wait is on the bytes, which only this upload raises by half a
+		// megabyte. Waiting on the object count let any other writer's small
+		// object end the wait before this upload's write was counted, and the
+		// bytes were then read once: they read 10 bytes lower, not 1 MiB
+		// higher (#2731, runs 42339457750 and 42844717407).
+		gotBytes := waitForGauge(t, "storage_bucket_bytes", labels, 25*time.Second, func(v float64) bool { return v >= bytes+uploaded1899/2 })
 		after := oneReplica(t)
 		if scrapeScalar(after, "storage_scan_objects") != scanned {
 			t.Logf("attempt %d: a listing ran during the upload; trying again", attempt)
 			continue
 		}
-		if got < objects+1 {
-			t.Fatalf("storage_bucket_objects{purpose=\"resources\"} stayed at %v after an upload", got)
+		if gotBytes < bytes+uploaded1899/2 {
+			t.Fatalf("storage_bucket_bytes{purpose=\"resources\"} = %v, was %v: the upload's %d bytes were not added", gotBytes, bytes, uploaded1899)
 		}
-		if b := metricSeries(after, "storage_bucket_bytes", labels); b < bytes+uploaded1899/2 {
-			t.Fatalf("storage_bucket_bytes{purpose=\"resources\"} = %v, was %v: the upload's %d bytes were not added", b, bytes, uploaded1899)
+		if got := metricSeries(after, "storage_bucket_objects", labels); got < objects+1 {
+			t.Fatalf("storage_bucket_objects{purpose=\"resources\"} = %v, was %v: the upload was not counted", got, objects)
 		}
 		return
 	}

@@ -98,6 +98,7 @@ func TestToolPinsAgree(t *testing.T) {
 			`(?s)golangci-lint-action@.{0,200}?version:\s*(v[0-9.]+)`, golangciPin,
 		},
 		{"mutation.yml gremlins install", mutation, gremlinsInstall, gremlinsPin},
+		{"ci.yml gremlins install", ci, gremlinsInstall, gremlinsPin},
 		{"CONTRIBUTING.md govulncheck install", contributing, govulncheckInstall, govulncheckPin},
 		{"ci.yml govulncheck install", ci, govulncheckInstall, govulncheckPin},
 		{"CONTRIBUTING.md osv-scanner install", contributing, osvInstall, osvPin},
@@ -111,6 +112,26 @@ func TestToolPinsAgree(t *testing.T) {
 		}
 		if len(allSubmatches(c.text, c.pattern)) == 0 {
 			t.Errorf("%s: no version found (pattern %s)", c.what, c.pattern)
+		}
+	}
+
+	// Every workflow that lints a module runs the Makefile's golangci-lint, not
+	// only ci.yml: the load and benchmark harness modules are linted by their own
+	// workflows, and a pin drifting there lints them with rules verify does not
+	// run (#2729).
+	workflows, err := filepath.Glob(rootPath(t, ".github", "workflows", "*.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, wf := range workflows {
+		data, err := os.ReadFile(wf) //nolint:gosec // a path the glob above found under the repository
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, got := range allSubmatches(string(data), `(?s)golangci-lint-action@.{0,200}?version:\s*(v[0-9.]+)`) {
+			if got != golangciPin {
+				t.Errorf("%s golangci-lint-action pins %s, Makefile pins %s", filepath.Base(wf), got, golangciPin)
+			}
 		}
 	}
 

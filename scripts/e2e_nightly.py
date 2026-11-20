@@ -8,7 +8,10 @@ release, and a red night notified no one. This module is both halves.
   report <conclusion> <test-log>   run by the nightly on main after its tests:
                   a failed night opens the one tracking issue, or comments on it
                   when it is already open, naming the failing tests and the run;
-                  a passing night comments on that issue and closes it.
+                  a passing night comments on that issue and closes it. Since
+                  #2730 this is scripts/scheduled_report.py's report, which
+                  every scheduled workflow reports through, and since #2731 it
+                  names a criterion that failed and passed on one tree as flaky.
 
   rerun-on-fix <sha>   run on every push to main (.github/workflows/
                   e2e-nightly-on-fix.yml): when the pull request merged as <sha>
@@ -39,8 +42,15 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import scheduled_report  # noqa: E402
+from scheduled_report import tree_of  # noqa: E402,F401  (release-tag.py reads it from here)
+
 WORKFLOW = "e2e-nightly.yml"
-TRACKING_TITLE = "E2E Nightly is failing"
+WORKFLOW_NAME = "E2E Nightly"
+TRACKING_TITLE = scheduled_report.tracking_title(WORKFLOW_NAME)
+RELEASE_NOTE = ("A final release tag is refused while this is red (`make release-tag-check`); "
+                "`release-without-nightly: <reason>` in the tag annotation releases over it.")
 # A run that was cancelled or skipped says nothing about the suite; the verdict
 # is the most recent run that finished one way or the other.
 DECISIVE = {"success", "failure", "timed_out"}
@@ -95,16 +105,6 @@ def latest_run() -> Run | None:
     return None
 
 
-def tree_of(sha: str) -> str:
-    """The tree a commit records: read from this clone, else from GitHub, since a
-    merged pull request's branch is often deleted and absent from the clone."""
-    try:
-        out = subprocess.run(["git", "rev-parse", f"{sha}^{{tree}}"], capture_output=True, text=True, check=True)
-        return out.stdout.strip()
-    except (OSError, subprocess.CalledProcessError):
-        return gh("api", f"repos/{{owner}}/{{repo}}/git/commits/{sha}", "--jq", ".tree.sha").strip()
-
-
 def green_run_on_tree(tree: str) -> Run | None:
     """The newest passing nightly, on any branch, whose commit has this tree, or None."""
     for r in runs(branch=None):
@@ -128,54 +128,8 @@ def run_failures(run: Run) -> list[str]:
     return failing_tests(gh("run", "view", str(run.id), "--log-failed"))
 
 
-def tracking_issue() -> int | None:
-    out = gh("issue", "list", "--state", "open", "--search", f'in:title "{TRACKING_TITLE}"',
-             "--json", "number,title", "--limit", "20")
-    for issue in json.loads(out or "[]"):
-        if issue.get("title") == TRACKING_TITLE:
-            return int(issue["number"])
-    return None
-
-
-def run_url() -> str:
-    server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
-    repo = os.environ.get("GITHUB_REPOSITORY", "")
-    run_id = os.environ.get("GITHUB_RUN_ID", "")
-    return f"{server}/{repo}/actions/runs/{run_id}" if repo and run_id else "(run URL unavailable)"
-
-
-def failure_body(url: str, tests: list[str]) -> str:
-    lines = [f"The E2E Nightly failed: {url}", ""]
-    if tests:
-        lines.append("Failing tests:")
-        lines.extend(f"- `{t}`" for t in tests)
-    else:
-        lines.append("No test reported a failure; a step before or after the tests failed. The run's log names it.")
-    lines += ["", "A final release tag is refused while this is red (`make release-tag-check`); "
-              "`release-without-nightly: <reason>` in the tag annotation releases over it."]
-    return "\n".join(lines)
-
-
 def report(conclusion: str, log: Path) -> int:
-    issue = tracking_issue()
-    url = run_url()
-    if conclusion == "success":
-        if issue is not None:
-            gh("issue", "comment", str(issue), "--body", f"The E2E Nightly passed: {url}")
-            gh("issue", "close", str(issue))
-            print(f"e2e nightly: passed; closed #{issue}.")
-        else:
-            print("e2e nightly: passed.")
-        return 0
-    text = log.read_text(errors="replace") if log.is_file() else ""
-    body = failure_body(url, failing_tests(text))
-    if issue is not None:
-        gh("issue", "comment", str(issue), "--body", body)
-        print(f"e2e nightly: failed; commented on #{issue}.")
-    else:
-        gh("issue", "create", "--title", TRACKING_TITLE, "--body", body)
-        print("e2e nightly: failed; opened the tracking issue.")
-    return 0
+    return scheduled_report.report(WORKFLOW_NAME, conclusion, [log], [RELEASE_NOTE])
 
 
 # The pull requests a commit was merged from, and the issues each one closes.

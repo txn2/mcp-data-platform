@@ -91,5 +91,26 @@ func (s *PostgresStore) RetractEvent(ctx context.Context, eventID string) error 
 	return nil
 }
 
+// DropPending removes the not-yet-sent rows of one kind about one item and
+// returns how many it removed: an approval request decided before its
+// approvers' notices went out sends none (#2725). A row already sent, or being
+// sent, is left alone.
+func (s *PostgresStore) DropPending(ctx context.Context, kind, itemID string) (int64, error) {
+	if kind == "" || itemID == "" {
+		return 0, nil
+	}
+	res, err := s.db.ExecContext(ctx,
+		`DELETE FROM notifications WHERE status = $1 AND payload ->> 'kind' = $2 AND payload ->> 'item_id' = $3`,
+		notification.StatusPending, kind, itemID)
+	if err != nil {
+		return 0, fmt.Errorf("dropping pending notifications: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("counting dropped notifications: %w", err)
+	}
+	return n, nil
+}
+
 // Verify interface compliance.
 var _ notification.InboxStore = (*PostgresStore)(nil)

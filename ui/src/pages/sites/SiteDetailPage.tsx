@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Globe } from "lucide-react";
 import { DEV_ENVIRONMENT, useDeleteSite, useSite, useSiteReleases, useUpdateSite, type Site } from "@/api/portal/hooks/sites";
 import { PageHeader } from "@/components/patterns/PageHeader";
@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { UserPicker } from "@/components/UserPicker";
 import type { SITE_TABS } from "@/lib/portalRoutes";
 import { SiteAccessTab } from "./SiteAccess";
+import { ApplicationLink } from "./SiteParts";
 import { SiteDomainsTab } from "./SiteDomains";
 import { SiteEnvironmentsTab } from "./SiteEnvironments";
 import { SiteFilesTab } from "./SiteFiles";
@@ -56,7 +57,7 @@ export function SiteDetailPage({ site, tab, onNavigate }: { site: string; tab: S
   return (
     <div className="space-y-4">
       <PageHeader backLabel="Sites" onBack={back} icon={Globe} title={data.name} subtitle={data.description} actions={<SiteActions permissions={data.permissions} onOpen={setDialog} />} />
-      <Facts site={data} />
+      <Facts site={data} onNavigate={onNavigate} />
       <Tabs value={tab} onValueChange={(t) => onNavigate(`/sites/${encodeURIComponent(data.name)}/${t}`)}>
         <TabsList>
           {tabs.map((t) => (
@@ -132,7 +133,7 @@ function SiteDialogs({ site, dialog, onClose, onDeleted }: { site: Site; dialog:
   return null;
 }
 
-function Facts({ site }: { site: Site }) {
+function Facts({ site, onNavigate }: { site: Site; onNavigate: (path: string) => void }) {
   const domains = site.domains.map((d) => d.hostname).join(", ");
   const facts: [string, string, boolean?][] = [
     ["Owner", site.owner_email],
@@ -140,15 +141,40 @@ function Facts({ site }: { site: Site }) {
     ["Domains", domains || "None"],
     ["Created", `${day(site.created_at)} by ${site.created_by}`],
   ];
+  const apps = site.applications ?? [];
   return (
     <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      {facts.map(([k, v, mono]) => (
-        <div key={k}>
-          <dt className="text-xs text-muted-foreground">{k}</dt>
-          <dd className={`break-words text-sm ${mono ? "font-mono" : ""}`}>{v}</dd>
-        </div>
+      {facts.slice(0, 1).map(([k, v]) => (
+        <Fact key={k} label={k}>
+          {v}
+        </Fact>
+      ))}
+      {apps.length > 0 && (
+        <Fact label={apps.length === 1 ? "Application" : "Applications"}>
+          {apps.map((a, i) => (
+            <span key={a.id} data-testid={`site-application-${a.name}`}>
+              {i > 0 && ", "}
+              <ApplicationLink name={a.name} onNavigate={onNavigate} />{" "}
+              <span className="text-muted-foreground">({a.environments.join(", ")})</span>
+            </span>
+          ))}
+        </Fact>
+      )}
+      {facts.slice(1).map(([k, v, mono]) => (
+        <Fact key={k} label={k} mono={mono}>
+          {v}
+        </Fact>
       ))}
     </dl>
+  );
+}
+
+function Fact({ label, mono, children }: { label: string; mono?: boolean; children: ReactNode }) {
+  return (
+    <div>
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className={`break-words text-sm ${mono ? "font-mono" : ""}`}>{children}</dd>
+    </div>
   );
 }
 

@@ -68,10 +68,21 @@ func (s *portalRead) Setup(ctx context.Context, env *harness.Env) error {
 		env.Log.Warn("portal-read: public viewer path excluded (could not seed a share)", "error", err)
 		return nil
 	}
+	// The anonymous view is read once before it joins the mix, so a share the
+	// platform will not show an anonymous reader stops the run with the status
+	// it answered instead of being measured as thousands of failures (#2729).
+	path := "/portal/view/" + token
+	code, _, err = s.get(ctx, env.Anon, env.Target.URL(path))
+	if err != nil {
+		return fmt.Errorf("portal-read setup: anonymous GET of the seeded share: %w", err)
+	}
+	if code != http.StatusOK {
+		return fmt.Errorf("portal-read setup: anonymous GET of the seeded share returned %d, want 200", code)
+	}
 	s.publicToken = token
 	s.endpoints = append(s.endpoints, portalEndpoint{
 		op:   "portal_public_view",
-		path: "/portal/view/" + token,
+		path: path,
 		anon: true,
 	})
 	env.Log.Info("portal-read: public viewer path seeded", "token_len", len(token))
@@ -152,10 +163,17 @@ func (s *portalRead) createAsset(ctx context.Context, env *harness.Env) (string,
 	return s.firstAssetID(ctx, env)
 }
 
-// createPublicShare posts an empty (public link) share and extracts the token.
+// publicShareRequest is the share the scenario seeds: a public link, which is
+// what an anonymous reader may open. A share naming nobody is otherwise a link
+// for signed-in users only ("public" is never implied, #1000), which refused
+// every anonymous view of the scenario from August to November (#2729). A
+// public link must expire, so it is given an hour, longer than any run.
+var publicShareRequest = map[string]any{"access_mode": "public", "expires_in": "1h"}
+
+// createPublicShare creates a public link share and extracts the token.
 func (s *portalRead) createPublicShare(ctx context.Context, env *harness.Env, assetID string) (string, error) {
 	url := env.Target.URL("/api/v1/portal/assets/" + assetID + "/shares")
-	code, body, err := s.postJSON(ctx, env.HTTP, url, map[string]any{})
+	code, body, err := s.postJSON(ctx, env.HTTP, url, publicShareRequest)
 	if err != nil {
 		return "", err
 	}

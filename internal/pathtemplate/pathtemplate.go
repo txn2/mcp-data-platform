@@ -183,7 +183,19 @@ func ValidateCallerPath(p string) error {
 	// All three are refused here so the raw path the policy sees
 	// equals the path the upstream will see (after JoinPath but
 	// before any server-side decoding).
-	return checkPathSegments(p)
+	if err := checkPathSegments(p); err != nil {
+		return err
+	}
+	// The router, the required path prefix and the operation a route rule
+	// names all read the path without its "?query" or "#fragment"
+	// (StripQuery), so its segments are held to the same rule: "/v1/users/..?x"
+	// split whole has a "..?x" segment, and stripped it ends in "..", which the
+	// router reads as a dot segment the check above never saw (#2713, found
+	// by FuzzMatch).
+	if path := StripQuery(p); path != p {
+		return checkPathSegments(path)
+	}
+	return nil
 }
 
 // checkPathSegments rejects literal "." / ".." segments, interior

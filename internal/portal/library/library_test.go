@@ -91,6 +91,8 @@ func TestBuildItemsJoinsUnderTheReach(t *testing.T) {
 	assert.Contains(t, query, "JOIN portal_collections ON portal_collections.id = e.target_id")
 	assert.Contains(t, query, "portal_shares ps")
 	assert.Contains(t, query, "ORDER BY at DESC LIMIT $")
+	assert.Contains(t, query, "portal_assets.updated_at")
+	assert.Contains(t, query, "portal_collections.updated_at")
 	assert.NotContains(t, query, "?")
 	assert.Equal(t, 5, args[len(args)-1])
 }
@@ -98,17 +100,19 @@ func TestBuildItemsJoinsUnderTheReach(t *testing.T) {
 func TestRecentsAndFavorites(t *testing.T) {
 	s, mock := newMock(t)
 	at := time.Date(2026, 11, 19, 1, 0, 0, 0, time.UTC)
-	cols := []string{"kind", "id", "name", "content_type", "owner_email", "at"}
+	cols := []string{"kind", "id", "name", "content_type", "owner_email", "at", "updated_at"}
+	changed := at.Add(-48 * time.Hour)
 	// The request's reach names the caller's own scope; recents widen it to
 	// everything the caller can open, shares included.
 	mock.ExpectQuery(`FROM portal_opens e .*portal_shares ps`).
 		WillReturnRows(sqlmock.NewRows(cols).
-			AddRow("asset", "a1", "Report", "text/html", "o@example.com", at).
-			AddRow("collection", "c1", "Finance", "", "o@example.com", at.Add(-time.Hour)))
+			AddRow("asset", "a1", "Report", "text/html", "o@example.com", at, changed).
+			AddRow("collection", "c1", "Finance", "", "o@example.com", at.Add(-time.Hour), changed))
 	items, err := s.Recents(context.Background(), "u1", reach(), 0)
 	require.NoError(t, err)
 	require.Len(t, items, 2)
-	assert.Equal(t, Item{Kind: KindAsset, ID: "a1", Name: "Report", ContentType: "text/html", OwnerEmail: "o@example.com", At: at}, items[0])
+	assert.Equal(t, Item{Kind: KindAsset, ID: "a1", Name: "Report", ContentType: "text/html", OwnerEmail: "o@example.com", At: at, UpdatedAt: changed}, items[0],
+		"each item names whose it is and when it last changed (#2734)")
 	assert.Equal(t, KindCollection, items[1].Kind)
 
 	mock.ExpectQuery(regexp.QuoteMeta("FROM portal_favorites e")).WillReturnRows(sqlmock.NewRows(cols))

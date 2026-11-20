@@ -3,6 +3,7 @@ package scriptprintf
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"go.starlark.net/starlark"
@@ -69,6 +70,9 @@ func parseDirective(s string) (directive, string, error) {
 			d.spec.prec = 0
 		}
 	}
+	if err := checkFields(d.spec); err != nil {
+		return d, "", err
+	}
 	s = strings.TrimLeft(s, "hlL")
 	if s == "" {
 		return d, "", errIncomplete
@@ -116,6 +120,11 @@ func number(s string) (rest string, star bool, n int) {
 	}
 	if i == 0 {
 		return s, false, -1
+	}
+	// More digits than MaxField has is past it whatever they say, and would
+	// overflow the parse to a width the caller never asked for.
+	if i > len(strconv.Itoa(MaxField)) {
+		return s[i:], false, MaxField + 1
 	}
 	_, _ = fmt.Sscan(s[:i], &n)
 	return s[i:], false, n
@@ -221,6 +230,9 @@ func (directive) star(star bool, n int, args *percentArgs) (int, error) {
 	var out int
 	if err := starlark.AsInt(v, &out); err != nil {
 		return 0, fmt.Errorf("a * width or precision must be an int, not %s", v.Type())
+	}
+	if err := checkField("* width or precision", out); err != nil {
+		return 0, err
 	}
 	return out, nil
 }

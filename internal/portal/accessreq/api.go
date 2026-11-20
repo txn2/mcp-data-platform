@@ -4,15 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/reqlog"
+
 	"github.com/google/uuid"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
-	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/portal/access"
 )
 
@@ -380,6 +380,6 @@ func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 }
 
 func fail(w http.ResponseWriter, r *http.Request, err error) {
-	slog.ErrorContext(r.Context(), "access requests", "error", logsan.SanitizeForLog(err.Error()))
+	reqlog.Failed(r, "access requests", err)
 	httpjson.WriteError(w, http.StatusInternalServerError, "access requests are unavailable")
 }

@@ -1,0 +1,29 @@
+rules:
+  # A failure an HTTP handler met is logged through internal/reqlog (#2728).
+  # When the request's caller has gone (a browser panning a map away, the tile
+  # renderer abandoning a page), the handler's reads fail with the request's
+  # own context cancelled: nothing failed on the server. Logged at ERROR they
+  # read as outages to every soak, alert and dashboard counting ERROR lines,
+  # and hide the real failures. reqlog.Failed logs those at DEBUG and the rest
+  # at ERROR. Test code logs what it likes.
+  - id: request-error-log-outside-reqlog
+    languages: [go]
+    severity: ERROR
+    paths:
+      include:
+        - pkg
+        - internal
+        - cmd
+      exclude:
+        - "*_test.go"
+        - /internal/reqlog
+        - /bench
+    pattern: "slog.ErrorContext(($R : *http.Request).Context(), ...)"
+    message: >-
+      Log a handler's failure with reqlog.Failed(r, msg, err, attrs...): it logs at DEBUG when the
+      request's caller has gone and at ERROR while the caller is still waiting, and sanitizes the
+      error for the log. slog.ErrorContext on a request's context logs a caller who left as an
+      outage (#2728).
+    metadata:
+      category: reliability
+      issue: "#2728"

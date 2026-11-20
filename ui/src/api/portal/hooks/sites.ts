@@ -47,6 +47,15 @@ export interface SiteEnvironment {
   tile_failure?: string;
   updated_by?: string;
   updated_at: string;
+  /** The application that holds it as a part (#2735), when the reader may open applications. */
+  application?: { id: string; name: string };
+}
+
+/** An application that uses a site, with the site's environments it holds (#2735). */
+export interface SiteApplication {
+  id: string;
+  name: string;
+  environments: string[];
 }
 
 export interface SiteDomain {
@@ -142,6 +151,8 @@ export interface Site {
   environment_name_room?: number;
   /** Its last 24 hours over the environments the caller sees (#2647), on the Sites list. */
   traffic?: { requests_24h: number; p95_ms: number };
+  /** The applications that use it (#2735), [] when none does or the reader may not open applications. */
+  applications?: SiteApplication[];
 }
 
 export interface SiteLimits {
