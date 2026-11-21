@@ -3,11 +3,12 @@ package resource
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/txn2/mcp-data-platform/internal/httpjson"
 )
 
 // FolderDescriber keeps the description a folder's search entry carries
@@ -128,7 +129,7 @@ func (h *Handler) handleFolderDescribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req folderDescriptionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpjson.DecodeBody(w, r, &req, httpjson.MaxBody); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}

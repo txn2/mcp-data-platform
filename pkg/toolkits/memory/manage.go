@@ -140,10 +140,17 @@ func verifyOwnership(ctx context.Context, store memstore.Store, id, action strin
 	if err != nil {
 		return toolkit.ErrorResult("memory not found")
 	}
-	if pc.UserEmail != "" && record.CreatedBy != pc.UserEmail {
+	if !ownsMemory(pc, record) {
 		return toolkit.ErrorResult("you can only " + action + " your own memories")
 	}
 	return nil
+}
+
+// ownsMemory reports whether the caller created record. A caller with no email
+// owns nothing: a record is its creator's by address, and an identity without
+// one cannot be told apart from anyone else's.
+func ownsMemory(pc *middleware.PlatformContext, record *memstore.Record) bool {
+	return pc != nil && pc.UserEmail != "" && record.CreatedBy == pc.UserEmail
 }
 
 // handleList returns memory records matching filters.
@@ -178,14 +185,22 @@ func (t *Toolkit) handleList(ctx context.Context, input manageInput) (*mcp.CallT
 	}), nil, nil
 }
 
-// handleReviewStale returns stale memory records for admin review.
-// Access is gated by persona tool visibility (opt-in per persona config),
-// so no additional authorization check is needed here.
+// handleReviewStale returns stale memory records for review: an
+// administrator's review covers every record; anyone else reviews the stale
+// records they created, in the persona they are in. A caller with no email
+// has no records to review.
 func (t *Toolkit) handleReviewStale(ctx context.Context, input manageInput) (*mcp.CallToolResult, any, error) {
 	filter := memstore.Filter{
 		Status: memstore.StatusStale,
 		Limit:  input.Limit,
 		Offset: input.Offset,
+	}
+	pc := middleware.GetPlatformContext(ctx)
+	if pc == nil || !pc.IsAdmin {
+		if pc == nil || pc.UserEmail == "" {
+			return toolkit.ErrorResult("reviewing stale memories needs an identity with an email address"), nil, nil
+		}
+		filter.CreatedBy, filter.Persona = pc.UserEmail, pc.PersonaName
 	}
 
 	records, total, err := t.store.List(ctx, filter)
@@ -337,7 +352,7 @@ func (t *Toolkit) fetchConsolidatePair(ctx context.Context, keepID, duplicateID 
 
 	pc := middleware.GetPlatformContext(ctx)
 	for _, r := range []*memstore.Record{keep, dup} {
-		if pc != nil && pc.UserEmail != "" && r.CreatedBy != pc.UserEmail {
+		if !ownsMemory(pc, r) {
 			return nil, toolkit.ErrorResult("you can only " + cmdConsolidate + " your own memories")
 		}
 	}

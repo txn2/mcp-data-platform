@@ -266,6 +266,11 @@ type Meter struct {
 	// results counts the tool results the run has been handed, by tool, for
 	// the refusal to say where the memory came from.
 	results map[string]int
+	// refused is the refusal a step checkpoint stopped the run with.
+	refused error
+	// checkpointAllocated is allocated() at the last step checkpoint that
+	// walked; see checkpoint.
+	checkpointAllocated int64
 }
 
 // NewMeter returns a meter for a run allowed budget bytes; zero or less sets

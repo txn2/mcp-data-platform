@@ -132,3 +132,32 @@ func TestSharingAllowed_TheAdminRuleAndNoUser(t *testing.T) {
 	assert.True(t, h.sharingAllowed(&User{Roles: []string{"root"}}), "an administrator shares whatever the persona says")
 	assert.False(t, h.sharingAllowed(&User{Roles: []string{"x"}}))
 }
+
+// TestContentURL_AViewersLinkNamesTheServedVersion holds #2742: on an asset a
+// release holds at version 2 with version 3 newer, a viewer without history
+// cannot mint a link to 3, and gets one to 2 when no version is named; the
+// owner and a caller who sees history still get 3.
+func TestContentURL_AViewersLinkNamesTheServedVersion(t *testing.T) {
+	held := func(perm SharePermission, user *User, history bool) *Handler {
+		h := historyHandler(perm, user, history)
+		h.deps.AssetStore = &mockAssetStore{getAsset: &Asset{
+			ID: "a1", OwnerID: "owner", OwnerEmail: "owner@example.com", Name: "r.md", CurrentVersion: 3, ReleasedVersion: 2,
+		}}
+		return h
+	}
+	reader := &User{UserID: "reader", Email: "reader@example.com"}
+	viewer := held(PermissionViewer, reader, false)
+	assert.Equal(t, http.StatusForbidden, historyGet(viewer, "/api/v1/portal/assets/a1/content-url?version=3"))
+	w := httptest.NewRecorder()
+	viewer.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/portal/assets/a1/content-url", http.NoBody))
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), `"version":2`)
+
+	for name, h := range map[string]*Handler{
+		"owner":          held(PermissionViewer, &User{UserID: "owner", Email: "owner@example.com"}, false),
+		"history reader": held(PermissionViewer, reader, true),
+		"editor":         held(PermissionEditor, reader, false),
+	} {
+		assert.Equal(t, http.StatusOK, historyGet(h, "/api/v1/portal/assets/a1/content-url?version=3"), name)
+	}
+}

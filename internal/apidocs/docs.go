@@ -14864,7 +14864,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Issues an API key bound to the calling user's own account. The key authenticates as them and carries the roles they hold, so a client that speaks only bearer tokens reaches the platform as the same identity their signed-in session does. The key value is shown once and never again. The request takes no roles: a person cannot widen their own key.",
+                "description": "Issues an API key bound to the calling user's own account. The key authenticates as them and carries the roles they hold, so a client that speaks only bearer tokens reaches the platform as the same identity their signed-in session does. The key value is shown once and never again. The request takes no roles: a person cannot widen their own key. A key is issued only to a signed-in portal session: a request authenticated by a bearer token or an API key is refused with 403.",
                 "consumes": [
                     "application/json"
                 ],
@@ -14904,6 +14904,15 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -18332,7 +18341,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns an expiring, signed URL that downloads one version of the asset without a portal session: the current version, or the one named by version. ttl is its lifetime in seconds (default 300, at most 86400). The caller must be able to view the asset, and a caller whose access is viewer may link only to the current version (403 otherwise). The link keeps serving that exact version until it expires and answers 403 afterwards.",
+                "description": "Returns an expiring, signed URL that downloads one version of the asset without a portal session: the version served (the one an application's release holds, else the newest), or the one named by version. ttl is its lifetime in seconds (default 300, at most 86400). The caller must be able to view the asset, and a caller who does not see its history may link only to the version served (403 otherwise). The link keeps serving that exact version until it expires and answers 403 afterwards.",
                 "produces": [
                     "application/json"
                 ],
@@ -18350,7 +18359,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
-                        "description": "Version to link to (default: current)",
+                        "description": "Version to link to (default: the version served)",
                         "name": "version",
                         "in": "query"
                     },

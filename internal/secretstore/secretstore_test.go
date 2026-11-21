@@ -16,14 +16,18 @@ import (
 
 // prefixEncryptor marks what it encrypted, so a test sees the value was
 // encrypted before it was written and decrypted after it was read.
-type prefixEncryptor struct{ fail bool }
+type prefixEncryptor struct{ fail, disabled bool }
 
-func (p prefixEncryptor) Encrypt(s string) (string, error) {
+// Seal always encrypts, as fieldcrypt's does: a value already reading
+// "enc:..." is sealed again.
+func (p prefixEncryptor) Seal(s string) (string, error) {
 	if p.fail {
 		return "", errors.New("no key")
 	}
 	return "enc:" + s, nil
 }
+
+func (p prefixEncryptor) Enabled() bool { return !p.disabled }
 
 func (p prefixEncryptor) Decrypt(s string) (string, error) {
 	if p.fail {
@@ -166,13 +170,83 @@ func TestPutRefusals(t *testing.T) {
 	_, _, err = s.Put(ctx, Write{Name: "pw", Value: new("hunter22"), AllowConnections: []string{"g"}})
 	require.ErrorContains(t, err, "encrypting secret value")
 
-	plain, mock2 := newMock(t, nil)
-	mock2.ExpectQuery(`FROM gateway_secrets WHERE name`).WillReturnError(sql.ErrNoRows)
-	mock2.ExpectExec(`INSERT INTO gateway_secrets`).WithArgs("pw", "", "hunter22", `{"g"}`, "{}", "", "value", "", 0, 0).WillReturnError(errors.New("down"))
-	_, _, err = plain.Put(ctx, Write{Name: "pw", Value: new("hunter22"), AllowConnections: []string{"g"}})
+	sealed, mock3 := newMock(t, prefixEncryptor{})
+	mock3.ExpectQuery(`FROM gateway_secrets WHERE name`).WillReturnError(sql.ErrNoRows)
+	mock3.ExpectExec(`INSERT INTO gateway_secrets`).WithArgs("pw", "", "enc:hunter22", `{"g"}`, "{}", "", "value", "", 0, 0).WillReturnError(errors.New("down"))
+	_, _, err = sealed.Put(ctx, Write{Name: "pw", Value: new("hunter22"), AllowConnections: []string{"g"}})
 	require.ErrorContains(t, err, "writing secret")
 	require.NoError(t, mock.ExpectationsWereMet())
-	require.NoError(t, mock2.ExpectationsWereMet())
+	require.NoError(t, mock3.ExpectationsWereMet())
+}
+
+// TestPutRefusesAValueWithNoKey: with no ENCRYPTION_KEY a write carrying a
+// value is refused as a bad request naming the key, and nothing is written; a
+// rescope, which carries none, still saves.
+func TestPutRefusesAValueWithNoKey(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now()
+	for name, enc := range map[string]Encryptor{"no encryptor": nil, "no key": prefixEncryptor{disabled: true}} {
+		s, mock := newMock(t, enc)
+		mock.ExpectQuery(`FROM gateway_secrets WHERE name`).WillReturnError(sql.ErrNoRows)
+		_, _, err := s.Put(ctx, Write{Name: "pw", Value: new("hunter22"), AllowConnections: []string{"g"}})
+		require.ErrorIs(t, err, ErrCannotEncrypt, name)
+		require.ErrorIs(t, err, ErrInvalid, name)
+		assert.Contains(t, err.Error(), "ENCRYPTION_KEY", name)
+
+		mock.ExpectQuery(`FROM gateway_secrets WHERE name`).WithArgs("pw").WillReturnRows(metaRow(now))
+		mock.ExpectExec(`UPDATE gateway_secrets SET`).WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectQuery(`FROM gateway_secrets WHERE name`).WithArgs("pw").WillReturnRows(metaRow(now))
+		_, _, err = s.Put(ctx, Write{Name: "pw", Description: "rescoped", AllowConnections: []string{"g"}})
+		require.NoError(t, err, name)
+		require.NoError(t, mock.ExpectationsWereMet(), name)
+	}
+}
+
+// TestPutSealsAValueThatLooksEncrypted: a value that happens to read "enc:..."
+// is sealed like any other, never stored as written.
+func TestPutSealsAValueThatLooksEncrypted(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now()
+	s, mock := newMock(t, prefixEncryptor{})
+	mock.ExpectQuery(`FROM gateway_secrets WHERE name`).WithArgs("pw").WillReturnError(sql.ErrNoRows)
+	mock.ExpectExec(`INSERT INTO gateway_secrets`).
+		WithArgs("pw", "", "enc:enc:abc", `{"g"}`, "{}", "", "value", "", 0, 0).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`FROM gateway_secrets WHERE name`).WithArgs("pw").WillReturnRows(metaRow(now))
+	_, _, err := s.Put(ctx, Write{Name: "pw", Value: new("enc:abc"), AllowConnections: []string{"g"}})
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestResealPlaintext(t *testing.T) {
+	ctx := context.Background()
+	s, mock := newMock(t, prefixEncryptor{})
+	mock.ExpectQuery(`SELECT name, value FROM gateway_secrets WHERE value NOT LIKE 'enc:%'`).
+		WillReturnRows(sqlmock.NewRows([]string{"name", "value"}).AddRow("a", "hunter22").AddRow("b", "raced").AddRow("c", "swordfish"))
+	mock.ExpectExec(`UPDATE gateway_secrets SET value = \$3 WHERE name = \$1 AND value = \$2`).
+		WithArgs("a", "hunter22", "enc:hunter22").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE gateway_secrets SET value`).
+		WithArgs("b", "raced", "enc:raced").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`UPDATE gateway_secrets SET value`).
+		WithArgs("c", "swordfish", "enc:swordfish").WillReturnResult(sqlmock.NewResult(0, 1))
+	n, err := s.ResealPlaintext(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 2, n, "the rows sealed are counted; a row another replica sealed first is not")
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	off, _ := newMock(t, prefixEncryptor{disabled: true})
+	n, err = off.ResealPlaintext(ctx)
+	require.NoError(t, err)
+	assert.Zero(t, n)
+
+	broken, mock2 := newMock(t, prefixEncryptor{})
+	mock2.ExpectQuery(`NOT LIKE`).WillReturnError(errors.New("down"))
+	_, err = broken.ResealPlaintext(ctx)
+	require.ErrorContains(t, err, "down")
+	failing, mock4 := newMock(t, prefixEncryptor{fail: true})
+	mock4.ExpectQuery(`NOT LIKE`).WillReturnRows(sqlmock.NewRows([]string{"name", "value"}).AddRow("a", "x"))
+	_, err = failing.ResealPlaintext(ctx)
+	require.ErrorContains(t, err, "sealing secret")
 }
 
 func TestDelete(t *testing.T) {

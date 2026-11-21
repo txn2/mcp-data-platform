@@ -1,6 +1,7 @@
 package auditapi
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -64,6 +65,10 @@ func (h *handler) getAuditTimeseries(w http.ResponseWriter, r *http.Request) {
 	}
 
 	buckets, err := h.cfg.Metrics.Timeseries(r.Context(), filter)
+	if errors.Is(err, audit.ErrTimeseriesRange) {
+		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err != nil {
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to query timeseries")
 		return

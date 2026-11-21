@@ -25,14 +25,37 @@ type lexeme struct {
 	start, end int
 }
 
+// maxBodyDepth bounds how deep a dollar-quoted body inside a body is read.
+const maxBodyDepth = 4
+
 // PasswordLiteral reports whether stmt, one statement, writes a credential: a
-// role, user, group or user mapping given a PASSWORD other than NULL. It
-// returns the object the statement acts on ("CREATE ROLE"). The migration
-// review's password_literal rule and RedactPasswords both read a statement
-// by it, so what the review refuses is what a stored copy has redacted.
+// role, user, group or user mapping given a PASSWORD other than NULL, in the
+// statement itself or in a statement of a dollar-quoted body it carries (a DO
+// block, a function's body). It returns the object the statement acts on
+// ("CREATE ROLE"). The migration review's password_literal rule and
+// RedactPasswords both read a statement by it, so what the review refuses is
+// what a stored copy has redacted.
 func PasswordLiteral(stmt string) (object string, ok bool) {
-	object, _, ok = passwordLiterals(stmt, 0, len(stmt))
-	return object, ok
+	return credentialIn(stmt, 0)
+}
+
+// credentialIn is PasswordLiteral at a body depth.
+func credentialIn(stmt string, depth int) (string, bool) {
+	if object, _, ok := passwordLiterals(stmt, 0, len(stmt), depth > 0); ok {
+		return object, true
+	}
+	if depth >= maxBodyDepth {
+		return "", false
+	}
+	for _, body := range dollarBodies(stmt, 0, len(stmt)) {
+		inner := stmt[body.start:body.end]
+		for _, r := range statementRanges(inner) {
+			if object, ok := credentialIn(inner[r[0]:r[1]], depth+1); ok {
+				return object, true
+			}
+		}
+	}
+	return "", false
 }
 
 // RedactPasswords returns sql with every literal after the PASSWORD of a
@@ -40,21 +63,26 @@ func PasswordLiteral(stmt string) (object string, ok bool) {
 // text as it is. Every literal after the PASSWORD is replaced, not only the
 // first: what follows it (VALID UNTIL, a user mapping's later options) is
 // read no further than that.
+//
+// A statement that sets no password itself has each dollar-quoted body it
+// carries read the same way, so a role created inside a DO block or a
+// function's body is redacted as one created at the top level.
 func RedactPasswords(sql string) string {
+	return redactAt(sql, 0)
+}
+
+// redactAt is RedactPasswords at a body depth.
+func redactAt(sql string, depth int) string {
 	if !containsFold(sql, "password") {
 		return sql
 	}
 	var b strings.Builder
 	last := 0
 	for _, r := range statementRanges(sql) {
-		_, spans, ok := passwordLiterals(sql, r[0], r[1])
-		if !ok {
-			continue
-		}
-		for _, sp := range spans {
-			_, _ = b.WriteString(sql[last:sp.start])
-			_, _ = b.WriteString(RedactedLiteral)
-			last = sp.end
+		for _, rep := range replacementsIn(sql, r, depth) {
+			_, _ = b.WriteString(sql[last:rep.start])
+			_, _ = b.WriteString(rep.text)
+			last = rep.end
 		}
 	}
 	if last == 0 {
@@ -64,11 +92,42 @@ func RedactPasswords(sql string) string {
 	return b.String()
 }
 
+// replacement is text to write in place of sql[start:end].
+type replacement struct {
+	span
+	text string
+}
+
+// replacementsIn is what RedactPasswords writes over in the statement
+// sql[r[0]:r[1]]: its password literals, or, for a statement that sets no
+// password itself, each dollar-quoted body redacted in turn.
+func replacementsIn(sql string, r [2]int, depth int) []replacement {
+	var out []replacement
+	if _, spans, ok := passwordLiterals(sql, r[0], r[1], depth > 0); ok {
+		for _, sp := range spans {
+			out = append(out, replacement{span: sp, text: RedactedLiteral})
+		}
+		return out
+	}
+	if depth >= maxBodyDepth {
+		return nil
+	}
+	for _, body := range dollarBodies(sql, r[0], r[1]) {
+		inner := sql[body.start:body.end]
+		if redacted := redactAt(inner, depth+1); redacted != inner {
+			out = append(out, replacement{span: body, text: redacted})
+		}
+	}
+	return out
+}
+
 // passwordLiterals reads the statement sql[start:end] for PasswordLiteral and
-// returns the spans of the literals after its PASSWORD.
-func passwordLiterals(sql string, start, end int) (object string, spans []span, ok bool) {
-	ls := lexemes(sql, start, end)
-	if len(ls) < 2 || !passwordObjects[ls[0].word][ls[1].word] {
+// returns the spans of the literals after its PASSWORD. In a body (inBody) the
+// statement may open with procedural words before the one that sets a
+// password (BEGIN, IF ... THEN), so it is found wherever it starts.
+func passwordLiterals(sql string, start, end int, inBody bool) (object string, spans []span, ok bool) {
+	ls, found := credentialStatement(lexemes(sql, start, end), inBody)
+	if !found {
 		return "", nil, false
 	}
 	p := -1
@@ -87,6 +146,41 @@ func passwordLiterals(sql string, start, end int) (object string, spans []span, 
 		}
 	}
 	return strings.ToUpper(ls[0].word + " " + ls[1].word), spans, true
+}
+
+// credentialStatement is ls from the word that opens a statement giving a
+// password (CREATE ROLE, ALTER USER ...): the first two words, or anywhere in
+// a body statement (inBody), which may open with procedural words.
+func credentialStatement(ls []lexeme, inBody bool) ([]lexeme, bool) {
+	for k := 0; k+1 < len(ls); k++ {
+		if passwordObjects[ls[k].word][ls[k+1].word] {
+			return ls[k:], true
+		}
+		if !inBody {
+			break
+		}
+	}
+	return nil, false
+}
+
+// dollarBodies is where the content of each dollar-quoted body in
+// sql[start:end] stands, between its opening and closing tags.
+func dollarBodies(sql string, start, end int) []span {
+	var out []span
+	for _, l := range lexemes(sql, start, end) {
+		if !l.literal || sql[l.start] != '$' {
+			continue
+		}
+		tagEnd := strings.IndexByte(sql[l.start+1:l.end], '$')
+		if tagEnd < 0 {
+			continue
+		}
+		tag := l.start + tagEnd + 2 // past the opening tag's closing $
+		if closing := l.end - (tag - l.start); closing >= tag {
+			out = append(out, span{start: tag, end: closing})
+		}
+	}
+	return out
 }
 
 // lexemes tokenizes sql[start:end], dropping whitespace and comments.

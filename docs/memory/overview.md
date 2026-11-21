@@ -80,7 +80,7 @@ Lifecycle operations for existing memory records. Opt-in per persona (requires `
 | `update` | Revise content, category, tags on an existing record |
 | `forget` | Soft-delete (archive) a memory |
 | `list` | Query memories with filters, persona-scoped by default |
-| `review_stale` | List memories flagged as stale by the lineage watcher |
+| `review_stale` | List memories flagged as stale by the lineage watcher: an administrator sees every one, anyone else the ones they created in their persona |
 | `review_duplicates` | List the caller's high-similarity active memory pairs for consolidation review |
 | `consolidate` | Supersede a duplicate record by the record kept (`id` = keep, `duplicate_id` = supersede) |
 
@@ -153,7 +153,7 @@ An insight entry additionally carries a `verifiable` block naming the table and 
 
 ## Staleness Detection
 
-A background watcher periodically checks active memories against the catalog's state for the entities they name. When a referenced entity has changed underneath a memory, the memory is flagged as `stale` with a reason. Stale memories are excluded from default recall and surfaced via `memory_manage(command='review_stale')` for admin curation.
+A background watcher periodically checks active memories against the catalog's state for the entities they name. When a referenced entity has changed underneath a memory, the memory is flagged as `stale` with a reason. Stale memories are excluded from default recall and surfaced via `memory_manage(command='review_stale')`: an administrator reviews every stale memory, and anyone else reviews the stale memories they created, in their persona. Changing a memory (`update`, `forget`, `consolidate`) is its creator's, matched by email; a caller whose identity carries no email changes none.
 
 ## Correction Chains
 

@@ -62,17 +62,24 @@ func Summary(sql string) string {
 // leadingWord is the first word of sql, lowercased, past leading whitespace,
 // "--" line comments, "/* */" block comments and opening parentheses.
 func leadingWord(sql string) string {
-	s := sql
+	word, _ := nextWord(sql)
+	return word
+}
+
+// nextWord is the first word of s, lowercased, past leading whitespace,
+// comments and opening parentheses, and the text after it. A comment that
+// never ends leaves no word.
+func nextWord(s string) (word, rest string) {
 	for {
 		s = strings.TrimLeft(s, " \t\r\n(")
-		rest, skipped, ok := skipComment(s)
+		after, skipped, ok := skipComment(s)
 		if !ok {
-			return ""
+			return "", ""
 		}
 		if !skipped {
 			break
 		}
-		s = rest
+		s = after
 	}
 	end := strings.IndexFunc(s, func(r rune) bool {
 		return (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && r != '_'
@@ -80,7 +87,7 @@ func leadingWord(sql string) string {
 	if end < 0 {
 		end = len(s)
 	}
-	return strings.ToLower(s[:end])
+	return strings.ToLower(s[:end]), s[end:]
 }
 
 // skipComment removes one comment from the front of s. skipped reports whether

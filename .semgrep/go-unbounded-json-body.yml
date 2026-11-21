@@ -1,0 +1,31 @@
+rules:
+  # A request body is read through a bound. A handler that decodes r.Body
+  # unbounded lets one request make the server buffer whatever the caller
+  # sends, signed in or not. httpjson.DecodeBody reads at most the bytes its
+  # route accepts; a handler that needs its own decoder (DisallowUnknownFields,
+  # streaming) bounds r.Body with http.MaxBytesReader first, in the same
+  # function, or decodes http.MaxBytesReader(...) directly. Test code reads
+  # what it likes.
+  - id: unbounded-json-request-body
+    languages: [go]
+    severity: ERROR
+    paths:
+      include:
+        - pkg
+        - internal
+        - cmd
+      exclude:
+        - "*_test.go"
+        - /bench
+    patterns:
+      - pattern: "json.NewDecoder(($R : *http.Request).Body)"
+      - pattern-not-inside: |
+          $R.Body = http.MaxBytesReader(...)
+          ...
+    message: >-
+      Read a JSON request body with httpjson.DecodeBody(w, r, &dst, httpjson.MaxBody), or bound it
+      with r.Body = http.MaxBytesReader(w, r.Body, n) first: an unbounded decode buffers whatever
+      the caller sends.
+    metadata:
+      category: security
+      cwe: "CWE-400: Uncontrolled Resource Consumption"

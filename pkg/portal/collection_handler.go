@@ -1,10 +1,11 @@
 package portal
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
+
+	"github.com/txn2/mcp-data-platform/internal/httpjson"
 
 	"github.com/google/uuid"
 
@@ -53,7 +54,7 @@ func (h *Handler) createCollection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req createCollectionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpjson.DecodeBody(w, r, &req, httpjson.MaxBody); err != nil {
 		writeError(w, http.StatusBadRequest, errInvalidRequestBody)
 		return
 	}
@@ -319,7 +320,7 @@ func (h *Handler) updateCollection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req updateCollectionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpjson.DecodeBody(w, r, &req, httpjson.MaxBody); err != nil {
 		writeError(w, http.StatusBadRequest, errInvalidRequestBody)
 		return
 	}
@@ -455,7 +456,7 @@ func (h *Handler) updateCollectionConfig(w http.ResponseWriter, r *http.Request)
 	}
 
 	var config CollectionConfig
-	if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+	if err := httpjson.DecodeBody(w, r, &config, httpjson.MaxBody); err != nil {
 		writeError(w, http.StatusBadRequest, errInvalidRequestBody)
 		return
 	}
@@ -527,7 +528,7 @@ func (h *Handler) setCollectionSections(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req setSectionsRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpjson.DecodeBody(w, r, &req, httpjson.MaxBody); err != nil {
 		writeError(w, http.StatusBadRequest, errInvalidRequestBody)
 		return
 	}
@@ -536,6 +537,14 @@ func (h *Handler) setCollectionSections(w http.ResponseWriter, r *http.Request) 
 	if convErr != nil {
 		writeError(w, http.StatusBadRequest, convErr.Error())
 		return
+	}
+	// The collection's share opens every asset it holds, so each asset this
+	// write adds must be one the caller may add, as Add to collection checks.
+	for _, assetID := range portaldomain.AddedAssets(coll, sections) {
+		if status, msg := h.assetAddable(r.Context(), assetID, user); status != 0 {
+			writeError(w, status, fmt.Sprintf("asset %s: %s", assetID, msg))
+			return
+		}
 	}
 
 	if err := h.deps.CollectionStore.SetSections(r.Context(), id, sections); err != nil {
@@ -714,7 +723,7 @@ func (h *Handler) createCollectionShare(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req createShareRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpjson.DecodeBody(w, r, &req, httpjson.MaxBody); err != nil {
 		writeError(w, http.StatusBadRequest, errInvalidRequestBody)
 		return
 	}

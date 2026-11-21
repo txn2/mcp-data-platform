@@ -70,7 +70,10 @@ key, and there is nothing to narrow it to that they could not already reach.
 
 **Who may manage keys.** The self-service routes behind Settings > API Keys are
 a signed-in action: a request that authenticated with an API key cannot issue,
-list or revoke keys for its own account, and is answered 403.
+list or revoke keys for its own account, and is answered 403. Issuing one also
+needs the portal's signed-in browser session: a request authenticated by an
+OAuth or OIDC bearer token is answered 403 on `POST`, since a key would outlive
+the short-lived token an application holds. It can still list and revoke.
 
 The admin routes are not. `GET/POST /api/v1/admin/auth/keys` and
 `DELETE /api/v1/admin/auth/keys/{name}` require the admin persona and accept any

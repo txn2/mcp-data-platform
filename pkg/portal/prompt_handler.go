@@ -2,11 +2,12 @@ package portal
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/httpjson"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/access"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
@@ -258,7 +259,7 @@ func (h *Handler) createMyPrompt(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req portalPromptCreateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpjson.DecodeBody(w, r, &req, httpjson.MaxContentBody); err != nil {
 		writePortalError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -350,7 +351,7 @@ func (h *Handler) updateMyPrompt(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req portalPromptCreateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpjson.DecodeBody(w, r, &req, httpjson.MaxContentBody); err != nil {
 		writePortalError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -650,7 +651,7 @@ func (h *Handler) createPromptShare(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req createShareRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpjson.DecodeBody(w, r, &req, httpjson.MaxBody); err != nil {
 		writePortalError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}

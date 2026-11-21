@@ -28,11 +28,11 @@ type contentURLResponse struct {
 // mintContentURL handles GET /api/v1/portal/assets/{id}/content-url.
 //
 // @Summary      Get a signed content URL
-// @Description  Returns an expiring, signed URL that downloads one version of the asset without a portal session: the current version, or the one named by version. ttl is its lifetime in seconds (default 300, at most 86400). The caller must be able to view the asset, and a caller whose access is viewer may link only to the current version (403 otherwise). The link keeps serving that exact version until it expires and answers 403 afterwards.
+// @Description  Returns an expiring, signed URL that downloads one version of the asset without a portal session: the version served (the one an application's release holds, else the newest), or the one named by version. ttl is its lifetime in seconds (default 300, at most 86400). The caller must be able to view the asset, and a caller who does not see its history may link only to the version served (403 otherwise). The link keeps serving that exact version until it expires and answers 403 afterwards.
 // @Tags         Assets
 // @Produce      json
 // @Param        id       path   string   true   "Asset ID"
-// @Param        version  query  integer  false  "Version to link to (default: current)"
+// @Param        version  query  integer  false  "Version to link to (default: the version served)"
 // @Param        ttl      query  integer  false  "Lifetime in seconds (default 300, max 86400)"
 // @Success      200  {object}  contentURLResponse
 // @Failure      400  {object}  problemDetail
@@ -62,8 +62,10 @@ func (h *Handler) mintContentURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A link outlives the session that minted it, so a viewer's link names
-	// the version served only, as their own reads do (#2226, #2411).
-	if version != asset.CurrentVersion && version != asset.ServedVersion() && !h.access.SeesAssetHistory(r.Context(), asset, user) {
+	// the version served only, as their own reads do (#2226, #2411): an
+	// application release holding the asset at an earlier version keeps
+	// the newest one from a viewer's link too (#2742).
+	if version != asset.ServedVersion() && !h.access.SeesAssetHistory(r.Context(), asset, user) {
 		writeError(w, http.StatusForbidden, access.ErrHistoryNotShared)
 		return
 	}

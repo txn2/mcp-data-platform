@@ -3,11 +3,12 @@ package portal
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"slices"
 	"strings"
+
+	"github.com/txn2/mcp-data-platform/internal/httpjson"
 
 	"github.com/google/uuid"
 
@@ -69,7 +70,7 @@ func (h *Handler) appendCollectionItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req appendItemRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.AssetID) == "" {
+	if err := httpjson.DecodeBody(w, r, &req, httpjson.MaxBody); err != nil || strings.TrimSpace(req.AssetID) == "" {
 		writeError(w, http.StatusBadRequest, "asset_id is required")
 		return
 	}

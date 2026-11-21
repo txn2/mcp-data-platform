@@ -1670,3 +1670,35 @@ func TestPostgresShareStoreListSharedWithUserSinceErrors(t *testing.T) {
 
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
+
+// TestPostgresShareStoreGetUserCollectionPermissions reads a page's
+// permissions in one statement (#2740); an empty page reads nothing.
+func TestPostgresShareStoreGetUserCollectionPermissions(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+	store := &postgresShareStore{db: db}
+
+	empty, err := store.GetUserCollectionPermissions(context.Background(), nil, "u1", "u1@example.com")
+	require.NoError(t, err)
+	assert.Empty(t, empty)
+
+	mock.ExpectQuery(`SELECT DISTINCT ON \(collection_id\) collection_id, permission FROM portal_shares`).
+		WillReturnRows(sqlmock.NewRows([]string{"collection_id", "permission"}).AddRow("c1", "editor").AddRow("c2", "viewer"))
+	got, err := store.GetUserCollectionPermissions(context.Background(), []string{"c1", "c2", "c3"}, "u1", "u1@example.com")
+	require.NoError(t, err)
+	assert.Equal(t, map[string]portaldomain.SharePermission{"c1": portaldomain.PermissionEditor, "c2": portaldomain.PermissionViewer}, got)
+
+	mock.ExpectQuery(`SELECT DISTINCT ON`).WillReturnError(assert.AnError)
+	_, err = store.GetUserCollectionPermissions(context.Background(), []string{"c1"}, "u1", "")
+	require.Error(t, err)
+
+	mock.ExpectQuery(`SELECT DISTINCT ON`).WillReturnRows(sqlmock.NewRows([]string{"collection_id"}).AddRow("c1"))
+	_, err = store.GetUserCollectionPermissions(context.Background(), []string{"c1"}, "u1", "")
+	require.Error(t, err, "a row that does not scan")
+
+	mock.ExpectQuery(`SELECT DISTINCT ON`).WillReturnRows(sqlmock.NewRows([]string{"collection_id", "permission"}).AddRow("c1", "editor").RowError(0, assert.AnError))
+	_, err = store.GetUserCollectionPermissions(context.Background(), []string{"c1"}, "u1", "")
+	require.Error(t, err, "a cut read")
+	require.NoError(t, mock.ExpectationsWereMet())
+}

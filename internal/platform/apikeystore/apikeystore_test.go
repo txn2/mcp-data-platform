@@ -18,7 +18,7 @@ const (
 
 var apikeyColumns = []string{
 	"name", "key_hash", "email", "description", "roles", "expires_at", "created_by", "created_at",
-	"user_email", "attributes",
+	"user_email", "attributes", "key_digest",
 }
 
 func newTestAPIKeyStore(t *testing.T) (*PostgresStore, sqlmock.Sqlmock) {
@@ -44,9 +44,9 @@ func TestPostgresAPIKeyStoreList(t *testing.T) {
 
 	rows := sqlmock.NewRows(apikeyColumns).
 		AddRow("admin-key", "$2a$10$hash1", "admin@example.com", "Admin key",
-			[]byte(`["admin"]`), exp, "creator@example.com", now, "", []byte(`{"tenant":"acme"}`)).
+			[]byte(`["admin"]`), exp, "creator@example.com", now, "", []byte(`{"tenant":"acme"}`), "d1").
 		AddRow("readonly-key", "$2a$10$hash2", "readonly@example.com", "Read-only key",
-			[]byte(`["viewer"]`), nil, "creator@example.com", now, "", []byte(`{}`))
+			[]byte(`["viewer"]`), nil, "creator@example.com", now, "", []byte(`{}`), "")
 
 	mock.ExpectQuery("SELECT name, key_hash, email, description, roles, expires_at, created_by, created_at").
 		WillReturnRows(rows)
@@ -96,7 +96,7 @@ func TestPostgresAPIKeyStoreList_ScanError(t *testing.T) {
 	store, mock := newTestAPIKeyStore(t)
 
 	rows := sqlmock.NewRows(apikeyColumns).
-		AddRow("bad", "hash", "email", "desc", "not-json", nil, "admin", time.Now(), "", []byte(`{}`))
+		AddRow("bad", "hash", "email", "desc", "not-json", nil, "admin", time.Now(), "", []byte(`{}`), "")
 
 	mock.ExpectQuery("SELECT .+ FROM api_keys").WillReturnRows(rows)
 
@@ -129,7 +129,7 @@ func TestPostgresAPIKeyStoreCreate(t *testing.T) {
 		WithArgs(
 			def.Name, def.KeyHash, def.Email, def.Description,
 			[]byte(`["admin","viewer"]`),
-			def.ExpiresAt, def.CreatedBy, def.UserEmail, []byte(`{}`),
+			def.ExpiresAt, def.CreatedBy, def.UserEmail, []byte(`{}`), def.KeyDigest,
 		).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -214,7 +214,7 @@ func TestPostgresAPIKeyStoreHashedKeys(t *testing.T) {
 	exp := time.Now().Add(time.Hour).UTC()
 	mock.ExpectQuery("SELECT name, key_hash").
 		WillReturnRows(sqlmock.NewRows(apikeyColumns).
-			AddRow("ci", "$2a$10$hash", "ci@example.com", "pipeline", []byte(`["analyst"]`), exp, "admin@example.com", time.Now(), "analyst@example.com", []byte(`{}`)))
+			AddRow("ci", "$2a$10$hash", "ci@example.com", "pipeline", []byte(`["analyst"]`), exp, "admin@example.com", time.Now(), "analyst@example.com", []byte(`{}`), "dg"))
 
 	keys, err := store.HashedKeys(context.Background())
 	require.NoError(t, err)
@@ -318,4 +318,15 @@ func TestNoopAPIKeyStore(t *testing.T) {
 		err := store.Delete(ctx, "anything")
 		assert.ErrorIs(t, err, ErrNotFound)
 	})
+}
+
+func TestPostgresAPIKeyStoreRecordKeyDigest(t *testing.T) {
+	store, mock := newTestAPIKeyStore(t)
+	mock.ExpectExec(`UPDATE api_keys SET key_digest = \$3 WHERE name = \$1 AND key_hash = \$2 AND key_digest IS NULL`).
+		WithArgs("ci", "$2a$10$hash", "abc").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	require.NoError(t, store.RecordKeyDigest(context.Background(), "ci", "$2a$10$hash", "abc"))
+	mock.ExpectExec(`UPDATE api_keys`).WillReturnError(errors.New("down"))
+	require.Error(t, store.RecordKeyDigest(context.Background(), "ci", "$2a$10$hash", "abc"))
+	require.NoError(t, mock.ExpectationsWereMet())
 }

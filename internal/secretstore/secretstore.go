@@ -144,12 +144,21 @@ func invalidValue(value *string, creating bool) string {
 	return ""
 }
 
-// Encryptor encrypts and decrypts one value. fieldcrypt.RestFieldEncryptor
-// satisfies it; a nil one stores values as written.
+// Encryptor seals and opens one value. fieldcrypt.RestFieldEncryptor
+// satisfies it. Seal always encrypts what it is given, whatever it holds, and
+// fails with no key; Decrypt reads a value Seal wrote, and passes through a
+// value an earlier release stored as written.
 type Encryptor interface {
-	Encrypt(plaintext string) (string, error)
+	Seal(plaintext string) (string, error)
 	Decrypt(ciphertext string) (string, error)
+	Enabled() bool
 }
+
+// ErrCannotEncrypt refuses a write that carries a value on a deployment with
+// no ENCRYPTION_KEY: a stored secret is write-only and encrypted at rest, and
+// with no key it would be stored as written. It wraps ErrInvalid, so a surface
+// answers it as a bad request naming the key.
+var ErrCannotEncrypt = fmt.Errorf("a stored secret's value is encrypted at rest, and this deployment has no ENCRYPTION_KEY: %w", ErrInvalid)
 
 // Store persists secrets in gateway_secrets.
 type Store struct {
@@ -165,7 +174,7 @@ type Store struct {
 	sleep func(ctx context.Context, d time.Duration) error
 }
 
-// NewStore creates a store. enc may be nil.
+// NewStore creates a store. enc may be nil, which stores no value.
 func NewStore(db *sql.DB, enc Encryptor) *Store {
 	return &Store{db: db, enc: enc, now: time.Now, sleep: sleepCtx}
 }
@@ -356,16 +365,73 @@ func (s *Store) Delete(ctx context.Context, name string) error {
 	return nil
 }
 
-// encrypt encrypts a value, or passes it through with no encryptor.
+// encrypt seals a value, refusing with ErrCannotEncrypt when there is no key:
+// a value is never stored as written, and one that happens to read "enc:..."
+// is sealed like any other.
 func (s *Store) encrypt(v string) (string, error) {
-	if s.enc == nil {
-		return v, nil
+	if s.enc == nil || !s.enc.Enabled() {
+		return "", ErrCannotEncrypt
 	}
-	out, err := s.enc.Encrypt(v)
+	out, err := s.enc.Seal(v)
 	if err != nil {
 		return "", fmt.Errorf("encrypting secret value: %w", err)
 	}
 	return out, nil
+}
+
+// ResealPlaintext seals every stored value an earlier release wrote as
+// written (one that does not read "enc:..."), so a deployment that ran with
+// no ENCRYPTION_KEY holds its secrets encrypted from its first start with
+// one. Each row is replaced only while it still holds the value read, so
+// replicas starting together seal it once. It returns how many it sealed;
+// with no key it does nothing.
+func (s *Store) ResealPlaintext(ctx context.Context) (int, error) {
+	if s.enc == nil || !s.enc.Enabled() {
+		return 0, nil
+	}
+	found, err := s.storedAsWritten(ctx)
+	if err != nil {
+		return 0, err
+	}
+	sealed := 0
+	for _, p := range found {
+		enc, err := s.enc.Seal(p.value)
+		if err != nil {
+			return sealed, fmt.Errorf("sealing secret %q: %w", p.name, err)
+		}
+		res, err := s.db.ExecContext(ctx, `UPDATE gateway_secrets SET value = $3 WHERE name = $1 AND value = $2`, p.name, p.value, enc)
+		if err != nil {
+			return sealed, fmt.Errorf("sealing secret %q: %w", p.name, err)
+		}
+		if n, err := res.RowsAffected(); err == nil && n > 0 {
+			sealed++
+		}
+	}
+	return sealed, nil
+}
+
+// plainSecret is a stored value an earlier release wrote as written.
+type plainSecret struct{ name, value string }
+
+// storedAsWritten lists the stored values that are not sealed.
+func (s *Store) storedAsWritten(ctx context.Context) ([]plainSecret, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT name, value FROM gateway_secrets WHERE value NOT LIKE 'enc:%'`)
+	if err != nil {
+		return nil, fmt.Errorf("listing secrets stored as written: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // best-effort cleanup
+	var found []plainSecret
+	for rows.Next() {
+		var p plainSecret
+		if err := rows.Scan(&p.name, &p.value); err != nil {
+			return nil, fmt.Errorf("reading a secret stored as written: %w", err)
+		}
+		found = append(found, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("listing secrets stored as written: %w", err)
+	}
+	return found, nil
 }
 
 // withValue reads a secret and its decrypted value.

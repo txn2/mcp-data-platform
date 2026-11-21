@@ -36,6 +36,7 @@ const (
 func TestNewOIDCAuthenticator(t *testing.T) {
 	t.Run("requires issuer", func(t *testing.T) {
 		_, err := NewOIDCAuthenticator(OIDCConfig{
+			ClientID:                  "test-client",
 			SkipSignatureVerification: true,
 		})
 		if err == nil {
@@ -64,6 +65,7 @@ func TestNewOIDCAuthenticator(t *testing.T) {
 func TestOIDCAuthenticator_Authenticate(t *testing.T) {
 	t.Run("no token", func(t *testing.T) {
 		auth, _ := NewOIDCAuthenticator(OIDCConfig{
+			ClientID:                  "test-client",
 			Issuer:                    "https://issuer.example.com",
 			SkipSignatureVerification: true,
 		})
@@ -76,6 +78,7 @@ func TestOIDCAuthenticator_Authenticate(t *testing.T) {
 
 	t.Run("valid token", func(t *testing.T) {
 		auth, _ := NewOIDCAuthenticator(OIDCConfig{
+			ClientID:                  "test-client",
 			Issuer:                    "https://issuer.example.com",
 			SkipIssuerVerification:    true,
 			SkipSignatureVerification: true,
@@ -108,6 +111,7 @@ func TestOIDCAuthenticator_Authenticate(t *testing.T) {
 
 	t.Run("invalid JWT format", func(t *testing.T) {
 		auth, _ := NewOIDCAuthenticator(OIDCConfig{
+			ClientID:                  "test-client",
 			Issuer:                    "https://issuer.example.com",
 			SkipSignatureVerification: true,
 		})
@@ -127,6 +131,7 @@ func TestOIDCAuthenticator_Authenticate(t *testing.T) {
 		// shape-check short-circuit runs before either branch.
 		t.Run("skip signature mode", func(t *testing.T) {
 			auth, _ := NewOIDCAuthenticator(OIDCConfig{
+				ClientID:                  "test-client",
 				Issuer:                    "https://issuer.example.com",
 				SkipSignatureVerification: true,
 			})
@@ -138,7 +143,8 @@ func TestOIDCAuthenticator_Authenticate(t *testing.T) {
 		})
 		t.Run("verifying mode", func(t *testing.T) {
 			auth, _ := NewOIDCAuthenticator(OIDCConfig{
-				Issuer: "https://issuer.example.com",
+				ClientID: "test-client",
+				Issuer:   "https://issuer.example.com",
 			})
 			ctx := WithToken(context.Background(), "nifi-etl")
 			_, err := auth.Authenticate(ctx)
@@ -150,6 +156,7 @@ func TestOIDCAuthenticator_Authenticate(t *testing.T) {
 
 	t.Run("invalid issuer", func(t *testing.T) {
 		auth, _ := NewOIDCAuthenticator(OIDCConfig{
+			ClientID:                  "test-client",
 			Issuer:                    "https://issuer.example.com",
 			SkipSignatureVerification: true,
 		})
@@ -170,6 +177,7 @@ func TestOIDCAuthenticator_Authenticate(t *testing.T) {
 
 	t.Run("expired token", func(t *testing.T) {
 		auth, _ := NewOIDCAuthenticator(OIDCConfig{
+			ClientID:                  "test-client",
 			Issuer:                    "https://issuer.example.com",
 			SkipIssuerVerification:    true,
 			SkipSignatureVerification: true,
@@ -200,7 +208,7 @@ func TestOIDCAuthenticator_checkAudience(t *testing.T) {
 		claims := map[string]any{
 			"aud": "my-audience",
 		}
-		if !auth.checkAudience(claims) {
+		if !auth.issuedForPlatform(claims) {
 			t.Error("expected audience to match")
 		}
 	})
@@ -209,7 +217,7 @@ func TestOIDCAuthenticator_checkAudience(t *testing.T) {
 		claims := map[string]any{
 			"aud": "wrong-audience",
 		}
-		if auth.checkAudience(claims) {
+		if auth.issuedForPlatform(claims) {
 			t.Error("expected audience to not match")
 		}
 	})
@@ -218,7 +226,7 @@ func TestOIDCAuthenticator_checkAudience(t *testing.T) {
 		claims := map[string]any{
 			"aud": []any{"other", "my-audience"},
 		}
-		if !auth.checkAudience(claims) {
+		if !auth.issuedForPlatform(claims) {
 			t.Error("expected audience to match in array")
 		}
 	})
@@ -227,14 +235,14 @@ func TestOIDCAuthenticator_checkAudience(t *testing.T) {
 		claims := map[string]any{
 			"aud": []any{"other", "another"},
 		}
-		if auth.checkAudience(claims) {
+		if auth.issuedForPlatform(claims) {
 			t.Error("expected audience to not match in array")
 		}
 	})
 
 	t.Run("missing audience", func(t *testing.T) {
 		claims := map[string]any{}
-		if auth.checkAudience(claims) {
+		if auth.issuedForPlatform(claims) {
 			t.Error("expected audience check to fail for missing aud")
 		}
 	})
@@ -266,6 +274,7 @@ func TestOIDCAuthenticator_FetchJWKS(t *testing.T) {
 
 		// Create authenticator with skip signature verification to avoid JWKS fetch on startup
 		auth, _ := NewOIDCAuthenticator(OIDCConfig{
+			ClientID:                  "test-client",
 			Issuer:                    server.URL,
 			SkipSignatureVerification: true,
 		})
@@ -294,6 +303,7 @@ func TestOIDCAuthenticator_FetchJWKS(t *testing.T) {
 		defer server.Close()
 
 		auth, _ := NewOIDCAuthenticator(OIDCConfig{
+			ClientID:                  "test-client",
 			Issuer:                    server.URL,
 			SkipSignatureVerification: true,
 		})
@@ -321,6 +331,7 @@ func TestOIDCAuthenticator_FetchJWKS_NoValidRSAKeys(t *testing.T) {
 	defer server.Close()
 
 	auth, _ := NewOIDCAuthenticator(OIDCConfig{
+		ClientID:                  "test-client",
 		Issuer:                    server.URL,
 		SkipSignatureVerification: true,
 	})
@@ -358,6 +369,13 @@ func TestOIDCConfig(t *testing.T) {
 
 // createTestJWT creates a test JWT token (not cryptographically signed).
 func createTestJWT(claims map[string]any) string {
+	// A token the IdP issued to the test client, unless the case names its
+	// own audience or authorized party.
+	if _, ok := claims["aud"]; !ok {
+		if _, ok := claims["azp"]; !ok {
+			claims["azp"] = "test-client"
+		}
+	}
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
 	payload, _ := json.Marshal(claims)
 	payloadB64 := base64.RawURLEncoding.EncodeToString(payload)
@@ -367,6 +385,7 @@ func createTestJWT(claims map[string]any) string {
 func TestOIDCAuthenticator_validateClaims(t *testing.T) {
 	t.Run("invalid issuer", func(t *testing.T) {
 		auth, _ := NewOIDCAuthenticator(OIDCConfig{
+			ClientID:                  "test-client",
 			Issuer:                    "https://issuer.example.com",
 			SkipSignatureVerification: true,
 			// Note: not skipping issuer verification
@@ -402,6 +421,7 @@ func TestOIDCAuthenticator_validateClaims(t *testing.T) {
 
 	t.Run("expired token outside skew", func(t *testing.T) {
 		auth, _ := NewOIDCAuthenticator(OIDCConfig{
+			ClientID:                  "test-client",
 			Issuer:                    "https://issuer.example.com",
 			SkipIssuerVerification:    true,
 			SkipSignatureVerification: true,
@@ -418,12 +438,14 @@ func TestOIDCAuthenticator_validateClaims(t *testing.T) {
 
 	t.Run("valid claims", func(t *testing.T) {
 		auth, _ := NewOIDCAuthenticator(OIDCConfig{
+			ClientID:                  "test-client",
 			Issuer:                    "https://issuer.example.com",
 			SkipIssuerVerification:    true,
 			SkipSignatureVerification: true,
 		})
 		claims := map[string]any{
 			"sub": testUserID,
+			"azp": "test-client",
 			"exp": float64(time.Now().Add(time.Hour).Unix()),
 		}
 		err := auth.validateClaims(claims)
@@ -434,6 +456,7 @@ func TestOIDCAuthenticator_validateClaims(t *testing.T) {
 
 	t.Run("missing exp is rejected", func(t *testing.T) {
 		auth, _ := NewOIDCAuthenticator(OIDCConfig{
+			ClientID:                  "test-client",
 			Issuer:                    "https://issuer.example.com",
 			SkipIssuerVerification:    true,
 			SkipSignatureVerification: true,
@@ -449,6 +472,7 @@ func TestOIDCAuthenticator_validateClaims(t *testing.T) {
 
 	t.Run("missing sub is rejected", func(t *testing.T) {
 		auth, _ := NewOIDCAuthenticator(OIDCConfig{
+			ClientID:                  "test-client",
 			Issuer:                    "https://issuer.example.com",
 			SkipIssuerVerification:    true,
 			SkipSignatureVerification: true,
@@ -464,6 +488,7 @@ func TestOIDCAuthenticator_validateClaims(t *testing.T) {
 
 	t.Run("empty sub is rejected", func(t *testing.T) {
 		auth, _ := NewOIDCAuthenticator(OIDCConfig{
+			ClientID:                  "test-client",
 			Issuer:                    "https://issuer.example.com",
 			SkipIssuerVerification:    true,
 			SkipSignatureVerification: true,
@@ -482,6 +507,7 @@ func TestOIDCAuthenticator_validateClaims(t *testing.T) {
 func TestOIDCAuthenticator_validateClaims_TimeBased(t *testing.T) {
 	t.Run("nbf not yet valid", func(t *testing.T) {
 		auth, _ := NewOIDCAuthenticator(OIDCConfig{
+			ClientID:                  "test-client",
 			Issuer:                    "https://issuer.example.com",
 			SkipIssuerVerification:    true,
 			SkipSignatureVerification: true,
@@ -499,6 +525,7 @@ func TestOIDCAuthenticator_validateClaims_TimeBased(t *testing.T) {
 
 	t.Run("token too old by iat", func(t *testing.T) {
 		auth, _ := NewOIDCAuthenticator(OIDCConfig{
+			ClientID:                  "test-client",
 			Issuer:                    "https://issuer.example.com",
 			SkipIssuerVerification:    true,
 			SkipSignatureVerification: true,
@@ -517,6 +544,7 @@ func TestOIDCAuthenticator_validateClaims_TimeBased(t *testing.T) {
 
 	t.Run("clock skew allows slightly expired token", func(t *testing.T) {
 		auth, _ := NewOIDCAuthenticator(OIDCConfig{
+			ClientID:                  "test-client",
 			Issuer:                    "https://issuer.example.com",
 			SkipIssuerVerification:    true,
 			SkipSignatureVerification: true,
@@ -524,6 +552,7 @@ func TestOIDCAuthenticator_validateClaims_TimeBased(t *testing.T) {
 		})
 		claims := map[string]any{
 			"sub": testUserID,
+			"azp": "test-client",
 			"exp": float64(time.Now().Add(-10 * time.Second).Unix()), // expired 10 seconds ago
 		}
 		err := auth.validateClaims(claims)
@@ -535,6 +564,7 @@ func TestOIDCAuthenticator_validateClaims_TimeBased(t *testing.T) {
 
 func TestOIDCAuthenticator_parseAndValidateToken(t *testing.T) {
 	auth, _ := NewOIDCAuthenticator(OIDCConfig{
+		ClientID:                  "test-client",
 		Issuer:                    "https://issuer.example.com",
 		SkipIssuerVerification:    true,
 		SkipSignatureVerification: true,
@@ -573,6 +603,7 @@ func TestOIDCAuthenticator_FetchJWKS_InvalidDiscovery(t *testing.T) {
 	defer server.Close()
 
 	auth, _ := NewOIDCAuthenticator(OIDCConfig{
+		ClientID:                  "test-client",
 		Issuer:                    server.URL,
 		SkipSignatureVerification: true,
 	})
@@ -593,6 +624,7 @@ func TestOIDCAuthenticator_FetchJWKS_MissingJWKSURI(t *testing.T) {
 	defer server.Close()
 
 	auth, _ := NewOIDCAuthenticator(OIDCConfig{
+		ClientID:                  "test-client",
 		Issuer:                    server.URL,
 		SkipSignatureVerification: true,
 	})
@@ -616,6 +648,7 @@ func TestOIDCAuthenticator_FetchJWKS_JWKSFetchError(t *testing.T) {
 	defer server.Close()
 
 	auth, _ := NewOIDCAuthenticator(OIDCConfig{
+		ClientID:                  "test-client",
 		Issuer:                    server.URL,
 		SkipSignatureVerification: true,
 	})
@@ -628,6 +661,7 @@ func TestOIDCAuthenticator_FetchJWKS_JWKSFetchError(t *testing.T) {
 
 func TestOIDCAuthenticator_Authenticate_WithRoles(t *testing.T) {
 	auth, _ := NewOIDCAuthenticator(OIDCConfig{
+		ClientID:                  "test-client",
 		Issuer:                    "https://issuer.example.com",
 		SkipIssuerVerification:    true,
 		SkipSignatureVerification: true,
@@ -668,6 +702,7 @@ func TestOIDCAuthenticator_FetchJWKS_InvalidJWKSJSON(t *testing.T) {
 	defer server.Close()
 
 	auth, _ := NewOIDCAuthenticator(OIDCConfig{
+		ClientID:                  "test-client",
 		Issuer:                    server.URL,
 		SkipSignatureVerification: true,
 	})
@@ -678,27 +713,44 @@ func TestOIDCAuthenticator_FetchJWKS_InvalidJWKSJSON(t *testing.T) {
 	}
 }
 
-func TestOIDCAuthenticator_checkAudience_NoAudienceRequired(t *testing.T) {
-	auth, _ := NewOIDCAuthenticator(OIDCConfig{
-		Issuer:                    "https://issuer.example.com",
-		SkipSignatureVerification: true,
-		// No audience configured - empty string
+// TestOIDCAuthenticator_TokenMustBeIssuedForThePlatform: with no audience
+// configured the token must still be client_id's, named in aud or as its
+// authorized party; a token another client of the issuer was given is refused,
+// and a configuration naming neither is refused at startup.
+func TestOIDCAuthenticator_TokenMustBeIssuedForThePlatform(t *testing.T) {
+	if _, err := NewOIDCAuthenticator(OIDCConfig{Issuer: "https://issuer.example.com", SkipSignatureVerification: true}); err == nil ||
+		!strings.Contains(err.Error(), "client_id or audience") {
+		t.Fatalf("an authenticator with neither client_id nor audience: %v", err)
+	}
+	auth, err := NewOIDCAuthenticator(OIDCConfig{
+		Issuer: "https://issuer.example.com", ClientID: "mcp-data-platform", SkipSignatureVerification: true,
 	})
-
-	// When audience in config is empty, check only passes if aud in claims is also empty
-	claims := map[string]any{
-		"aud": "",
+	if err != nil {
+		t.Fatalf("NewOIDCAuthenticator: %v", err)
 	}
-	if !auth.checkAudience(claims) {
-		t.Error("expected audience check to pass when both are empty")
+	cases := []struct {
+		name   string
+		claims map[string]any
+		want   bool
+	}{
+		{"aud names client_id", map[string]any{"aud": "mcp-data-platform"}, true},
+		{"aud list names client_id", map[string]any{"aud": []any{"account", "mcp-data-platform"}}, true},
+		{"azp is client_id, aud left at the IdP default", map[string]any{"aud": "account", "azp": "mcp-data-platform"}, true},
+		{"another client's token", map[string]any{"aud": "account", "azp": "reporting-app"}, false},
+		{"another client's token naming itself", map[string]any{"aud": "reporting-app", "azp": "reporting-app"}, false},
+		{"no aud and no azp", map[string]any{}, false},
+		{"empty azp", map[string]any{"azp": ""}, false},
 	}
-
-	// Non-empty aud should fail
-	claimsNonEmpty := map[string]any{
-		"aud": "some-audience",
+	for _, c := range cases {
+		if got := auth.issuedForPlatform(c.claims); got != c.want {
+			t.Errorf("%s: issuedForPlatform = %v, want %v", c.name, got, c.want)
+		}
 	}
-	if auth.checkAudience(claimsNonEmpty) {
-		t.Error("expected audience check to fail when aud is set but config is empty")
+	withAudience, _ := NewOIDCAuthenticator(OIDCConfig{
+		Issuer: "https://issuer.example.com", ClientID: "mcp-data-platform", Audience: "platform-api", SkipSignatureVerification: true,
+	})
+	if withAudience.issuedForPlatform(map[string]any{"aud": "account", "azp": "mcp-data-platform"}) {
+		t.Error("a configured audience was satisfied by azp")
 	}
 }
 
@@ -712,6 +764,7 @@ func TestOIDCAuthenticator_FetchJWKS_JWKSURIEmpty(t *testing.T) {
 	defer server.Close()
 
 	auth, _ := NewOIDCAuthenticator(OIDCConfig{
+		ClientID:                  "test-client",
 		Issuer:                    server.URL,
 		SkipSignatureVerification: true,
 	})
@@ -734,6 +787,7 @@ func TestOIDCAuthenticator_getPublicKey(t *testing.T) {
 		t.Cleanup(server.Close)
 
 		auth, _ := NewOIDCAuthenticator(OIDCConfig{
+			ClientID:                  "test-client",
 			Issuer:                    server.URL,
 			SkipSignatureVerification: true,
 		})
@@ -844,6 +898,7 @@ func TestOIDCAuthenticator_RefreshJWKS(t *testing.T) {
 	defer server.Close()
 
 	auth, _ := NewOIDCAuthenticator(OIDCConfig{
+		ClientID:                  "test-client",
 		Issuer:                    server.URL,
 		SkipSignatureVerification: true,
 	})
@@ -887,7 +942,8 @@ func TestOIDCAuthenticator_parseAndValidateToken_SignatureVerification(t *testin
 		t.Cleanup(server.Close)
 
 		auth, err := NewOIDCAuthenticator(OIDCConfig{
-			Issuer: server.URL,
+			ClientID: "test-client",
+			Issuer:   server.URL,
 		})
 		if err != nil {
 			t.Fatalf("failed to create authenticator: %v", err)
@@ -1011,6 +1067,7 @@ func TestOIDCAuthenticator_parseAndValidateToken_ValidSignature(t *testing.T) {
 	defer server.Close()
 
 	auth, err := NewOIDCAuthenticator(OIDCConfig{
+		ClientID:               "test-client",
 		Issuer:                 server.URL,
 		SkipIssuerVerification: true,
 	})
@@ -1020,6 +1077,7 @@ func TestOIDCAuthenticator_parseAndValidateToken_ValidSignature(t *testing.T) {
 
 	// Create and sign a valid JWT
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"azp": "test-client",
 		"sub": testUserID,
 		"exp": float64(time.Now().Add(time.Hour).Unix()),
 		"iss": server.URL,
@@ -1069,12 +1127,14 @@ func TestOIDCAuthenticator_parseAndValidateToken_InvalidSignature(t *testing.T) 
 	defer server.Close()
 
 	auth, _ := NewOIDCAuthenticator(OIDCConfig{
+		ClientID:               "test-client",
 		Issuer:                 server.URL,
 		SkipIssuerVerification: true,
 	})
 
 	// Sign with the wrong key
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"azp": "test-client",
 		"sub": "user",
 		"exp": float64(time.Now().Add(time.Hour).Unix()),
 	})
@@ -1095,6 +1155,7 @@ func TestOIDCAuthenticator_FetchJWKS_DiscoveryFetchError(t *testing.T) {
 	defer server.Close()
 
 	auth, _ := NewOIDCAuthenticator(OIDCConfig{
+		ClientID:                  "test-client",
 		Issuer:                    server.URL,
 		SkipSignatureVerification: true,
 	})
@@ -1134,6 +1195,7 @@ func TestOIDCAuthenticator_FetchJWKS_ValidKeys(t *testing.T) {
 	defer server.Close()
 
 	auth, _ := NewOIDCAuthenticator(OIDCConfig{
+		ClientID:                  "test-client",
 		Issuer:                    server.URL,
 		SkipSignatureVerification: true,
 	})
@@ -1178,6 +1240,7 @@ func TestOIDCAuthenticator_FetchJWKS_InvalidKeyType(t *testing.T) {
 	defer server.Close()
 
 	auth, _ := NewOIDCAuthenticator(OIDCConfig{
+		ClientID:                  "test-client",
 		Issuer:                    server.URL,
 		SkipSignatureVerification: true,
 	})
@@ -1217,6 +1280,7 @@ func TestOIDCAuthenticator_FetchJWKS_KeyWithEncUse(t *testing.T) {
 	defer server.Close()
 
 	auth, _ := NewOIDCAuthenticator(OIDCConfig{
+		ClientID:                  "test-client",
 		Issuer:                    server.URL,
 		SkipSignatureVerification: true,
 	})
@@ -1256,6 +1320,7 @@ func TestOIDCAuthenticator_FetchJWKS_InvalidModulus(t *testing.T) {
 	defer server.Close()
 
 	auth, _ := NewOIDCAuthenticator(OIDCConfig{
+		ClientID:                  "test-client",
 		Issuer:                    server.URL,
 		SkipSignatureVerification: true,
 	})
@@ -1295,6 +1360,7 @@ func TestOIDCAuthenticator_FetchJWKS_InvalidExponent(t *testing.T) {
 	defer server.Close()
 
 	auth, _ := NewOIDCAuthenticator(OIDCConfig{
+		ClientID:                  "test-client",
 		Issuer:                    server.URL,
 		SkipSignatureVerification: true,
 	})
@@ -1333,6 +1399,7 @@ func TestOIDCAuthenticator_FetchJWKS_MissingKid(t *testing.T) {
 	defer server.Close()
 
 	auth, _ := NewOIDCAuthenticator(OIDCConfig{
+		ClientID:                  "test-client",
 		Issuer:                    server.URL,
 		SkipSignatureVerification: true,
 	})
@@ -1427,6 +1494,7 @@ func (j *jwksTestServer) signToken(t *testing.T) string {
 	kid, key := j.kid, j.key
 	j.mu.Unlock()
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"azp": "test-client",
 		"sub": testUserID,
 		"exp": float64(time.Now().Add(time.Hour).Unix()),
 		"iss": j.server.URL,
@@ -1468,6 +1536,7 @@ func expireCache(t *testing.T, auth *OIDCAuthenticator) {
 func newSelfHealAuth(t *testing.T, js *jwksTestServer) *OIDCAuthenticator {
 	t.Helper()
 	auth, err := NewOIDCAuthenticator(OIDCConfig{
+		ClientID:               "test-client",
 		Issuer:                 js.server.URL,
 		SkipIssuerVerification: true,
 	})

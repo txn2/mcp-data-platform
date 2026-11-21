@@ -92,3 +92,41 @@ func TestWiredSecretsFillARequestThroughTheRealTool(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+// sealingEncryptor is a keyed field encryptor for the reseal pass.
+type sealingEncryptor struct{}
+
+func (sealingEncryptor) Seal(s string) (string, error)    { return "enc:" + s, nil }
+func (sealingEncryptor) Decrypt(s string) (string, error) { return strings.TrimPrefix(s, "enc:"), nil }
+func (sealingEncryptor) Enabled() bool                    { return true }
+
+// TestConnectionSecretsSealsValuesStoredAsWritten: wiring the stored secrets
+// at startup seals every value an earlier start stored as written (#2737).
+func TestConnectionSecretsSealsValuesStoredAsWritten(t *testing.T) {
+	ConnectionSecrets(nil, sealingEncryptor{})
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	mock.ExpectQuery(`SELECT name, value FROM gateway_secrets WHERE value NOT LIKE`).
+		WillReturnRows(sqlmock.NewRows([]string{"name", "value"}).AddRow("pw", "hunter22"))
+	mock.ExpectExec(`UPDATE gateway_secrets SET value`).WithArgs("pw", "hunter22", "enc:hunter22").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	ConnectionSecrets(db, sealingEncryptor{})
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+
+	broken, mock2, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = broken.Close() }()
+	mock2.ExpectQuery(`NOT LIKE`).WillReturnError(io.ErrUnexpectedEOF)
+	ConnectionSecrets(broken, sealingEncryptor{})
+	if err := mock2.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}

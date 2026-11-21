@@ -66,6 +66,7 @@ func TestNewIdentity_OIDCIncluded(t *testing.T) {
 	res, err := iam.NewIdentity(iam.Input{
 		OIDCEnabled: true,
 		OIDC: auth.OIDCConfig{
+			ClientID:                  "test-client",
 			Issuer:                    "https://issuer.example",
 			SkipSignatureVerification: true,
 		},

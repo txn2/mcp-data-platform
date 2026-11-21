@@ -112,6 +112,17 @@ func (m *mockShareStore) GetUserCollectionPermission(_ context.Context, _, _, _ 
 	return m.collPerm, m.collPermErr
 }
 
+// GetUserCollectionPermissions answers each id as GetUserCollectionPermission does.
+func (m *mockShareStore) GetUserCollectionPermissions(ctx context.Context, ids []string, userID, email string) (map[string]portaldomain.SharePermission, error) {
+	out := map[string]portaldomain.SharePermission{}
+	for _, id := range ids {
+		if p, err := m.GetUserCollectionPermission(ctx, id, userID, email); err == nil && p != "" {
+			out[id] = p
+		}
+	}
+	return out, nil
+}
+
 func (m *mockShareStore) ListSharedWithUser(_ context.Context, _, _ string, _, _ int) ([]portaldomain.SharedAsset, int, error) {
 	return m.sharedWithRes, m.sharedWithTot, m.sharedWithErr
 }

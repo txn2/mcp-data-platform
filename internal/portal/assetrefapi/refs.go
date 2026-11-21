@@ -1,7 +1,6 @@
 package assetrefapi
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
 
@@ -196,7 +195,7 @@ func (h *handler) addRef(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req addRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TargetID == "" {
+	if err := httpjson.DecodeBody(w, r, &req, httpjson.MaxBody); err != nil || req.TargetID == "" {
 		httpjson.WriteError(w, http.StatusBadRequest, "a target_kind and a target_id are required")
 		return
 	}

@@ -63,6 +63,17 @@ func (fakeShares) GetUserCollectionPermission(context.Context, string, string, s
 	return "", nil
 }
 
+// GetUserCollectionPermissions answers each id as GetUserCollectionPermission does.
+func (s fakeShares) GetUserCollectionPermissions(ctx context.Context, ids []string, userID, email string) (map[string]portaldomain.SharePermission, error) {
+	out := map[string]portaldomain.SharePermission{}
+	for _, id := range ids {
+		if p, err := s.GetUserCollectionPermission(ctx, id, userID, email); err == nil && p != "" {
+			out[id] = p
+		}
+	}
+	return out, nil
+}
+
 type fakeLibrary struct {
 	err        error
 	opened     []string

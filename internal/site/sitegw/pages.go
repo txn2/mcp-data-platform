@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/singleflight"
+
 	"github.com/txn2/mcp-data-platform/internal/application"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epformpage"
@@ -60,9 +62,13 @@ const (
 	queryPath       = "path"
 	queryHost       = "host"
 	appTTL          = 500 * time.Millisecond
-	schemeHTTPS     = "https"
-	schemeHTTP      = "http"
-	noStore         = "no-store"
+	// missTTL is how long a name that is no application is remembered as
+	// none, so requests for an unknown label read the store at most once in
+	// that window.
+	missTTL     = time.Second
+	schemeHTTPS = "https"
+	schemeHTTP  = "http"
+	noStore     = "no-store"
 )
 
 var (
@@ -121,11 +127,14 @@ type Pages struct {
 
 	mu       sync.Mutex
 	appCache map[string]appEntry
+	// loads collapses the loads of one application that arrive together
+	// into one.
+	loads singleflight.Group
 }
 
 // appEntry is an application as a page origin reads it, held a moment.
 type appEntry struct {
-	app    *application.Application
+	app    *application.Application // nil: the name is no application
 	assets map[string]*portaldomain.Asset
 	until  time.Time
 }
@@ -160,28 +169,61 @@ func (p *Pages) cookieName(base string) string {
 
 // application is the named application and its assets by name and id, held a
 // moment; nil for none.
+// The requests that arrive together for one application after its entry
+// expired share one load, which runs on a context the first of them cannot
+// cancel for the others. A name that is no application is held as none for
+// missTTL.
 func (p *Pages) application(ctx context.Context, name string) *appEntry {
-	p.mu.Lock()
-	entry, ok := p.appCache[name]
-	p.mu.Unlock()
-	if ok && p.now().Before(entry.until) {
-		return &entry
+	if entry, ok := p.cachedApp(name); ok {
+		return entry.found()
 	}
-	a, err := p.Apps.GetByName(ctx, name)
-	if err != nil {
-		if !errors.Is(err, application.ErrNotFound) {
-			slog.WarnContext(ctx, "pages: reading an application failed", logKeyError, logsan.SanitizeForLog(err.Error()))
+	v, _, _ := p.loads.Do(name, func() (any, error) {
+		if entry, ok := p.cachedApp(name); ok {
+			return entry, nil
 		}
+		return p.loadApp(context.WithoutCancel(ctx), name), nil
+	})
+	entry, _ := v.(appEntry)
+	return entry.found()
+}
+
+// found is the entry, or nil for one that names no application.
+func (e appEntry) found() *appEntry {
+	if e.app == nil {
 		return nil
 	}
-	built := appEntry{app: a, assets: p.loadAssets(ctx, a), until: p.now().Add(appTTL)}
+	return &e
+}
+
+// cachedApp is the entry held for name while it is fresh.
+func (p *Pages) cachedApp(name string) (appEntry, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	entry, ok := p.appCache[name]
+	return entry, ok && p.now().Before(entry.until)
+}
+
+// loadApp reads the application and its assets and holds the entry; a name
+// the store does not hold is held as none, and a failed read is not held.
+func (p *Pages) loadApp(ctx context.Context, name string) appEntry {
+	a, err := p.Apps.GetByName(ctx, name)
+	var built appEntry
+	switch {
+	case errors.Is(err, application.ErrNotFound):
+		built = appEntry{until: p.now().Add(missTTL)}
+	case err != nil:
+		slog.WarnContext(ctx, "pages: reading an application failed", logKeyError, logsan.SanitizeForLog(err.Error()))
+		return appEntry{}
+	default:
+		built = appEntry{app: a, assets: p.loadAssets(ctx, a), until: p.now().Add(appTTL)}
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.appCache == nil || len(p.appCache) >= maxRoutes {
 		p.appCache = map[string]appEntry{}
 	}
 	p.appCache[name] = built
-	return &built
+	return built
 }
 
 // loadAssets reads the application's asset parts as they are served. Two

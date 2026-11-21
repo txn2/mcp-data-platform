@@ -222,6 +222,17 @@ func (*mockShareStore) GetUserCollectionPermission(_ context.Context, _, _, _ st
 	return "", fmt.Errorf("no shares")
 }
 
+// GetUserCollectionPermissions answers each id as GetUserCollectionPermission does.
+func (m *mockShareStore) GetUserCollectionPermissions(ctx context.Context, ids []string, userID, email string) (map[string]SharePermission, error) {
+	out := map[string]SharePermission{}
+	for _, id := range ids {
+		if p, err := m.GetUserCollectionPermission(ctx, id, userID, email); err == nil && p != "" {
+			out[id] = p
+		}
+	}
+	return out, nil
+}
+
 func (*mockShareStore) ListSharedCollectionsWithUser(_ context.Context, _, _ string, _, _ int) ([]SharedCollection, int, error) {
 	return nil, 0, nil
 }
@@ -405,6 +416,17 @@ func (c *captureShareStore) ListSharedPromptsWithUser(ctx context.Context, userI
 
 func (c *captureShareStore) GetUserCollectionPermission(ctx context.Context, collectionID, userID, email string) (SharePermission, error) {
 	return c.inner.GetUserCollectionPermission(ctx, collectionID, userID, email)
+}
+
+// GetUserCollectionPermissions answers each id as GetUserCollectionPermission does.
+func (c *captureShareStore) GetUserCollectionPermissions(ctx context.Context, ids []string, userID, email string) (map[string]SharePermission, error) {
+	out := map[string]SharePermission{}
+	for _, id := range ids {
+		if p, err := c.GetUserCollectionPermission(ctx, id, userID, email); err == nil && p != "" {
+			out[id] = p
+		}
+	}
+	return out, nil
 }
 
 func (c *captureShareStore) ListSharedCollectionsWithUser(ctx context.Context, userID, email string, limit, offset int) ([]SharedCollection, int, error) {
@@ -5202,4 +5224,14 @@ func TestGetMeReportsThePortalPermissions(t *testing.T) {
 			assert.Equal(t, c.knowledge, resp.Portal.Knowledge)
 		})
 	}
+}
+
+func TestActivityTimeseries_RangeTooWideIsABadRequest(t *testing.T) {
+	metrics := &mockAuditMetrics{timeseriesErr: fmt.Errorf("checking: %w", audit.ErrTimeseriesRange)}
+	h := newActivityTestHandler(metrics, &User{UserID: "user-1"})
+	req := httptest.NewRequestWithContext(context.Background(), "GET",
+		"/api/v1/portal/activity/timeseries?resolution=minute&start_time=0001-01-01T00:00:00Z", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }

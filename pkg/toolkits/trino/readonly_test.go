@@ -2,6 +2,7 @@ package trino
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	trinotools "github.com/txn2/mcp-trino/pkg/tools"
@@ -67,8 +68,52 @@ func TestReadOnlyInterceptor_AllowsExplainQueries(t *testing.T) {
 	interceptor := NewReadOnlyInterceptor()
 	assertQueriesAllowed(t, interceptor, []string{
 		"EXPLAIN SELECT * FROM users",
-		"EXPLAIN ANALYZE SELECT * FROM orders",
+		"EXPLAIN (TYPE IO) SELECT * FROM users",
 	}, trinotools.ToolExplain, "EXPLAIN")
+}
+
+// TestReadOnlyInterceptor_BlocksStatementsNotOnTheReadList: a read-only
+// connection runs only what the read list names. EXPLAIN ANALYZE runs the
+// statement it explains, and REFRESH, COMMENT, ANALYZE and DENY write,
+// though none opens with a keyword a write list would name.
+func TestReadOnlyInterceptor_BlocksStatementsNotOnTheReadList(t *testing.T) {
+	assertQueriesBlocked(t, NewReadOnlyInterceptor(), []string{
+		"EXPLAIN ANALYZE SELECT * FROM orders",
+		"EXPLAIN ANALYZE INSERT INTO t SELECT * FROM orders",
+		"explain analyze verbose create table t as select 1",
+		"REFRESH MATERIALIZED VIEW mv",
+		"COMMENT ON TABLE orders IS 'x'",
+		"ANALYZE orders",
+		"DENY SELECT ON orders TO alice",
+		"SET SESSION query_max_run_time = '1h'",
+	}, "not a read")
+}
+
+func TestReadToolInterceptor(t *testing.T) {
+	ic := ReadToolInterceptor{}
+	for _, sql := range []string{"SELECT 1", "SHOW TABLES", "EXPLAIN SELECT 1"} {
+		if _, err := ic.Intercept(context.Background(), sql, trinotools.ToolQuery); err != nil {
+			t.Errorf("trino_query refused %q: %v", sql, err)
+		}
+	}
+	for _, sql := range []string{"EXPLAIN ANALYZE INSERT INTO t VALUES (1)", "REFRESH MATERIALIZED VIEW mv", "COMMENT ON TABLE t IS 'x'", "ANALYZE t", "DENY SELECT ON t TO u"} {
+		if _, err := ic.Intercept(context.Background(), sql, trinotools.ToolQuery); !errors.Is(err, errQueryNotRead) {
+			t.Errorf("trino_query ran %q: %v", sql, err)
+		}
+	}
+	for _, sql := range []string{"INSERT INTO t VALUES (1)", "SELECT 1"} {
+		if _, err := ic.Intercept(context.Background(), sql, trinotools.ToolExplain); err != nil {
+			t.Errorf("trino_explain refused to explain %q: %v", sql, err)
+		}
+	}
+	for _, sql := range []string{"ANALYZE t", "EXPLAIN ANALYZE INSERT INTO t VALUES (1)"} {
+		if _, err := ic.Intercept(context.Background(), sql, trinotools.ToolExplain); !errors.Is(err, errExplainRuns) {
+			t.Errorf("trino_explain ran %q: %v", sql, err)
+		}
+	}
+	if got, err := ic.Intercept(context.Background(), "DROP TABLE t", trinotools.ToolExecute); err != nil || got != "DROP TABLE t" {
+		t.Errorf("trino_execute was held to the read list: %q %v", got, err)
+	}
 }
 
 func TestReadOnlyInterceptor_BlocksInsertQueries(t *testing.T) {

@@ -1385,10 +1385,9 @@ func (p *Platform) initOAuth() error {
 	}
 
 	cfg := oauthserver.Config{
-		Issuer:         p.config.OAuth.Issuer,
-		AccessTokenTTL: 1 * time.Hour,
-		SigningKey:     p.oauthKeys.current,
-		Clients:        make([]oauthserver.Client, 0, len(p.config.OAuth.Clients)),
+		Issuer:     p.config.OAuth.Issuer,
+		SigningKey: p.oauthKeys.current,
+		Clients:    make([]oauthserver.Client, 0, len(p.config.OAuth.Clients)),
 		DCR: oauthserver.DCR{
 			Enabled:                 p.config.OAuth.DCR.Enabled,
 			AllowedRedirectPatterns: p.config.OAuth.DCR.AllowedRedirectPatterns,
@@ -1402,8 +1401,9 @@ func (p *Platform) initOAuth() error {
 			RegisterRPM:    p.config.OAuth.RateLimit.Register.RequestsPerMinute,
 			RegisterBurst:  p.config.OAuth.RateLimit.Register.Burst,
 		},
-		DB:      p.db,
-		Metrics: p.obs.Metrics(),
+		Branding: oauthserver.Branding(p.config.Portal.Title, p.config.Portal.Logo, p.config.Portal.LogoLight, p.config.Portal.LogoDark),
+		DB:       p.db,
+		Metrics:  p.obs.Metrics(),
 	}
 	for _, clientCfg := range p.config.OAuth.Clients {
 		cfg.Clients = append(cfg.Clients, oauthserver.Client{

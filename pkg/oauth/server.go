@@ -157,6 +157,10 @@ type ServerConfig struct {
 	// RateLimit configures rate limiting for the unauthenticated /token and
 	// /register endpoints. Limiting is on by default (see RateLimitConfig).
 	RateLimit RateLimitConfig
+
+	// Branding names the deployment on the consent page a dynamically
+	// registered client's sign-in shows.
+	Branding ConsentBranding
 }
 
 // UpstreamConfig configures the upstream identity provider.
@@ -329,6 +333,11 @@ func (s *Server) validateAuthorizationRequest(ctx context.Context, req Authoriza
 		return nil, errors.New("client is not active")
 	}
 	if !client.ValidRedirectURI(req.RedirectURI) {
+		return nil, errors.New("invalid redirect_uri")
+	}
+	// A client that registered itself is held to the redirect policy in force
+	// now, not the one it registered under; with registration off, none is.
+	if client.DynamicallyRegistered && !s.dcr.AllowsRedirectURI(req.RedirectURI) {
 		return nil, errors.New("invalid redirect_uri")
 	}
 	if req.ResponseType != paramCode {
@@ -719,6 +728,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleTokenEndpoint(w, r)
 	case "/oauth/register", "/register":
 		s.handleRegisterEndpoint(w, r)
+	case ConsentPath:
+		s.handleConsentEndpoint(w, r)
 	case "/.well-known/oauth-authorization-server":
 		s.handleMetadata(w, r)
 	default:
@@ -840,6 +851,7 @@ func (s *Server) handleRegisterEndpoint(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req DCRRequest
+	r.Body = http.MaxBytesReader(w, r.Body, maxTokenRequestBytes)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, http.StatusBadRequest, errInvalidRequest, "could not parse JSON")
 		return
@@ -1023,6 +1035,18 @@ func (s *Server) handleCallbackEndpoint(w http.ResponseWriter, r *http.Request) 
 	// Extract user info from upstream token
 	userID, userClaims := s.extractUserFromUpstreamToken(upstreamToken)
 
+	// A client that registered itself gets a code only once the person
+	// allows it on the consent page.
+	if s.needsConsent(r.Context(), authState.ClientID) {
+		s.askConsent(w, r, authState, userID, userClaims)
+		return
+	}
+	s.issueCode(w, r, authState, userID, userClaims)
+}
+
+// issueCode mints the client's authorization code for the signed-in person and
+// redirects the browser to the client's redirect URI with it.
+func (s *Server) issueCode(w http.ResponseWriter, r *http.Request, authState *AuthorizationState, userID string, userClaims map[string]any) {
 	// Generate MCP authorization code for the original client
 	mcpCode, err := s.Authorize(r.Context(), AuthorizationRequest{
 		ResponseType:        paramCode,

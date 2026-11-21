@@ -66,3 +66,31 @@ type CollectionItemAppender interface {
 	// order, each marked with whether assetID is one of its items.
 	SectionSummaries(ctx context.Context, collectionIDs []string, assetID string) (map[string][]SectionSummary, error)
 }
+
+// AddedAssets returns the asset ids sections hold that existing does not,
+// once each in the order sections names them: the items a sections write
+// adds. A caller checks each one is an asset the writer may put in a
+// collection, since a collection's share opens every asset it holds; an item
+// already in the collection stays without a check, so an editor can reorder
+// or regroup items the owner added that the editor cannot open. A nil
+// existing (a collection being created) adds every item.
+func AddedAssets(existing *Collection, sections []CollectionSection) []string {
+	held := map[string]bool{}
+	if existing != nil {
+		for _, s := range existing.Sections {
+			for _, it := range s.Items {
+				held[it.AssetID] = true
+			}
+		}
+	}
+	var added []string
+	for _, s := range sections {
+		for _, it := range s.Items {
+			if !held[it.AssetID] {
+				held[it.AssetID] = true
+				added = append(added, it.AssetID)
+			}
+		}
+	}
+	return added
+}

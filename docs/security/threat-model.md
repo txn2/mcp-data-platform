@@ -204,7 +204,7 @@ platform can definitively reject.
 | Mechanism | Package | Notes |
 |-----------|---------|-------|
 | OIDC bearer validation | `pkg/auth/oidc.go` | RSA-only signature check, requires `kid`, validates iss/aud/exp/nbf/iat. The JWKS cache is self-healing: on a `kid` miss it triggers a single-flight, throttled refresh (`refreshForLookup`, `refreshGroup.DoChan`) and re-checks, distinguishing a transient fetch failure (fail-open) from a definitive unknown key (fail-closed). |
-| API keys | `pkg/auth/apikey.go` | Config keys are matched with `subtle.ConstantTimeCompare`; database-issued keys are bcrypt-hashed and verified with `bcrypt.CompareHashAndPassword`. |
+| API keys | `pkg/auth/apikey.go` | Config keys are matched with `subtle.ConstantTimeCompare`; database-issued keys are stored as a bcrypt hash and a SHA-256 lookup digest (`api_keys.key_digest`; a key is 32 random bytes, so the digest cannot be reversed). A presented key is found by its digest, a hash and a map lookup; only a key stored before digests existed is compared by bcrypt, at most half the CPUs at once process-wide, and its digest is recorded the first time it matches. A token not shaped like a generated key (64 hex characters) is never digested, so no digest is ever stored for a value a person chose. Neither the hash nor the digest is served, logged or audited. |
 | Built-in OAuth 2.1 server | `pkg/oauth/server.go`, `pkg/oauth/signkey/signkey.go` | Access tokens are HS256 with a `kid` header. The `kid` derives from SHA-256 of the signing key; a key ring keeps verify-only previous keys so rotation does not invalidate live tokens. Unknown `kid` is rejected. |
 | PKCE | `pkg/oauth/server.go`, `pkg/oauth/pkce.go` | S256 required; any other `code_challenge_method` is rejected at `/authorize`, verification hard-codes S256, and metadata advertises S256 only. `plain` is not implemented. |
 | Browser cookie sessions | `pkg/browsersession/cookie.go` | Cookies are `HttpOnly`, `Secure` (default on), `SameSite=Lax` by default; the value is an HS256-signed JWT (signing key required to be at least 32 bytes) and validation rejects non-HMAC algorithms. |
@@ -217,7 +217,7 @@ calling user's identity.
 
 | Dependency | Package | Credential / control |
 |------------|---------|----------------------|
-| Trino | `pkg/toolkits/trino/`, `pkg/query/trino/` | Username/password from connection config. Optional read-only mode (`read_only`, default off) rejects write SQL via `ReadOnlyInterceptor` (delegates to `trinotools.IsWriteSQL`); this is a write-verb rejection, not a SELECT-only allowlist. It applies per connection: the interceptor resolves the connection the call names, or the default when it names none, and permits writes only on a connection configured write-capable — an unresolved or unconfigured connection is refused. The interceptor runs on the toolkit's SQL tools; `pkg/query/trino/` is the enrichment read path, which issues its own fixed metadata queries and does not run the interceptor. |
+| Trino | `pkg/toolkits/trino/`, `pkg/query/trino/` | Username/password from connection config. Optional read-only mode (`read_only`, default off) runs only reads via `ReadOnlyInterceptor`: a statement is a read when `internal/sqltables.IsRead` lists its kind (SELECT, WITH, VALUES, TABLE, SHOW, DESCRIBE, and EXPLAIN other than EXPLAIN ANALYZE), and every other statement is refused. `trino_query`, `trino_explain` and `trino_export` hold to the same list on every connection (`ReadToolInterceptor`, and the export path's unconditional interceptor), so writing is `trino_execute`'s alone. It applies per connection: the interceptor resolves the connection the call names, or the default when it names none, and permits writes only on a connection configured write-capable — an unresolved or unconfigured connection is refused. The interceptor runs on the toolkit's SQL tools; `pkg/query/trino/` is the enrichment read path, which issues its own fixed metadata queries and does not run the interceptor. |
 | S3 | `pkg/toolkits/s3/` | Static access-key/secret from connection config; a connection carries a `read_only` flag that refuses writes. |
 | Upstream MCP servers (gateway toolkit) | `pkg/toolkits/gateway/` | Remote tool descriptions and responses are re-exposed under a namespaced name. Descriptions and non-error response content flow through with enrichment applied only to structured content; there is no description sanitization. See the [malicious upstream](#malicious-or-compromised-upstream) analysis. |
 | Upstream HTTP APIs (apigateway toolkit) | `pkg/toolkits/apigateway/invoke.go` | Requests target the operator-authored `base_url`; method is restricted to a closed allowlist and per-call timeout is capped. This path targets operator-configured hosts and does not run the catalog SSRF dialer guard. |
@@ -233,6 +233,8 @@ calling user's identity.
 | OAuth authorization codes and refresh tokens | `pkg/oauth/postgres/store.go`, `pkg/oauth/storage.go` | Stored as `SHA-256(token)` hex digests (`HashToken`), looked up by hash, and consumed atomically with `DELETE ... RETURNING` so replay after use returns not-found. |
 | OAuth client secrets | `pkg/oauth/dcr.go`, `pkg/oauth/server.go` | bcrypt-hashed at registration; the plaintext secret is returned to the client once and never stored. |
 | Connection secrets | `pkg/platform/fieldcrypt/fieldcrypt.go` | AES-256-GCM with a single symmetric key from `ENCRYPTION_KEY` (32 bytes), random nonce per operation, stored as an `enc:`-prefixed base64 value. This is symmetric field encryption, not a DEK/KEK envelope scheme. When no key is configured, values are stored in plaintext (encryption disabled). |
+| Stored secrets (Admin > Secrets, `{{secret:<name>}}`, authenticator seeds, `script_token` keys) | `internal/secretstore/secretstore.go` | Write-only, and sealed with AES-256-GCM under `ENCRYPTION_KEY` by a call that always encrypts (a value that happens to read `enc:...` is sealed like any other). With no key, a save that carries a value is refused with 400 naming `ENCRYPTION_KEY`; a rescope, which carries none, still saves. A value an earlier release stored as written is sealed on the platform's first start with a key (`ResealPlaintext`). |
+| API keys (database) | `internal/platform/apikeystore`, `pkg/auth/apikey.go` | A bcrypt hash and a SHA-256 lookup digest (`key_digest`) of the key's 32 random bytes; a value not shaped like a generated key gets no digest. The value itself is shown once and never stored. |
 | Audit rows | `pkg/audit/postgres/store.go`, `pkg/middleware/mcp_audit.go` | Tool-call arguments are stored in the `parameters` column. Configured top-level keys are replaced with `[REDACTED]` in the middleware before the event leaves the request path (`redact_keys`), `log_parameters: false` drops arguments entirely, and any value over 16KB is stored as its size rather than its content, so a payload argument does not become a second copy of that data in the audit table. A baseline sanitizer masks a fixed sensitive-key set (`pkg/audit/event.go`). |
 | S3 blobs | `pkg/storage/s3/` | Stored in the operator's object store under the connection's credentials; blob-at-rest protection is a deployment responsibility (bucket encryption, access policy). The platform's own buckets (portal, managed resources) are refused to `s3_list`, `s3_object` and bucket sources on every connection and for every persona (`pkg/toolkits/s3/reserved.go`, #2616), and a granted connection whose credentials list one, or a bucket named for backups, is logged at startup (`s3_connection_reaches_platform_bucket`, `s3_connection_reaches_backup_bucket`). A Trino catalog whose credentials reach a platform bucket (the scratch catalog over managed resources) is held the same way: the Trino tools refuse a statement that points a table, a schema or a partition there, or names a location they cannot read before it runs (`pkg/toolkits/trino/location.go`), and the platform's own registrations run apart from the tools. |
 
@@ -252,7 +254,24 @@ and (before authentication) the HTTP MCP transports.
   token bucket and a global backstop bucket sized at ten times the per-IP rate
   (`pkg/oauth/ratelimit.go`, `pkg/ratelimit/http.go`); over-limit callers get
   `429 slow_down`. DCR is disabled unless explicitly configured, and the
-  bcrypt cost of `/register` is throttled by the same limiter.
+  bcrypt cost of `/register` is throttled by the same limiter. Both read at
+  most 64 KiB of a body. Every JSON request body a handler reads is bounded
+  the same way (`internal/httpjson.DecodeBody`: 1 MiB, 4 MiB for a knowledge
+  page or prompt), and `.semgrep/go-unbounded-json-body.yml` refuses an
+  unbounded `json.NewDecoder(r.Body)`; the listeners close an idle keep-alive
+  connection after 120 seconds.
+- A presented token costs a hash, not a bcrypt comparison per key (DoS). A
+  database API key is found by its SHA-256 digest; only a key stored before
+  digests existed is compared by bcrypt, at most half the CPUs at once.
+- Authorization-code interception through a self-registered client
+  (Spoofing, Elevation). A dynamically registered client's redirect URI must
+  match a pattern whole and with its host pinned, and is re-checked at every
+  sign-in; the person is then asked on a consent page the platform serves,
+  which cannot be framed, before a code is sent (`pkg/oauth/dcr.go`,
+  `pkg/oauth/consent.go`).
+- A token issued to another client of the identity provider (Spoofing). The
+  OIDC authenticator accepts a token only when its `aud` names the configured
+  audience, or with none configured, when `aud` or `azp` names `client_id`.
 - Spoofed `X-Forwarded-For` to defeat per-IP limits (Spoofing). The client-IP
   resolver consults `X-Forwarded-For` only when the direct peer is a configured
   trusted proxy, then walks the header right-to-left to the last untrusted hop;

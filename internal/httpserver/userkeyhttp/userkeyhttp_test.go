@@ -110,6 +110,8 @@ func newTestAPIAs(caller, callerAuthType string) (*API, http.Handler, *fakeManag
 		},
 		Refresh: func(*http.Request) {},
 		Caller:  func(*http.Request) (string, string) { return caller, callerAuthType },
+		// A signed-in portal session, unless the case says otherwise.
+		FromSession: func(*http.Request) bool { return callerAuthType != middleware.AuthTypeAPIKey },
 	}
 	mux := http.NewServeMux()
 	api.Register(mux)
@@ -577,5 +579,28 @@ func TestCreateRecordsTheCallerBeforeIssuing(t *testing.T) {
 	api.Settle = func(*http.Request) error { return errors.New("db down") }
 	if w := serve(mux, http.MethodPost, "/api/v1/portal/api-keys", `{"name":"laptop"}`); w.Code != http.StatusInternalServerError {
 		t.Fatalf("a caller Settle could not record: status %d, want the issue's own 500: %s", w.Code, w.Body)
+	}
+}
+
+// TestCreateRefusesABearerToken: a key outlives the credential that issued it,
+// so only a signed-in portal session issues one; a caller holding only a
+// bearer token (an OAuth or OIDC access token an application may hold) is
+// refused and can still list and revoke.
+func TestCreateRefusesABearerToken(t *testing.T) {
+	api, mux, manager := newTestAPI(alice)
+	api.FromSession = func(*http.Request) bool { return false }
+	rec := serve(mux, http.MethodPost, "/api/v1/portal/api-keys", `{"name":"k","expires_in":"720h"}`)
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "signed-in portal session") {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(manager.keys) != 0 {
+		t.Fatalf("a key was issued: %+v", manager.keys)
+	}
+	if rec := serve(mux, http.MethodGet, "/api/v1/portal/api-keys", ""); rec.Code != http.StatusOK {
+		t.Fatalf("listing = %d", rec.Code)
+	}
+	api.FromSession = nil
+	if rec := serve(mux, http.MethodPost, "/api/v1/portal/api-keys", `{"name":"k"}`); rec.Code != http.StatusForbidden {
+		t.Fatalf("with no session check, create = %d", rec.Code)
 	}
 }

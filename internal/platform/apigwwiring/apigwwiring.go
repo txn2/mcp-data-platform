@@ -10,8 +10,10 @@
 package apigwwiring
 
 import (
+	"context"
 	"database/sql"
 	"log/slog"
+	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/secretref"
@@ -115,8 +117,22 @@ func ConnectionSecrets(db *sql.DB, enc secretstore.Encryptor) {
 	if db == nil {
 		return
 	}
-	secretref.SetConnectionSource(secretstore.NewStore(db, enc).ConnectionValue)
+	store := secretstore.NewStore(db, enc)
+	secretref.SetConnectionSource(store.ConnectionValue)
+	// A deployment that ran with no ENCRYPTION_KEY stored its secrets as
+	// written; from its first start with a key they are held sealed.
+	ctx, cancel := context.WithTimeout(context.Background(), resealTimeout)
+	defer cancel()
+	if n, err := store.ResealPlaintext(ctx); err != nil {
+		slog.Warn("stored secrets: sealing the values stored as written failed", "error", logsan.SanitizeForLog(err.Error()))
+	} else if n > 0 {
+		slog.Info("stored secrets: sealed the values an earlier start stored as written", "count", n)
+	}
 }
+
+// resealTimeout bounds the startup pass that seals stored secrets kept as
+// written.
+const resealTimeout = 30 * time.Second
 
 // Secrets attaches the stored secrets a request's {{secret:<name>}}
 // placeholders are filled from (#2051), read from db through enc; admin
