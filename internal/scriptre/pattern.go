@@ -2,12 +2,15 @@ package scriptre
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"slices"
 	"sort"
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
+
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
 )
 
 // Pattern is a compiled pattern, as re.compile returns it. Its methods are
@@ -112,9 +115,17 @@ func (p *Pattern) scan(thread *starlark.Thread, method, name string, args starla
 	charge(thread, len(s))
 	switch method {
 	case "findall":
-		return p.findall(s), nil
+		all, err := p.matches(thread, s, -1, name)
+		if err != nil {
+			return nil, err
+		}
+		return p.findall(s, all), nil
 	case "finditer":
-		return p.finditer(s), nil
+		all, err := p.matches(thread, s, -1, name)
+		if err != nil {
+			return nil, err
+		}
+		return p.finditer(s, all), nil
 	}
 	re, err := p.anchored(thread, method)
 	if err != nil {
@@ -141,8 +152,7 @@ func (p *Pattern) anchored(thread *starlark.Thread, method string) (*regexp.Rege
 // findall is Python's: the whole matches when the pattern has no group, the
 // first group's text when it has one, and a tuple of every group's when it
 // has more. A group that took no part is "".
-func (p *Pattern) findall(s string) starlark.Value {
-	all := p.re.FindAllStringSubmatchIndex(s, -1)
+func (p *Pattern) findall(s string, all [][]int) starlark.Value {
 	out := make([]starlark.Value, 0, len(all))
 	groups := p.re.NumSubexp()
 	for _, idx := range all {
@@ -164,8 +174,7 @@ func (p *Pattern) findall(s string) starlark.Value {
 
 // finditer is every match, in order, as a list: Starlark has no lazy
 // iterator a builtin could hand back.
-func (p *Pattern) finditer(s string) starlark.Value {
-	all := p.re.FindAllStringSubmatchIndex(s, -1)
+func (p *Pattern) finditer(s string, all [][]int) starlark.Value {
 	out := make([]starlark.Value, 0, len(all))
 	for _, idx := range all {
 		out = append(out, newMatch(p.re, s, idx))
@@ -187,9 +196,13 @@ func (p *Pattern) split(thread *starlark.Thread, name string, args starlark.Tupl
 	if maxsplit > 0 {
 		limit = maxsplit
 	}
+	all, err := p.matches(thread, s, limit, name)
+	if err != nil {
+		return nil, err
+	}
 	var out []starlark.Value
 	last := 0
-	for _, idx := range p.re.FindAllStringSubmatchIndex(s, limit) {
+	for _, idx := range all {
 		out = append(out, starlark.String(s[last:idx[0]]))
 		for g := 1; g <= p.re.NumSubexp(); g++ {
 			out = append(out, groupText(s, idx, g, starlark.None))
@@ -199,6 +212,33 @@ func (p *Pattern) split(thread *starlark.Thread, name string, args starlark.Tupl
 	out = append(out, starlark.String(s[last:]))
 	return starlark.NewList(out), nil
 }
+
+// matches is p's matches in s, at most limit when it is positive. A pattern
+// that matches everywhere (an empty match) yields one match per character,
+// and each costs its index slice and the value built from it, so the matches
+// are found up to what the run's memory budget can hold and refused past it,
+// before the list a script is handed is built.
+func (p *Pattern) matches(thread *starlark.Thread, s string, limit int, name string) ([][]int, error) {
+	per := int64(matchBytes + matchGroupBytes*(p.re.NumSubexp()+1))
+	if budget := scriptguard.Budget(thread); budget > 0 {
+		most := int(min(budget/per, math.MaxInt32))
+		if limit <= 0 || limit > most {
+			limit = most + 1
+		}
+	}
+	all := p.re.FindAllStringSubmatchIndex(s, limit)
+	if err := scriptguard.Reserve(thread, int64(len(all))*per, name); err != nil {
+		return nil, err //nolint:wrapcheck // the refusal names the call
+	}
+	return all, nil
+}
+
+// What one match costs a list of results: its index slice and the value built
+// from it, and the share of each group.
+const (
+	matchBytes      = 48
+	matchGroupBytes = 24
+)
 
 // groupText is group g of a match, or absent when the group took no part.
 func groupText(s string, idx []int, g int, absent starlark.Value) starlark.Value {

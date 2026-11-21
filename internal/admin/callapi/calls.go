@@ -1,7 +1,6 @@
 package callapi
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -136,7 +135,7 @@ func (h *handler) rejectCall(w http.ResponseWriter, r *http.Request) {
 	// A missing or malformed body is a rejection with no note: the note is
 	// optional, and refusing the action over it would be refusing the
 	// decision the reviewer already made.
-	_ = json.NewDecoder(r.Body).Decode(&body)
+	_ = httpjson.DecodeBody(w, r, &body, httpjson.MaxBody)
 
 	rec, err := h.cfg.Promoter.Reject(r.Context(), callrecord.Scope{ID: r.PathValue("id")}, h.actor(r), body.Note)
 	if writeActionError(w, err) {

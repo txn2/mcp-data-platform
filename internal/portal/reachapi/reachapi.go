@@ -145,22 +145,24 @@ func (h *Handler) capForExternal(perms map[string]portaldomain.SharePermission, 
 
 // CollectionPermissions is the caller's share permission on each listed
 // collection they do not own.
+// collection they do not own, read in one query for the page (#2740) and held
+// to viewer for a person of an external persona, as the one-collection read
+// is. A read that fails grants nothing, as the one-collection read does.
 func (h *Handler) CollectionPermissions(ctx context.Context, collections []portaldomain.Collection, user *access.User) map[string]portaldomain.SharePermission {
-	var out map[string]portaldomain.SharePermission
+	var shared []string
 	for i := range collections {
-		if collections[i].OwnerID == user.UserID {
-			continue
+		if collections[i].OwnerID != user.UserID {
+			shared = append(shared, collections[i].ID)
 		}
-		perm := h.cfg.Access.CollectionSharePermission(ctx, collections[i].ID, user)
-		if perm == "" {
-			continue
-		}
-		if out == nil {
-			out = map[string]portaldomain.SharePermission{}
-		}
-		out[collections[i].ID] = perm
 	}
-	return out
+	if len(shared) == 0 || h.cfg.Shares == nil {
+		return nil
+	}
+	perms, err := h.cfg.Shares.GetUserCollectionPermissions(ctx, shared, user.UserID, user.Email)
+	if err != nil || len(perms) == 0 {
+		return nil
+	}
+	return h.capForExternal(perms, user)
 }
 
 // OwnedCollectionIDs is the ids of the collections the caller owns, the rows

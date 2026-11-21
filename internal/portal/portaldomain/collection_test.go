@@ -1,6 +1,7 @@
 package portaldomain
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -85,4 +86,23 @@ func TestContentTypeHelpers(t *testing.T) {
 	// detected from the bytes, which never resolves to an active type.
 	assert.Equal(t, "text/markdown", ResolveContentType("text/markdown", []byte("# heading")))
 	assert.Equal(t, "text/plain", ResolveContentType("application/octet-stream", []byte("just words")))
+}
+
+func TestAddedAssets(t *testing.T) {
+	existing := &Collection{Sections: []CollectionSection{
+		{Items: []CollectionItem{{AssetID: "a"}, {AssetID: "b"}}},
+	}}
+	next := []CollectionSection{
+		{Items: []CollectionItem{{AssetID: "b"}, {AssetID: "c"}}},
+		{Items: []CollectionItem{{AssetID: "a"}, {AssetID: "c"}, {AssetID: "d"}}},
+	}
+	if got := AddedAssets(existing, next); !slices.Equal(got, []string{"c", "d"}) {
+		t.Fatalf("AddedAssets = %v, want [c d]", got)
+	}
+	if got := AddedAssets(nil, next); !slices.Equal(got, []string{"b", "c", "a", "d"}) {
+		t.Fatalf("AddedAssets(nil) = %v, want every item once", got)
+	}
+	if got := AddedAssets(existing, nil); got != nil {
+		t.Fatalf("AddedAssets with no sections = %v", got)
+	}
 }

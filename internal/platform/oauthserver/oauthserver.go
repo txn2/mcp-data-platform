@@ -11,6 +11,7 @@
 package oauthserver
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"fmt"
@@ -73,13 +74,17 @@ type Upstream struct {
 // build it from their own config so this package stays free of platform config
 // types.
 type Config struct {
-	Issuer         string
+	Issuer string
+	// AccessTokenTTL is an access token's lifetime; zero is an hour
+	// (oauth.NewServer's default), which is what the platform uses.
 	AccessTokenTTL time.Duration
 	SigningKey     []byte
 	Clients        []Client
 	DCR            DCR
 	RateLimit      RateLimit
-	Upstream       *Upstream
+	// Branding names the deployment on the consent page.
+	Branding oauth.ConsentBranding
+	Upstream *Upstream
 
 	// DCRUnusedTTL is the age after which an unused dynamically-registered
 	// client is reaped by the store's cleanup routine (database path only).
@@ -154,6 +159,12 @@ func (h *Handle) Close() error {
 		return fmt.Errorf("closing oauth store: %w", err)
 	}
 	return nil
+}
+
+// Branding is the consent page's branding from the portal's: its title, and
+// each theme's logo, falling back to the one logo for both.
+func Branding(title, logo, logoLight, logoDark string) oauth.ConsentBranding {
+	return oauth.ConsentBranding{Title: title, LogoLight: cmp.Or(logoLight, logo), LogoDark: cmp.Or(logoDark, logo)}
 }
 
 // resolveStorage picks the storage backend. It returns the storage plus the
@@ -232,6 +243,7 @@ func New(ctx context.Context, cfg Config) (*Handle, error) {
 			RegisterRPM:    cfg.RateLimit.RegisterRPM,
 			RegisterBurst:  cfg.RateLimit.RegisterBurst,
 		},
+		Branding: cfg.Branding,
 	}
 	if cfg.Upstream != nil {
 		serverConfig.Upstream = &oauth.UpstreamConfig{

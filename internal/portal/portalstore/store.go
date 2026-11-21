@@ -951,6 +951,42 @@ func (s *postgresShareStore) GetUserCollectionPermission(ctx context.Context, co
 	return portaldomain.SharePermission(perm), nil
 }
 
+// GetUserCollectionPermissions is the caller's highest live share permission
+// on each of collectionIDs that grants them one, read in one statement: a
+// listing of collections asked one query per row before (#2740). The same
+// grants count as for one collection: a share to the caller's id, address or
+// persona, not revoked and not expired.
+func (s *postgresShareStore) GetUserCollectionPermissions(ctx context.Context, collectionIDs []string, userID, email string) (map[string]portaldomain.SharePermission, error) { //nolint:revive // interface impl
+	out := map[string]portaldomain.SharePermission{}
+	if len(collectionIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT ON (collection_id) collection_id, permission FROM portal_shares
+		WHERE collection_id = ANY($1)
+		  AND revoked = FALSE
+		  AND (expires_at IS NULL OR expires_at > NOW())
+		  AND (($2 <> '' AND shared_with_user_id = $2) OR ($3 <> '' AND LOWER(shared_with_email) = LOWER($3))
+		       OR ($4 <> '' AND shared_with_persona = $4))
+		ORDER BY collection_id, CASE permission WHEN 'editor' THEN 0 ELSE 1 END`,
+		pq.Array(collectionIDs), userID, email, portaldomain.CallerPersona(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("querying user collection permissions: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // best-effort cleanup
+	for rows.Next() {
+		var id, perm string
+		if err := rows.Scan(&id, &perm); err != nil {
+			return nil, fmt.Errorf("scanning user collection permission: %w", err)
+		}
+		out[id] = portaldomain.SharePermission(perm)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating user collection permissions: %w", err)
+	}
+	return out, nil
+}
+
 // buildActiveShareForTarget renders the active-share lookup for one target
 // column. The column is chosen by target kind, so the statement exists only at
 // run time; it is a function so a test can hand a rendering to a real

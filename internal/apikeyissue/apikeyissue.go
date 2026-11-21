@@ -214,6 +214,7 @@ func (i *Issuer) store(ctx context.Context, def auth.APIKey, value, createdBy st
 		UserEmail:   def.UserEmail,
 		CreatedBy:   createdBy,
 		Attributes:  def.Attributes,
+		KeyDigest:   auth.DigestKey(value),
 	})
 	if errors.Is(err, apikeystore.ErrExists) {
 		return ErrNameTaken

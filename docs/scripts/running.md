@@ -1659,8 +1659,35 @@ what it exported at an earlier call stays written.
 The measure is an estimate of the interpreter's heap, calibrated against the
 Go runtime: it matches the live heap of values a script builds, and a page of
 rows decoded from a tool result measured about 1.65 times its live heap, which
-errs toward stopping a run early. Values built between two host calls are
-measured at the next one, or when the run ends.
+errs toward stopping a run early.
+
+A run is also measured between host calls (#2745): every 10,000 interpreter
+steps the platform makes the same check, walking what the run holds when the
+process has allocated enough since the last walk to put it over its budget. A
+loop that builds a list and calls nothing fails with cause `memory`, naming
+`the code between host calls` as where it was measured. A value a
+comprehension is still building is not reachable by a walk until it is
+assigned, so it is measured at the next host call or when the run ends.
+
+An operation that can build a large value in one step asks first. Before it
+allocates, each of these sizes the value it is about to build and is refused
+when what the run holds plus that value would be over its budget: a repeat
+(`"x" * n`, `[0] * n`), a concatenation (`a + b`, `a += b`, `x[k] += b`, and
+the same with `*`), `list.extend`, `str.replace`, `str.join`, `str.split`,
+`str.rsplit` and `str.splitlines`, the builtins that turn an iterable into a
+value (`list`, `tuple`, `sorted`, `reversed`, `set`, `enumerate`, `zip`, so
+`list(range(n))` is sized before it is built), and `re.sub`, `re.split`,
+`re.findall` and `re.finditer`, whose matches are found only up to what the
+budget can hold. The refusal names the operation:
+
+```text
+a repeat (*): building a value of about 8 MiB would take the run past its 128 MiB
+memory budget (it holds about 124 MiB); build it in pieces and export each one, ...
+```
+
+A value under 64 KiB is not sized when it is built; many of them add up at
+the step checks. The steps a run is held to count the code as written: routing
+an operator through its check adds no step.
 
 What the budget exists to catch is holding a whole dataset at once. A page of
 JSON rows costs several times its wire size once decoded: measured, a 9 MB page

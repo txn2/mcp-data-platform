@@ -240,3 +240,16 @@ func TestTransport_RoutesThroughGuardAndIgnoresProxy(t *testing.T) {
 		t.Fatalf("err = %v; want *BlockedError from the guard", err)
 	}
 }
+
+func TestClassify(t *testing.T) {
+	for addr, want := range map[string]string{
+		"8.8.8.8":            "",
+		"127.0.0.1":          ClassLoopback,
+		"64:ff9b::a9fe:a9fe": ClassEmbeddedIPv4,
+		"::ffff:10.0.0.1":    ClassPrivate,
+	} {
+		if got := Classify(netip.MustParseAddr(addr)); got != want {
+			t.Errorf("Classify(%s) = %q, want %q", addr, got, want)
+		}
+	}
+}

@@ -66,9 +66,11 @@ oauth:
   # allow_ephemeral_signing_key: true  # single-replica http dev only; unsafe for replicas
   dcr:
     enabled: true
+    # Each pattern matches a whole redirect URI and must write its host
+    # exactly (a subdomain wildcard under a domain you name is allowed).
     allowed_redirect_patterns:
-      - "https://.*\\.anthropic\\.com/callback"
-      - "http://localhost:.*/callback"
+      - "https://claude\\.ai/api/mcp/auth_callback"
+      - "http://localhost:[0-9]+/callback"
   # /token and /register are rate limited by default (per-IP + a global
   # backstop). Behind a proxy/ingress, list its CIDRs under trusted_proxies so
   # per-client attribution uses the real client IP instead of the proxy's.

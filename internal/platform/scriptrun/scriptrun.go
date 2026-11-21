@@ -639,17 +639,18 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		Name:  opts.Name,
 		Print: func(_ *starlark.Thread, msg string) { log.Print(msg) },
 	}
-	thread.SetMaxExecutionSteps(opts.MaxSteps)
 	// starlark-go signals both the step limit and an external stop through the
 	// same cancellation path, and reports each as a generic EvalError. Recording
 	// which one fired is the only way to tell an author "your script is too
-	// expensive" apart from "your query took too long".
-	thread.OnMaxSteps = func(th *starlark.Thread) {
+	// expensive" apart from "your query took too long". The meter also measures
+	// the run every scriptguard.CheckpointEvery steps on the way there.
+	scriptguard.Attach(thread, host.mem)
+	host.mem.PaceSteps(thread, opts.MaxSteps, func(th *starlark.Thread) {
 		if opts.overStep(th) {
 			overStep.Store(true)
 			th.Cancel("too many steps")
 		}
-	}
+	})
 
 	// The interpreter has no notion of a context, so cancellation is bridged:
 	// a watchdog cancels the thread when the run context is done, and the
@@ -662,6 +663,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	env := predeclared(host)
 	thread.Load = scriptlib.Loader(runCtx, opts.Libraries, libraryEnv(env))
 	globals, execErr := scriptdialect.Exec(thread, opts.Name, opts.Source, env, opts.hooks(host.mem.Ended))
+	execErr = host.mem.Explain(execErr)
 	if settled := host.mem.Settle(globals); execErr == nil && settled != nil {
 		execErr = settled
 	}

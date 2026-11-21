@@ -49,6 +49,11 @@ import (
 
 const (
 	defaultReadHeaderTimeout = 10 * time.Second
+	// defaultIdleTimeout closes a keep-alive connection that sends no next
+	// request, so idle connections cannot accumulate without bound. A
+	// request's own body and response (an upload, an SSE stream) are not
+	// bounded by it.
+	defaultIdleTimeout       = 120 * time.Second
 	fallbackGracePeriod      = 25 * time.Second
 	fallbackPreShutdownDelay = 2 * time.Second
 )
@@ -386,6 +391,7 @@ func listenAndServe(ctx context.Context, addr string, handler http.Handler, hcfg
 		Addr:              addr,
 		Handler:           handler,
 		ReadHeaderTimeout: defaultReadHeaderTimeout,
+		IdleTimeout:       defaultIdleTimeout,
 	}
 
 	gracePeriod := hcfg.shutdownCfg.GracePeriod

@@ -186,12 +186,27 @@ func issue1759Name(label string) string {
 	return fmt.Sprintf("issue-1759-%s-%d", label, time.Now().UnixNano())
 }
 
-// issue1759CreateOwn issues a key for the signed-in person themselves and
-// returns the key value.
-func issue1759CreateOwn(t *testing.T, bearer, name string) string {
+// issue1759Session is the person's signed-in portal session: the browser's
+// cookies and its CSRF token. A key is issued only to one (#2745); the
+// id_token issue1759SignIn returns lists and revokes keys but is refused a
+// new one.
+func issue1759Session(t *testing.T, email, password string) externalSession {
 	t.Helper()
-	status, body := issue1759Request(t, bearer, http.MethodPost, issue1759PortalKeysPath,
-		[]byte(`{"name":"`+name+`","description":"issue 1759 acceptance"}`))
+	s := externalSession{hc: browserSignIn(t, baseURL(), email, password), email: email}
+	_, me := s.do(t, http.MethodGet, issue1759MePath, nil)
+	s.csrf, _ = me["csrf_token"].(string)
+	if s.csrf == "" {
+		t.Fatalf("the signed-in session carries no CSRF token: %v", me)
+	}
+	return s
+}
+
+// issue1759CreateOwn issues a key for the signed-in person themselves, from
+// their portal session, and returns the key value.
+func issue1759CreateOwn(t *testing.T, s externalSession, name string) string {
+	t.Helper()
+	status, body := s.do(t, http.MethodPost, issue1759PortalKeysPath,
+		map[string]any{"name": name, "description": "issue 1759 acceptance"})
 	if status != http.StatusCreated {
 		t.Fatalf("POST %s: want 201, got %d: %v", issue1759PortalKeysPath, status, body)
 	}
@@ -239,7 +254,7 @@ func TestIssue1759_OwnKeyIsTheSamePerson(t *testing.T) {
 	}
 
 	name := issue1759Name("own")
-	key := issue1759CreateOwn(t, token, name)
+	key := issue1759CreateOwn(t, issue1759Session(t, issue1759AnalystEmail, issue1759AnalystPass), name)
 	t.Cleanup(func() { issue1759DeleteOwn(t, token, name) })
 
 	issue1759SameIdentity(t, mine, issue1759Me(t, key), "a key the person issued for themselves")
@@ -250,8 +265,8 @@ func TestIssue1759_OwnKeyIsTheSamePerson(t *testing.T) {
 func TestIssue1759_OwnKeyCannotWiden(t *testing.T) {
 	token := issue1759SignIn(t, issue1759AnalystEmail, issue1759AnalystPass)
 	name := issue1759Name("widen")
-	status, body := issue1759Request(t, token, http.MethodPost, issue1759PortalKeysPath,
-		[]byte(`{"name":"`+name+`","roles":["admin"]}`))
+	status, body := issue1759Session(t, issue1759AnalystEmail, issue1759AnalystPass).do(t, http.MethodPost, issue1759PortalKeysPath,
+		map[string]any{"name": name, "roles": []string{"admin"}})
 	if status == http.StatusCreated {
 		issue1759DeleteOwn(t, token, name)
 		t.Fatalf("POST %s with roles was accepted: a person can widen their own key", issue1759PortalKeysPath)
@@ -266,7 +281,7 @@ func TestIssue1759_OwnKeyCannotWiden(t *testing.T) {
 func TestIssue1759_OwnKeysAreListedAndRevoked(t *testing.T) {
 	token := issue1759SignIn(t, issue1759AnalystEmail, issue1759AnalystPass)
 	name := issue1759Name("revoke")
-	key := issue1759CreateOwn(t, token, name)
+	key := issue1759CreateOwn(t, issue1759Session(t, issue1759AnalystEmail, issue1759AnalystPass), name)
 
 	status, body := issue1759Request(t, token, http.MethodGet, issue1759PortalKeysPath, nil)
 	if status != http.StatusOK {
@@ -413,7 +428,7 @@ func TestIssue1759_ServiceKeyIsUnaffected(t *testing.T) {
 func TestIssue1759_AdminListsAndRevokesAPersonsKey(t *testing.T) {
 	token := issue1759SignIn(t, issue1759AnalystEmail, issue1759AnalystPass)
 	name := issue1759Name("adminrevoke")
-	key := issue1759CreateOwn(t, token, name)
+	key := issue1759CreateOwn(t, issue1759Session(t, issue1759AnalystEmail, issue1759AnalystPass), name)
 	t.Cleanup(func() { issue1759DeleteOwn(t, token, name) })
 
 	admin := connect(t)

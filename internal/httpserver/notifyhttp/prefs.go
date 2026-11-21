@@ -9,10 +9,11 @@ package notifyhttp
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
+
+	"github.com/txn2/mcp-data-platform/internal/httpjson"
 
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
@@ -108,7 +109,7 @@ func (a *PrefsAPI) putPrefs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req PrefsRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpjson.DecodeBody(w, r, &req, httpjson.MaxBody); err != nil {
 		writePrefsError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}

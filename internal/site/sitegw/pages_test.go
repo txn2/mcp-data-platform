@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -902,5 +904,86 @@ func TestPages_HandsTheEndpointItsCookieRule(t *testing.T) {
 		require.Len(t, ph.server.routes, 1, name)
 		wantWithheld := name != "same origin" && name != "its own origin"
 		assert.Equal(t, wantWithheld, ph.server.routes[0].CookiesWithheld, name)
+	}
+}
+
+// gatedApps is a store whose reads wait on a gate and are counted, so a test
+// holds a load open while other requests arrive.
+type gatedApps struct {
+	memApps
+	mu    sync.Mutex
+	gate  chan struct{}
+	count int
+}
+
+func (g *gatedApps) GetByName(ctx context.Context, name string) (*application.Application, error) {
+	g.mu.Lock()
+	g.count++
+	g.mu.Unlock()
+	<-g.gate
+	return g.memApps.GetByName(ctx, name)
+}
+
+// TestPages_ConcurrentRequestsShareOneLoad holds #2739: the requests that
+// arrive for one application while its load is in flight share it, and a
+// name that is no application is not read again inside the miss window.
+func TestPages_ConcurrentRequestsShareOneLoad(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	store := &gatedApps{gate: make(chan struct{})}
+	store.byName = appsNamed(appShop)
+	pages := &Pages{Apps: store, Assets: &memAssets{}, Now: func() time.Time { return now }}
+
+	var wg sync.WaitGroup
+	results := make([]*appEntry, 200)
+	for i := range results {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			results[i] = pages.application(context.Background(), appShop)
+		}(i)
+	}
+	// Let the requests queue behind the first load before it answers.
+	for {
+		store.mu.Lock()
+		started := store.count
+		store.mu.Unlock()
+		if started > 0 {
+			break
+		}
+		runtime.Gosched()
+	}
+	close(store.gate)
+	wg.Wait()
+	if store.count != 1 {
+		t.Fatalf("%d store reads for one application's concurrent requests, want 1", store.count)
+	}
+	for i, r := range results {
+		if r == nil || r.app.Name != appShop {
+			t.Fatalf("request %d got %+v", i, r)
+		}
+	}
+
+	misses := &memApps{byName: appsNamed()}
+	pages = &Pages{Apps: misses, Assets: &memAssets{}, Now: func() time.Time { return now }}
+	for range 2 {
+		if pages.application(context.Background(), "nope") != nil {
+			t.Fatal("an unknown name was served")
+		}
+	}
+	if misses.reads != 1 {
+		t.Fatalf("%d reads for an unknown name inside the miss window, want 1", misses.reads)
+	}
+	now = now.Add(missTTL + time.Millisecond)
+	pages.application(context.Background(), "nope")
+	if misses.reads != 2 {
+		t.Fatalf("the miss was held past its window: %d reads", misses.reads)
+	}
+
+	failing := &memApps{err: errors.New("down")}
+	pages = &Pages{Apps: failing, Assets: &memAssets{}, Now: func() time.Time { return now }}
+	pages.application(context.Background(), appShop)
+	pages.application(context.Background(), appShop)
+	if failing.reads != 2 {
+		t.Fatalf("a failed read was held: %d reads", failing.reads)
 	}
 }

@@ -3,6 +3,7 @@ package portal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -30,7 +31,9 @@ type collHandlerMockCollStore struct {
 	updateThumbErr  error
 	softDeleteErr   error
 	setSectionsErr  error
-	lastFilter      *CollectionFilter // captures the most recent List filter
+	// setSectionsCalled records that a sections write reached the store.
+	setSectionsCalled bool
+	lastFilter        *CollectionFilter // captures the most recent List filter
 }
 
 func (m *collHandlerMockCollStore) Insert(_ context.Context, _ Collection) error { return m.insertErr }
@@ -60,6 +63,7 @@ func (m *collHandlerMockCollStore) SoftDelete(_ context.Context, _ string) error
 }
 
 func (m *collHandlerMockCollStore) SetSections(_ context.Context, _ string, _ []CollectionSection) error {
+	m.setSectionsCalled = true
 	return m.setSectionsErr
 }
 
@@ -95,6 +99,17 @@ func (*mockCollectionShareStore) ListSharedPromptsWithUser(_ context.Context, _,
 
 func (m *mockCollectionShareStore) GetUserCollectionPermission(_ context.Context, _, _, _ string) (SharePermission, error) {
 	return m.collPermission, m.collPermErr
+}
+
+// GetUserCollectionPermissions answers each id as GetUserCollectionPermission does.
+func (m *mockCollectionShareStore) GetUserCollectionPermissions(ctx context.Context, ids []string, userID, email string) (map[string]SharePermission, error) {
+	out := map[string]SharePermission{}
+	for _, id := range ids {
+		if p, err := m.GetUserCollectionPermission(ctx, id, userID, email); err == nil && p != "" {
+			out[id] = p
+		}
+	}
+	return out, nil
 }
 
 func (m *mockCollectionShareStore) ListSharedCollectionsWithUser(_ context.Context, _, _ string, _, _ int) ([]SharedCollection, int, error) {
@@ -767,7 +782,7 @@ func TestSetCollectionSections(t *testing.T) {
 		updated.Sections = []CollectionSection{{ID: "s1", Title: "Section 1"}}
 		cs := &collHandlerMockCollStore{getColl: &updated}
 		shares := &mockCollectionShareStore{}
-		h := newTestHandlerWithCollections(&mockAssetStore{}, shares, cs, &mockS3Client{}, testUser)
+		h := newTestHandlerWithCollections(ownedAssetStore("a1"), shares, cs, &mockS3Client{}, testUser)
 
 		body := `{"sections":[{"title":"Section 1","items":[{"asset_id":"a1"}]}]}`
 		r := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/collections/coll-1/sections", strings.NewReader(body))
@@ -861,7 +876,7 @@ func TestSetCollectionSections(t *testing.T) {
 		coll := baseCollection()
 		cs := &collHandlerMockCollStore{getColl: coll, setSectionsErr: fmt.Errorf("db error")}
 		shares := &mockCollectionShareStore{}
-		h := newTestHandlerWithCollections(&mockAssetStore{}, shares, cs, &mockS3Client{}, testUser)
+		h := newTestHandlerWithCollections(ownedAssetStore("a1"), shares, cs, &mockS3Client{}, testUser)
 
 		body := `{"sections":[{"title":"S","items":[{"asset_id":"a1"}]}]}`
 		r := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/collections/coll-1/sections", strings.NewReader(body))
@@ -904,6 +919,60 @@ func TestSetCollectionSections(t *testing.T) {
 		h.ServeHTTP(w, r)
 
 		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+}
+
+// ownedAssetStore answers every read with an asset testUser owns.
+func ownedAssetStore(id string) *mockAssetStore {
+	return &mockAssetStore{getAsset: &Asset{ID: id, OwnerID: testUser.UserID, OwnerEmail: testUser.Email}}
+}
+
+// TestSetCollectionSections_AddsOnlyAssetsTheCallerCanOpen: a collection's
+// share opens every asset it holds, so a sections write may add only an asset
+// the caller could add through Add to collection, and keeps the items already
+// there whoever can open them.
+func TestSetCollectionSections_AddsOnlyAssetsTheCallerCanOpen(t *testing.T) {
+	put := func(h *Handler, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
+			"/api/v1/portal/collections/coll-1/sections", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	someoneElses := &mockAssetStore{getAsset: &Asset{ID: "victim", OwnerID: "user-2", OwnerEmail: "other@example.com"}}
+
+	t.Run("another person's asset is refused and nothing is written", func(t *testing.T) {
+		cs := &collHandlerMockCollStore{getColl: baseCollection()}
+		h := newTestHandlerWithCollections(someoneElses, &mockCollectionShareStore{}, cs, &mockS3Client{}, testUser)
+		w := put(h, `{"sections":[{"title":"S","items":[{"asset_id":"victim"}]}]}`)
+		assert.Equal(t, http.StatusForbidden, w.Code)
+		assert.Contains(t, w.Body.String(), "victim")
+		assert.False(t, cs.setSectionsCalled, "sections were written")
+	})
+
+	t.Run("a missing or deleted asset is refused", func(t *testing.T) {
+		deleted := time.Now()
+		for name, store := range map[string]*mockAssetStore{
+			"missing": {getErr: errors.New("not found")},
+			"deleted": {getAsset: &Asset{ID: "gone", OwnerID: testUser.UserID, DeletedAt: &deleted}},
+		} {
+			cs := &collHandlerMockCollStore{getColl: baseCollection()}
+			h := newTestHandlerWithCollections(store, &mockCollectionShareStore{}, cs, &mockS3Client{}, testUser)
+			w := put(h, `{"sections":[{"title":"S","items":[{"asset_id":"gone"}]}]}`)
+			assert.Equal(t, http.StatusNotFound, w.Code, name)
+			assert.False(t, cs.setSectionsCalled, name)
+		}
+	})
+
+	t.Run("an item already in the collection stays without a check", func(t *testing.T) {
+		coll := baseCollection()
+		coll.Sections = []CollectionSection{{ID: "s1", Items: []CollectionItem{{ID: "i1", AssetID: "victim"}}}}
+		cs := &collHandlerMockCollStore{getColl: coll}
+		h := newTestHandlerWithCollections(someoneElses, &mockCollectionShareStore{}, cs, &mockS3Client{}, testUser)
+		w := put(h, `{"sections":[{"title":"Renamed","items":[{"asset_id":"victim"}]}]}`)
+		assert.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		assert.True(t, cs.setSectionsCalled)
 	})
 }
 

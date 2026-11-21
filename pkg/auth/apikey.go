@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/sync/singleflight"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
@@ -71,6 +70,10 @@ type APIKey struct {
 	// script parameter bound to caller.tenant takes its value from it, not
 	// from the request.
 	Attributes map[string]string
+	// KeyDigest is the SHA-256 of a database key's value (DigestKey), the
+	// index a presented key is found by without a bcrypt comparison. Empty on
+	// a key stored before digests existed until it is next used. Never served.
+	KeyDigest string
 }
 
 // attributeClaims renders a key's attributes as the claims its callers carry.
@@ -131,6 +134,7 @@ type APIKeyAuthenticator struct {
 	mu         sync.RWMutex
 	fileKeys   map[string]*APIKey // indexed by raw key value
 	hashedKeys []*APIKey          // DB-loaded keys, checked via bcrypt
+	byDigest   map[string]*APIKey // DB-loaded keys that carry a digest, by it
 	source     HashedKeySource
 	principals PrincipalSource
 	syncs      singleflight.Group
@@ -146,23 +150,33 @@ func NewAPIKeyAuthenticator(cfg APIKeyConfig) *APIKeyAuthenticator {
 	return &APIKeyAuthenticator{
 		fileKeys:   fileKeys,
 		hashedKeys: nil,
+		byDigest:   map[string]*APIKey{},
 	}
 }
 
 // Authenticate validates the API key and returns user info.
-// It first checks file keys via constant-time compare (fast O(1) path),
-// then falls back to bcrypt comparison against hashed keys (slow path).
+// It checks file keys by constant-time compare, then database keys by their
+// digest (one hash and a map lookup), and only then compares the token by
+// bcrypt with the database keys stored before digests existed, recording the
+// digest of the one it matches. Only a token shaped like a generated key is
+// digested: a digest is a fast hash, held only for a value with no fewer
+// random bits than a SHA-256 has.
 func (a *APIKeyAuthenticator) Authenticate(ctx context.Context) (*middleware.UserInfo, error) {
 	token := GetToken(ctx)
 	if token == "" {
 		return nil, errors.New("no API key found in context")
 	}
+	digest := ""
+	if isGeneratedKeyShape(token) {
+		digest = DigestKey(token)
+	}
 
 	a.mu.RLock()
 	fileKey := a.matchFileKey(token)
+	digested := a.byDigest[digest]
 	// A copy: dropHashedKey rewrites the slice in place, and the bcrypt
 	// comparisons below run without the lock.
-	hashed := slices.Clone(a.hashedKeys)
+	legacy := undigested(a.hashedKeys)
 	source := a.source
 	a.mu.RUnlock()
 
@@ -170,9 +184,10 @@ func (a *APIKeyAuthenticator) Authenticate(ctx context.Context) (*middleware.Use
 		return a.userInfo(ctx, fileKey)
 	}
 
-	// Slow path: bcrypt comparison for DB-loaded hashed keys.
-	// Only attempted when no file key matched, limiting DoS surface.
-	matched := matchHashedKey(hashed, token)
+	matched := digested
+	if matched == nil {
+		matched = a.matchLegacy(ctx, legacy, token, digest)
+	}
 	if source == nil {
 		if matched == nil {
 			return nil, errInvalidAPIKey
@@ -180,7 +195,7 @@ func (a *APIKeyAuthenticator) Authenticate(ctx context.Context) (*middleware.Use
 		return a.userInfo(ctx, matched)
 	}
 	if matched == nil {
-		matched = a.matchAfterSync(ctx, hashed, token)
+		matched = a.matchAfterSync(ctx, legacy, token, digest)
 		if matched == nil {
 			return nil, errInvalidAPIKey
 		}
@@ -200,22 +215,12 @@ func (a *APIKeyAuthenticator) matchFileKey(token string) *APIKey {
 	return candidate
 }
 
-// matchHashedKey returns the key in keys whose hash token matches, or nil.
-func matchHashedKey(keys []*APIKey, token string) *APIKey {
-	for _, k := range keys {
-		if bcrypt.CompareHashAndPassword([]byte(k.KeyHash), []byte(token)) == nil {
-			return k
-		}
-	}
-	return nil
-}
-
 // matchAfterSync is the second look for a token no held key matched: it
 // re-reads the store and compares the token with the keys that read added.
 // Only a token shaped like a key the admin API generates can be one of those,
 // so any other token (a JWT another authenticator refused, a config-file key
 // mistyped) never reaches the store.
-func (a *APIKeyAuthenticator) matchAfterSync(ctx context.Context, seen []*APIKey, token string) *APIKey {
+func (a *APIKeyAuthenticator) matchAfterSync(ctx context.Context, seen []*APIKey, token, digest string) *APIKey {
 	if !isGeneratedKeyShape(token) {
 		return nil
 	}
@@ -228,14 +233,18 @@ func (a *APIKeyAuthenticator) matchAfterSync(ctx context.Context, seen []*APIKey
 		seenHashes[k.KeyHash] = true
 	}
 	a.mu.RLock()
+	if k := a.byDigest[digest]; k != nil {
+		a.mu.RUnlock()
+		return k
+	}
 	added := make([]*APIKey, 0, len(a.hashedKeys))
-	for _, k := range a.hashedKeys {
+	for _, k := range undigested(a.hashedKeys) {
 		if !seenHashes[k.KeyHash] {
 			added = append(added, k)
 		}
 	}
 	a.mu.RUnlock()
-	return matchHashedKey(added, token)
+	return a.matchLegacy(ctx, added, token, digest)
 }
 
 // syncShared re-reads the store once for every caller waiting on it at the same
@@ -272,6 +281,9 @@ func (a *APIKeyAuthenticator) dropHashedKey(key *APIKey) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.hashedKeys = slices.DeleteFunc(a.hashedKeys, func(k *APIKey) bool { return k == key })
+	if key.KeyDigest != "" && a.byDigest[key.KeyDigest] == key {
+		delete(a.byDigest, key.KeyDigest)
+	}
 }
 
 // isGeneratedKeyShape reports whether token has the form GenerateKey produces:
@@ -341,6 +353,9 @@ func (a *APIKeyAuthenticator) AddHashedKey(key APIKey) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.hashedKeys = append(a.hashedKeys, &key)
+	if key.KeyDigest != "" {
+		a.byDigest[key.KeyDigest] = &key
+	}
 }
 
 // ReplaceHashedKeys atomically replaces the full set of DB-loaded
@@ -351,14 +366,19 @@ func (a *APIKeyAuthenticator) AddHashedKey(key APIKey) {
 // untouched.
 func (a *APIKeyAuthenticator) ReplaceHashedKeys(keys []APIKey) {
 	cleaned := make([]*APIKey, 0, len(keys))
+	byDigest := make(map[string]*APIKey, len(keys))
 	for i := range keys {
 		k := keys[i]
 		k.Key = "" // guard: hashed keys must not carry plaintext
 		cleaned = append(cleaned, &k)
+		if k.KeyDigest != "" {
+			byDigest[k.KeyDigest] = cleaned[len(cleaned)-1]
+		}
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.hashedKeys = cleaned
+	a.byDigest = byDigest
 }
 
 // RemoveKey removes a plaintext API key by its value.

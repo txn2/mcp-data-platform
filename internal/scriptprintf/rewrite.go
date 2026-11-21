@@ -72,7 +72,18 @@ func Rewrite(file *syntax.File) {
 				a.RHS = call(PercentName, a.OpPos, &syntax.Ident{NamePos: id.NamePos, Name: id.Name}, a.RHS)
 			}
 		}
-		replaceChildren(n)
+		replaceChildren(n, rewritten)
+		return true
+	})
+}
+
+// ReplaceExprs replaces, everywhere in file, each expression rewrite returns
+// a replacement for, in place. The replacement's own subexpressions are
+// visited after it, so a nested form (a + b + c) is replaced at every level.
+// It is the walk Rewrite does, for another package's rewrite of the same kind.
+func ReplaceExprs(file *syntax.File, rewrite func(syntax.Expr) syntax.Expr) {
+	syntax.Walk(file, func(n syntax.Node) bool {
+		replaceChildren(n, rewrite)
 		return true
 	})
 }
@@ -85,7 +96,7 @@ var exprType = reflect.TypeFor[syntax.Expr]()
 // typed syntax.Expr or []syntax.Expr is a child expression, whatever the
 // node, and listing the twenty node types by hand would let a new one slip
 // by.
-func replaceChildren(n syntax.Node) {
+func replaceChildren(n syntax.Node, rewrite func(syntax.Expr) syntax.Expr) {
 	v := reflect.ValueOf(n)
 	if v.Kind() != reflect.Pointer || v.Elem().Kind() != reflect.Struct {
 		return
@@ -96,23 +107,23 @@ func replaceChildren(n syntax.Node) {
 		}
 		switch {
 		case f.Type() == exprType:
-			replaceAt(f)
+			replaceAt(f, rewrite)
 		case f.Kind() == reflect.Slice && f.Type().Elem() == exprType:
 			for j := range f.Len() {
-				replaceAt(f.Index(j))
+				replaceAt(f.Index(j), rewrite)
 			}
 		}
 	}
 }
 
-// replaceAt replaces the expression held in slot when it is one Rewrite
-// routes.
-func replaceAt(slot reflect.Value) {
+// replaceAt replaces the expression held in slot when rewrite returns a
+// replacement for it.
+func replaceAt(slot reflect.Value, rewrite func(syntax.Expr) syntax.Expr) {
 	if slot.IsNil() {
 		return
 	}
 	if e, ok := slot.Interface().(syntax.Expr); ok {
-		if r := rewritten(e); r != nil {
+		if r := rewrite(e); r != nil {
 			slot.Set(reflect.ValueOf(r))
 		}
 	}

@@ -223,6 +223,15 @@ func ipBlockedReason(a netip.Addr) refusal {
 	}
 }
 
+// Classify is the class of a, one of the Class* constants, when it is not a
+// public destination, and "" when it is. It is the one list of refused
+// address ranges: every fetch whose destination a caller or a document chose
+// asks it, the guard's own dialer and the API catalog's spec fetch alike
+// (#2741).
+func Classify(a netip.Addr) string {
+	return ipBlockedReason(a).class
+}
+
 // containsAny reports whether a falls in any of the prefixes.
 func containsAny(prefixes []netip.Prefix, a netip.Addr) bool {
 	for _, p := range prefixes {

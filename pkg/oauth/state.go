@@ -35,6 +35,16 @@ type AuthorizationState struct {
 	// upstream IdP returns login_required.
 	PromptNoneAttempted bool
 
+	// UserID and UserClaims are the person the upstream IdP signed in, held
+	// only while a dynamically registered client's consent page waits for
+	// their answer. No upstream token is kept.
+	UserID     string         `json:",omitempty"`
+	UserClaims map[string]any `json:",omitempty"`
+
+	// ConsentBinding is the SHA-256 of the cookie the consent page set, so
+	// only the browser it was served to can answer it.
+	ConsentBinding string `json:",omitempty"`
+
 	// CreatedAt is when this state was created.
 	CreatedAt time.Time
 }

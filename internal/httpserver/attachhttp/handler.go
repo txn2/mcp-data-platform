@@ -13,11 +13,12 @@
 package attachhttp
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/txn2/mcp-data-platform/internal/httpjson"
 
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
@@ -242,7 +243,7 @@ func (h *Handler) attach(w http.ResponseWriter, r *http.Request, who *Identity) 
 		return
 	}
 	var req attachRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.ResourceID) == "" {
+	if err := httpjson.DecodeBody(w, r, &req, httpjson.MaxBody); err != nil || strings.TrimSpace(req.ResourceID) == "" {
 		writeError(w, http.StatusBadRequest, "resource_id is required")
 		return
 	}
@@ -372,7 +373,7 @@ func (h *Handler) reorder(w http.ResponseWriter, r *http.Request, who *Identity)
 		return
 	}
 	var req reorderRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpjson.DecodeBody(w, r, &req, httpjson.MaxBody); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}

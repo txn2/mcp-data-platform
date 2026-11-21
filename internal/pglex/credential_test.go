@@ -76,3 +76,35 @@ func TestContainsFold(t *testing.T) {
 		}
 	}
 }
+
+// TestRedactPasswords_InsideBodies holds #2738: a role given a password inside
+// a DO block or a function's body is redacted as one at the top level, and
+// the rest of the text is left as written.
+func TestRedactPasswords_InsideBodies(t *testing.T) {
+	cases := map[string]string{
+		`DO $$ BEGIN CREATE ROLE reporting LOGIN PASSWORD 's3cret'; END $$;`:                                               `DO $$ BEGIN CREATE ROLE reporting LOGIN PASSWORD '[REDACTED]'; END $$;`,
+		`CREATE FUNCTION f() RETURNS void LANGUAGE plpgsql AS $f$ BEGIN ALTER ROLE x PASSWORD 'p'; END $f$;`:               `CREATE FUNCTION f() RETURNS void LANGUAGE plpgsql AS $f$ BEGIN ALTER ROLE x PASSWORD '[REDACTED]'; END $f$;`,
+		"DO $$\nBEGIN\n  IF true THEN\n    CREATE USER u PASSWORD 'p1';\n  END IF;\n  ALTER USER u PASSWORD 'p2';\nEND $$": "DO $$\nBEGIN\n  IF true THEN\n    CREATE USER u PASSWORD '[REDACTED]';\n  END IF;\n  ALTER USER u PASSWORD '[REDACTED]';\nEND $$",
+		`DO $o$ BEGIN EXECUTE $i$ SELECT 1 $i$; CREATE ROLE r PASSWORD 'x'; END $o$`:                                       `DO $o$ BEGIN EXECUTE $i$ SELECT 1 $i$; CREATE ROLE r PASSWORD '[REDACTED]'; END $o$`,
+		`DO $$ BEGIN RAISE NOTICE 'password reset'; END $$`:                                                                `DO $$ BEGIN RAISE NOTICE 'password reset'; END $$`,
+		`DO $$ BEGIN CREATE ROLE r PASSWORD NULL; END $$`:                                                                  `DO $$ BEGIN CREATE ROLE r PASSWORD NULL; END $$`,
+	}
+	for in, want := range cases {
+		if got := RedactPasswords(in); got != want {
+			t.Errorf("RedactPasswords(%q)\n got %q\nwant %q", in, got, want)
+		}
+	}
+}
+
+func TestPasswordLiteral_InsideBodies(t *testing.T) {
+	for stmt, want := range map[string]string{
+		`DO $$ BEGIN CREATE ROLE reporting LOGIN PASSWORD 's3cret'; END $$`:                                 "CREATE ROLE",
+		`CREATE FUNCTION f() RETURNS void AS $f$ BEGIN ALTER ROLE x PASSWORD 'p'; END $f$ LANGUAGE plpgsql`: "ALTER ROLE",
+		`DO $$ BEGIN RAISE NOTICE 'no credential here'; END $$`:                                             "",
+	} {
+		got, ok := PasswordLiteral(stmt)
+		if got != want || ok != (want != "") {
+			t.Errorf("PasswordLiteral(%q) = %q, %v; want %q", stmt, got, ok, want)
+		}
+	}
+}

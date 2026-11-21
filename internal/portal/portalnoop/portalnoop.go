@@ -112,6 +112,10 @@ func (*shareStore) GetUserCollectionPermission(_ context.Context, _, _, _ string
 	return "", errNotFound
 }
 
+func (*shareStore) GetUserCollectionPermissions(_ context.Context, _ []string, _, _ string) (map[string]portaldomain.SharePermission, error) { //nolint:revive // interface impl
+	return map[string]portaldomain.SharePermission{}, nil
+}
+
 func (*shareStore) ListSharedWithUser(_ context.Context, _, _ string, _, _ int) ([]portaldomain.SharedAsset, int, error) { //nolint:revive // interface impl
 	return nil, 0, nil
 }

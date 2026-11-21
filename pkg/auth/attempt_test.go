@@ -139,7 +139,7 @@ func TestChainedAuthenticator_AnonymousFallbackIsNotAnAttempt(t *testing.T) {
 // failure to the authenticator that claims the token.
 func TestChainedAuthenticator_IdPUnavailable(t *testing.T) {
 	var got []observed
-	oidc := &OIDCAuthenticator{cfg: OIDCConfig{Issuer: attemptIDPIssuer}}
+	oidc := &OIDCAuthenticator{cfg: OIDCConfig{ClientID: "test-client", Issuer: attemptIDPIssuer}}
 	chain := NewChainedAuthenticator(ChainedAuthConfig{Observe: func(_ context.Context, m, r, re string) {
 		got = append(got, observed{m, r, re})
 	}}, &unavailableAuth{OIDCAuthenticator: oidc})

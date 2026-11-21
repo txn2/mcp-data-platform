@@ -131,7 +131,10 @@ platform.query(sql="SELECT 1")
 
 // TestRun_FailsARunThatGrowsFasterThanAWalk holds #1867 at the engine: the
 // ticket's shape, a list built inside a function with a fast host call after
-// each append, fails its budget with cause memory however quickly it grew.
+// each append, fails its budget with cause memory however quickly it grew. The
+// repeat that builds each element asks the meter first, so the run is stopped
+// at the element that would take it over, before holding more than its
+// budget.
 func TestRun_FailsARunThatGrowsFasterThanAWalk(t *testing.T) {
 	result, err := Run(context.Background(), Options{
 		Source: `def grow():
@@ -147,9 +150,9 @@ platform.result({"held_kib": grow() * 256})
 	})
 	require.Error(t, err)
 	assert.Equal(t, runstate.CauseMemory, scriptguard.Cause(err))
-	assert.Contains(t, err.Error(), "in platform.query: the run exceeded its 2 MiB memory budget")
-	assert.Greater(t, result.PeakMemory, int64(2<<20))
-	assert.Less(t, result.PeakMemory, int64(4<<20), "stopped as it crossed the budget")
+	assert.Contains(t, err.Error(), "a repeat (*): building a value of about 256 KiB would take the run past its 2 MiB memory budget")
+	assert.Greater(t, result.PeakMemory, int64(1<<20))
+	assert.LessOrEqual(t, result.PeakMemory, int64(2<<20), "stopped before crossing the budget")
 }
 
 // TestRun_FailsARunThatEndsOverItsBudget holds #1867: what a script builds

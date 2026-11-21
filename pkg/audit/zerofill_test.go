@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -192,4 +193,53 @@ func TestZeroFill_EmptySliceNotNil(t *testing.T) {
 	// End before start after truncation → could produce empty result.
 	result := ZeroFill(nil, base, base, ResolutionHour)
 	assert.NotNil(t, result)
+}
+
+func TestCheckTimeseriesRange(t *testing.T) {
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	ok := []struct {
+		start, end time.Time
+		r          Resolution
+	}{
+		{now.Add(-24 * time.Hour), now, ResolutionMinute},
+		{now.Add(-6 * 24 * time.Hour), now, ResolutionMinute},
+		{now.AddDate(-1, 0, 0), now, ResolutionHour},
+		{now.AddDate(-20, 0, 0), now, ResolutionDay},
+		{now, now, ResolutionMinute},
+	}
+	for _, c := range ok {
+		if err := CheckTimeseriesRange(c.start, c.end, c.r); err != nil {
+			t.Errorf("%s..%s %s refused: %v", c.start, c.end, c.r, err)
+		}
+	}
+	refused := []struct {
+		start, end time.Time
+		r          Resolution
+	}{
+		{now.Add(-7 * 24 * time.Hour), now, ResolutionMinute},
+		{time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC), now, ResolutionMinute},
+		{now, time.Date(9999, 12, 31, 0, 0, 0, 0, time.UTC), ResolutionHour},
+		{time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(9999, 12, 31, 0, 0, 0, 0, time.UTC), ResolutionDay},
+		{now, now.Add(-time.Minute), ResolutionHour},
+	}
+	for _, c := range refused {
+		if err := CheckTimeseriesRange(c.start, c.end, c.r); !errors.Is(err, ErrTimeseriesRange) {
+			t.Errorf("%s..%s %s = %v, want ErrTimeseriesRange", c.start, c.end, c.r, err)
+		}
+	}
+	if err := CheckTimeseriesRange(now, now.Add(1000*time.Hour), Resolution("week")); err != nil {
+		t.Errorf("an unknown resolution has no bucket bound: %v", err)
+	}
+}
+
+// TestZeroFill_NeverExpandsPastTheBound: a range the check refuses is answered
+// with the sparse buckets, never a materialized series.
+func TestZeroFill_NeverExpandsPastTheBound(t *testing.T) {
+	start := time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	sparse := []TimeseriesBucket{{Bucket: end, Count: 3}}
+	got := ZeroFill(sparse, start, end, ResolutionMinute)
+	if len(got) != 1 {
+		t.Fatalf("ZeroFill expanded a refused range to %d buckets", len(got))
+	}
 }

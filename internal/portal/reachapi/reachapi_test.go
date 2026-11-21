@@ -2,6 +2,8 @@ package reachapi
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -137,6 +139,17 @@ func (s *summaryShares) GetUserCollectionPermission(_ context.Context, _, _, _ s
 	return s.perm, nil
 }
 
+// GetUserCollectionPermissions answers each id as GetUserCollectionPermission does.
+func (s *summaryShares) GetUserCollectionPermissions(ctx context.Context, ids []string, userID, email string) (map[string]portaldomain.SharePermission, error) {
+	out := map[string]portaldomain.SharePermission{}
+	for _, id := range ids {
+		if p, err := s.GetUserCollectionPermission(ctx, id, userID, email); err == nil && p != "" {
+			out[id] = p
+		}
+	}
+	return out, nil
+}
+
 // A page's owned rows get share summaries and its other rows the caller's
 // permission; a person of an external persona is held to viewer.
 func TestDescribeAssets(t *testing.T) {
@@ -211,4 +224,59 @@ func TestEmbedIsUsedWhenConfigured(t *testing.T) {
 	h := New(Config{Assets: store, Access: access.New(access.Config{}), Embed: func(context.Context, string) []float32 { return []float32{1} }})
 	require.Equal(t, http.StatusOK, serve(h.searchAssets, caller, "/x?q=rev").Code)
 	assert.Equal(t, []float32{1}, store.got.Embedding)
+}
+
+// batchShares counts how a listing reads permissions.
+type batchShares struct {
+	portaldomain.ShareStore
+	batches, rows int
+	perms         map[string]portaldomain.SharePermission
+	err           error
+}
+
+func (s *batchShares) GetUserCollectionPermission(context.Context, string, string, string) (portaldomain.SharePermission, error) {
+	s.rows++
+	return "", nil
+}
+
+func (s *batchShares) GetUserCollectionPermissions(_ context.Context, ids []string, _, _ string) (map[string]portaldomain.SharePermission, error) {
+	s.batches++
+	out := map[string]portaldomain.SharePermission{}
+	for _, id := range ids {
+		if p, ok := s.perms[id]; ok {
+			out[id] = p
+		}
+	}
+	return out, s.err
+}
+
+// TestCollectionPermissions_OneReadPerPage holds #2740: a page of collections
+// shared with the caller is read in one query, not one per row, and a person
+// of an external persona is held to viewer as the one-row read holds them.
+func TestCollectionPermissions_OneReadPerPage(t *testing.T) {
+	colls := make([]portaldomain.Collection, 200)
+	perms := map[string]portaldomain.SharePermission{}
+	for i := range colls {
+		colls[i] = portaldomain.Collection{ID: fmt.Sprintf("c%03d", i), OwnerID: "u2"}
+		if i%2 == 0 {
+			perms[colls[i].ID] = portaldomain.PermissionEditor
+		}
+	}
+	shares := &batchShares{perms: perms}
+	h := New(Config{Shares: shares, Access: access.New(access.Config{Shares: shares})})
+	got := h.CollectionPermissions(context.Background(), colls, caller)
+	assert.Equal(t, 1, shares.batches)
+	assert.Zero(t, shares.rows, "a row was read on its own")
+	assert.Len(t, got, 100)
+	assert.Equal(t, portaldomain.PermissionEditor, got["c000"])
+
+	external := New(Config{Shares: shares, Access: access.New(access.Config{
+		Shares:            shares,
+		PortalPermissions: func([]string) persona.PortalAccess { return persona.PortalAccess{External: true} },
+	})})
+	assert.Equal(t, portaldomain.PermissionViewer, external.CollectionPermissions(context.Background(), colls, caller)["c000"])
+
+	shares.err = errors.New("down")
+	assert.Nil(t, h.CollectionPermissions(context.Background(), colls, caller), "a failed read grants nothing")
+	assert.Nil(t, New(Config{Access: access.New(access.Config{})}).CollectionPermissions(context.Background(), colls, caller))
 }

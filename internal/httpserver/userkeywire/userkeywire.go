@@ -73,6 +73,10 @@ func Wire(deps *portal.Deps, p *platform.Platform) {
 			}
 			return "", ""
 		},
+		FromSession: func(r *http.Request) bool {
+			user := portal.GetUser(r.Context())
+			return user != nil && user.FromCookie
+		},
 	}
 	if rec, ok := manager.Principals().(callerRecorder); ok {
 		api.Settle = func(r *http.Request) error { return settle(r, rec) }

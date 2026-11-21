@@ -126,17 +126,6 @@ const (
 	defaultFetchConnectTimeout       = 10 * time.Second
 	defaultFetchTotalTimeout         = 30 * time.Second
 
-	// cgnatPrefixBits is the CIDR prefix length for the RFC 6598
-	// carrier-grade NAT range (100.64.0.0/10).
-	cgnatPrefixBits = 10
-	// cgnatBase2 / cgnatBase3 are the octet components of 100.64.0.0
-	// — the RFC 6598 CGNAT base address.
-	cgnatBase2 = 100
-	cgnatBase3 = 64
-	// ipv4MaskBits is the total bit width of an IPv4 mask. Named so
-	// the call to net.CIDRMask reads as intent rather than a magic
-	// 32.
-	ipv4MaskBits = 32
 	// idleConnTimeout is the keep-alive idle ceiling for the spec-
 	// fetch transport. Short because spec fetches are one-shots.
 	idleConnTimeout = 30 * time.Second
@@ -668,57 +657,30 @@ func (o FetchOptions) blockedReason(ip net.IP) string {
 	return blockedIPReason(ip)
 }
 
-// blockedIPReason returns a human-readable category if ip is in any
-// guarded range, or empty string when ip is publicly routable. Used
-// for both preflight and the dialer Control callback.
-//
-// Coverage:
-//   - loopback (127.0.0.0/8, ::1)
-//   - link-local unicast (169.254.0.0/16, fe80::/10)
-//   - multicast / unspecified / interface-local-multicast
-//   - RFC1918 private (10/8, 172.16/12, 192.168/16)
-//   - carrier-grade NAT (100.64/10)
-//   - unique-local IPv6 (fc00::/7)
+// blockedIPReason is the egress guard's class for ip when it is not a public
+// destination (loopback, private, link_local, multicast, unspecified, cgnat,
+// embedded_ipv4), or "" when it is: the spec fetch refuses exactly what the
+// egress guard refuses, by asking it, so the two cannot drift apart (#2741).
+// An address that cannot be read is refused as unspecified.
 func blockedIPReason(ip net.IP) string {
-	if ip.IsLoopback() {
-		return "loopback"
+	a, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return egressguard.ClassUnspecified
 	}
-	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-		return "link-local"
-	}
-	if ip.IsMulticast() {
-		return "multicast"
-	}
-	if ip.IsUnspecified() {
-		return "unspecified"
-	}
-	if ip.IsPrivate() {
-		return "private"
-	}
-	cgnat := &net.IPNet{IP: net.IPv4(cgnatBase2, cgnatBase3, 0, 0), Mask: net.CIDRMask(cgnatPrefixBits, ipv4MaskBits)}
-	if cgnat.Contains(ip) {
-		return "carrier-grade-nat"
-	}
-	return ""
+	return egressguard.Classify(a)
 }
 
-// blockedClass is a preflight reason as egress_blocked_total{reason} names
-// it: the same classes the egress guard reports, so the two guards' refusals
-// share one series.
+// blockedClass is a refusal as egress_blocked_total{reason} names it: an
+// address class is already one; an http fetch outside the operator's
+// exemptions is counted as private, the range the exemption names.
 func blockedClass(reason string) string {
 	switch reason {
-	case "loopback":
-		return egressguard.ClassLoopback
-	case "link-local":
-		return egressguard.ClassLinkLocal
-	case "multicast":
-		return egressguard.ClassMulticast
-	case "unspecified":
-		return egressguard.ClassUnspecified
-	case "private":
-		return egressguard.ClassPrivate
+	case egressguard.ClassLoopback, egressguard.ClassPrivate, egressguard.ClassLinkLocal,
+		egressguard.ClassMulticast, egressguard.ClassUnspecified, egressguard.ClassCGNAT,
+		egressguard.ClassEmbeddedIPv4:
+		return reason
 	}
-	return egressguard.ClassCGNAT
+	return egressguard.ClassPrivate
 }
 
 // doFetch issues the request through an HTTP client whose dialer

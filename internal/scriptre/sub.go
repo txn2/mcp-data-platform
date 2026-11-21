@@ -8,7 +8,13 @@ import (
 	"strings"
 
 	"go.starlark.net/starlark"
+
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
 )
+
+// reserveStep is how much a substitution's result grows between the checks
+// it makes against the run's memory budget.
+const reserveStep = 1 << 20
 
 // sub is re.sub(pattern, repl, s, count=0): s with each match replaced, at
 // most count of them when count is positive. repl is a template in Python's
@@ -34,11 +40,21 @@ func (p *Pattern) sub(thread *starlark.Thread, name string, args starlark.Tuple,
 	}
 	var out strings.Builder
 	last := 0
+	// A replacement longer than its match grows the result past s, by as
+	// much as the replacement times the matches; past each reserveStep the
+	// result is reserved against the run's memory budget before it grows.
+	next := reserveStep
 	for _, idx := range p.re.FindAllStringSubmatchIndex(s, limit) {
 		_, _ = out.WriteString(s[last:idx[0]])
 		text, err := replace(s, idx)
 		if err != nil {
 			return nil, err
+		}
+		if grown := out.Len() + len(text) + len(s) - idx[1]; grown >= next {
+			if err := scriptguard.Reserve(thread, int64(grown), name); err != nil {
+				return nil, err //nolint:wrapcheck // the refusal names the operation
+			}
+			next = grown + reserveStep
 		}
 		_, _ = out.WriteString(text)
 		last = idx[1]

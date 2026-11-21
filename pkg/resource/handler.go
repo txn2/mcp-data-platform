@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +13,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/txn2/mcp-data-platform/internal/httpjson"
 
 	"github.com/txn2/mcp-data-platform/internal/indexpolicy"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
@@ -991,7 +992,7 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	id := res.ID
 
 	var u Update
-	if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
+	if err := httpjson.DecodeBody(w, r, &u, httpjson.MaxBody); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}

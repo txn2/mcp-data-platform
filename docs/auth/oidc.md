@@ -40,8 +40,8 @@ auth:
 |-------|----------|-------------|
 | `enabled` | Yes | Enable OIDC authentication |
 | `issuer` | Yes | OIDC issuer URL (used for discovery) |
-| `client_id` | Yes | Expected client ID in tokens |
-| `audience` | No | Expected audience claim (defaults to client_id) |
+| `client_id` | Yes, unless `audience` is set | The platform's client ID at the identity provider. With no `audience`, a token is accepted only when it was issued for this client: its `aud` names `client_id`, or `client_id` is its authorized party (`azp`) |
+| `audience` | No | Expected audience claim. When set, a token's `aud` must name it. OIDC refuses to start with neither `client_id` nor `audience` |
 | `role_claim_path` | No | JSON path to roles in token claims |
 | `role_prefix` | No | Prefix to filter/strip from role names |
 
@@ -164,9 +164,8 @@ The platform validates:
 
 1. **Signature** - Token signed by identity provider's key
 2. **Issuer** - Matches configured issuer
-3. **Audience** - Contains expected audience (if configured)
+3. **Audience** - `aud` names `audience` when it is configured; otherwise `aud` names `client_id`, or `azp` (the authorized party) is `client_id`. A token the identity provider issued to another of its clients is refused
 4. **Expiration** - Token not expired
-5. **Client ID** - Authorized party matches (for access tokens)
 
 Invalid tokens return a 401 Unauthorized response.
 

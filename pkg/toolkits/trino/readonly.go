@@ -9,7 +9,10 @@ import (
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	trinotools "github.com/txn2/mcp-trino/pkg/tools"
+
+	"github.com/txn2/mcp-data-platform/internal/sqltables"
 )
 
 // connectionContextKey types the context value holding the connection a tool
@@ -17,7 +20,9 @@ import (
 type connectionContextKey struct{}
 
 // ReadOnlyInterceptor blocks write operations on read-only connections.
-// It delegates write detection to the upstream mcp-trino IsWriteSQL function.
+// A statement is a write unless sqltables.IsRead lists its kind as a read: an
+// allow-list, so a statement kind no list names is refused on a read-only
+// connection rather than let through.
 //
 // A multi-connection toolkit routes every one of its connections through a
 // single interceptor, so the decision is per connection: Before records the
@@ -102,7 +107,7 @@ func (*ReadOnlyInterceptor) After(
 // Intercept checks if the query is a write operation and blocks it when the
 // connection it is bound for may not accept writes.
 func (i *ReadOnlyInterceptor) Intercept(ctx context.Context, sql string, _ trinotools.ToolName) (string, error) {
-	if !trinotools.IsWriteSQL(sql) {
+	if sqltables.IsRead(sql) {
 		return sql, nil
 	}
 	if err := i.checkWritable(ctx); err != nil {

@@ -15,7 +15,6 @@ package tablehttp
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -202,7 +201,7 @@ func (h *Handler) registerTable(w http.ResponseWriter, r *http.Request, subject 
 		return
 	}
 	var req registerRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpjson.DecodeBody(w, r, &req, httpjson.MaxBody); err != nil {
 		problem(w, http.StatusBadRequest, "the request body is not valid JSON")
 		return
 	}

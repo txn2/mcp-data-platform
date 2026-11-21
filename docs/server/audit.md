@@ -227,6 +227,8 @@ GET /api/v1/admin/audit/metrics/timeseries?event_kind=mcp_tool_call
 GET /api/v1/admin/audit/events?event_kind=script_run           # scheduled and on-demand script runs
 ```
 
+A timeseries (`/api/v1/admin/audit/metrics/timeseries` and the portal's `/api/v1/portal/activity/timeseries`) answers with every bucket of its range, so a range is held to 10,000 buckets at its resolution: a week by the minute, or centuries, answers `400` naming the bound, and so does an `end_time` before `start_time`. A week by the hour and a year by the day answer as before.
+
 `GET /api/v1/admin/audit/events/filters` returns the kinds actually present in the current data, which is narrower than the table above on a deployment that has not used every surface. A filter naming a kind with no rows returns `200` with an empty result rather than an error.
 
 ### Resource reads

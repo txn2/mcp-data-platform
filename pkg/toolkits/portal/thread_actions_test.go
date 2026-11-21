@@ -124,6 +124,17 @@ func (f *fakeShareStore) GetUserCollectionPermission(_ context.Context, _, _, _ 
 	return f.collPerm, nil
 }
 
+// GetUserCollectionPermissions answers each id as GetUserCollectionPermission does.
+func (f *fakeShareStore) GetUserCollectionPermissions(ctx context.Context, ids []string, userID, email string) (map[string]portal.SharePermission, error) {
+	out := map[string]portal.SharePermission{}
+	for _, id := range ids {
+		if p, err := f.GetUserCollectionPermission(ctx, id, userID, email); err == nil && p != "" {
+			out[id] = p
+		}
+	}
+	return out, nil
+}
+
 func (*fakeShareStore) Insert(_ context.Context, _ *portal.Share) error            { return nil }
 func (*fakeShareStore) GetByID(_ context.Context, _ string) (*portal.Share, error) { return nil, nil } //nolint:nilnil // test stub
 func (*fakeShareStore) GetByToken(_ context.Context, _ string) (*portal.Share, error) {
