@@ -222,14 +222,16 @@ func TestResealPlaintext(t *testing.T) {
 	ctx := context.Background()
 	s, mock := newMock(t, prefixEncryptor{})
 	mock.ExpectQuery(`SELECT name, value FROM gateway_secrets WHERE value NOT LIKE 'enc:%'`).
-		WillReturnRows(sqlmock.NewRows([]string{"name", "value"}).AddRow("a", "hunter22").AddRow("b", "raced"))
+		WillReturnRows(sqlmock.NewRows([]string{"name", "value"}).AddRow("a", "hunter22").AddRow("b", "raced").AddRow("c", "swordfish"))
 	mock.ExpectExec(`UPDATE gateway_secrets SET value = \$3 WHERE name = \$1 AND value = \$2`).
 		WithArgs("a", "hunter22", "enc:hunter22").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`UPDATE gateway_secrets SET value`).
 		WithArgs("b", "raced", "enc:raced").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`UPDATE gateway_secrets SET value`).
+		WithArgs("c", "swordfish", "enc:swordfish").WillReturnResult(sqlmock.NewResult(0, 1))
 	n, err := s.ResealPlaintext(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, 1, n, "a row another replica sealed first is not counted")
+	assert.Equal(t, 2, n, "the rows sealed are counted; a row another replica sealed first is not")
 	require.NoError(t, mock.ExpectationsWereMet())
 
 	off, _ := newMock(t, prefixEncryptor{disabled: true})

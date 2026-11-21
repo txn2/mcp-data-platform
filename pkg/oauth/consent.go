@@ -175,10 +175,16 @@ func (s *Server) takeConsent(r *http.Request) (*AuthorizationState, bool) {
 		subtle.ConstantTimeCompare([]byte(bindingDigest(cookie.Value)), []byte(pending.ConsentBinding)) != 1 {
 		return nil, false
 	}
-	if time.Since(pending.CreatedAt) > consentMaxAge {
+	if consentExpired(pending.CreatedAt, time.Now()) {
 		return nil, false
 	}
 	return pending, true
+}
+
+// consentExpired reports whether a request created at created is past
+// consentMaxAge at now; one exactly consentMaxAge old is still answerable.
+func consentExpired(created, now time.Time) bool {
+	return now.Sub(created) > consentMaxAge
 }
 
 // redirectDenied sends the client its access_denied answer.

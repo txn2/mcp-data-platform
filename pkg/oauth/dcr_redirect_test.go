@@ -139,3 +139,38 @@ func TestHostPinned_KeepsThePort(t *testing.T) {
 		t.Error("a pattern matching any host on a port admitted one")
 	}
 }
+
+// TestAmbiguousRune: a space is as ambiguous in a redirect URI as any control
+// character below it; a printable character is not.
+func TestAmbiguousRune(t *testing.T) {
+	for _, r := range []rune{' ', '\t', 0x00, asciiDEL, '\\'} {
+		if !ambiguousRune(r) {
+			t.Errorf("ambiguousRune(%q) = false", r)
+		}
+	}
+	for _, r := range []rune{'!', 'a', '/', '~'} {
+		if ambiguousRune(r) {
+			t.Errorf("ambiguousRune(%q) = true", r)
+		}
+	}
+}
+
+// TestAuthority: the authority ends at the first slash, query or fragment,
+// including one directly after "://", which leaves it empty.
+func TestAuthority(t *testing.T) {
+	for uri, want := range map[string]string{
+		"https:///callback":     "",
+		"https://host/callback": "host",
+		"https://host:8443?x=1": "host:8443",
+		"https://host#frag":     "host",
+		"https://user@host":     "user@host",
+	} {
+		got, ok := authority(uri)
+		if !ok || got != want {
+			t.Errorf("authority(%q) = %q, %v; want %q", uri, got, ok, want)
+		}
+	}
+	if _, ok := authority("com.example.app:/callback"); ok {
+		t.Error("a URI without an authority reported one")
+	}
+}

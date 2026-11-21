@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -180,6 +181,60 @@ func TestConsent_AllowSendsTheCodeOnce(t *testing.T) {
 	}
 	if !strings.Contains(again.Body.String(), "This request has ended") {
 		t.Error("the second answer did not render the ended page")
+	}
+}
+
+// TestConsent_AnAnswerClearsTheBindingCookie: the answer expires the binding
+// cookie it was given, so the browser does not keep it.
+func TestConsent_AnAnswerClearsTheBindingCookie(t *testing.T) {
+	server, _ := consentServer(t, "Claude", ConsentBranding{})
+	page := signIn(t, server)
+	allowed := answer(t, server, page, consentAllow, page.Result().Cookies())
+	var cleared *http.Cookie
+	for _, c := range allowed.Result().Cookies() {
+		if c.Name == consentCookieSecure {
+			cleared = c
+		}
+	}
+	if cleared == nil || cleared.Value != "" || cleared.MaxAge >= 0 {
+		t.Fatalf("the answer's binding cookie = %+v, want it expired", cleared)
+	}
+}
+
+// TestConsentExpired: a request exactly consentMaxAge old is still answerable,
+// and one a nanosecond older is not.
+func TestConsentExpired(t *testing.T) {
+	created := time.Date(2026, 11, 21, 8, 0, 0, 0, time.UTC)
+	if consentExpired(created, created.Add(consentMaxAge)) {
+		t.Error("a request exactly consentMaxAge old was expired")
+	}
+	if !consentExpired(created, created.Add(consentMaxAge+time.Nanosecond)) {
+		t.Error("a request past consentMaxAge was answerable")
+	}
+}
+
+// TestSecureCookies: the binding cookie is TLS-only when the issuer is https
+// or the request itself arrived over TLS.
+func TestSecureCookies(t *testing.T) {
+	for name, tc := range map[string]struct {
+		issuer string
+		tls    bool
+		want   bool
+	}{
+		"https issuer":        {issuer: "https://platform.example.com", want: true},
+		"http issuer":         {issuer: "http://localhost:8080"},
+		"http issuer, on TLS": {issuer: "http://localhost:8080", tls: true, want: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := &Server{config: ServerConfig{Issuer: tc.issuer}}
+			r := httptest.NewRequestWithContext(context.Background(), http.MethodPost, ConsentPath, http.NoBody)
+			if tc.tls {
+				r.TLS = &tls.ConnectionState{}
+			}
+			if got := s.secureCookies(r); got != tc.want {
+				t.Errorf("secureCookies = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 
