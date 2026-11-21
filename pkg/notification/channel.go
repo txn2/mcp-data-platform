@@ -141,6 +141,13 @@ type Channel struct {
 	// Format is the webhook kind's payload: ChannelFormatText (the default
 	// when empty) or ChannelFormatJSON. Empty for every other kind.
 	Format string `json:"format,omitempty"`
+	// DeliveryList marks an email channel whose recipients are a fixed list
+	// an administrator keeps, such as a client's own mailboxes (#2743):
+	// every address receives every message whatever its notification
+	// preferences, and the message carries no preferences or unsubscribe
+	// link and no List-Unsubscribe header. Removing an address is how sending
+	// to it stops. The email kind only.
+	DeliveryList bool `json:"delivery_list,omitempty"`
 	// CreatedBy is the administrator who created the channel.
 	CreatedBy string `json:"created_by,omitempty"`
 	// UpdatedAt is when the record was last written.
@@ -227,6 +234,9 @@ func ValidateChannel(c Channel) error {
 	}
 	if err := validateChannelFormat(c); err != nil {
 		return err
+	}
+	if c.DeliveryList && c.Kind != ChannelKindEmail {
+		return fmt.Errorf("a %s channel has no recipients to keep as a delivery list; delivery_list is for an email channel", c.Kind)
 	}
 	switch c.Kind {
 	case ChannelKindSlack, ChannelKindMattermost:

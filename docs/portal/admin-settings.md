@@ -96,7 +96,13 @@ an incoming webhook, or a named list of addresses. Each row opens its editor
 on click, showing only the fields its kind can use: the chat kinds ask for an
 api connection and a target channel id, a webhook asks for the connection
 alone (its URL is where the message lands), and an email list asks for
-recipients and no connection.
+recipients and no connection. An email list can be marked **Delivery list**
+(#2743) for mailboxes outside the platform: every address receives every
+message whatever its notification preferences, with no preferences or
+unsubscribe link and no List-Unsubscribe header; the list shows a **Delivery
+list** badge. An ordinary email list names, under its status line, the
+recipients who turned email notifications off ("1 opted out of email:
+lee@example.com"), since what it sends never reaches them.
 
 A channel holds no credential. What authorizes a post is the named
 connection's, held and encrypted there, which also decides who may send:

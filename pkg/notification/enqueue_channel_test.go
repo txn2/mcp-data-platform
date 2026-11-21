@@ -287,3 +287,64 @@ func TestNotifyChannel_ADailyChannelTakesNoTarget(t *testing.T) {
 		t.Errorf("a target on a daily channel: err %v, %d rows", err, len(queue.enqueued))
 	}
 }
+
+// TestNotifyChannel_OptedOutRecipientsAreCounted (#2743): a send that skips a
+// recipient who turned email off says how many it skipped, on the result and
+// on every row it wrote, so the run that sent it can say so; a send every
+// recipient opted out of writes nothing and still counts them.
+func TestNotifyChannel_OptedOutRecipientsAreCounted(t *testing.T) {
+	e, queue := channelEnqueuer(t, map[string]Prefs{
+		"muted@example.com": {Mode: ModeOff},
+		"quiet@example.com": {Mode: ModeOff},
+	})
+	ch := Channel{
+		Name: "sales", Kind: ChannelKindEmail, Enabled: true, Mode: ChannelModeImmediate,
+		Recipients: []string{"a@example.com", "muted@example.com", "quiet@example.com"},
+	}
+	res, err := e.NotifyChannel(context.Background(), ChannelSend{Channel: ch, Actor: "alice@example.com", Document: Document{Title: "Weekly"}})
+	if err != nil {
+		t.Fatalf("NotifyChannel: %v", err)
+	}
+	if res.Queued != 1 || res.OptedOut != 2 {
+		t.Fatalf("result = %+v, want 1 queued and 2 opted out", res)
+	}
+	for _, n := range queue.enqueued {
+		if n.Payload.OptedOut != 2 || n.Payload.DeliveryList {
+			t.Errorf("row payload = %+v, want opted_out 2 and no delivery list", n.Payload)
+		}
+	}
+
+	all := ch
+	all.Name, all.Recipients = "muted-only", []string{"muted@example.com"}
+	res, err = e.NotifyChannel(context.Background(), ChannelSend{Channel: all, Actor: "bob@example.com", Document: Document{Title: "Weekly"}})
+	if err != nil || res.Queued != 0 || res.OptedOut != 1 {
+		t.Fatalf("a send every recipient opted out of = %+v err %v, want 0 queued and 1 opted out", res, err)
+	}
+}
+
+// TestNotifyChannel_ADeliveryListSendsToEveryAddress (#2743): a delivery list
+// reads no preferences: an address that turned email off, or asked for a daily
+// digest, is sent every message as it is sent, and every row is marked so its
+// email carries no unsubscribe.
+func TestNotifyChannel_ADeliveryListSendsToEveryAddress(t *testing.T) {
+	e, queue := channelEnqueuer(t, map[string]Prefs{
+		"muted@client.example":  {Mode: ModeOff},
+		"digest@client.example": {Mode: ModeDaily},
+	})
+	ch := Channel{
+		Name: "client-feed", Kind: ChannelKindEmail, Enabled: true, Mode: ChannelModeImmediate, DeliveryList: true,
+		Recipients: []string{"data@client.example", "muted@client.example", "digest@client.example"},
+	}
+	res, err := e.NotifyChannel(context.Background(), ChannelSend{Channel: ch, Actor: "alice@example.com", Document: Document{Title: "Weekly export"}})
+	if err != nil {
+		t.Fatalf("NotifyChannel: %v", err)
+	}
+	if res.Queued != 3 || res.OptedOut != 0 {
+		t.Fatalf("result = %+v, want every address queued", res)
+	}
+	for _, n := range queue.enqueued {
+		if !n.Payload.DeliveryList || n.Digest {
+			t.Errorf("row for %s = digest %v delivery list %v, want an immediate delivery-list row", n.Recipient, n.Digest, n.Payload.DeliveryList)
+		}
+	}
+}

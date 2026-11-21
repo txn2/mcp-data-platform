@@ -115,6 +115,9 @@ type RunPost struct {
 	LastSentAt *time.Time
 	// LastError is a failure recorded on one of them.
 	LastError string
+	// OptedOut is how many of an email channel's recipients were not sent
+	// the post because they turned email notifications off (#2743).
+	OptedOut int
 }
 
 // InboxStore is the read state of a person's own notifications in the portal

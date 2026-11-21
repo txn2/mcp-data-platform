@@ -268,3 +268,16 @@ func TestValidateDocumentData(t *testing.T) {
 		t.Error("data over the cap was accepted")
 	}
 }
+
+// TestValidateChannel_ADeliveryListIsAnEmailChannels (#2743).
+func TestValidateChannel_ADeliveryListIsAnEmailChannels(t *testing.T) {
+	email := Channel{Name: "feed", Kind: ChannelKindEmail, Mode: ChannelModeImmediate, Recipients: []string{"a@client.example"}, DeliveryList: true}
+	if err := ValidateChannel(email); err != nil {
+		t.Fatalf("an email delivery list was refused: %v", err)
+	}
+	chat := Channel{Name: "ops", Kind: ChannelKindSlack, Mode: ChannelModeImmediate, Connection: "bot", DeliveryList: true}
+	err := ValidateChannel(chat)
+	if err == nil || !strings.Contains(err.Error(), "delivery_list is for an email channel") {
+		t.Fatalf("a chat channel marked as a delivery list = %v, want a refusal naming the setting", err)
+	}
+}

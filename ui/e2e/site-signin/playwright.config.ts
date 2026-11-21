@@ -1,6 +1,7 @@
 import { defineConfig } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
+import { acceptanceOutput } from "../acceptanceOutput";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -9,6 +10,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // stack, whose Keycloak and portal it signs in to. *.localhost resolves to the
 // loopback address in Chromium, which is how a site's own address is reached.
 export default defineConfig({
+  outputDir: acceptanceOutput("site-signin"),
   testDir: __dirname,
   testMatch: "*.spec.ts",
   timeout: 90_000,

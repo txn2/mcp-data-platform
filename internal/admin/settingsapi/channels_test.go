@@ -425,3 +425,51 @@ func TestPutChannel_WebhookFormat(t *testing.T) {
 		t.Error("a mattermost channel reports a format")
 	}
 }
+
+// TestChannels_DeliveryListAndOptedOut (#2743): an email channel saves and
+// reads back as a delivery list; an ordinary email channel names the
+// recipients who turned email notifications off, a delivery list and a chat
+// channel name none; and a chat channel cannot be made a delivery list.
+func TestChannels_DeliveryListAndOptedOut(t *testing.T) {
+	store := newFakeChannels(
+		notification.Channel{
+			Name: "sales", Kind: notification.ChannelKindEmail, Mode: notification.ChannelModeImmediate,
+			Recipients: []string{"a@example.com", "Lee@Example.com"},
+		},
+		notification.Channel{
+			Name: "feed", Kind: notification.ChannelKindEmail, Mode: notification.ChannelModeImmediate,
+			Recipients: []string{"lee@example.com"}, DeliveryList: true,
+		},
+	)
+	prefs := &fakePrefs{modes: map[string]string{"lee@example.com": notification.ModeOff}}
+	mux := testMux(Config{Channels: store, Prefs: prefs, Mutable: true})
+
+	res := doJSON(t, mux, http.MethodGet, channelsPath, nil)
+	var list ChannelListView
+	if err := json.Unmarshal(res.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]ChannelView{}
+	for _, c := range list.Channels {
+		byName[c.Name] = c
+	}
+	if got := byName["sales"].OptedOut; len(got) != 1 || got[0] != "lee@example.com" {
+		t.Errorf("sales opted out = %v, want lee@example.com", got)
+	}
+	if got := byName["feed"]; !got.DeliveryList || got.OptedOut == nil || len(got.OptedOut) != 0 {
+		t.Errorf("feed = delivery list %v opted out %v, want a delivery list naming nobody", got.DeliveryList, got.OptedOut)
+	}
+
+	res = doJSON(t, mux, http.MethodPut, channelsPath+"/client-feed", ChannelInput{
+		Kind: notification.ChannelKindEmail, Recipients: []string{"data@client.example"}, DeliveryList: true,
+	})
+	if res.Code != http.StatusOK || store.lastSet == nil || !store.lastSet.DeliveryList {
+		t.Fatalf("saving a delivery list = %d %s", res.Code, res.Body.String())
+	}
+	res = doJSON(t, mux, http.MethodPut, channelsPath+"/ops", ChannelInput{
+		Kind: notification.ChannelKindWebhook, Connection: "hook", DeliveryList: true,
+	})
+	if res.Code != http.StatusBadRequest || !strings.Contains(res.Body.String(), "delivery_list is for an email channel") {
+		t.Errorf("a webhook delivery list = %d %s, want 400 naming the setting", res.Code, res.Body.String())
+	}
+}

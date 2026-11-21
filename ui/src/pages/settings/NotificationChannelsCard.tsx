@@ -211,9 +211,7 @@ function ChannelRow({
         <span className="min-w-0">
           <span className="flex items-center gap-2">
             <span className="truncate font-medium">{ch.name}</span>
-            <Badge variant="outline">{kindLabel[ch.kind] ?? ch.kind}</Badge>
-            {!ch.enabled && <Badge variant="secondary">disabled</Badge>}
-            {ch.mode === "daily" && <Badge variant="secondary">daily digest</Badge>}
+            <ChannelBadges channel={ch} />
           </span>
           {ch.description && (
             <span className="mt-0.5 block truncate text-sm text-muted-foreground">
@@ -221,6 +219,7 @@ function ChannelRow({
             </span>
           )}
           <ChannelStatusLine name={ch.name} />
+          <OptedOutLine addresses={ch.opted_out ?? []} name={ch.name} />
           {ch.warnings?.map((w) => (
             <span
               key={w}
@@ -259,6 +258,31 @@ function ChannelStatusLine({ name }: { name: string }) {
           Last error: {data.last_error}
         </span>
       )}
+    </span>
+  );
+}
+
+// ChannelBadges marks a channel's kind and what sets it apart: disabled, a
+// daily digest, a delivery list (#2743).
+function ChannelBadges({ channel: ch }: { channel: NotificationChannel }) {
+  return (
+    <>
+      <Badge variant="outline">{kindLabel[ch.kind] ?? ch.kind}</Badge>
+      {!ch.enabled && <Badge variant="secondary">disabled</Badge>}
+      {ch.mode === "daily" && <Badge variant="secondary">daily digest</Badge>}
+      {ch.delivery_list && <Badge variant="secondary">Delivery list</Badge>}
+    </>
+  );
+}
+
+// OptedOutLine names an email channel's recipients who turned email
+// notifications off (#2743): the channel sends them nothing, and without this
+// a feed that stopped reaching someone went unnoticed.
+function OptedOutLine({ addresses, name }: { addresses: string[]; name: string }) {
+  if (addresses.length === 0) return null;
+  return (
+    <span className="mt-0.5 block text-xs text-amber-700 dark:text-amber-400" data-testid={`channel-opted-out-${name}`}>
+      {addresses.length} opted out of email: {addresses.join(", ")}
     </span>
   );
 }

@@ -102,6 +102,9 @@ export interface RunPost {
   failed: number;
   sent_at?: string;
   last_error?: string;
+  // opted_out is how many of an email channel's recipients were not sent the
+  // post because they turned email notifications off (#2743).
+  opted_out?: number;
 }
 
 // useRunPosts reads the posts one run made.

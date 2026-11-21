@@ -278,13 +278,16 @@ func TestRunPosts(t *testing.T) {
 	defer done()
 	now := time.Now()
 	q := regexp.QuoteMeta(`SELECT channel, created_at`)
-	cols := []string{"channel", "created_at", "title", "n", "sent", "failed", "sent_at", "err"}
+	cols := []string{"channel", "created_at", "title", "n", "sent", "failed", "sent_at", "err", "opted_out"}
 	mock.ExpectQuery(q).WithArgs("run_1").WillReturnRows(sqlmock.NewRows(cols).
-		AddRow("ops", now, "Feed stale", 1, 1, 0, now, "").
-		AddRow("list", now, nil, 2, 0, 0, nil, ""))
+		AddRow("ops", now, "Feed stale", 1, 1, 0, now, "", 0).
+		AddRow("list", now, nil, 2, 0, 0, nil, "", 1))
 	posts, err := s.RunPosts(context.Background(), "run_1")
 	if err != nil || len(posts) != 2 || posts[0].LastSentAt == nil || posts[1].Title != "" {
 		t.Fatalf("posts %+v err %v", posts, err)
+	}
+	if posts[1].OptedOut != 1 {
+		t.Errorf("an email post's opted-out recipients read as %d, want 1 (#2743)", posts[1].OptedOut)
 	}
 	mock.ExpectQuery(q).WillReturnError(errors.New("boom"))
 	if _, err := s.RunPosts(context.Background(), "r"); err == nil {

@@ -264,14 +264,15 @@ func detectUnknownFields(expanded []byte) []string {
 // enforcing the config.strict unknown-key policy: unrecognized keys are a hard
 // error when config.strict is true, otherwise a logged warning.
 func decodeConfigStrict(expanded []byte) (*Config, error) {
-	upgrade := readDataHubUpgrade(expanded)
+	upgrade, uploads := readDataHubUpgrade(expanded), personacfg.ReadLegacyUploads(expanded)
 	cfg := &Config{}
 	unknown, err := strictDecode(expanded, cfg)
 	if err != nil {
 		return nil, err
 	}
-	unknown = slices.DeleteFunc(unknown, upgrade.accepts)
+	unknown = slices.DeleteFunc(unknown, func(k string) bool { return upgrade.accepts(k) || uploads.Accepts(k) })
 	upgrade.apply(cfg)
+	uploads.Apply(&cfg.Personas)
 	if len(unknown) > 0 {
 		if cfg.Meta.IsStrict() {
 			return nil, fmt.Errorf(

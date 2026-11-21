@@ -138,6 +138,11 @@ type ClaimsExtractor func(r *http.Request) (*Claims, error)
 // the SPA from force-logging-out the user on a recoverable CSRF error.
 var ErrForbidden = errors.New("forbidden")
 
+// refusal is an error a ClaimsExtractor returns for what the caller's persona
+// allows, answered 403 with Refusal's words (#2744): what is turned off and
+// where it is turned on.
+type refusal interface{ Refusal() string }
+
 // Handler provides HTTP endpoints for resource CRUD.
 type Handler struct {
 	mux       *http.ServeMux
@@ -146,12 +151,19 @@ type Handler struct {
 }
 
 // authenticate resolves the caller's claims, writing the appropriate HTTP
-// error and returning ok=false when authentication fails. A CSRF rejection
-// (ErrForbidden) maps to 403 so the SPA surfaces a recoverable error rather
-// than force-logging-out the user; every other failure maps to 401.
+// error and returning ok=false when authentication fails. A refusal for the
+// caller's persona settings (an error with a Refusal method) is 403 with its
+// own words; a CSRF
+// rejection (ErrForbidden) maps to 403 so the SPA surfaces a recoverable error
+// rather than force-logging-out the user; every other failure maps to 401.
 func (h *Handler) authenticate(w http.ResponseWriter, r *http.Request) (*Claims, bool) {
 	claims, err := h.extractFn(r)
 	if err != nil {
+		var refused refusal
+		if errors.As(err, &refused) {
+			writeError(w, http.StatusForbidden, refused.Refusal())
+			return nil, false
+		}
 		if errors.Is(err, ErrForbidden) {
 			writeError(w, http.StatusForbidden, "invalid or missing CSRF token")
 			return nil, false

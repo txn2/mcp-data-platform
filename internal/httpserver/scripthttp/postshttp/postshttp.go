@@ -82,6 +82,10 @@ type Post struct {
 	Failed     int        `json:"failed" example:"0"`
 	SentAt     *time.Time `json:"sent_at,omitempty"`
 	LastError  string     `json:"last_error,omitempty" example:"upstream answered HTTP 403"`
+	// OptedOut is how many of an email channel's recipients were not sent
+	// the post because they turned email notifications off (#2743); the run
+	// page states it beside the deliveries.
+	OptedOut int `json:"opted_out" example:"0"`
 }
 
 // postsResponse is the route's answer.
@@ -125,7 +129,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	for _, p := range posts {
 		out.Posts = append(out.Posts, Post{
 			Channel: p.Channel, Title: p.Title, QueuedAt: p.QueuedAt, Status: statusOf(p),
-			Deliveries: p.Deliveries, Sent: p.Sent, Failed: p.Failed, SentAt: p.LastSentAt, LastError: p.LastError,
+			Deliveries: p.Deliveries, Sent: p.Sent, Failed: p.Failed, SentAt: p.LastSentAt, LastError: p.LastError, OptedOut: p.OptedOut,
 		})
 	}
 	httpjson.WriteJSON(w, http.StatusOK, out)

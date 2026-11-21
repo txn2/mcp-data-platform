@@ -208,12 +208,24 @@ function KindFields({
         />
       )}
       {form.kind === "email" && (
-        <RecipientsEditor
-          recipients={form.recipients}
-          onChange={(next) => onChange({ recipients: next })}
-          label="Recipients"
-          help="Each recipient's own notification preferences still apply: someone who turned email notifications off receives nothing, and every message carries their unsubscribe link."
-        />
+        <>
+          <ConfigToggle
+            label="Delivery list"
+            help="For mailboxes outside the platform, such as a client's own addresses. Messages carry no preferences or unsubscribe link and no List-Unsubscribe header, and every address listed receives every message, whatever its notification preferences. Remove an address to stop sending to it."
+            checked={form.delivery_list}
+            onChange={(v) => onChange({ delivery_list: v })}
+          />
+          <RecipientsEditor
+            recipients={form.recipients}
+            onChange={(next) => onChange({ recipients: next })}
+            label="Recipients"
+            help={
+              form.delivery_list
+                ? "Every address here receives every message."
+                : "Each recipient's own notification preferences still apply: someone who turned email notifications off receives nothing, and every message carries their unsubscribe link."
+            }
+          />
+        </>
       )}
     </>
   );

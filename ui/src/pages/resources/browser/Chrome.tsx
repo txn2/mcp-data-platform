@@ -2,7 +2,7 @@ import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatBytes } from "@/lib/format";
 import { RESOURCE_POSITIONING } from "@/lib/positioning";
-import { displayPath, libraryCopy, type ResourceRoot } from "../scopes";
+import { displayPath, libraryCopy, ownFolderReadOnly, UPLOADS_OFF, type ResourceRoot } from "../scopes";
 import { plural, type Entry } from "./model";
 
 /** Move to, Tag and Delete over the selection, shown only while there is one. */
@@ -151,11 +151,14 @@ export function EmptyFolder({
     );
   }
   if (!canWrite) {
+    const own = ownFolderReadOnly(root, canWrite);
     return (
       <div data-testid="resources-empty" className="flex flex-col items-center gap-2.5 px-5 py-16 text-center text-muted-foreground">
         <div className="font-medium text-foreground">This folder is empty</div>
         <div data-testid="resources-read-only">{libraryCopy(root.target).source}</div>
-        <div className="max-w-lg text-xs">{RESOURCE_POSITIONING}</div>
+        <div className="max-w-lg text-xs" data-testid={own ? "resources-uploads-off" : undefined}>
+          {own ? UPLOADS_OFF : RESOURCE_POSITIONING}
+        </div>
       </div>
     );
   }

@@ -99,7 +99,7 @@ func TestIssue2701_AnUpgradeDrawsTilesAnOlderReleaseRecorded(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Minute)
 	for {
 		again, renderer := tileKey2701(t, s, "dev")
-		if renderer == 3 && again != "" && assetStore(t).exists(again) {
+		if renderer > 2 && again != "" && assetStore(t).exists(again) {
 			break
 		}
 		if time.Now().After(deadline) {

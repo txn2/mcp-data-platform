@@ -242,6 +242,38 @@ describe("NotificationChannelsCard", () => {
 });
 
 
+describe("NotificationChannelsCard delivery lists (#2743)", () => {
+  afterEach(cleanup);
+
+  it("saves an email channel as a delivery list and says what that changes for its recipients", () => {
+    render(<NotificationChannelsCard isReadOnly={false} />);
+    fireEvent.click(screen.getByTestId("channel-new"));
+    fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: "client-feed" } });
+    fireEvent.click(screen.getByTestId("channel-kind-email"));
+    expect(screen.getByText(/every message carries their unsubscribe link/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("switch", { name: /Delivery list/ }));
+    expect(screen.getByText("Every address here receives every message.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Save channel/ }));
+    expect(saveMutate.mock.calls[saveMutate.mock.calls.length - 1]![0].input.delivery_list).toBe(true);
+
+    fireEvent.click(screen.getByTestId("channel-kind-mattermost"));
+    expect(screen.queryByRole("switch", { name: /Delivery list/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Save channel/ }));
+    expect(saveMutate.mock.calls[saveMutate.mock.calls.length - 1]![0].input.delivery_list).toBeUndefined();
+  });
+
+  it("marks a delivery list and names who opted out of an ordinary list", () => {
+    setChannels([
+      makeChannel({ name: "client-feed", kind: "email", connection: undefined, recipients: ["data@client.example"], delivery_list: true, opted_out: [] }),
+      makeChannel({ name: "sales", kind: "email", connection: undefined, recipients: ["a@example.com", "lee@example.com"], opted_out: ["lee@example.com"] }),
+    ]);
+    render(<NotificationChannelsCard isReadOnly={false} />);
+    expect(screen.getByTestId("channel-row-client-feed").textContent).toContain("Delivery list");
+    expect(screen.queryByTestId("channel-opted-out-client-feed")).toBeNull();
+    expect(screen.getByTestId("channel-opted-out-sales").textContent).toBe("1 opted out of email: lee@example.com");
+  });
+});
+
 describe("NotificationChannelsCard status line", () => {
   afterEach(cleanup);
 

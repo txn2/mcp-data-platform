@@ -34,6 +34,12 @@ const (
 // digits, which a header's name is made of.
 const tokenChars = "!#$%&'*+-.^_`|~" // #nosec G101 -- the RFC 9110 token punctuation, not a credential
 
+// AuthTypeSiteTile is the AuthType of a caller a site environment's tile is
+// drawn as (#2747): the site's owner, built in process for the draw. A
+// handler reads it as req.caller.auth_type, and the request's audit row is
+// marked tile_draw, so a draw is told apart from the owner's own visit.
+const AuthTypeSiteTile = "site_tile"
+
 // Caller is who sent a request to an authenticated endpoint.
 type Caller struct {
 	UserID   string

@@ -147,8 +147,8 @@ export function BulkUploadModal({
         {destination ? (
           <div data-testid="upload-destination" className="rounded-md border bg-muted/40 px-3 py-2">
             <p className="text-xs text-muted-foreground">Destination</p>
-            <p className="text-sm font-medium text-foreground">{libraryCopy(destination).name}</p>
-            <p className="text-xs text-muted-foreground">{libraryCopy(destination).audience}</p>
+            <p className="text-sm font-medium text-foreground">{libraryCopy(destination, user).name}</p>
+            <p className="text-xs text-muted-foreground">{libraryCopy(destination, user).audience}</p>
           </div>
         ) : (
           <DestinationPicker

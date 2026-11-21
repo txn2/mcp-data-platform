@@ -6,7 +6,7 @@ vi.mock("@/api/portal/hooks/channels", () => ({
 }));
 
 import { useRunPosts } from "@/api/portal/hooks/channels";
-import { ScriptRunPosts } from "./ScriptRunPosts";
+import { optedOutText, ScriptRunPosts } from "./ScriptRunPosts";
 
 afterEach(cleanup);
 
@@ -29,6 +29,18 @@ describe("ScriptRunPosts", () => {
     expect(screen.getByText("failed")).toBeInTheDocument();
     expect(screen.getByText(/HTTP 410 Gone/)).toBeInTheDocument();
     expect(vi.mocked(useRunPosts)).toHaveBeenCalledWith("s1", "r1");
+  });
+
+  it("says how many of an email list opted out of a post (#2743)", () => {
+    posts([
+      { channel: "sales", title: "Weekly", queued_at: "2026-07-29T15:10:00Z", status: "sent", deliveries: 2, sent: 2, failed: 0, opted_out: 1 },
+      { channel: "feed", title: "Weekly", queued_at: "2026-07-29T15:10:01Z", status: "sent", deliveries: 2, sent: 2, failed: 0 },
+    ]);
+    render(<ScriptRunPosts scriptId="s1" runId="r1" />);
+    const lines = screen.getAllByTestId("run-post-opted-out");
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.textContent).toBe("1 of 3 recipients opted out of email");
+    expect(optedOutText(1, 0)).toBe("1 of 1 recipient opted out of email");
   });
 
   it("shows nothing for a run that posted nothing", () => {

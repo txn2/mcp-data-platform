@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/bgloop"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/sitepages"
 	"github.com/txn2/mcp-data-platform/internal/site/sitegw"
 	"github.com/txn2/mcp-data-platform/internal/site/sitetraffic"
 	"github.com/txn2/mcp-data-platform/internal/site/sitewire"
@@ -88,19 +89,9 @@ func gatewayDeps(p *platform.Platform, rt *sitewire.Runtime) (sitegw.Deps, error
 		Traffic: rt.Traffic,
 	}
 	if p.Endpoints().Handler != nil {
-		deps.Pages = pagesOver(p, rt, portal)
+		deps.Pages = sitepages.Over(p, rt, portal)
 	}
 	return deps, nil
-}
-
-func pagesOver(p *platform.Platform, rt *sitewire.Runtime, portal *url.URL) *sitegw.Pages {
-	e := p.Endpoints()
-	return &sitegw.Pages{
-		Apps: rt.Apps, Assets: p.PortalAssetStore(), Versions: p.PortalVersionStore(), Server: e.Handler,
-		Authenticate: e.PortalCaller, RouteHost: rt.Store.RouteHost, UseHandoff: rt.Store.UseHandoff,
-		FormKey: e.Runner.FormKey, PortalURL: p.Config().Portal.PublicBaseURL, PagesDomain: func() string { return rt.Live.Get().PagesDomain },
-		Secure: portal.Scheme == schemeHTTPS, PublicPort: portal.Port(),
-	}
 }
 
 // accessOver is what guards a site's own address. Its session reads the portal's

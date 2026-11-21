@@ -4,6 +4,7 @@ package resourcelevel
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/txn2/mcp-data-platform/pkg/persona"
@@ -39,7 +40,7 @@ func Apply(ctx context.Context, claims *resource.Claims, pr *persona.Registry, m
 	if per.External {
 		claims.Personas, claims.AdminOfPersonas = nil, nil
 	}
-	return byLevel(claims, perms, method)
+	return byLevel(claims, per, perms, method)
 }
 
 func isResourceWrite(method string) bool {
@@ -52,17 +53,42 @@ func isResourceWrite(method string) bool {
 
 // byLevel holds claims to a persona's Resources level: none refuses every
 // route, shared refuses a write unless the persona uploads, own drops the
-// persona folders.
-func byLevel(claims *resource.Claims, perms persona.PortalAccess, method string) (*resource.Claims, error) {
+// persona folders. A refusal names the persona and the setting that turns the
+// refused thing on (#2744): a client who could not upload, and the
+// administrators looking into it, were told "invalid or missing CSRF token".
+func byLevel(claims *resource.Claims, per *persona.Persona, perms persona.PortalAccess, method string) (*resource.Claims, error) {
 	switch perms.Resources {
 	case persona.PortalNone:
-		return nil, resource.ErrForbidden
+		return nil, refused(fmt.Sprintf("your persona (%s) has no access to Resources", per.Name))
 	case persona.PortalShared:
 		if isResourceWrite(method) && (perms.Uploads == nil || !*perms.Uploads) {
-			return nil, resource.ErrForbidden
+			return nil, refused(uploadsOff(per))
 		}
 	case persona.PortalOwn:
 		claims.Personas, claims.AdminOfPersonas = nil, nil
 	}
 	return claims, nil
 }
+
+// uploadsOff is the refusal of a write to a persona whose Resources level
+// reads only, naming where an administrator turns uploads on.
+func uploadsOff(per *persona.Persona) string {
+	if per.External {
+		return fmt.Sprintf("uploads are not turned on for your persona (%s); an administrator turns them on with Resources: Read and upload to their own folder", per.Name)
+	}
+	return fmt.Sprintf("your persona (%s) reads Resources and uploads nothing; an administrator sets its Resources level to Own folder or Persona folders to let it upload", per.Name)
+}
+
+// RefusedError is a refusal for what the caller's persona allows: the resource
+// handler answers it 403 with its words, and it is a resource.ErrForbidden.
+type RefusedError struct{ msg string }
+
+func refused(msg string) error { return &RefusedError{msg: msg} }
+
+func (e *RefusedError) Error() string { return e.msg }
+
+// Refusal is what the caller is told.
+func (e *RefusedError) Refusal() string { return e.msg }
+
+// Is makes every RefusedError a resource.ErrForbidden.
+func (*RefusedError) Is(target error) bool { return target == resource.ErrForbidden }

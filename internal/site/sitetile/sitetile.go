@@ -25,7 +25,10 @@ import (
 //     served in process, and a quiet network waited for.
 //  3. #2701: the tiles the storage capacity pass removed as orphans,
 //     drawn again on every deployment that lost them.
-const Renderer = 3
+//  4. #2747: drawn as the site's owner, so a page that loads its first
+//     screen from its application's endpoints draws that screen, not the
+//     401 a signed-out visitor, whom no pages address has, would get.
+const Renderer = 4
 
 // Work is one environment owed a tile.
 type Work struct {

@@ -19,6 +19,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/contentviewer"
 	"github.com/txn2/mcp-data-platform/internal/egressguard"
 	"github.com/txn2/mcp-data-platform/internal/headless"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/sitepages"
 	"github.com/txn2/mcp-data-platform/internal/outbound"
 	"github.com/txn2/mcp-data-platform/internal/platform/scripttiles"
 	"github.com/txn2/mcp-data-platform/internal/platform/thumbworker"
@@ -77,12 +78,18 @@ func sitePage(p *platform.Platform) thumbworker.SitePage {
 	// evicting in one directory would remove each other's files.
 	cfg := rt.Config
 	cfg.Cache = siteconfig.CacheConfig{MemoryBytes: tileCacheBytes, DiskBytes: tileCacheBytes, Dir: rt.Config.Limits().Cache.Dir + "-tiles"}
-	gw := sitegw.New(sitegw.Deps{Store: rt.Store, Objects: objects, Bucket: p.Config().Portal.S3Bucket, Config: cfg, Live: rt.Live, Media: rt.Media})
+	// The application endpoints run through the server a site's own address
+	// runs them through, as the site's owner (#2747); no traffic tally is
+	// given, so a draw is never the site's traffic.
+	gw := sitegw.New(sitegw.Deps{
+		Store: rt.Store, Objects: objects, Bucket: p.Config().Portal.S3Bucket, Config: cfg, Live: rt.Live, Media: rt.Media,
+		Pages: sitepages.ForTiles(p),
+	})
 	host := ""
 	if u, err := url.Parse(p.Config().Portal.PublicBaseURL); err == nil {
 		host = u.Hostname()
 	}
-	return tilepage.Release{Store: rt.Store, Server: gw, PlatformHost: host}.Page
+	return tilepage.Release{Store: rt.Store, Server: gw, PlatformHost: host, Owner: sitepages.TileOwner(p)}.Page
 }
 
 // ScriptTiles is the reader a script's tile is served from (#1909): the tile

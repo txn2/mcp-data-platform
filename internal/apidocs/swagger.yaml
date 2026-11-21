@@ -12880,6 +12880,13 @@ definitions:
       last_error:
         example: upstream answered HTTP 403
         type: string
+      opted_out:
+        description: |-
+          OptedOut is how many of an email channel's recipients were not sent
+          the post because they turned email notifications off (#2743); the run
+          page states it beside the deliveries.
+        example: 0
+        type: integer
       queued_at:
         type: string
       sent:
@@ -16687,6 +16694,14 @@ definitions:
       connection:
         example: mattermost-bot
         type: string
+      delivery_list:
+        description: |-
+          DeliveryList makes an email channel a fixed list of outside mailboxes
+          (#2743): every address receives every message whatever its
+          notification preferences, with no preferences or unsubscribe link and
+          no List-Unsubscribe header. Refused on any other kind.
+        example: false
+        type: boolean
       description:
         example: Operations alerts
         type: string
@@ -16787,6 +16802,9 @@ definitions:
         type: string
       created_by:
         type: string
+      delivery_list:
+        description: DeliveryList is an email channel kept as a fixed list (#2743).
+        type: boolean
       description:
         type: string
       enabled:
@@ -16804,6 +16822,14 @@ definitions:
         type: string
       name:
         type: string
+      opted_out:
+        description: |-
+          OptedOut lists the recipients of an email channel that is not a
+          delivery list who turned email notifications off, so are sent nothing
+          it carries (#2743); empty for every other channel.
+        items:
+          type: string
+        type: array
       recipients:
         items:
           type: string

@@ -28,6 +28,11 @@ export function ScriptRunPosts({ scriptId, runId }: { scriptId: string; runId: s
               {p.sent} of {p.deliveries} delivered
             </span>
           )}
+          {(p.opted_out ?? 0) > 0 && (
+            <span className="text-amber-700 dark:text-amber-400" data-testid="run-post-opted-out">
+              {optedOutText(p.opted_out ?? 0, p.deliveries)}
+            </span>
+          )}
           {p.last_error && (
             <span className="basis-full truncate text-destructive" title={p.last_error}>
               {p.last_error}
@@ -37,4 +42,12 @@ export function ScriptRunPosts({ scriptId, runId }: { scriptId: string; runId: s
       ))}
     </ul>
   );
+}
+
+// optedOutText says how many of a list a post did not reach because they
+// turned email notifications off (#2743): a feed that stopped reaching
+// someone shows on the run that sent it.
+export function optedOutText(optedOut: number, deliveries: number): string {
+  const total = optedOut + deliveries;
+  return `${optedOut} of ${total} recipient${total === 1 ? "" : "s"} opted out of email`;
 }

@@ -58,9 +58,7 @@ type AttachmentLink struct {
 // names by link instead.
 func (r *Renderer) RenderDocument(n notification.Notification, files []notification.File, links []AttachmentLink) (*Email, error) {
 	data := r.buildData([]notification.Notification{n})
-	if r.unsubURL != nil {
-		data.UnsubURL = r.unsubURL(n.Recipient)
-	}
+	r.footer(&data, []notification.Notification{n})
 	data.Items[0].Links = links
 	email, err := r.execute(n.Recipient, data)
 	if err != nil {

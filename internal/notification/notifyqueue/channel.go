@@ -288,7 +288,8 @@ func (s *PostgresStore) RunPosts(ctx context.Context, runID string) ([]notificat
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT channel, created_at, MIN(payload->'document'->>'title'), COUNT(*),
 		        COUNT(*) FILTER (WHERE status = 'sent'), COUNT(*) FILTER (WHERE status = 'failed'),
-		        MAX(sent_at), COALESCE(MAX(NULLIF(last_error, '')), '')
+		        MAX(sent_at), COALESCE(MAX(NULLIF(last_error, '')), ''),
+		        COALESCE(MAX((payload->>'opted_out')::int), 0)
 		   FROM notifications
 		  WHERE channel IS NOT NULL AND payload->'document'->'source'->>'run_id' = $1
 		  GROUP BY channel, created_at
@@ -304,7 +305,7 @@ func (s *PostgresStore) RunPosts(ctx context.Context, runID string) ([]notificat
 			title  sql.NullString
 			sentAt sql.NullTime
 		)
-		if err := rows.Scan(&p.Channel, &p.QueuedAt, &title, &p.Deliveries, &p.Sent, &p.Failed, &sentAt, &p.LastError); err != nil {
+		if err := rows.Scan(&p.Channel, &p.QueuedAt, &title, &p.Deliveries, &p.Sent, &p.Failed, &sentAt, &p.LastError, &p.OptedOut); err != nil {
 			return nil, fmt.Errorf("scanning a run post: %w", err)
 		}
 		p.Title = title.String

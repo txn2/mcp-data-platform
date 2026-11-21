@@ -944,3 +944,35 @@ func TestRouteFile_KeepsWhatAPageReadsARangeBy(t *testing.T) {
 		t.Errorf("requestHeader = %v", got)
 	}
 }
+
+// TestAnswer_AWriteIsNeverAnswered: a page being drawn reads and changes
+// nothing (#2747). A POST, PUT or DELETE to the page's own origin answers 405
+// without asking Files or Substitute, and one to another origin is refused
+// as the public fetch refuses it; HEAD reads.
+func TestAnswer_AWriteIsNeverAnswered(t *testing.T) {
+	for _, method := range []string{"POST", "PUT", "PATCH", "DELETE", "OPTIONS"} {
+		t.Run(method, func(t *testing.T) {
+			rs, fb := harness(t, nil, nil)
+			asked := 0
+			rs.page.Files = func(string, http.Header) (File, bool) { asked++; return File{Body: []byte("ran")}, true }
+			rs.page.Substitute = func(*url.URL, bool) (File, bool) { asked++; return File{Body: []byte("ran")}, true }
+			rs.answer(paused("own", method, "http://t-0.render.invalid/endpoints/app/state", nil))
+			c := find(t, fb.recorded(), "Fetch.fulfillRequest", "page1")
+			if c.Params["responseCode"] != float64(http.StatusMethodNotAllowed) || headerOf(c, "Allow") != "GET, HEAD" {
+				t.Fatalf("a %s to the page's own origin was answered %v %v, want 405", method, c.Params["responseCode"], headerOf(c, "Allow"))
+			}
+			rs.answer(paused("other", method, "https://shop.example.com/endpoints/app/state", nil))
+			if f := find(t, fb.recorded(), "Fetch.failRequest", "page1"); f.Params["errorReason"] != "BlockedByClient" {
+				t.Errorf("a %s to another origin failed with %v", method, f.Params["errorReason"])
+			}
+			if asked != 0 {
+				t.Errorf("a %s was handed to what serves the page %d times", method, asked)
+			}
+		})
+	}
+	rs, fb := harness(t, nil, nil)
+	rs.answer(paused("head", "HEAD", "http://t-0.render.invalid/theme.css", nil))
+	if c := find(t, fb.recorded(), "Fetch.fulfillRequest", "page1"); c.Params["responseCode"] != float64(http.StatusOK) {
+		t.Errorf("a HEAD of a file was answered %v", c.Params["responseCode"])
+	}
+}

@@ -610,6 +610,9 @@ func (r *Runner) recordAudit(ctx context.Context, t *Target, req Request, o outc
 	if req.Caller != nil {
 		params["caller"] = req.Caller.Email
 		params["caller_id"] = req.Caller.UserID
+		if req.Caller.AuthType == AuthTypeSiteTile {
+			params["tile_draw"] = true
+		}
 	}
 	if req.Asset != "" {
 		params["asset"] = req.Asset

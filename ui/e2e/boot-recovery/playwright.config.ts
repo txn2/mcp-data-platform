@@ -1,6 +1,7 @@
 import { defineConfig } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
+import { acceptanceOutput } from "../acceptanceOutput";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -16,6 +17,7 @@ const PORT = Number(process.env["BOOT_RECOVERY_PORT"] ?? 4179);
 const BASE = process.env["BOOT_RECOVERY_BASE_URL"];
 
 export default defineConfig({
+  outputDir: acceptanceOutput("boot-recovery"),
   testDir: __dirname,
   testMatch: "*.spec.ts",
   timeout: 60_000,

@@ -16,6 +16,9 @@ func TestInitUserStore(t *testing.T) {
 		if p.users.Directory() != nil {
 			t.Error("expected nil directory without a database")
 		}
+		if p.BoundPrincipals() != nil {
+			t.Error("expected no bound-principal resolver without a directory (#2747)")
+		}
 	})
 
 	t.Run("database enables the directory", func(t *testing.T) {
@@ -32,6 +35,9 @@ func TestInitUserStore(t *testing.T) {
 		}
 		if p.users.Directory() == nil {
 			t.Error("expected a directory when a database is present")
+		}
+		if p.BoundPrincipals() == nil {
+			t.Error("expected the directory to resolve bound principals (#2747)")
 		}
 	})
 }

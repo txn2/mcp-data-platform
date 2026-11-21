@@ -84,6 +84,29 @@ platform.notify(channel="ops", title="t", body="b", link="https://example.com/da
 	}
 }
 
+// TestPlatformNotify_NoneOrEmptySendsNoLink (#2743): link=None and link=""
+// send no link, so an email read by people with no account carries no button
+// to a page that asks them to sign in; any other type is refused naming it.
+func TestPlatformNotify_NoneOrEmptySendsNoLink(t *testing.T) {
+	for _, arg := range []string{"None", `""`} {
+		caller := &notifyCaller{}
+		if _, err := ranWith(t, `
+platform.notify(channel="ops", title="t", body="b", link=`+arg+`)
+`, caller); err != nil {
+			t.Fatalf("link=%s: run: %v", arg, err)
+		}
+		if got := onlyNotifyCall(t, caller).args["link"]; got != "" {
+			t.Errorf("link=%s sent link %v, want none", arg, got)
+		}
+	}
+	_, err := ranWith(t, `
+platform.notify(channel="ops", title="t", link=3)
+`, &notifyCaller{})
+	if err == nil || !strings.Contains(err.Error(), "link must be a string, or None to send no link") {
+		t.Fatalf("link=3 = %v, want a refusal naming the forms link takes", err)
+	}
+}
+
 // TestPlatformNotify_PassesDataThrough holds data= (#1997): the dict a script
 // hands it reaches the notify tool as its data argument, and a call without it
 // sends none.
