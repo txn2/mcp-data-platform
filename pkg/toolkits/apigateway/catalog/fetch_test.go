@@ -6,11 +6,14 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
+
+	"github.com/txn2/mcp-data-platform/internal/egressguard"
 )
 
 // stubResolver lets tests pin a hostname to a chosen set of IPs
@@ -729,17 +732,20 @@ func TestParseSpec_RejectsStructuralErrors(t *testing.T) {
 func TestBlockedIPReason_Ranges(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{
-		"127.0.0.1":   "loopback",
-		"::1":         "loopback",
-		"169.254.0.1": "link-local",
-		"fe80::1":     "link-local",
-		"224.0.0.1":   "link-local", // 224.0.0.0/24 is link-local-scope multicast
-		"225.0.0.1":   "multicast",  // outside 224.0.0.0/24
-		"0.0.0.0":     "unspecified",
-		"10.0.0.1":    "private",
-		"192.168.0.1": "private",
-		"172.16.0.1":  "private",
-		"100.64.1.1":  "carrier-grade-nat",
+		"127.0.0.1":          "loopback",
+		"::1":                "loopback",
+		"169.254.0.1":        "link_local",
+		"fe80::1":            "link_local",
+		"224.0.0.1":          "link_local", // 224.0.0.0/24 is link-local-scope multicast
+		"225.0.0.1":          "multicast",  // outside 224.0.0.0/24
+		"0.0.0.0":            "unspecified",
+		"10.0.0.1":           "private",
+		"192.168.0.1":        "private",
+		"172.16.0.1":         "private",
+		"100.64.1.1":         "cgnat",
+		"64:ff9b::a9fe:a9fe": "embedded_ipv4", // NAT64 to 169.254.169.254
+		"2002:a9fe:a9fe::1":  "embedded_ipv4", // 6to4
+		"::a9fe:a9fe":        "embedded_ipv4", // IPv4-compatible
 	}
 	for ip, want := range cases {
 		got := blockedIPReason(net.ParseIP(ip))
@@ -925,5 +931,29 @@ func TestFetchFromURL_TheInstalledPrefixesAreTheDefault(t *testing.T) {
 	SetAllowPrivateCIDRs(nil)
 	if _, err := FetchFromURL(t.Context(), srv.URL, FetchOptions{}); !errors.Is(err, ErrSSRFBlocked) {
 		t.Fatalf("with none installed loopback is blocked again, got %v", err)
+	}
+}
+
+// TestBlockedIPReason_RefusesWhatTheEgressGuardRefuses holds #2741: one list
+// of refused ranges. Every address the egress guard refuses, in each of its
+// classes, is refused by the spec fetch with the same class, and a public one
+// by neither.
+func TestBlockedIPReason_RefusesWhatTheEgressGuardRefuses(t *testing.T) {
+	t.Parallel()
+	for _, addr := range []string{
+		"127.0.0.1", "::1", "10.1.2.3", "fc00::1", "169.254.169.254", "fe80::1", "239.1.1.1", "0.0.0.0", "::",
+		"100.64.0.1", "64:ff9b::a9fe:a9fe", "64:ff9b:1::a00:1", "2002:a9fe:a9fe::1", "::a9fe:a9fe", "::ffff:10.0.0.1",
+		"8.8.8.8", "2001:4860:4860::8888",
+	} {
+		a := netip.MustParseAddr(addr)
+		if got, want := blockedIPReason(net.IP(a.AsSlice())), egressguard.Classify(a); got != want {
+			t.Errorf("%s: spec fetch %q, egress guard %q", addr, got, want)
+		}
+	}
+	if got := blockedClass("outside allow_private_cidrs over http"); got != egressguard.ClassPrivate {
+		t.Errorf("an http fetch outside the exemptions is counted as %q", got)
+	}
+	if got := blockedIPReason(net.IP{1, 2, 3}); got != egressguard.ClassUnspecified {
+		t.Errorf("an unreadable address = %q", got)
 	}
 }

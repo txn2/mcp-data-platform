@@ -143,12 +143,69 @@ func collCtx(userID, email string) context.Context {
 	})
 }
 
+// collectionTestAssets are the assets the collection tests put in sections,
+// owned by user1 so a sections write may add them.
+var collectionTestAssets = []string{"a1", "a2", "a3", "asset-a", "asset-b"}
+
 func toolkitWithCollections(cs *inMemoryCollectionStore) *Toolkit {
+	assets := newInMemoryAssetStore()
+	for _, id := range collectionTestAssets {
+		assets.assets[id] = portal.Asset{ID: id, OwnerID: "user1", OwnerEmail: "user1@example.com"}
+	}
+	assets.assets["victim"] = portal.Asset{ID: "victim", OwnerID: "user2", OwnerEmail: "user2@example.com"}
 	return New(Config{
 		Name:            "test",
 		CollectionStore: cs,
+		AssetStore:      assets,
 		S3Bucket:        "bucket",
 		BaseURL:         "http://example.com",
+	})
+}
+
+// TestCollectionSections_AddOnlyReadableAssets: a collection's share opens
+// every asset it holds, so set_sections and create_collection add only an asset
+// the caller can read, and keep the items already in the collection.
+func TestCollectionSections_AddOnlyReadableAssets(t *testing.T) {
+	ctx := collCtx("user1", "user1@example.com")
+	victim := []sectionInput{{Title: "S", Items: []itemInput{{AssetID: "victim"}}}}
+
+	t.Run("create_collection refuses another person's asset and creates nothing", func(t *testing.T) {
+		cs := newInMemoryCollectionStore()
+		tk := toolkitWithCollections(cs)
+		result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{Action: "create_collection", Name: "X", Sections: victim})
+		require.NoError(t, err)
+		require.True(t, result.IsError)
+		assert.Contains(t, extractError(t, result), "you do not have access to this asset")
+		assert.Empty(t, cs.collections, "a collection was created")
+	})
+
+	t.Run("set_sections refuses another person's asset and a missing one", func(t *testing.T) {
+		for _, id := range []string{"victim", "no-such-asset"} {
+			cs := newInMemoryCollectionStore()
+			tk := toolkitWithCollections(cs)
+			coll := portal.Collection{ID: "c1", OwnerID: "user1", OwnerEmail: "user1@example.com", Name: "Mine"}
+			require.NoError(t, cs.Insert(context.Background(), coll))
+			result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
+				Action: "set_sections", CollectionID: "c1",
+				Sections: []sectionInput{{Title: "S", Items: []itemInput{{AssetID: id}}}},
+			})
+			require.NoError(t, err)
+			assert.True(t, result.IsError, id)
+			assert.Empty(t, cs.sections["c1"], id)
+		}
+	})
+
+	t.Run("set_sections keeps an item already in the collection", func(t *testing.T) {
+		cs := newInMemoryCollectionStore()
+		tk := toolkitWithCollections(cs)
+		require.NoError(t, cs.Insert(context.Background(), portal.Collection{ID: "c1", OwnerID: "user1", OwnerEmail: "user1@example.com", Name: "Mine"}))
+		cs.sections["c1"] = []portal.CollectionSection{{ID: "s1", Items: []portal.CollectionItem{{ID: "i1", AssetID: "victim"}}}}
+		result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
+			Action: "set_sections", CollectionID: "c1",
+			Sections: []sectionInput{{Title: "Renamed", Items: []itemInput{{AssetID: "victim"}, {AssetID: "a1"}}}},
+		})
+		require.NoError(t, err)
+		require.False(t, result.IsError, extractError(t, result))
 	})
 }
 

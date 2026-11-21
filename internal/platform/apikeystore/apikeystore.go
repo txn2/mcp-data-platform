@@ -42,6 +42,10 @@ type Definition struct {
 	CreatedAt time.Time `json:"created_at"`
 	// Attributes are the named values the key carries as claims (#1846).
 	Attributes map[string]string `json:"attributes,omitempty"`
+	// KeyDigest is the SHA-256 of the key's value (auth.DigestKey), the index
+	// it is looked up by; empty for a key stored before digests existed that
+	// has not been used since. Never serialized.
+	KeyDigest string `json:"-"`
 }
 
 // Store manages API key persistence. It is the record of which
@@ -70,7 +74,8 @@ func NewPostgres(db *sql.DB) *PostgresStore {
 // List returns all API key definitions.
 func (s *PostgresStore) List(ctx context.Context) ([]Definition, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT name, key_hash, email, description, roles, expires_at, created_by, created_at, user_email, attributes
+		`SELECT name, key_hash, email, description, roles, expires_at, created_by, created_at, user_email, attributes,
+		        COALESCE(key_digest, '')
 		 FROM api_keys ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("listing api keys: %w", err)
@@ -99,11 +104,11 @@ func (s *PostgresStore) Create(ctx context.Context, def Definition) error {
 
 	result, err := s.db.ExecContext(ctx,
 		`INSERT INTO api_keys
-		 (name, key_hash, email, description, roles, expires_at, created_by, created_at, user_email, attributes)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9)
+		 (name, key_hash, email, description, roles, expires_at, created_by, created_at, user_email, attributes, key_digest)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, NULLIF($10, ''))
 		 ON CONFLICT (name) DO NOTHING`,
 		def.Name, def.KeyHash, def.Email, def.Description,
-		roles, def.ExpiresAt, def.CreatedBy, def.UserEmail, attributes,
+		roles, def.ExpiresAt, def.CreatedBy, def.UserEmail, attributes, def.KeyDigest,
 	)
 	if err != nil {
 		return fmt.Errorf("inserting api key: %w", err)
@@ -140,6 +145,20 @@ func (s *PostgresStore) HoldsKey(ctx context.Context, name, keyHash string) (boo
 	return held, nil
 }
 
+// RecordKeyDigest stores the lookup digest of the key named name with
+// keyHash, when it has none: the authenticator records it the first time a key
+// stored before digests existed is used. A key replaced under the same name
+// carries another hash and is left alone.
+func (s *PostgresStore) RecordKeyDigest(ctx context.Context, name, keyHash, digest string) error {
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE api_keys SET key_digest = $3 WHERE name = $1 AND key_hash = $2 AND key_digest IS NULL`,
+		name, keyHash, digest,
+	); err != nil {
+		return fmt.Errorf("recording api key digest: %w", err)
+	}
+	return nil
+}
+
 // authKeys converts stored definitions to the keys the authenticator holds.
 func authKeys(defs []Definition) []auth.APIKey {
 	keys := make([]auth.APIKey, 0, len(defs))
@@ -153,6 +172,7 @@ func authKeys(defs []Definition) []auth.APIKey {
 			ExpiresAt:   d.ExpiresAt,
 			UserEmail:   d.UserEmail,
 			Attributes:  d.Attributes,
+			KeyDigest:   d.KeyDigest,
 		})
 	}
 	return keys
@@ -189,7 +209,7 @@ func scanDefinition(rows *sql.Rows) (Definition, error) {
 	var roles, attributes []byte
 	var expiresAt sql.NullTime
 	if err := rows.Scan(&d.Name, &d.KeyHash, &d.Email, &d.Description,
-		&roles, &expiresAt, &d.CreatedBy, &d.CreatedAt, &d.UserEmail, &attributes); err != nil {
+		&roles, &expiresAt, &d.CreatedBy, &d.CreatedAt, &d.UserEmail, &attributes, &d.KeyDigest); err != nil {
 		return d, fmt.Errorf("scanning api key: %w", err)
 	}
 	if err := json.Unmarshal(attributes, &d.Attributes); err != nil {

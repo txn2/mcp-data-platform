@@ -154,6 +154,9 @@ func (s *Store) Timeseries(ctx context.Context, filter audit.TimeseriesFilter) (
 	}
 
 	start, end := defaultTimeRange(filter.StartTime, filter.EndTime)
+	if err := audit.CheckTimeseriesRange(start, end, filter.Resolution); err != nil {
+		return nil, err //nolint:wrapcheck // the sentinel the handlers answer 400 for
+	}
 	query, args, err := buildTimeseriesQuery(filter)
 	if err != nil {
 		return nil, err

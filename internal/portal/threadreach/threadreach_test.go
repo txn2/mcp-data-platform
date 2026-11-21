@@ -60,6 +60,17 @@ func (f *fakeShares) GetUserCollectionPermission(_ context.Context, collID, _, e
 	return f.collPerm[collID+"|"+email], nil
 }
 
+// GetUserCollectionPermissions answers each id as GetUserCollectionPermission does.
+func (f *fakeShares) GetUserCollectionPermissions(ctx context.Context, ids []string, userID, email string) (map[string]portaldomain.SharePermission, error) {
+	out := map[string]portaldomain.SharePermission{}
+	for _, id := range ids {
+		if p, err := f.GetUserCollectionPermission(ctx, id, userID, email); err == nil && p != "" {
+			out[id] = p
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeShares) ListSharedPromptsWithUser(context.Context, string, string) ([]portaldomain.SharedPromptRef, error) {
 	return f.prompts, nil
 }

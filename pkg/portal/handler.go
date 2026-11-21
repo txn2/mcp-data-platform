@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -1470,7 +1471,7 @@ func (h *Handler) updateAsset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req updateAssetRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpjson.DecodeBody(w, r, &req, httpjson.MaxBody); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -1939,7 +1940,7 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req createShareRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpjson.DecodeBody(w, r, &req, httpjson.MaxBody); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -2274,6 +2275,10 @@ func (h *Handler) getActivityTimeseries(w http.ResponseWriter, r *http.Request) 
 		EndTime:    parseTimeParam(q, "end_time"),
 		UserID:     user.UserID,
 	})
+	if errors.Is(err, audit.ErrTimeseriesRange) {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to query activity timeseries")
 		return

@@ -96,8 +96,9 @@ oauth:
   dcr:
     enabled: false  # Disabled by default for security
     allowed_redirect_patterns:
-      - "^http://localhost.*"
-      - "^http://127.0.0.1.*"
+      - "https://claude\\.ai/api/mcp/auth_callback"
+      - "http://localhost:[0-9]+/callback"
+      - "http://127\\.0\\.0\\.1:[0-9]+/callback"
 
   # Upstream IdP (any OIDC-compliant provider; Keycloak shown)
   upstream:
@@ -123,7 +124,7 @@ oauth:
 | `oauth.clients[].secret` | Yes | Client secret (use environment variable) |
 | `oauth.clients[].redirect_uris` | Yes | Allowed redirect URIs |
 | `oauth.dcr.enabled` | No | Enable Dynamic Client Registration |
-| `oauth.dcr.allowed_redirect_patterns` | Yes, when DCR is enabled | Regex patterns for allowed redirect URIs. Registration is denied when empty unless `allow_all_redirect_uris` is set |
+| `oauth.dcr.allowed_redirect_patterns` | Yes, when DCR is enabled | Regex patterns for allowed redirect URIs. Each matches the whole URI, and must write the host exactly (see [Redirect URI patterns](#redirect-uri-patterns)). Registration is denied when empty unless `allow_all_redirect_uris` is set |
 | `oauth.dcr.allow_all_redirect_uris` | No | Explicitly accept any HTTPS (or loopback HTTP) redirect URI without pattern matching. Not recommended: an attacker-controlled redirect URI enables authorization-code interception |
 | `oauth.rate_limit.enabled` | No | Rate-limit `/token` and `/register` (default: `true`) |
 | `oauth.rate_limit.trusted_proxies` | No | CIDRs whose `X-Forwarded-For` is trusted for client attribution (default: none). Empty trusts none: the direct peer address is used and forwarding headers are ignored. Set to your ingress/load-balancer CIDRs so per-client limiting works behind a proxy without being spoofable |
@@ -315,6 +316,22 @@ PKCE (Proof Key for Code Exchange) is **required** for all authorization request
 Enabling DCR requires configuring `allowed_redirect_patterns`: the registration endpoint is unauthenticated, and an unrestricted redirect URI is the setup for authorization-code interception, so registration is denied when no patterns are configured (the server logs a startup warning for this misconfiguration). Set `allow_all_redirect_uris: true` to explicitly opt out of pattern matching.
 
 Scheme rules: plain HTTP redirect URIs are rejected for non-loopback hosts regardless of configuration; loopback HTTP (`localhost`, `127.0.0.1`, `[::1]`) follows the RFC 8252 Section 7.3 native-app pattern and is accepted. Private-use schemes (RFC 8252 Section 7.1, e.g. `com.example.app:/callback`) are accepted only through an explicitly configured pattern, never through `allow_all_redirect_uris`.
+
+### Redirect URI patterns
+
+A pattern is a regular expression for one whole redirect URI: it is anchored at both ends, so `https://claude\.ai/api/mcp/auth_callback` admits that URI and nothing that merely contains it. A pattern must also write the host exactly. The platform checks each match by replacing the URI's host with hosts nobody controls (a different host, the host with a label or a letter appended, a letter put in front of its registrable domain); a pattern that would still match is not used for that URI, and registration answers with a message saying so. A wildcard for subdomains of a domain the pattern names (`https://[a-z0-9-]+\.example\.com/callback`) is accepted; a wildcard that could stand for any part of another host (`https://.*\.example\.com/callback`, `https://example\.com.*`) admits only URIs whose host it cannot vary, which is none. A loopback URI only needs to match, since its code goes to the person's own machine.
+
+A redirect URI must also be plainly shaped: absolute, with no user info (`user@`), no fragment, no backslash, whitespace or control character, and no percent escape in its host.
+
+The authorization endpoint applies the same rules to a dynamically registered client's redirect URI on every sign-in, so a client registered under an earlier, looser configuration is held to the current one. With `dcr.enabled: false`, a dynamically registered client cannot sign anyone in.
+
+### Consent
+
+A client that registered itself through `/oauth/register` is not one an operator configured, so before the platform sends it an authorization code it asks the person signing in. After the identity provider signs them in, the platform shows a page with the deployment's name and logo (`portal.title`, `portal.logo_light`, `portal.logo_dark`, `portal.logo`), who is signed in, the redirect URI the person will be sent to (its host in large type), and the name the client gave itself, marked as unchecked. **Allow** sends the code to the redirect URI. **Deny** sends `error=access_denied` with the client's `state` there (RFC 6749 section 4.1.2.1).
+
+The page is asked on every sign-in; nothing is remembered. It cannot be framed (`X-Frame-Options: DENY`, `frame-ancestors 'none'`), loads nothing from another host but the configured logos, and is answered at most once, within 10 minutes, by the browser it was served to (a `SameSite=Strict`, `HttpOnly` cookie set with the page; its SHA-256 is all the state store keeps). An answer that is late, repeated or from another browser gets a page saying the request has ended, and nothing is connected. The pending request is held in the authorization-state store (`oauth_authorization_states` with a database) with the person's ID and claims, never an upstream token, and is deleted when it is answered.
+
+Clients configured under `oauth.clients` are not asked.
 
 If DCR is enabled, clients can register:
 

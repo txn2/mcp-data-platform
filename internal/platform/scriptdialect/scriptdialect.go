@@ -13,6 +13,7 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptalloc"
 	"github.com/txn2/mcp-data-platform/internal/scriptprintf"
 )
 
@@ -282,7 +283,7 @@ func (p *Program) compile(name, source string, env starlark.StringDict) (*starla
 			p.err = err
 			return
 		}
-		scriptprintf.Rewrite(file)
+		Formatting(file, env)
 		rewriteMainEnd(file)
 		p.prog, p.err = starlark.FileProgram(file, env.Has)
 	})
@@ -298,7 +299,7 @@ func (p *Program) compile(name, source string, env starlark.StringDict) (*starla
 // measures the run walks them.
 func Exec(thread *starlark.Thread, name, source string, env starlark.StringDict, hooks Hooks) (starlark.StringDict, error) {
 	if h := hooks.Handler; h != nil && h.Program != nil && hooks.Cover == nil {
-		env = bindMainEnd(scriptprintf.Bind(env), hooks.AtMainEnd)
+		env = bindMainEnd(dialectEnv(env), hooks.AtMainEnd)
 		prog, err := h.Program.compile(name, source, env)
 		if err != nil {
 			return nil, err //nolint:wrapcheck // the parser's or resolver's own message is what the author reads
@@ -363,11 +364,19 @@ func run(thread *starlark.Thread, prog *starlark.Program, env starlark.StringDic
 
 // Formatting routes the file's `%` and str.format through the platform's
 // implementation, which takes the flags, widths and precisions Starlark's own
-// refuses (#2048), and returns env with it bound. Every module a run compiles
-// goes through it: the script's own, and each library it loads.
+// refuses (#2048), and the operations that can build a large value in one step
+// through scriptalloc's checks against the run's memory budget, and returns
+// env with both bound. Every module a run compiles goes through it: the
+// script's own, and each library it loads.
 func Formatting(file *syntax.File, env starlark.StringDict) (*syntax.File, starlark.StringDict) {
 	scriptprintf.Rewrite(file)
-	return file, scriptprintf.Bind(env)
+	scriptalloc.Rewrite(file)
+	return file, dialectEnv(env)
+}
+
+// dialectEnv is env with the globals Formatting's rewrites call bound.
+func dialectEnv(env starlark.StringDict) starlark.StringDict {
+	return scriptalloc.Bind(scriptprintf.Bind(env))
 }
 
 // mainEndName is the builtin rewriteMainEnd routes main's ending through. A

@@ -1097,3 +1097,20 @@ func TestDiscovery_EmptyTopTools(t *testing.T) {
 	assert.NotNil(t, result.TopDiscoveryTools) // empty slice, not nil
 	assert.Empty(t, result.TopDiscoveryTools)
 }
+
+// TestTimeseries_RefusesARangeTooWideBeforeQuerying: a range past the bucket
+// bound is refused with ErrTimeseriesRange and never reaches the database.
+func TestTimeseries_RefusesARangeTooWideBeforeQuerying(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{})
+	start := time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC)
+	_, err = store.Timeseries(context.Background(), audit.TimeseriesFilter{
+		Resolution: audit.ResolutionMinute, StartTime: &start, EndTime: &end,
+	})
+	require.ErrorIs(t, err, audit.ErrTimeseriesRange)
+	assert.NoError(t, mock.ExpectationsWereMet(), "a query ran for a refused range")
+}

@@ -39,6 +39,19 @@ func (t *Toolkit) handleCreateCollection(ctx context.Context, input manageAssetI
 		return toolkit.ErrorResult(fmt.Sprintf(validationMsgFmt, err)), nil, nil
 	}
 
+	// Sections are read and checked before the collection exists, so a
+	// refused item leaves no empty collection behind.
+	var sections []portal.CollectionSection
+	if len(input.Sections) > 0 {
+		var err error
+		if sections, err = convertSections(input.Sections); err != nil {
+			return toolkit.ErrorResult(fmt.Sprintf(validationMsgFmt, err)), nil, nil
+		}
+		if refused := t.refuseUnaddable(ctx, nil, sections); refused != nil {
+			return refused, nil, nil
+		}
+	}
+
 	ownerID := resolveOwnerID(ctx)
 	ownerEmail := resolveOwnerEmail(ctx)
 
@@ -59,11 +72,7 @@ func (t *Toolkit) handleCreateCollection(ctx context.Context, input manageAssetI
 		return toolkit.ErrorResult("failed to create collection: " + err.Error()), nil, nil
 	}
 
-	if len(input.Sections) > 0 {
-		sections, err := convertSections(input.Sections)
-		if err != nil {
-			return toolkit.ErrorResult(fmt.Sprintf(validationMsgFmt, err)), nil, nil
-		}
+	if len(sections) > 0 {
 		if err := t.collectionStore.SetSections(ctx, collID, sections); err != nil {
 			// Include collection_id so the agent can retry set_sections on the orphaned collection.
 			return toolkit.ErrorResult(fmt.Sprintf(
@@ -212,6 +221,9 @@ func (t *Toolkit) handleSetSections(ctx context.Context, input manageAssetInput)
 	if err != nil {
 		return toolkit.ErrorResult(fmt.Sprintf(validationMsgFmt, err)), nil, nil
 	}
+	if refused := t.refuseUnaddable(ctx, coll, sections); refused != nil {
+		return refused, nil, nil
+	}
 
 	if err := t.collectionStore.SetSections(ctx, input.CollectionID, sections); err != nil {
 		return toolkit.ErrorResult("failed to set sections: " + err.Error()), nil, nil
@@ -223,6 +235,20 @@ func (t *Toolkit) handleSetSections(ctx context.Context, input manageAssetInput)
 	}
 
 	return toolkit.JSONResultTyped(updated)
+}
+
+// refuseUnaddable answers the refusal for the first asset sections adds to
+// existing (nil for a new collection) that the caller cannot read, or nil when
+// every one is readable. A collection's share opens every asset it holds, so
+// an asset goes in only when the caller could open it themselves; the items
+// already in the collection stay without a check.
+func (t *Toolkit) refuseUnaddable(ctx context.Context, existing *portal.Collection, sections []portal.CollectionSection) *mcp.CallToolResult {
+	for _, assetID := range portaldomain.AddedAssets(existing, sections) {
+		if _, refused := t.loadReadableAsset(ctx, assetID); refused != nil {
+			return refused
+		}
+	}
+	return nil
 }
 
 // convertSections transforms MCP input sections into portal CollectionSection

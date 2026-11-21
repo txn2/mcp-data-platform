@@ -248,3 +248,10 @@ func TestHandle_NilSafe(t *testing.T) {
 	assert.Nil(t, h.StateStoreCleanup())
 	assert.NoError(t, h.Close())
 }
+
+func TestBranding(t *testing.T) {
+	assert.Equal(t, oauth.ConsentBranding{Title: "Plexara", LogoLight: "/l.svg", LogoDark: "/d.svg"},
+		Branding("Plexara", "/one.svg", "/l.svg", "/d.svg"))
+	assert.Equal(t, oauth.ConsentBranding{Title: "Plexara", LogoLight: "/one.svg", LogoDark: "/one.svg"},
+		Branding("Plexara", "/one.svg", "", ""), "the one logo stands for both themes")
+}

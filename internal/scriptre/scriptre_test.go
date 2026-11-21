@@ -1,6 +1,7 @@
 package scriptre
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -8,6 +9,8 @@ import (
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
+
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
 )
 
 // eval runs one expression with the module bound to re and page bound to a
@@ -184,4 +187,62 @@ func TestCacheIsBounded(t *testing.T) {
 		t.Errorf("compiling without a thread: %v", err)
 	}
 	charge(nil, 10)
+}
+
+// TestSub_RefusesAResultPastTheRunsBudget: a replacement longer than its
+// match multiplies the input; the result is reserved against the run's memory
+// budget as it grows, so one call cannot build past it.
+func TestSub_RefusesAResultPastTheRunsBudget(t *testing.T) {
+	run := func(budget int64, expr string) error {
+		thread := &starlark.Thread{Name: "test"}
+		if budget > 0 {
+			scriptguard.Attach(thread, scriptguard.NewMeter(budget))
+		}
+		env := starlark.StringDict{Name: Module, "big": starlark.String(strings.Repeat("a", 10000))}
+		if _, err := starlark.EvalOptions(&syntax.FileOptions{}, thread, "test.star", expr, env); err != nil {
+			return fmt.Errorf("eval: %w", err)
+		}
+		return nil
+	}
+	err := run(1<<20, `re.sub("", "y" * 1000, big)`)
+	if !errors.Is(err, scriptguard.ErrMemoryBudget) {
+		t.Fatalf("re.sub past the budget = %v", err)
+	}
+	if err := run(1<<20, `re.sub("a", "bb", big)`); err != nil {
+		t.Fatalf("re.sub inside the budget refused: %v", err)
+	}
+	if err := run(0, `re.sub("", "y" * 1000, big)`); err != nil {
+		t.Fatalf("a run with no budget refused: %v", err)
+	}
+}
+
+// TestMatches_RefusesMoreMatchesThanTheBudgetHolds: a pattern that matches
+// at every character of a large string makes one result per character; the
+// matches are found up to what the run's budget can hold and refused past it.
+func TestMatches_RefusesMoreMatchesThanTheBudgetHolds(t *testing.T) {
+	run := func(budget int64, expr string) error {
+		thread := &starlark.Thread{Name: "test"}
+		if budget > 0 {
+			scriptguard.Attach(thread, scriptguard.NewMeter(budget))
+		}
+		env := starlark.StringDict{Name: Module, "big": starlark.String(strings.Repeat("a", 100000))}
+		if _, err := starlark.EvalOptions(&syntax.FileOptions{}, thread, "test.star", expr, env); err != nil {
+			return fmt.Errorf("eval: %w", err)
+		}
+		return nil
+	}
+	for _, expr := range []string{`re.split("", big)`, `re.findall("", big)`, `re.finditer("a", big)`, `re.split("", big, 1000000)`} {
+		if err := run(1<<20, expr); !errors.Is(err, scriptguard.ErrMemoryBudget) {
+			t.Errorf("%s under a 1 MiB budget = %v", expr, err)
+		}
+		if err := run(0, expr); err != nil {
+			t.Errorf("%s with no budget = %v", expr, err)
+		}
+	}
+	if err := run(1<<20, `re.split(",", "a,b,c")`); err != nil {
+		t.Errorf("a small split was refused: %v", err)
+	}
+	if err := run(1<<20, `re.split("a", big, 3)`); err != nil {
+		t.Errorf("a split held to three pieces was refused: %v", err)
+	}
 }

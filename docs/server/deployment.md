@@ -321,8 +321,9 @@ data:
       dcr:
         enabled: true
         allowed_redirect_patterns:
-          - "^http://localhost.*"
-          - "^http://127.0.0.1.*"
+          - "https://claude\\.ai/api/mcp/auth_callback"
+          - "http://localhost:[0-9]+/callback"
+          - "http://127\\.0\\.0\\.1:[0-9]+/callback"
       upstream:
         issuer: "https://auth.example.com/realms/mcp"
         client_id: "mcp-data-platform"

@@ -17,9 +17,11 @@ import (
 // What these hold, against the running platform (dev/platform.yaml sets
 // scripts.worker.max_run_memory to 128MiB): the ticket's own shape -- a list
 // built inside a function, 8 MiB a step, a fast host call after each -- fails
-// with cause memory at the host call where it crossed the budget, saved and as
-// a draft; and a script that builds past the budget after its last host call
-// fails when it ends instead of succeeding.
+// with cause memory, saved and as a draft: since #2745 the repeat that builds
+// each 8 MiB string asks the run's meter first, so the run is stopped at the
+// one that would take it past its budget, before it holds more; and a script
+// that builds past the budget after its last host call fails when it ends
+// instead of succeeding.
 //
 // Wire forms: manage_script's `command`, `name`, `description` and `source`
 // are typed strings; run_script's `name` a string and `wait_seconds` an
@@ -72,15 +74,15 @@ func TestIssue1867_ARunThatGrowsFasterThanAWalkFails(t *testing.T) {
 			got["status"], got["cause"], got)
 	}
 	errText, _ := got["error"].(string)
-	for _, want := range []string{"in platform.query", "128 MiB memory budget"} {
+	for _, want := range []string{"a repeat (*)", "128 MiB memory budget"} {
 		if !strings.Contains(errText, want) {
 			t.Errorf("error %q does not name %q", errText, want)
 		}
 	}
 	metrics, _ := got["metrics"].(map[string]any)
 	peak, _ := metrics["peak_memory_bytes"].(float64)
-	if peak <= 128<<20 || peak > 200<<20 {
-		t.Errorf("peak_memory_bytes = %.0f; want a measured peak just past 128 MiB, where the run was stopped", peak)
+	if peak < 96<<20 || peak > 128<<20 {
+		t.Errorf("peak_memory_bytes = %.0f; want a measured peak just under 128 MiB, where the run was stopped", peak)
 	}
 }
 
@@ -95,7 +97,7 @@ func TestIssue1867_ADraftThatGrowsFasterThanAWalkFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(text, "memory budget") || !strings.Contains(text, "platform.query") {
+	if !strings.Contains(text, "memory budget") || !strings.Contains(text, "a repeat (*)") {
 		t.Errorf("run_draft of 272 MiB under a 128 MiB budget: error=%v %s", res.IsError, text)
 	}
 }

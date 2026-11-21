@@ -1,10 +1,13 @@
 package httpjson
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 )
@@ -199,5 +202,19 @@ func TestWriteErrorCodeNamesTheProblem(t *testing.T) {
 	}
 	if problem.Title != http.StatusText(http.StatusConflict) {
 		t.Errorf("title = %q", problem.Title)
+	}
+}
+
+func TestDecodeBody(t *testing.T) {
+	var dst struct{ Name string }
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/", strings.NewReader(`{"Name":"a"}`))
+	if err := DecodeBody(httptest.NewRecorder(), r, &dst, MaxBody); err != nil || dst.Name != "a" {
+		t.Fatalf("DecodeBody = %v, %+v", err, dst)
+	}
+	big := `{"Name":"` + strings.Repeat("x", 2048) + `"}`
+	r = httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/", strings.NewReader(big))
+	err := DecodeBody(httptest.NewRecorder(), r, &dst, 1024)
+	if _, ok := errors.AsType[*http.MaxBytesError](err); !ok {
+		t.Fatalf("a body past the bound = %v, want MaxBytesError", err)
 	}
 }

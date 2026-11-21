@@ -424,6 +424,8 @@ func buildToolkitOptions(
 	// No statement a person sends points a table, a schema or a partition at
 	// one of the platform's own buckets, on any connection (#2616).
 	opts = append(opts, trinotools.WithQueryInterceptor(LocationInterceptor{}))
+	// trino_query and trino_explain run only what reads, on every connection.
+	opts = append(opts, trinotools.WithQueryInterceptor(ReadToolInterceptor{}))
 
 	if readOnly != nil {
 		opts = append(opts, trinotools.WithQueryInterceptor(readOnly))

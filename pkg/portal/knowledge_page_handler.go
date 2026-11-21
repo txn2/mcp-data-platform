@@ -2,12 +2,13 @@ package portal
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/txn2/mcp-data-platform/internal/httpjson"
 
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 )
@@ -164,7 +165,7 @@ func (h *Handler) createKnowledgePage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req knowledgePageRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpjson.DecodeBody(w, r, &req, httpjson.MaxContentBody); err != nil {
 		writeError(w, http.StatusBadRequest, errInvalidRequestBody)
 		return
 	}
@@ -441,7 +442,7 @@ func (h *Handler) updateKnowledgePage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req knowledgePageRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpjson.DecodeBody(w, r, &req, httpjson.MaxContentBody); err != nil {
 		writeError(w, http.StatusBadRequest, errInvalidRequestBody)
 		return
 	}

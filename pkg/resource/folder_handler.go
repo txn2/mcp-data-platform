@@ -1,10 +1,11 @@
 package resource
 
 import (
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
+
+	"github.com/txn2/mcp-data-platform/internal/httpjson"
 )
 
 // folderMoveRequest names a folder in one library and where it is going.
@@ -44,7 +45,7 @@ func (h *Handler) handleFolderMove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req folderMoveRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpjson.DecodeBody(w, r, &req, httpjson.MaxBody); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -120,7 +121,7 @@ type folderRequest struct {
 // readFolderRequest decodes a folder request, answering 400 on a bad body.
 func readFolderRequest(w http.ResponseWriter, r *http.Request) (NewFolder, bool) {
 	var req folderRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpjson.DecodeBody(w, r, &req, httpjson.MaxBody); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return NewFolder{}, false
 	}

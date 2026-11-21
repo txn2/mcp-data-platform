@@ -469,3 +469,13 @@ func TestAuditMetricsRoutes_NotRegisteredWhenNil(t *testing.T) {
 		assert.NotEqual(t, http.StatusOK, rec.Code, "endpoint %s should not be available", ep)
 	}
 }
+
+func TestGetAuditTimeseries_RangeTooWideIsABadRequest(t *testing.T) {
+	mock := &mockMetricsQuerier{timeseriesErr: fmt.Errorf("checking: %w", audit.ErrTimeseriesRange)}
+	h := testMux(Config{Metrics: mock})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/admin/audit/metrics/timeseries?resolution=minute&start_time=0001-01-01T00:00:00Z", http.NoBody)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}

@@ -32,3 +32,23 @@ func FuzzExtract(f *testing.F) {
 		_ = HasTopLevelOrderBy(sql)
 	})
 }
+
+// FuzzIsRead holds the read gate to its allow-list: whatever a caller writes,
+// a statement it calls a read begins with a read kind, and a statement that
+// begins with a write keyword is never one.
+func FuzzIsRead(f *testing.F) {
+	for _, s := range benchStatements {
+		f.Add(s)
+	}
+	f.Add("EXPLAIN (TYPE IO) EXPLAIN ANALYZE INSERT INTO t VALUES (1)")
+	f.Add("/* x */ (SELECT 1)")
+	f.Fuzz(func(t *testing.T, sql string) {
+		if !IsRead(sql) {
+			return
+		}
+		kind := StatementKind(sql)
+		if !readKinds[kind] && kind != wordExplain {
+			t.Fatalf("IsRead(%q) with kind %q", sql, kind)
+		}
+	})
+}

@@ -46,6 +46,7 @@ type mockStore struct {
 	supersedeErr    error
 
 	// Track calls
+	listFilters     []memstore.Filter
 	insertedRecords []memstore.Record
 	deletedIDs      []string
 	updatedID       string
@@ -88,7 +89,8 @@ func (m *mockStore) Delete(_ context.Context, id string) error {
 	return nil
 }
 
-func (m *mockStore) List(_ context.Context, _ memstore.Filter) ([]memstore.Record, int, error) {
+func (m *mockStore) List(_ context.Context, f memstore.Filter) ([]memstore.Record, int, error) {
+	m.listFilters = append(m.listFilters, f)
 	if m.listErr != nil {
 		return nil, 0, m.listErr
 	}
@@ -711,7 +713,8 @@ func TestVerifyOwnership_EmptyEmail(t *testing.T) {
 	ctx := ctxWithPC("", "analyst")
 
 	result := verifyOwnership(ctx, store, "abc", "update")
-	assert.Nil(t, result, "empty email should skip ownership check")
+	require.NotNil(t, result, "a caller with no email owns no memory")
+	assert.True(t, result.IsError)
 }
 
 func TestVerifyOwnership_RecordNotFound(t *testing.T) {
@@ -736,19 +739,38 @@ func TestVerifyOwnership_NilPlatformContext(t *testing.T) {
 			CreatedBy: "someone@example.com",
 		},
 	}
-	// No PlatformContext in this context; GetPlatformContext returns nil.
-	// verifyOwnership calls pc.UserEmail which would panic if pc is nil,
-	// but the code uses GetPlatformContext which returns nil and then
-	// checks pc.UserEmail != "" which would panic.
-	// Actually looking at the code, it does pc := middleware.GetPlatformContext(ctx)
-	// then pc.UserEmail. If pc is nil this would panic. So this test verifies
-	// that the function assumes PlatformContext is always present (which it is
-	// in the middleware chain).
-	// We test this with an empty-email PlatformContext instead.
-	ctx := ctxWithPC("", "analyst")
+	result := verifyOwnership(context.Background(), store, "abc", "archive")
+	require.NotNil(t, result, "a call with no platform context owns no memory")
+	assert.True(t, result.IsError)
+}
 
-	result := verifyOwnership(ctx, store, "abc", "archive")
-	assert.Nil(t, result, "empty email should allow access")
+// TestHandleReviewStale_ScopedToTheCaller: an administrator reviews every
+// stale record; anyone else reviews the ones they created, in their persona;
+// a caller with no email reviews none.
+func TestHandleReviewStale_ScopedToTheCaller(t *testing.T) {
+	t.Parallel()
+
+	store := &mockStore{}
+	tk := newTestToolkit(store, nil)
+
+	_, _, err := tk.handleManage(ctxWithPC("analyst@example.com", "analyst"), nil, manageInput{Command: "review_stale"})
+	require.NoError(t, err)
+	require.Len(t, store.listFilters, 1)
+	assert.Equal(t, "analyst@example.com", store.listFilters[0].CreatedBy)
+	assert.Equal(t, "analyst", store.listFilters[0].Persona)
+
+	admin := middleware.NewPlatformContext("req")
+	admin.UserEmail, admin.PersonaName, admin.IsAdmin = "admin@example.com", "admin", true
+	_, _, err = tk.handleManage(middleware.WithPlatformContext(context.Background(), admin), nil, manageInput{Command: "review_stale"})
+	require.NoError(t, err)
+	require.Len(t, store.listFilters, 2)
+	assert.Empty(t, store.listFilters[1].CreatedBy)
+	assert.Empty(t, store.listFilters[1].Persona)
+
+	result, _, err := tk.handleManage(ctxWithPC("", "analyst"), nil, manageInput{Command: "review_stale"})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assert.Len(t, store.listFilters, 2, "a caller with no email reached the store")
 }
 
 // ---------------------------------------------------------------------------

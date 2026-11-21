@@ -519,6 +519,8 @@ toolkits:
 
 **Step 3: Profile the query in Trino**
 
+Run this in a Trino client (EXPLAIN ANALYZE runs the statement, so `trino_query` refuses it; `trino_explain` shows the plan without running it):
+
 ```sql
 EXPLAIN ANALYZE SELECT * FROM your_table LIMIT 1000;
 ```

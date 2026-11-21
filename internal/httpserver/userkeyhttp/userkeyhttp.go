@@ -30,6 +30,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/httpjson"
+
 	"github.com/txn2/mcp-data-platform/internal/apikeyissue"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
@@ -88,6 +90,11 @@ type API struct {
 	// keys these are, and the auth type says whether they may manage keys at
 	// all. It answers "" for an unauthenticated request.
 	Caller func(*http.Request) (email, authType string)
+	// FromSession reports whether the request was authenticated by the
+	// portal's browser session (its cookie, CSRF-checked), the only caller a
+	// key is issued to: a bearer token is short-lived and may be held by an
+	// application, and a key it minted would outlive it. Nil issues none.
+	FromSession func(*http.Request) bool
 	// Settle writes the caller's sign-in record before a key is bound to it.
 	// The record is otherwise written in the background, and a key issued in
 	// the moments after signing in was refused as bound to nobody (#2279).
@@ -188,7 +195,7 @@ func (a *API) list(w http.ResponseWriter, r *http.Request) {
 // create handles POST /api/v1/portal/api-keys.
 //
 // @Summary      Issue an API key for myself
-// @Description  Issues an API key bound to the calling user's own account. The key authenticates as them and carries the roles they hold, so a client that speaks only bearer tokens reaches the platform as the same identity their signed-in session does. The key value is shown once and never again. The request takes no roles: a person cannot widen their own key.
+// @Description  Issues an API key bound to the calling user's own account. The key authenticates as them and carries the roles they hold, so a client that speaks only bearer tokens reaches the platform as the same identity their signed-in session does. The key value is shown once and never again. The request takes no roles: a person cannot widen their own key. A key is issued only to a signed-in portal session: a request authenticated by a bearer token or an API key is refused with 403.
 // @Tags         API Keys
 // @Accept       json
 // @Produce      json
@@ -196,6 +203,7 @@ func (a *API) list(w http.ResponseWriter, r *http.Request) {
 // @Success      201  {object}  createResponse
 // @Failure      400  {object}  map[string]string
 // @Failure      401  {object}  map[string]string
+// @Failure      403  {object}  map[string]string
 // @Failure      409  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
 // @Security     ApiKeyAuth
@@ -204,6 +212,12 @@ func (a *API) list(w http.ResponseWriter, r *http.Request) {
 func (a *API) create(w http.ResponseWriter, r *http.Request) {
 	email := a.callerEmail(w, r)
 	if email == "" {
+		return
+	}
+	if a.FromSession == nil || !a.FromSession(r) {
+		writeError(w, http.StatusForbidden,
+			"API keys are issued from a signed-in portal session. This request authenticated with a bearer token, "+
+				"which cannot issue a key that would outlive it. Sign in to the portal and use Settings > API Keys.")
 		return
 	}
 	req, ok := decodeCreate(w, r)
@@ -490,6 +504,7 @@ func parseExpiry(w http.ResponseWriter, expiresIn string) (*time.Time, bool) {
 // than quietly issued as something else.
 func decodeCreate(w http.ResponseWriter, r *http.Request) (createRequest, bool) {
 	var req createRequest
+	r.Body = http.MaxBytesReader(w, r.Body, httpjson.MaxBody)
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {

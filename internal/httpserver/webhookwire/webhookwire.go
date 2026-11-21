@@ -61,6 +61,10 @@ import (
 // request's headers.
 const readHeaderTimeout = 10 * time.Second
 
+// idleTimeout closes a keep-alive connection on the receiver's own listener
+// that sends no next request, as the platform's main listener does.
+const idleTimeout = 120 * time.Second
+
 // shutdownGrace bounds how long the receiver's own listener waits for
 // requests in flight when the platform stops.
 const shutdownGrace = 30 * time.Second
@@ -411,6 +415,7 @@ func (w *Webhooks) Start(ctx context.Context) {
 		Handler: instanceheader.Middleware(instanceheader.HostName(w.address),
 			httpobs.Middleware(w.observe)(w.receiver)),
 		ReadHeaderTimeout: readHeaderTimeout,
+		IdleTimeout:       idleTimeout,
 	}
 	go func() {
 		if err := w.listener.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

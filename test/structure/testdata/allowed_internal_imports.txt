@@ -634,6 +634,7 @@ internal/httpserver/assetwire -> internal/portal/portalpurge
 internal/httpserver/assetwire -> pkg/platform
 internal/httpserver/assetwire -> pkg/portal
 internal/httpserver/assetwire -> pkg/toolkits/portal
+internal/httpserver/attachhttp -> internal/httpjson
 internal/httpserver/attachhttp -> internal/wirejson
 internal/httpserver/attachhttp -> pkg/prompt
 internal/httpserver/attachhttp -> pkg/prompt/attachserve
@@ -1018,6 +1019,7 @@ internal/httpserver/thumbwire -> pkg/portal
 internal/httpserver/thumbwire -> pkg/resource
 internal/httpserver/unsubhttp -> pkg/notification
 internal/httpserver/userkeyhttp -> internal/apikeyissue
+internal/httpserver/userkeyhttp -> internal/httpjson
 internal/httpserver/userkeyhttp -> internal/logsan
 internal/httpserver/userkeyhttp -> internal/wirejson
 internal/httpserver/userkeyhttp -> pkg/auth
@@ -1597,6 +1599,8 @@ internal/platform/schemagate -> pkg/toolkits/trino
 internal/platform/scriptadmit -> internal/procload
 internal/platform/scriptalert -> internal/notification/notifyalert
 internal/platform/scriptalert -> pkg/notification
+internal/platform/scriptalloc -> internal/platform/scriptguard
+internal/platform/scriptalloc -> internal/scriptprintf
 internal/platform/scriptbehavior -> internal/platform/scriptrec
 internal/platform/scriptbehavior -> internal/platform/scriptrun
 internal/platform/scriptbehavior -> internal/platform/scripttest
@@ -1607,6 +1611,7 @@ internal/platform/scriptbgdraft -> internal/platform/scriptlive
 internal/platform/scriptbgdraft -> internal/platform/scriptrun
 internal/platform/scriptbgdraft -> pkg/session
 internal/platform/scriptcontract -> pkg/script
+internal/platform/scriptdialect -> internal/platform/scriptalloc
 internal/platform/scriptdialect -> internal/scriptprintf
 internal/platform/scriptdraft -> internal/application/appenv
 internal/platform/scriptdraft -> internal/platform/scriptdialect
@@ -2266,6 +2271,7 @@ internal/schemaref -> internal/platform/scriptlib
 internal/schemaref -> internal/platform/scriptrun
 internal/scriptdate -> pkg/script
 internal/scriptdest -> pkg/script
+internal/scriptre -> internal/platform/scriptguard
 internal/scripttoken -> internal/jsonwalk
 internal/scripttoken -> internal/platform/starlarkconv
 internal/scriptxml -> internal/xmltree
@@ -2935,6 +2941,7 @@ pkg/registry -> pkg/toolkits/s3
 pkg/registry -> pkg/toolkits/trino
 pkg/resource -> internal/exporttrunc
 pkg/resource -> internal/grantsource
+pkg/resource -> internal/httpjson
 pkg/resource -> internal/indexpolicy
 pkg/resource -> internal/logsan
 pkg/resource -> internal/opsobs

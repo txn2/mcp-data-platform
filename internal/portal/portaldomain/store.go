@@ -64,6 +64,10 @@ type ShareStore interface {
 	ListByCollection(ctx context.Context, collectionID string) ([]Share, error)
 	ListByPrompt(ctx context.Context, promptID string) ([]Share, error)
 	GetUserCollectionPermission(ctx context.Context, collectionID, userID, email string) (SharePermission, error)
+	// GetUserCollectionPermissions is GetUserCollectionPermission for a page
+	// of collections in one read: each id the caller holds a live share of,
+	// with the highest permission one grants (#2740).
+	GetUserCollectionPermissions(ctx context.Context, collectionIDs []string, userID, email string) (map[string]SharePermission, error)
 	ListSharedWithUser(ctx context.Context, userID, email string, limit, offset int) ([]SharedAsset, int, error)
 	ListSharedCollectionsWithUser(ctx context.Context, userID, email string, limit, offset int) ([]SharedCollection, int, error)
 	ListSharedPromptsWithUser(ctx context.Context, userID, email string) ([]SharedPromptRef, error)

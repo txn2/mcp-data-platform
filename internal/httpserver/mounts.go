@@ -828,6 +828,8 @@ func registerOAuthRoutes(mux *http.ServeMux, handler http.Handler) {
 	mux.Handle("/oauth/callback", handler)
 	mux.Handle("/oauth/token", handler)
 	mux.Handle("/oauth/register", handler)
+	// The consent page's answer, for a client that registered itself.
+	mux.Handle("/oauth/consent", handler)
 	// Claude Desktop compatibility paths (without /oauth prefix)
 	mux.Handle("/authorize", handler)
 	mux.Handle("/callback", handler)

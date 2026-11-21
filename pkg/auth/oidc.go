@@ -140,6 +140,11 @@ func NewOIDCAuthenticator(cfg OIDCConfig) (*OIDCAuthenticator, error) {
 	if cfg.Issuer == "" {
 		return nil, errors.New("oidc issuer is required")
 	}
+	if cfg.ClientID == "" && cfg.Audience == "" {
+		// Without either, a token any client of the issuer was given would
+		// authenticate here.
+		return nil, errors.New("oidc requires client_id or audience: a token is accepted only when it was issued for this platform")
+	}
 
 	extractor := &ClaimsExtractor{
 		RoleClaimPath:    cfg.RoleClaimPath,
@@ -488,12 +493,28 @@ func (a *OIDCAuthenticator) validateIdentityClaims(claims map[string]any) error 
 		}
 	}
 
-	// REQUIRE audience when configured
-	if a.cfg.Audience != "" && !a.checkAudience(claims) {
+	if !a.issuedForPlatform(claims) {
 		return errInvalidAudience
 	}
 
 	return nil
+}
+
+// issuedForPlatform reports whether the token was issued for this platform.
+// With an audience configured, aud must name it. Without one, the token must
+// be client_id's: aud names client_id, or client_id is its authorized party
+// (azp, OpenID Connect Core section 2), which is how an IdP that leaves aud at
+// its default (Keycloak's "account") still names the client it issued to. A
+// token another client of the same issuer was given names neither.
+func (a *OIDCAuthenticator) issuedForPlatform(claims map[string]any) bool {
+	if a.cfg.Audience != "" {
+		return audienceNames(claims, a.cfg.Audience)
+	}
+	if audienceNames(claims, a.cfg.ClientID) {
+		return true
+	}
+	azp, _ := claims["azp"].(string)
+	return azp != "" && azp == a.cfg.ClientID
 }
 
 // getClockSkew returns the configured clock skew or default.
@@ -504,14 +525,15 @@ func (a *OIDCAuthenticator) getClockSkew() int64 {
 	return defaultClockSkewSeconds
 }
 
-// checkAudience checks if the token audience matches.
-func (a *OIDCAuthenticator) checkAudience(claims map[string]any) bool {
+// audienceNames reports whether the token's aud claim (a string or a list)
+// names want.
+func audienceNames(claims map[string]any, want string) bool {
 	switch aud := claims["aud"].(type) {
 	case string:
-		return aud == a.cfg.Audience
+		return aud == want
 	case []any:
 		for _, v := range aud {
-			if s, ok := v.(string); ok && s == a.cfg.Audience {
+			if s, ok := v.(string); ok && s == want {
 				return true
 			}
 		}
