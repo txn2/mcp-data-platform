@@ -402,6 +402,14 @@ as the signed-in person (`req["caller"]`) in the application environment of the
 environment's name, so the site enforces its own rules on the server. Only requests the browser marks as coming from the site's own origin
 carry the viewer.
 
+An environment's tile in the portal is drawn as the site's owner sees it
+(#2747): `/_viewer` names the owner and the page's GET and HEAD requests to
+`/endpoints/` run as them, with `req["caller"]["auth_type"]` set to
+`site_tile` and the run's audit row marked `tile_draw`. Any other method answers
+405 while a tile is drawn, so keep a GET handler free of writes. An owner the
+directory no longer holds draws the page for nobody (`/_viewer` and the
+endpoints answer 401).
+
 ### Two shapes
 
 An intranet: `dev` for its developers, `prod` on the main address for a persona.

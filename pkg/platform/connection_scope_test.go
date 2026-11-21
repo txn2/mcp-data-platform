@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/connscope"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -39,13 +40,13 @@ func scopeFixture(t *testing.T) (personas *persona.Registry, toolkits *registry.
 
 func TestConnectionScopeFor(t *testing.T) {
 	t.Run("no persona registry leaves discovery unfiltered", func(t *testing.T) {
-		assert.Nil(t, connectionScopeFor(nil, nil),
+		assert.Nil(t, connscope.ForRegistry(nil, nil),
 			"a deployment with no personas has no boundary to honor, so none is wired")
 	})
 
 	t.Run("resolves connections through the persona rules and the live connection set", func(t *testing.T) {
 		personas, reg := scopeFixture(t)
-		scope := connectionScopeFor(personas, reg)
+		scope := connscope.ForRegistry(personas, reg)
 		require.NotNil(t, scope)
 
 		assert.True(t, scope.AllowConnection("analyst", "warehouse-a"))
@@ -60,7 +61,7 @@ func TestConnectionScopeFor(t *testing.T) {
 
 	t.Run("a nil toolkit registry attributes nothing", func(t *testing.T) {
 		personas, _ := scopeFixture(t)
-		scope := connectionScopeFor(personas, nil)
+		scope := connscope.ForRegistry(personas, nil)
 		require.NotNil(t, scope)
 		assert.Empty(t, scope.ConnectionsForURN(ordersURN))
 	})

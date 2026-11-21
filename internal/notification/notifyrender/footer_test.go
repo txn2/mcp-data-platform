@@ -203,3 +203,41 @@ func TestRender_ReplyToStamped(t *testing.T) {
 		t.Errorf("unconfigured branding must leave ReplyTo empty, got %q", plain.ReplyTo)
 	}
 }
+
+// TestRender_ADeliveryListCarriesNoUnsubscribe (#2743): an email of a
+// delivery-list channel carries neither the preferences nor the unsubscribe
+// line nor the List-Unsubscribe headers, as a document with attachments and
+// as a digest of such rows; a digest holding any other row keeps both.
+func TestRender_ADeliveryListCarriesNoUnsubscribe(t *testing.T) {
+	r := footerRenderer(t)
+	r.SetUnsubscribeURLFn(func(string) string { return "https://data.example.com/portal/notifications/unsubscribe?tok=x" })
+	row := func(list bool) notification.Notification {
+		return notification.Notification{Recipient: "data@client.example", Payload: notification.Payload{
+			Kind: notification.KindChannel, ItemTitle: "Weekly export", DeliveryList: list,
+			Document: &notification.Document{Title: "Weekly export", Body: "Attached."},
+		}}
+	}
+	check := func(name string, e *Email, err error, wantFooter bool) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		for part, body := range map[string]string{"html": e.HTML, "text": e.Text} {
+			has := strings.Contains(strings.ToLower(body), "unsubscribe") || strings.Contains(body, "/portal/settings")
+			if has != wantFooter {
+				t.Errorf("%s %s part: footer present = %v, want %v", name, part, has, wantFooter)
+			}
+		}
+		if (e.UnsubURL != "") != wantFooter {
+			t.Errorf("%s: UnsubURL = %q; the List-Unsubscribe headers follow it", name, e.UnsubURL)
+		}
+	}
+	e, err := r.RenderDocument(row(true), nil, nil)
+	check("delivery-list document", e, err, false)
+	e, err = r.Render([]notification.Notification{row(true), row(true)})
+	check("delivery-list digest", e, err, false)
+	e, err = r.Render([]notification.Notification{row(true), row(false)})
+	check("mixed digest", e, err, true)
+	e, err = r.RenderDocument(row(false), nil, nil)
+	check("ordinary channel document", e, err, true)
+}

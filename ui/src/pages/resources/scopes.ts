@@ -352,9 +352,18 @@ export interface LibraryCopy {
   source: string;
 }
 
+/**
+ * UPLOADS_OFF is what a person whose own folder they cannot add to is told
+ * (#2744): an external persona without uploads, or a persona whose Resources
+ * level reads only. Without it the folder showed no control and no reason.
+ */
+export const UPLOADS_OFF = "Uploads are not turned on for you. An administrator turns them on in your persona.";
+
 /** libraryCopy states what a library is, for the destination line and for the
- * read-only note that stands in for the Upload control. */
-export function libraryCopy(target: ScopeTarget | null): LibraryCopy {
+ * read-only note that stands in for the Upload control. For a person of an
+ * external persona, their own folder is also read by staff whose persona has
+ * External files and by administrators (#2290), and the line says so. */
+export function libraryCopy(target: ScopeTarget | null, user: UserProfile | null = null): LibraryCopy {
   if (target?.scope === "global") {
     return {
       name: "Global",
@@ -371,9 +380,16 @@ export function libraryCopy(target: ScopeTarget | null): LibraryCopy {
   }
   return {
     name: "My Resources",
-    audience: "Only you can see it.",
-    source: "Only you can add to My Resources.",
+    audience: resolvePortal(user?.portal).external
+      ? "You, staff who look after files from outside the organization, and administrators can see it."
+      : "Only you can see it.",
+    source: "Files added to your folder appear here. Files shared with you are under Shared with me.",
   };
+}
+
+/** ownFolderReadOnly reports whether root is the caller's own folder and they cannot add to it. */
+export function ownFolderReadOnly(root: ResourceRoot, canWrite: boolean): boolean {
+  return root.key === "user" && !canWrite;
 }
 
 /**

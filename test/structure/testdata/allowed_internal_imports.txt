@@ -938,6 +938,7 @@ internal/httpserver/sitehttp -> internal/bucketsource
 internal/httpserver/sitehttp -> internal/endpoint/epbinding
 internal/httpserver/sitehttp -> internal/endpoint/epform
 internal/httpserver/sitehttp -> internal/httpjson
+internal/httpserver/sitehttp -> internal/httpserver/sitepages
 internal/httpserver/sitehttp -> internal/logsan
 internal/httpserver/sitehttp -> internal/objectobs
 internal/httpserver/sitehttp -> internal/platform/notifydelivery
@@ -970,6 +971,13 @@ internal/httpserver/sitehttp -> pkg/observability
 internal/httpserver/sitehttp -> pkg/platform
 internal/httpserver/sitehttp -> pkg/portal
 internal/httpserver/sitehttp -> pkg/textpatch
+internal/httpserver/sitepages -> internal/endpoint/epform
+internal/httpserver/sitepages -> internal/site/sitegw
+internal/httpserver/sitepages -> internal/site/sitetile/tilepage
+internal/httpserver/sitepages -> internal/site/sitewire
+internal/httpserver/sitepages -> pkg/auth
+internal/httpserver/sitepages -> pkg/persona
+internal/httpserver/sitepages -> pkg/platform
 internal/httpserver/sources -> pkg/catalog
 internal/httpserver/sources -> pkg/toolkits/gateway/enrichment
 internal/httpserver/standalonehttp -> internal/egressguard
@@ -1006,6 +1014,7 @@ internal/httpserver/tablesource -> pkg/resource
 internal/httpserver/thumbwire -> internal/contentviewer
 internal/httpserver/thumbwire -> internal/egressguard
 internal/httpserver/thumbwire -> internal/headless
+internal/httpserver/thumbwire -> internal/httpserver/sitepages
 internal/httpserver/thumbwire -> internal/outbound
 internal/httpserver/thumbwire -> internal/platform/scripttiles
 internal/httpserver/thumbwire -> internal/platform/thumbworker
@@ -1266,6 +1275,7 @@ internal/platform/connreach -> pkg/persona
 internal/platform/connreach -> pkg/registry
 internal/platform/connscope -> pkg/catalog
 internal/platform/connscope -> pkg/connid
+internal/platform/connscope -> pkg/knowledge
 internal/platform/connscope -> pkg/persona
 internal/platform/connscope -> pkg/registry
 internal/platform/connstored -> internal/logsan
@@ -1436,6 +1446,7 @@ internal/platform/obs -> internal/opsobs
 internal/platform/obs -> internal/outbound
 internal/platform/obs -> internal/platform/configwarn
 internal/platform/obs -> pkg/observability
+internal/platform/personacfg -> internal/platform/configwarn
 internal/platform/personacfg -> pkg/persona
 internal/platform/platformstate -> internal/connstate
 internal/platform/platformstate -> internal/headless
@@ -2347,6 +2358,7 @@ internal/site/sitesvc -> internal/site/siterender
 internal/site/sitesvc -> internal/site/sitestore
 internal/site/sitesvc -> pkg/contenttype
 internal/site/sitesvc -> pkg/textpatch
+internal/site/sitetile/tilepage -> internal/endpoint/epform
 internal/site/sitetile/tilepage -> internal/headless
 internal/site/sitetile/tilepage -> internal/site
 internal/site/sitetool -> internal/bucketsource

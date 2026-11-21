@@ -33,6 +33,13 @@ func TestApplyResourceLevel(t *testing.T) {
 	assert.Equal(t, []string{"shared"}, got.Personas, "shared reads the persona folder")
 	_, err = Apply(context.Background(), claims("shared", false), pr, http.MethodPost)
 	assert.True(t, errors.Is(err, resource.ErrForbidden), "shared writes nothing")
+	var refused *RefusedError
+	require.True(t, errors.As(err, &refused))
+	assert.Contains(t, refused.Refusal(), "your persona (shared) reads Resources and uploads nothing", "the refusal names the persona (#2744)")
+	assert.Contains(t, refused.Error(), "Own folder or Persona folders")
+	_, err = Apply(context.Background(), claims("none", false), pr, http.MethodGet)
+	require.True(t, errors.As(err, &refused))
+	assert.Equal(t, "your persona (none) has no access to Resources", refused.Refusal())
 
 	got, err = Apply(context.Background(), claims("own", false), pr, http.MethodPost)
 	require.NoError(t, err)
@@ -79,6 +86,10 @@ func TestApplyExternalPersona(t *testing.T) {
 	assert.True(t, errors.Is(err, resource.ErrForbidden), "no uploads setting, no upload")
 	_, err = Apply(context.Background(), claims("closed"), pr, http.MethodPost)
 	assert.True(t, errors.Is(err, resource.ErrForbidden), "uploads off, no upload")
+	// The refusal names the persona and the setting that turns uploads on (#2744).
+	var refused *RefusedError
+	require.True(t, errors.As(err, &refused))
+	assert.Equal(t, "uploads are not turned on for your persona (closed); an administrator turns them on with Resources: Read and upload to their own folder", refused.Refusal())
 
 	got, err = Apply(context.Background(), claims("agency"), pr, http.MethodPost)
 	require.NoError(t, err, "uploads let the person write to their own folder")

@@ -43,6 +43,10 @@ type ChannelResult struct {
 	// Suppressed reports a send absorbed by its key's repeat window: counted
 	// on the key, and stated by the next send that goes through.
 	Suppressed bool
+	// OptedOut is how many of an email channel's recipients were not written
+	// a row because they turned email notifications off (#2743). A delivery
+	// list has none: its recipients' preferences do not apply.
+	OptedOut int
 }
 
 // ChannelGate is what a channel send is checked against before its rows are
@@ -100,9 +104,9 @@ func (e *Enqueuer) NotifyChannel(ctx context.Context, s ChannelSend) (ChannelRes
 	if !s.Platform && !e.allowActor(s.Actor, ch.Name) {
 		return ChannelResult{}, nil
 	}
-	rows, err := e.channelRows(ctx, s)
+	rows, optedOut, err := e.channelRows(ctx, s)
 	if err != nil || len(rows) == 0 {
-		return ChannelResult{}, err
+		return ChannelResult{OptedOut: optedOut}, err
 	}
 	out, err := e.queue.EnqueueChannel(ctx, rows, gateFor(s))
 	if errors.Is(err, ErrChannelOverCap) {
@@ -115,7 +119,7 @@ func (e *Enqueuer) NotifyChannel(ctx context.Context, s ChannelSend) (ChannelRes
 	if out.Suppressed {
 		return ChannelResult{Suppressed: true}, nil
 	}
-	return ChannelResult{Queued: len(rows)}, nil
+	return ChannelResult{Queued: len(rows), OptedOut: optedOut}, nil
 }
 
 // checkSend refuses a send no channel could deliver: a disabled or
@@ -149,35 +153,49 @@ func gateFor(s ChannelSend) ChannelGate {
 	return gate
 }
 
-// channelRows builds the rows one send writes. It consults no preference
-// store for an HTTP kind: the recipient is a destination rather than a person,
-// so there is nobody whose preferences could apply.
-func (e *Enqueuer) channelRows(ctx context.Context, s ChannelSend) ([]Notification, error) {
+// channelRows builds the rows one send writes, and how many of an email
+// channel's recipients turned email notifications off and are written none.
+// It consults no preference store for an HTTP kind: the recipient is a
+// destination rather than a person, so there is nobody whose preferences
+// could apply. Nor for a delivery list (#2743): its administrator decides who
+// receives it, every address receives every message as it is sent, and the
+// rows say so, so their email carries no unsubscribe.
+func (e *Enqueuer) channelRows(ctx context.Context, s ChannelSend) ([]Notification, int, error) {
 	ch := s.Channel
 	payload := channelPayload(s.Actor, s.Document)
 	if ch.Kind != ChannelKindEmail {
 		n := Notification{Recipient: ch.Recipient(), Category: CategoryChannel, Channel: ch.Name, Payload: payload}
 		e.applyChannelSchedule(&n, ch, false)
-		return []Notification{n}, nil
+		return []Notification{n}, 0, nil
 	}
+	payload.DeliveryList = ch.DeliveryList
 	rows := make([]Notification, 0, len(ch.Recipients))
+	optedOut := 0
 	for _, addr := range ch.Recipients {
 		recipient := NormalizeAddress(addr)
 		if recipient == "" || !Deliverable(recipient) {
 			continue
 		}
-		prefs, err := e.prefs.Get(ctx, recipient)
-		if err != nil {
-			return nil, fmt.Errorf("reading notification prefs for %s: %w", logsan.SanitizeForLog(recipient), err)
+		mode := ModeImmediate
+		if !ch.DeliveryList {
+			prefs, err := e.prefs.Get(ctx, recipient)
+			if err != nil {
+				return nil, 0, fmt.Errorf("reading notification prefs for %s: %w", logsan.SanitizeForLog(recipient), err)
+			}
+			mode = prefs.Mode
 		}
-		if prefs.Mode == ModeOff {
+		if mode == ModeOff {
+			optedOut++
 			continue
 		}
 		n := Notification{Recipient: recipient, Category: CategoryChannel, Channel: ch.Name, Payload: payload}
-		e.applyChannelSchedule(&n, ch, prefs.Mode == ModeDaily)
+		e.applyChannelSchedule(&n, ch, mode == ModeDaily)
 		rows = append(rows, n)
 	}
-	return rows, nil
+	for i := range rows {
+		rows[i].Payload.OptedOut = optedOut
+	}
+	return rows, optedOut, nil
 }
 
 // applyChannelSchedule puts the row in the right delivery window. The

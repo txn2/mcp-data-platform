@@ -150,10 +150,33 @@ func (r *Renderer) Render(ns []notification.Notification) (*Email, error) {
 		return nil, errors.New("rendering email: no notifications")
 	}
 	data := r.buildData(ns)
+	r.footer(&data, ns)
+	return r.execute(ns[0].Recipient, data)
+}
+
+// footer sets the preferences and unsubscribe links the message ends with,
+// and so its List-Unsubscribe headers. A message made only of delivery-list
+// rows (#2743) carries neither: its recipients' preferences do not apply, and
+// an unsubscribe a mail client acted on would stop a data feed while the
+// sender saw it accepted. A digest holding any other row keeps both.
+func (r *Renderer) footer(data *emailData, ns []notification.Notification) {
+	if deliveryList(ns) {
+		data.PrefsURL = ""
+		return
+	}
 	if r.unsubURL != nil {
 		data.UnsubURL = r.unsubURL(ns[0].Recipient)
 	}
-	return r.execute(ns[0].Recipient, data)
+}
+
+// deliveryList reports whether every row is a delivery-list channel's.
+func deliveryList(ns []notification.Notification) bool {
+	for _, n := range ns {
+		if !n.Payload.DeliveryList {
+			return false
+		}
+	}
+	return len(ns) > 0
 }
 
 // execute runs both templates over data and assembles the Email. It is the

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
 	"github.com/txn2/mcp-data-platform/internal/headless"
 	"github.com/txn2/mcp-data-platform/internal/site"
 )
@@ -30,10 +31,14 @@ type gateway struct {
 	// asked is every path Tile was asked for, with the release it was asked
 	// of.
 	asked []string
+	// routes and owners are what each Tile call was handed.
+	routes []*site.Route
+	owners []*epform.Viewer
 }
 
-func (g *gateway) Tile(w http.ResponseWriter, r *http.Request, route *site.Route) {
+func (g *gateway) Tile(w http.ResponseWriter, r *http.Request, route *site.Route, owner *epform.Viewer) {
 	g.asked = append(g.asked, route.SiteID+":"+r.URL.RequestURI())
+	g.routes, g.owners = append(g.routes, route), append(g.owners, owner)
 	a, ok := g.paths[r.URL.Path]
 	if !ok {
 		a = answer{status: http.StatusNotFound, ctype: "text/html", body: "<404.html>"}
@@ -66,12 +71,41 @@ func newGateway() *gateway {
 	}
 }
 
-// releases is one release.
-type releases struct{ err error }
+// releases is one site, its dev environment serving release 5 as a part of
+// the shop application, and any release asked for.
+type releases struct {
+	err      error
+	siteErr  error
+	routeErr error
+	owner    string
+	// asked is every release number read by number.
+	asked *[]int
+}
+
+func (r releases) Get(_ context.Context, id string) (*site.Site, error) {
+	if r.siteErr != nil {
+		return nil, r.siteErr
+	}
+	owner := r.owner
+	if owner == "" {
+		owner = "jane@example.com"
+	}
+	return &site.Site{ID: id, Name: "shop-site", OwnerEmail: owner}, nil
+}
+
+func (r releases) RouteEnv(_ context.Context, siteName, env string) (*site.Route, error) {
+	if r.routeErr != nil {
+		return nil, r.routeErr
+	}
+	return &site.Route{SiteID: "s1", Site: siteName, Environment: env, Release: &site.Release{ID: "rel-current", Number: 5}, PartOf: "shop", PartOfEnvironment: env}, nil
+}
 
 func (r releases) Release(_ context.Context, siteID string, n int) (*site.Release, error) {
 	if r.err != nil {
 		return nil, r.err
+	}
+	if r.asked != nil {
+		*r.asked = append(*r.asked, n)
 	}
 	return &site.Release{ID: "rel-" + siteID, Number: n}, nil
 }
@@ -85,7 +119,7 @@ func platformRoutes(p string, _ http.Header) (headless.File, bool) {
 
 func page(t *testing.T, g *gateway) headless.Page {
 	t.Helper()
-	p, err := Release{Store: releases{}, Server: g, PlatformHost: "platform.example.com"}.Page(context.Background(), "s1", 3, platformRoutes)
+	p, err := Release{Store: releases{}, Server: g, PlatformHost: "platform.example.com"}.Page(context.Background(), "s1", "dev", 3, platformRoutes)
 	require.NoError(t, err)
 	return p
 }
@@ -165,29 +199,87 @@ func TestPage_OtherHostnames(t *testing.T) {
 // TestReleasePage_Refusals: no server, a missing release and a release with
 // no page at its root refuse.
 func TestReleasePage_Refusals(t *testing.T) {
-	_, err := Release{}.Page(context.Background(), "s1", 1, nil)
+	_, err := Release{}.Page(context.Background(), "s1", "dev", 1, nil)
 	require.Error(t, err)
-	_, err = Release{Store: releases{err: errors.New("gone")}, Server: newGateway()}.Page(context.Background(), "s1", 1, nil)
+	_, err = Release{Store: releases{err: errors.New("gone")}, Server: newGateway()}.Page(context.Background(), "s1", "dev", 1, nil)
 	require.Error(t, err)
+	_, err = Release{Store: releases{siteErr: errors.New("gone")}, Server: newGateway()}.Page(context.Background(), "s1", "dev", 1, nil)
+	require.Error(t, err)
+	_, err = Release{Store: releases{routeErr: site.ErrNoDomain}, Server: newGateway()}.Page(context.Background(), "s1", "dev", 1, nil)
+	require.ErrorIs(t, err, site.ErrNoDomain)
 
 	noIndex := newGateway()
 	delete(noIndex.paths, "/")
-	_, err = Release{Store: releases{}, Server: noIndex}.Page(context.Background(), "s1", 1, nil)
+	_, err = Release{Store: releases{}, Server: noIndex}.Page(context.Background(), "s1", "dev", 1, nil)
 	require.ErrorIs(t, err, ErrNoDocument)
 
 	notHTML := newGateway()
 	notHTML.paths["/"] = answer{status: http.StatusOK, ctype: "application/json", body: "{}"}
-	_, err = Release{Store: releases{}, Server: notHTML}.Page(context.Background(), "s1", 1, nil)
+	_, err = Release{Store: releases{}, Server: notHTML}.Page(context.Background(), "s1", "dev", 1, nil)
 	require.ErrorIs(t, err, ErrNoDocument)
 }
 
 // TestPage_NoPlatformRoutes: with no platform routes handed in, the
 // platform's hostname is not found rather than fetched from outside.
 func TestPage_NoPlatformRoutes(t *testing.T) {
-	p, err := Release{Store: releases{}, Server: newGateway(), PlatformHost: "platform.example.com"}.Page(context.Background(), "s1", 1, nil)
+	p, err := Release{Store: releases{}, Server: newGateway(), PlatformHost: "platform.example.com"}.Page(context.Background(), "s1", "dev", 1, nil)
 	require.NoError(t, err)
 	u, _ := url.Parse("https://platform.example.com/portal/vendor/lib.css")
 	f, ok := p.Substitute(u, false)
 	require.True(t, ok)
 	assert.Equal(t, http.StatusNotFound, f.Status)
+}
+
+// TestPage_IsDrawnAsTheOwner (#2747): every answer is asked of the gateway
+// with the person the site's owner address resolves to, read when the page is
+// built, and with the environment's application, so its endpoints run where
+// they run for a visitor. The release drawn is the one claimed.
+func TestPage_IsDrawnAsTheOwner(t *testing.T) {
+	g := newGateway()
+	var resolved []string
+	owner := func(_ context.Context, email string) *epform.Viewer {
+		resolved = append(resolved, email)
+		return &epform.Viewer{UserID: "sub-1", Email: email, Persona: "analyst"}
+	}
+	var asked []int
+	p, err := Release{Store: releases{owner: "owner@example.com", asked: &asked}, Server: g, Owner: owner}.Page(context.Background(), "s1", "dev", 3, nil)
+	require.NoError(t, err)
+	_, _ = p.Files("/data.json", nil)
+	assert.Equal(t, []string{"owner@example.com"}, resolved, "the owner is resolved once, for the draw")
+	assert.Equal(t, []int{3}, asked, "the claimed release is read when the environment serves another")
+	require.NotEmpty(t, g.owners)
+	for i, o := range g.owners {
+		require.NotNil(t, o)
+		assert.Equal(t, "owner@example.com", o.Email)
+		r := g.routes[i]
+		assert.Equal(t, 3, r.Release.Number)
+		assert.Equal(t, "shop", r.PartOf)
+		assert.Equal(t, "dev", r.PartOfEnvironment)
+		assert.Equal(t, "dev", r.Environment)
+		assert.True(t, r.Private)
+	}
+
+	asked = nil
+	_, err = Release{Store: releases{asked: &asked}, Server: newGateway(), Owner: owner}.Page(context.Background(), "s1", "dev", 5, nil)
+	require.NoError(t, err)
+	assert.Empty(t, asked, "the release the environment serves is not read twice")
+}
+
+// TestPage_AnOwnerWhoDoesNotResolveIsNobody: when the owner cannot be
+// resolved, or no resolver is wired, every answer is asked for nobody.
+func TestPage_AnOwnerWhoDoesNotResolveIsNobody(t *testing.T) {
+	for name, owner := range map[string]Owner{
+		"unresolved":  func(context.Context, string) *epform.Viewer { return nil },
+		"no resolver": nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			g := newGateway()
+			_, err := Release{Store: releases{}, Server: g, Owner: owner}.Page(context.Background(), "s1", "dev", 3, nil)
+			require.NoError(t, err)
+			require.NotEmpty(t, g.owners)
+			for _, o := range g.owners {
+				assert.Nil(t, o)
+			}
+		})
+	}
 }

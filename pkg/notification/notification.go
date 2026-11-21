@@ -309,6 +309,15 @@ type Payload struct {
 	// at send time: the sender composed it, and what was composed is what
 	// must arrive.
 	Document *Document `json:"document,omitempty"`
+	// OptedOut is how many of an email channel's recipients were not sent
+	// the send this row is one of because they turned email notifications
+	// off (#2743), so the run that sent it says who it did not reach. Zero
+	// for every other row.
+	OptedOut int `json:"opted_out,omitempty"`
+	// DeliveryList marks a row of a delivery-list channel (#2743): its email
+	// carries no preferences or unsubscribe link and no List-Unsubscribe
+	// header.
+	DeliveryList bool `json:"delivery_list,omitempty"`
 }
 
 // Notification is one queued delivery.

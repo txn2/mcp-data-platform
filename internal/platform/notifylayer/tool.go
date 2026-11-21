@@ -118,6 +118,9 @@ type sendResult struct {
 	// Suppressed reports a keyed send held back by the channel's repeat
 	// window: counted, and stated by the next post with the key.
 	Suppressed bool `json:"suppressed,omitempty"`
+	// OptedOut is how many of an email channel's recipients were not sent
+	// the message because they turned email notifications off (#2743).
+	OptedOut int `json:"opted_out,omitempty"`
 	// Delivered is always false: nothing here waits for the transport. It is
 	// stated rather than implied so a caller does not read "queued" as "seen".
 	Delivered bool   `json:"delivered"`
@@ -269,17 +272,23 @@ func (h *Handle) enqueueDocument(ctx context.Context, ch notification.Channel, c
 	if err != nil {
 		return sendResult{Detail: err.Error()}, false
 	}
-	result := sendResult{Channel: ch.Name, Kind: ch.Kind, Queued: res.Queued, Suppressed: res.Suppressed, Link: doc.Link, Target: doc.Target}
+	result := sendResult{Channel: ch.Name, Kind: ch.Kind, Queued: res.Queued, Suppressed: res.Suppressed, OptedOut: res.OptedOut, Link: doc.Link, Target: doc.Target}
 	switch {
 	case res.Suppressed:
 		result.Detail = fmt.Sprintf("not posted: a message with key %q went to %q inside the channel's repeat window; "+
 			"it was counted, and the next post with this key states how many were held back", doc.Key, ch.Name)
+	case res.Queued == 0 && res.OptedOut > 0:
+		result.Detail = fmt.Sprintf("nothing was queued: all %d of %q's recipients have opted out of email", res.OptedOut, ch.Name)
 	case res.Queued == 0:
-		// Nothing was written and nothing went wrong: every recipient on an
-		// email list had opted out, or the actor is over their enqueue rate.
-		// Reporting this as a send would be a lie the caller acts on.
-		result.Detail = "nothing was queued: either every recipient has opted out of notifications, " +
-			"or this session has enqueued too many messages in the last minute"
+		// Nothing was written and nothing went wrong: the actor is over their
+		// enqueue rate. Reporting this as a send would be a lie the caller
+		// acts on.
+		result.Detail = "nothing was queued: this session has enqueued too many messages in the last minute"
+	case res.OptedOut > 0:
+		// A send that reached some of a list and not others says so, so a
+		// feed that stopped reaching someone does not go unnoticed (#2743).
+		result.Detail = fmt.Sprintf("accepted for %d of %d recipients of %q; %d %s opted out of email and %s not sent it",
+			res.Queued, res.Queued+res.OptedOut, ch.Name, res.OptedOut, plural(res.OptedOut, "has", "have"), plural(res.OptedOut, "was", "were"))
 	default:
 		result.Detail = fmt.Sprintf("accepted for delivery to %q; an administrator can see the outcome "+
 			"in the platform's notification history", ch.Name)
@@ -395,4 +404,12 @@ func carries(kind string) string {
 // answer platform.notify or platform.publish gets.
 func AnswerContracts() []toolkit.AnswerContract {
 	return []toolkit.AnswerContract{toolkit.ContractFor[sendResult](ToolName, "action", actionSend, actionPublish)}
+}
+
+// plural is one or many, by n.
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }

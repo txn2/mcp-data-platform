@@ -435,8 +435,8 @@ WHAT IS AVAILABLE
       latest report is shown on the running run within a few seconds, beside
       the log printed so far; call it as often as you like, since only the
       latest is written, every few seconds.
-  platform.notify(channel, title, body="", link="", data=None, key="",
-          repeat_after="", attachments=None, target="")  Post a message to a
+  platform.notify(channel, title, body="", link=<this run's page>, data=None,
+          key="", repeat_after="", attachments=None, target="")  Post a message to a
       notification channel an administrator configured: a Slack or Mattermost channel,
       an incoming webhook, or a named email list. Call
       platform.call("notify", {"action": "list"}) to see which channels this
@@ -444,7 +444,8 @@ WHAT IS AVAILABLE
       the api connection behind it, and an email channel is reachable by any
       script. body is markdown: an email, Slack and Mattermost render it, a
       webhook receives it as text. link defaults to this run's own page, so a
-      post leads back to the run that produced it. data is a dict or list a
+      post leads back to the run that produced it; link=None sends none.
+      data is a dict or list a
       webhook channel whose format is json delivers verbatim beside the
       message, for a system that branches on fields rather than text (at most
       64 KiB); every other channel ignores it. key names a repeating alert: a

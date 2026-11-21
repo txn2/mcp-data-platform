@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
 	"github.com/txn2/mcp-data-platform/internal/headless"
 	"github.com/txn2/mcp-data-platform/internal/headless/headlesstest"
 	"github.com/txn2/mcp-data-platform/internal/site"
@@ -37,7 +38,7 @@ func releasePage(t *testing.T, index string) headless.Page {
 		"/in.png":    {status: http.StatusOK, ctype: "image/png", body: string(pixel)},
 		"/below.png": {status: http.StatusOK, ctype: "image/png", body: string(pixel)},
 	}}
-	page, err := Release{Store: releases{}, Server: g}.Page(context.Background(), "s1", 1, nil)
+	page, err := Release{Store: releases{}, Server: g}.Page(context.Background(), "s1", "dev", 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,11 +82,11 @@ type slowGateway struct {
 	pause time.Duration
 }
 
-func (g slowGateway) Tile(w http.ResponseWriter, r *http.Request, route *site.Route) {
+func (g slowGateway) Tile(w http.ResponseWriter, r *http.Request, route *site.Route, owner *epform.Viewer) {
 	if r.URL.Path == "/data.json" {
 		time.Sleep(g.pause)
 	}
-	g.gateway.Tile(w, r, route)
+	g.gateway.Tile(w, r, route, owner)
 }
 
 // TestSiteTileDrawsAnAppThatFetchesAfterLoad_RealDB pins #2681 in the pinned
@@ -109,7 +110,7 @@ func TestSiteTileDrawsAnAppThatFetchesAfterLoad_RealDB(t *testing.T) {
 <script type="module">import { paint } from "` + cdn.URL + `/app.js"; paint();</script></body></html>`},
 		"/data.json": {status: http.StatusOK, ctype: "application/json", body: `{"color":"rgb(255, 0, 0)"}`},
 	}}, pause: 300 * time.Millisecond}
-	page, err := Release{Store: releases{}, Server: g}.Page(context.Background(), "s1", 1, nil)
+	page, err := Release{Store: releases{}, Server: g}.Page(context.Background(), "s1", "dev", 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

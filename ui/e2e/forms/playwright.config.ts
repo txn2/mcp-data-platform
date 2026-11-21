@@ -1,6 +1,7 @@
 import { defineConfig } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
+import { acceptanceOutput } from "../acceptanceOutput";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -12,6 +13,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // and issue_2337_test.go against the dev stack, which point it at what they
 // made through FORMS_* variables. Nothing else runs it.
 export default defineConfig({
+  outputDir: acceptanceOutput("forms"),
   testDir: __dirname,
   testMatch: "*.spec.ts",
   timeout: 120_000,

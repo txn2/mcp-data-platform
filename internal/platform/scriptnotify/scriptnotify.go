@@ -54,23 +54,26 @@ func (o options) apply(payload map[string]any) {
 	}
 }
 
-// Send reads platform.notify(channel, title, body="", link="", data=None,
-// key="", repeat_after="", attachments=None, target="") into a notify
-// action=send call.
+// Send reads platform.notify(channel, title, body="", link=<the run's page>,
+// data=None, key="", repeat_after="", attachments=None, target="") into a
+// notify action=send call.
 //
 // runLink is the run's own page. It is the link when the script names none,
 // so every post from a scheduled script leads back to the run that produced
 // it: a monitor that posts a number without saying where the number came from
-// is the thing people mute.
+// is the thing people mute. link=None or link="" sends no link (#2743): an
+// email read by people with no account, such as a data file sent to a
+// client's own mailboxes, has nothing to open.
 func Send(b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple, runLink string) (map[string]any, error) {
 	var (
-		channel, title, body, link string
-		opts                       options
-		data                       starlark.Value = starlark.None
-		attachments                starlark.Value = starlark.None
+		channel, title, body string
+		linkArg              starlark.Value
+		opts                 options
+		data                 starlark.Value = starlark.None
+		attachments          starlark.Value = starlark.None
 	)
 	if err := starlark.UnpackArgs(b.Name(), args, kwargs,
-		"channel", &channel, "title", &title, "body?", &body, "link?", &link, "data?", &data,
+		"channel", &channel, "title", &title, "body?", &body, "link?", &linkArg, "data?", &data,
 		"key?", &opts.key, "repeat_after?", &opts.repeatAfter, "attachments?", &attachments,
 		"target?", &opts.target); err != nil {
 		return nil, fmt.Errorf("in %s: %w", b.Name(), err)
@@ -81,8 +84,9 @@ func Send(b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple, run
 	if title == "" {
 		return nil, fmt.Errorf("in %s: title is empty; a message needs a title", b.Name())
 	}
-	if link == "" {
-		link = runLink
+	link, err := linkOf(b, linkArg, runLink)
+	if err != nil {
+		return nil, err
 	}
 	payload := map[string]any{
 		"action":   actionSend,
@@ -107,6 +111,21 @@ func Send(b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple, run
 		payload["attachments"] = list
 	}
 	return payload, nil
+}
+
+// linkOf is the link a post carries: the run's page when the script names
+// none, nothing for None or "", and the string it names otherwise.
+func linkOf(b *starlark.Builtin, v starlark.Value, runLink string) (string, error) {
+	switch v := v.(type) {
+	case nil:
+		return runLink, nil
+	case starlark.NoneType:
+		return "", nil
+	case starlark.String:
+		return string(v), nil
+	default:
+		return "", fmt.Errorf("in %s: link must be a string, or None to send no link; got %s", b.Name(), v.Type())
+	}
 }
 
 // attachmentList reads the attachments argument: a list whose entries are

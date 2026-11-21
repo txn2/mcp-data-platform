@@ -133,6 +133,10 @@ describe("who may add to a library", () => {
 describe("what a library is called", () => {
   it("names each scope and says who else sees it", () => {
     expect(libraryCopy({ scope: "user", scope_id: "analyst@example.com" }).name).toBe("My Resources");
+    expect(libraryCopy({ scope: "user", scope_id: "sub-me" }).audience).toBe("Only you can see it.");
+    // An external person's own folder is read by staff with External files and administrators (#2744).
+    const external = { user_id: "sub-x", roles: [], is_admin: false, portal: { external: true, resources: "shared", uploads: true } } as UserProfile;
+    expect(libraryCopy({ scope: "user", scope_id: "sub-x" }, external).audience).toContain("staff who look after files from outside the organization");
     expect(libraryCopy({ scope: "global", scope_id: "" }).name).toBe("Global");
     expect(libraryCopy({ scope: "persona", scope_id: "analyst" }).name).toBe("analyst persona");
     expect(libraryCopy({ scope: "persona", scope_id: "analyst" }).audience).toContain("analyst");

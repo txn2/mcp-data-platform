@@ -559,6 +559,14 @@ func (p *Pages) static(w http.ResponseWriter, r *http.Request, entry *appEntry, 
 // application with no environment of that name answers 404 saying so; it
 // never falls back to another environment.
 func (p *Pages) siteEndpoint(w http.ResponseWriter, r *http.Request, route *site.Route, viewer *epform.Viewer, access *Access) {
+	p.runSiteEndpoint(w, r, route, func(req *http.Request) (*eprun.Caller, error) { return siteCaller(req, viewer, access) },
+		r.Method != http.MethodGet && r.Method != http.MethodHead && !sameOrigin(r))
+}
+
+// runSiteEndpoint runs the endpoint r names in the application environment of
+// route's name as the caller caller answers. withheld keeps the request's
+// application cookies from the handler.
+func (p *Pages) runSiteEndpoint(w http.ResponseWriter, r *http.Request, route *site.Route, caller func(*http.Request) (*eprun.Caller, error), withheld bool) {
 	entry := p.application(r.Context(), route.PartOf)
 	if entry == nil {
 		http.NotFound(w, r)
@@ -579,7 +587,7 @@ func (p *Pages) siteEndpoint(w http.ResponseWriter, r *http.Request, route *site
 	}
 	p.Server.ServePage(w, r, ephttp.PageRoute{
 		Application: entry.app.ID, Environment: route.PartOfEnvironment, Name: name, Rest: rest, Nonce: base64.RawStdEncoding.EncodeToString(raw[:]),
-		Caller: func(req *http.Request) (*eprun.Caller, error) { return siteCaller(req, viewer, access) },
+		Caller: caller,
 		SignIn: func(rw http.ResponseWriter, _ *http.Request) {
 			httpjson.WriteError(rw, http.StatusUnauthorized, "this endpoint needs a signed-in person, and this site is public; make the environment private to sign people in")
 		},
@@ -588,7 +596,7 @@ func (p *Pages) siteEndpoint(w http.ResponseWriter, r *http.Request, route *site
 		// same prefix and the same refusal of a cross-origin write as on the
 		// application's page origin.
 		CookiePrefix: p.cookiePrefix(), Secure: p.Secure,
-		CookiesWithheld: r.Method != http.MethodGet && r.Method != http.MethodHead && !sameOrigin(r),
+		CookiesWithheld: withheld,
 	})
 }
 

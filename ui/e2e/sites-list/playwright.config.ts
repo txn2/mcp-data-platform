@@ -1,6 +1,7 @@
 import { defineConfig } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
+import { acceptanceOutput } from "../acceptanceOutput";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -9,6 +10,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // a layout that does not overflow at 375px need a real browser; vitest's DOM
 // has no layout and no focus ring.
 export default defineConfig({
+  outputDir: acceptanceOutput("sites-list"),
   testDir: __dirname,
   testMatch: "*.spec.ts",
   timeout: 90_000,

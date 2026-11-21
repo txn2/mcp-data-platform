@@ -6,7 +6,7 @@ import type { PersonaDraft } from "./types";
 import { exactRule, blockingDeny, withRule, RuleRows } from "./RuleRows";
 import { IdentitySection, roleWarnings, accountTypeOf } from "./IdentitySection";
 import { InstructionsSection } from "./InstructionsSection";
-import { PortalAccessSection } from "./PortalAccessSection";
+import { externalResourcesPatch, externalResourcesValue, PortalAccessSection } from "./PortalAccessSection";
 import { AccessSummary, referenceLines } from "./AccessSummary";
 import { toPayload } from "./usePersonaEditor";
 
@@ -161,20 +161,35 @@ describe("portal access", () => {
     render(<PortalAccessSection draft={draft({ external: true })} onUpdate={vi.fn()} report={r} isReadOnly={false} />);
     expect(screen.getByText("Set by External: None. Saved choice: Edit.")).toBeTruthy();
     expect(screen.getByLabelText("Knowledge pages")).toBeDisabled();
-    expect(screen.getByText("Their own folder")).toBeTruthy();
+    expect(screen.getByText("Read their own folder")).toBeTruthy();
   });
 
-  it("turns an external persona's uploads on (#2290)", () => {
-    const onUpdate = vi.fn();
-    const d = draft({ external: true, portal: { ...resolvePortal(), uploads: false } });
-    render(<PortalAccessSection draft={d} onUpdate={onUpdate} report={report()} isReadOnly={false} />);
-    fireEvent.click(screen.getByLabelText(/^Uploads/));
-    expect(onUpdate.mock.calls[0]?.[0].portal.uploads).toBe(true);
+  it("chooses an external persona's uploads on its Resources row (#2744)", () => {
+    const up = draft({ external: true, portal: { ...resolvePortal(), resources: "shared", uploads: true } });
+    const { unmount } = render(<PortalAccessSection draft={up} onUpdate={vi.fn()} report={report()} isReadOnly={false} />);
+    expect(screen.getByLabelText("Resources").textContent).toContain("Read and upload to their own folder");
+    expect(screen.getByText(/They upload files to their own folder/)).toBeTruthy();
+    expect(screen.queryByLabelText(/^Uploads/)).toBeNull();
+    unmount();
+    const off = draft({ external: true, portal: { ...resolvePortal(), resources: "shared", uploads: false } });
+    render(<PortalAccessSection draft={off} onUpdate={vi.fn()} report={report()} isReadOnly={false} />);
+    expect(screen.getByText(/They cannot upload; choose Read and upload to let them/)).toBeTruthy();
+  });
+
+  it("saves each external Resources choice as a level and uploads, and reads them back (#2744)", () => {
+    expect(externalResourcesPatch("upload")).toEqual({ resources: "shared", uploads: true });
+    expect(externalResourcesPatch("shared")).toEqual({ resources: "shared", uploads: false });
+    expect(externalResourcesPatch("none")).toEqual({ resources: "none", uploads: false });
+    for (const v of ["upload", "shared", "none"]) {
+      expect(externalResourcesValue({ ...resolvePortal(), ...externalResourcesPatch(v) })).toBe(v);
+    }
+    expect(externalResourcesValue({ resources: "none", uploads: true }), "None with uploads saved reads as None").toBe("none");
   });
 
   it("offers no uploads setting to an internal persona", () => {
     render(<PortalAccessSection draft={draft()} onUpdate={vi.fn()} report={report()} isReadOnly={false} />);
     expect(screen.queryByLabelText(/^Uploads/)).toBeNull();
+    expect(screen.queryByText("Read and upload to their own folder")).toBeNull();
   });
 
   it("sets earlier versions and External files (#2290)", () => {

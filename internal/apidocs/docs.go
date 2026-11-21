@@ -53249,6 +53249,11 @@ const docTemplate = `{
                     "type": "string",
                     "example": "upstream answered HTTP 403"
                 },
+                "opted_out": {
+                    "description": "OptedOut is how many of an email channel's recipients were not sent\nthe post because they turned email notifications off (#2743); the run\npage states it beside the deliveries.",
+                    "type": "integer",
+                    "example": 0
+                },
                 "queued_at": {
                     "type": "string"
                 },
@@ -57695,6 +57700,11 @@ const docTemplate = `{
                     "type": "string",
                     "example": "mattermost-bot"
                 },
+                "delivery_list": {
+                    "description": "DeliveryList makes an email channel a fixed list of outside mailboxes\n(#2743): every address receives every message whatever its\nnotification preferences, with no preferences or unsubscribe link and\nno List-Unsubscribe header. Refused on any other kind.",
+                    "type": "boolean",
+                    "example": false
+                },
                 "description": {
                     "type": "string",
                     "example": "Operations alerts"
@@ -57817,6 +57827,10 @@ const docTemplate = `{
                 "created_by": {
                     "type": "string"
                 },
+                "delivery_list": {
+                    "description": "DeliveryList is an email channel kept as a fixed list (#2743).",
+                    "type": "boolean"
+                },
                 "description": {
                     "type": "string"
                 },
@@ -57838,6 +57852,13 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
+                },
+                "opted_out": {
+                    "description": "OptedOut lists the recipients of an email channel that is not a\ndelivery list who turned email notifications off, so are sent nothing\nit carries (#2743); empty for every other channel.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "recipients": {
                     "type": "array",

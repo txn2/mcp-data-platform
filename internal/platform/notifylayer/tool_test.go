@@ -614,3 +614,59 @@ func TestAnswerContractsCoverSendAndPublish(t *testing.T) {
 		t.Fatalf("required = %v, want %v", required, want)
 	}
 }
+
+// offPrefs is a preference store where the named addresses turned email off.
+type offPrefs map[string]bool
+
+func (o offPrefs) Get(_ context.Context, email string) (notification.Prefs, error) {
+	p := notification.DefaultPrefs(email)
+	if o[email] {
+		p.Mode = notification.ModeOff
+	}
+	return p, nil
+}
+
+func (offPrefs) Set(_ context.Context, email string, _ notification.PrefsUpdate) (notification.Prefs, error) {
+	return notification.DefaultPrefs(email), nil
+}
+
+// TestSend_SaysWhoItDidNotReach (#2743): a send that reached some of an
+// email list and not others says so in its detail and its opted_out count;
+// one that reached none says every recipient opted out; one that reached all
+// says nothing of opting out.
+func TestSend_SaysWhoItDidNotReach(t *testing.T) {
+	list := func(name string, to ...string) notification.Channel {
+		return notification.Channel{Name: name, Kind: notification.ChannelKindEmail, Enabled: true, Mode: notification.ChannelModeImmediate, Recipients: to}
+	}
+	send := func(prefs offPrefs, ch notification.Channel) map[string]any {
+		t.Helper()
+		queue := &memQueue{}
+		enq := notification.NewEnqueuer(prefs, queue, 13)
+		t.Cleanup(enq.Close)
+		h := New(Config{Channels: &memChannels{channels: []notification.Channel{ch}}, Enqueuer: enq, Scope: personaScope(t), PortalURL: "https://portal.example.com"})
+		res, _, err := h.handle(asAnalyst(t), notifyInput{Action: "send", Channel: ch.Name, Title: "Weekly"})
+		if err != nil || res.IsError {
+			t.Fatalf("send to %s: %v %v", ch.Name, err, resultJSON(t, res))
+		}
+		return resultJSON(t, res)
+	}
+	out := send(offPrefs{"lee@example.com": true}, list("sales", "a@example.com", "b@example.com", "lee@example.com"))
+	if numberField(t, out, "opted_out") != 1 || numberField(t, out, "queued") != 2 {
+		t.Errorf("partial send = %v", out)
+	}
+	if d, _ := out["detail"].(string); d != `accepted for 2 of 3 recipients of "sales"; 1 has opted out of email and was not sent it` {
+		t.Errorf("partial detail = %q", d)
+	}
+	out = send(offPrefs{"a@example.com": true, "b@example.com": true}, list("pair", "a@example.com", "b@example.com"))
+	if d, _ := out["detail"].(string); d != `nothing was queued: all 2 of "pair"'s recipients have opted out of email` {
+		t.Errorf("all-opted-out detail = %q", d)
+	}
+	out = send(offPrefs{"c@example.com": true, "d@example.com": true}, list("trio", "a@example.com", "b@example.com", "c@example.com", "d@example.com"))
+	if d, _ := out["detail"].(string); !strings.Contains(d, "2 have opted out of email and were not sent it") {
+		t.Errorf("plural detail = %q", d)
+	}
+	out = send(offPrefs{}, list("all", "a@example.com"))
+	if d, _ := out["detail"].(string); out["opted_out"] != nil || strings.Contains(d, "opted out") {
+		t.Errorf("a send that reached everyone mentions opting out: %v", out)
+	}
+}

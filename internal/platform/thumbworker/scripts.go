@@ -209,7 +209,7 @@ type SiteWork interface {
 
 // SitePage is the page a site's release is drawn from (tilepage.Release.Page),
 // handed the platform's public routes the page may load from.
-type SitePage func(ctx context.Context, siteID string, release int, platform tilepage.Platform) (headless.Page, error)
+type SitePage func(ctx context.Context, siteID, environment string, release int, platform tilepage.Platform) (headless.Page, error)
 
 const logKeySite = "site"
 
@@ -245,7 +245,7 @@ func (w *Worker) siteJob(s sitetile.Work) job {
 // drawSite draws the release an environment serves, as its address serves it,
 // and keeps the tile under the release it is of.
 func (w *Worker) drawSite(ctx context.Context, s sitetile.Work) error {
-	page, err := w.deps.SitePage(ctx, s.SiteID, s.Release, w.files(nil))
+	page, err := w.deps.SitePage(ctx, s.SiteID, s.Environment, s.Release, w.files(nil))
 	if errors.Is(err, tilepage.ErrNoDocument) {
 		w.failSite(ctx, s, err.Error())
 		return nil

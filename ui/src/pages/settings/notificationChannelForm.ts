@@ -47,6 +47,7 @@ export interface ChannelFormState {
   repeat_after: string;
   max_per_hour: string;
   format: string;
+  delivery_list: boolean;
 }
 
 export const blankChannelForm: ChannelFormState = {
@@ -61,6 +62,7 @@ export const blankChannelForm: ChannelFormState = {
   repeat_after: "",
   max_per_hour: "",
   format: "text",
+  delivery_list: false,
 };
 
 // usesConnection and usesTarget are the two rules a kind's fields follow. An
@@ -88,6 +90,7 @@ export function channelFormFrom(ch: NotificationChannel): ChannelFormState {
     repeat_after: ch.repeat_after ?? "",
     max_per_hour: String(ch.max_per_hour ?? ""),
     format: ch.format ?? "text",
+    delivery_list: ch.delivery_list ?? false,
   };
 }
 
@@ -107,5 +110,6 @@ export function channelInputFrom(form: ChannelFormState): NotificationChannelInp
     repeat_after: form.repeat_after || undefined,
     max_per_hour: form.max_per_hour ? Number(form.max_per_hour) : undefined,
     format: form.kind === "webhook" ? form.format : undefined,
+    delivery_list: form.kind === "email" ? form.delivery_list : undefined,
   };
 }

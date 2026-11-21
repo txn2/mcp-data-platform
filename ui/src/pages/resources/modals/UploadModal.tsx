@@ -144,7 +144,7 @@ export function UploadModal({
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState(false);
 
-  const fixedDestination = libraryCopy(destination);
+  const fixedDestination = libraryCopy(destination, user);
 
   function togglePersona(name: string) {
     setSelectedPersonas((prev) =>

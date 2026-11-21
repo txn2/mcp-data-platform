@@ -89,18 +89,65 @@ async function checkFrame(page: Page, f: NonNullable<Case["frames"]>[number], re
   await expect.poll(() => refusals.some((r) => r.includes(f.host)), { message: `the ${f.host} frame was not refused` }).toBe(true);
 }
 
+/**
+ * The provider pages a card opens. The criterion is that the click opens the
+ * address, which the request proves; the page itself is never loaded. Loading
+ * YouTube and Vimeo in tabs left open made every later step of the run wait
+ * on two third-party players on a loaded runner, and the opener acts on a
+ * card's message only while the click is a current user activation (#2748).
+ */
+const PROVIDER_PAGES = /^https:\/\/(www\.youtube\.com\/watch|vimeo\.com\/)/;
+
+/**
+ * Records, in the page around the asset's frame, each message a frame posts
+ * with whether the reader's click was still a current activation when it
+ * arrived, and each window.open with its result, so a card that opened
+ * nothing says where it stopped (#2748).
+ */
+async function traceOpens(page: Page) {
+  await page.addInitScript(() => {
+    if (window.top !== window) return;
+    const trail: unknown[] = [];
+    (window as unknown as { __opens: unknown[] }).__opens = trail;
+    addEventListener("message", (e) => {
+      const d = e.data as { type?: unknown; video?: unknown } | null;
+      trail.push({ at: Math.round(performance.now()), message: d?.type, video: d?.video, active: navigator.userActivation?.isActive });
+    }, true);
+    const open = window.open.bind(window);
+    window.open = (...args: Parameters<typeof window.open>) => {
+      const w = open(...args);
+      trail.push({ at: Math.round(performance.now()), open: String(args[0]), opened: w !== null });
+      return w;
+    };
+  });
+}
+
+/** watched is a page whose provider pages are never loaded and whose opens are traced. */
+async function watched(page: Page): Promise<Page> {
+  await page.context().route(PROVIDER_PAGES, (route) => route.abort());
+  await traceOpens(page);
+  return page;
+}
+
 async function checkCard(page: Page, frame: FrameLocator, card: NonNullable<Case["cards"]>[number]) {
   const button = frame.locator(`[data-mcp-video="${card.video}"]`);
   await expect(button, `no card for ${card.video}`).toBeVisible();
   const opened = page.context().waitForEvent("request", { predicate: (r) => r.url().startsWith(card.opens), timeout: 30_000 });
+  const clicked = await page.evaluate(() => Math.round(performance.now()));
   await button.click();
-  await opened;
+  try {
+    await opened;
+  } catch (err) {
+    const trail = await page.evaluate(() => (window as unknown as { __opens?: unknown[] }).__opens ?? []);
+    const why = `${card.video} opened nothing; clicked at ${clicked}, the page saw ${JSON.stringify(trail)}`;
+    throw new Error(`${why}: ${(err as Error).message}`, { cause: err });
+  }
 }
 
 for (const c of cases()) {
   test(`criterion browser: ${c.name}`, async ({ browser }) => {
-    const signed = await signedIn(browser);
-    const anon = await (await browser.newContext()).newPage();
+    const signed = await watched(await signedIn(browser));
+    const anon = await watched(await (await browser.newContext()).newPage());
     const surfaces: Array<[string, Page, string]> = [["asset page", signed, `/portal/assets/${c.asset}`]];
     if (c.publicShare) surfaces.push(["public share, signed out", anon, c.publicShare]);
     const failures: string[] = [];

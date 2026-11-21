@@ -3,6 +3,7 @@ package thumbworker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -48,7 +49,7 @@ func (f *fakeSites) Hold(_ context.Context, siteID, env string, h time.Duration)
 }
 
 func siteRelease(withIndex bool) SitePage {
-	return func(context.Context, string, int, tilepage.Platform) (headless.Page, error) {
+	return func(context.Context, string, string, int, tilepage.Platform) (headless.Page, error) {
 		if !withIndex {
 			return headless.Page{}, tilepage.ErrNoDocument
 		}
@@ -64,13 +65,19 @@ func TestDrawSite(t *testing.T) {
 	w := worker(d, nil, blobs)
 	w.deps.CollectionPrefix = "p"
 	sites := newFakeSites(sitetile.Work{SiteID: "s1", Environment: "prod", Release: 4, Attempts: 1})
-	w.deps.Sites, w.deps.SitePage = sites, siteRelease(true)
+	var drawnFor []string
+	w.deps.Sites = sites
+	w.deps.SitePage = func(ctx context.Context, siteID, env string, release int, p tilepage.Platform) (headless.Page, error) {
+		drawnFor = append(drawnFor, fmt.Sprintf("%s/%s/%d", siteID, env, release))
+		return siteRelease(true)(ctx, siteID, env, release, p)
+	}
 
 	require.True(t, w.drawBatch(context.Background(), w.claimSites(context.Background())))
 	require.Len(t, d.pages, 1)
 	assert.Equal(t, "<index.html>", string(d.pages[0].Document))
 	assert.Equal(t, "p/sites/s1/prod/4.png", sites.recorded["s1/prod"])
 	assert.Contains(t, blobs.objects, bucket+"/p/sites/s1/prod/4.png")
+	assert.Equal(t, []string{"s1/prod/4"}, drawnFor, "the page is built for the environment claimed, which its application's endpoints run in")
 
 	sites.work = []sitetile.Work{{SiteID: "s2", Environment: "dev", Release: 1, Attempts: 1}}
 	w.deps.SitePage = siteRelease(false)
@@ -78,7 +85,7 @@ func TestDrawSite(t *testing.T) {
 	assert.Contains(t, sites.failed["s2/dev"], "no index.html")
 
 	sites.work = []sitetile.Work{{SiteID: "s3", Environment: "qa", Release: 2, Attempts: 1}}
-	w.deps.SitePage = func(context.Context, string, int, tilepage.Platform) (headless.Page, error) {
+	w.deps.SitePage = func(context.Context, string, string, int, tilepage.Platform) (headless.Page, error) {
 		return headless.Page{}, errors.New("storage down")
 	}
 	w.drawBatch(context.Background(), w.claimSites(context.Background()))
@@ -98,7 +105,12 @@ func TestDrawSite_ADeadlineIsTheReleasesFailure(t *testing.T) {
 	d := &fakeDrawer{results: []error{deadline}}
 	w := worker(d, nil, newBlobs())
 	sites := newFakeSites(sitetile.Work{SiteID: "s1", Environment: "prod", Release: 4, Attempts: 1})
-	w.deps.Sites, w.deps.SitePage = sites, siteRelease(true)
+	var drawnFor []string
+	w.deps.Sites = sites
+	w.deps.SitePage = func(ctx context.Context, siteID, env string, release int, p tilepage.Platform) (headless.Page, error) {
+		drawnFor = append(drawnFor, fmt.Sprintf("%s/%s/%d", siteID, env, release))
+		return siteRelease(true)(ctx, siteID, env, release, p)
+	}
 
 	w.drawBatch(context.Background(), w.claimSites(context.Background()))
 	assert.Equal(t, "the document did not finish drawing before the deadline", sites.failed["s1/prod"])

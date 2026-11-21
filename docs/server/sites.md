@@ -874,17 +874,39 @@ the ones `manage_site get` answers (#2607).
 ## Tiles
 
 Every environment serving a release has a tile (#2658): the tile worker draws
-the release's root page in the headless renderer from the release's own files,
-read in process from where the site keeps them, and keeps it in the portal
+the release's root page in the headless renderer and keeps it in the portal
 bucket under the release it is of (`site_tiles`, migration 000253). A promote,
 rollback or publish changes the release and the tile is drawn again; a tile of
-another release is never served. Nothing is fetched from any hostname while a
-tile is drawn: every other origin, the environment's own domains included, is
-answered not found, so an environment is drawn the same whatever domains it has
-and drawing a private one opens nothing. An environment with no release,
-offline, redirecting, or with no pages address shows a placeholder saying so. A
-tile is answered only to someone who may open its environment, by the rule its
+another release is never served. The page is answered in process by the rules
+the environment's own address serves the release with (#2681): its files,
+redirects and rewrites, media folders and 404 page, with the same site's other
+hostnames answered as the release, another site or an application's page
+origin not found, and a public file (a CDN's script, a web font) fetched through
+the renderer's egress guard. No address of the environment is opened, so
+drawing a private one opens nothing. An environment with no release, offline,
+redirecting, or with no pages address shows a placeholder saying so. A tile is
+answered only to someone who may open its environment, by the rule its
 addresses apply.
+
+A tile is drawn as the site's owner (#2747). Every pages address asks for a
+sign-in, so a page as a signed-out visitor sees it is a page nobody sees, and a
+site that loads its first screen from its application's endpoints drew the
+endpoint's 401. The owner is resolved from the user directory and the persona
+registry each time a tile is drawn, never from a stored copy: `/_viewer`
+answers them, and in an environment that is a part of an application the
+page's GET and HEAD requests to `/endpoints/` run as them, in the application
+environment of the environment's name. The run's caller has `auth_type`
+`site_tile` and its audit row the parameter `tile_draw: true`, so a draw is told
+apart from the owner's own visit. Any other method answers 405 without running
+a script: a page being drawn reads and changes nothing, which the renderer
+holds to for every request to the page's own origin. The page's application
+cookies are withheld from the handler and any cookie it sets is dropped. A draw
+is not counted as the site's traffic. An owner the directory no longer holds,
+or whose roles resolve to no persona, draws the page for nobody: `/_viewer` and
+the endpoints answer 401. People who may open the environment see the owner's
+view of it in the tile, including what the owner's endpoints return to the
+owner. Raising the renderer generation to 4 drew every stored tile again under
+this rule, the ones recorded as failures included.
 
 A tile waits for the fonts and for the images in the 1280x960 frame it is drawn
 from, and for nothing else (#2677): an image below the fold, a

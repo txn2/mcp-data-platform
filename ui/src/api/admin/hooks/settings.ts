@@ -244,6 +244,13 @@ export interface NotificationChannel {
   // format is a webhook channel's payload, "text" or "json"; absent for the
   // other kinds.
   format?: string;
+  // delivery_list is an email channel kept as a fixed list of outside
+  // mailboxes (#2743): every address gets every message, with no
+  // unsubscribe. Absent from a server that predates it.
+  delivery_list?: boolean;
+  // opted_out names an ordinary email channel's recipients who turned email
+  // notifications off and are sent nothing it carries (#2743).
+  opted_out?: string[];
   created_by?: string;
   updated_at?: string;
   // Warnings report a channel that saves cleanly but cannot deliver, such as
@@ -264,6 +271,7 @@ export interface NotificationChannelInput {
   repeat_after?: string;
   max_per_hour?: number;
   format?: string;
+  delivery_list?: boolean;
 }
 
 // NotificationChannelList is the collection response: the channels, and the

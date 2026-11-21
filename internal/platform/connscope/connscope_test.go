@@ -50,7 +50,7 @@ func TestScopeAllowConnection_UnresolvablePersonaFailsClosed(t *testing.T) {
 
 	// No registry at all: nothing resolves, so nothing is allowed — including the
 	// platform-level empty name, which IsConnectionAllowed admits only for a
-	// persona that resolved. The wiring (connectionScopeFor) is what decides not
+	// persona that resolved. The wiring (ForRegistry) is what decides not
 	// to build a scope for a deployment with no persona registry at all.
 	none := New(Deps{})
 	assert.False(t, none.AllowConnection("analyst", "warehouse-a"))

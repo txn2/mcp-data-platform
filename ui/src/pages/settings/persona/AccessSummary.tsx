@@ -186,12 +186,19 @@ function PortalLines({ report }: { report: EffectiveAccess }) {
   );
 }
 
+/** uploadsToOwnFolder reports whether an external persona's people upload to their own folder (#2744). */
+function uploadsToOwnFolder(report: EffectiveAccess): boolean {
+  const p = resolvePortal(report.portal.effective);
+  return p.external && p.uploads && p.resources !== "none";
+}
+
 function FolderLines({ report }: { report: EffectiveAccess }) {
   const reads = report.resource_scopes.length > 0 ? report.resource_scopes.map(scopeText).join(", ") : "no folder";
   const readers = report.assignment.folder_reader_roles.join(", ") || "none of its roles";
   return (
     <>
       <span className="block">Reads {reads}.</span>
+      {uploadsToOwnFolder(report) && <span className="block">Uploads to their own folder.</span>}
       <span className="block text-muted-foreground">
         This persona's folder is read by anyone holding {readers} and written by role{" "}
         <span className="font-mono">{report.assignment.folder_writer_role}</span> and administrators.
@@ -255,7 +262,10 @@ function ExternalPanel() {
         their own.
       </p>
       <p className="mt-2 font-medium">You still decide</p>
-      <p className="mt-0.5">Resources (none, or their own folder), Feedback, PDF export, Earlier versions, and Uploads.</p>
+      <p className="mt-0.5">
+        Resources (none, reading their own folder, or reading and uploading to it), Feedback, PDF export and Earlier
+        versions.
+      </p>
     </div>
   );
 }

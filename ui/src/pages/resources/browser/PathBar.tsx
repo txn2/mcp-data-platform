@@ -5,6 +5,7 @@ import {
   ArrowUp,
   ChevronDown,
   FolderPlus,
+  Info,
   LayoutGrid,
   List,
   PanelRight,
@@ -20,7 +21,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { ViewMode } from "@/components/listView";
 import { cn } from "@/lib/utils";
-import { EXTERNAL_FILES_LABEL, PEOPLE_LABEL, PERSON_PREFIX, type ResourceRoot } from "../scopes";
+import { EXTERNAL_FILES_LABEL, ownFolderReadOnly, PEOPLE_LABEL, PERSON_PREFIX, UPLOADS_OFF, type ResourceRoot } from "../scopes";
 
 /** What a breadcrumb segment does with something dropped on it. */
 export interface CrumbDrop {
@@ -142,6 +143,16 @@ export function PathBar({
       </nav>
       <SearchBox query={query} onQuery={onQuery} within={within} onWithin={onWithin} />
       <ViewToggles viewMode={viewMode} onViewMode={onViewMode} preview={preview} onPreview={onPreview} />
+      {ownFolderReadOnly(root, canWrite) && (
+        <span
+          role="note"
+          data-testid="resources-uploads-off-note"
+          className="inline-flex max-w-md items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs text-muted-foreground"
+        >
+          <Info className="size-3.5 shrink-0" aria-hidden="true" />
+          {UPLOADS_OFF}
+        </span>
+      )}
       {canWrite && (
         <>
           <Button variant="outline" size="sm" className="hidden sm:inline-flex" onClick={onNewFolder}>

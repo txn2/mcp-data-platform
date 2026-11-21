@@ -2,6 +2,7 @@ package platform
 
 import (
 	"github.com/txn2/mcp-data-platform/internal/platform/userdir"
+	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/user"
 )
 
@@ -16,4 +17,13 @@ func (p *Platform) initUserStore() {
 // configured). Delegates to the userdir owner.
 func (p *Platform) UserStore() user.Store {
 	return p.users.Store()
+}
+
+// BoundPrincipals resolves a person by address through the user directory
+// (#1759); a site tile is drawn as its owner through it (#2747). Nil with none.
+func (p *Platform) BoundPrincipals() auth.PrincipalSource {
+	if p.users.Directory() == nil {
+		return nil
+	}
+	return p.users
 }

@@ -102,11 +102,36 @@ const SWITCHES: { key: Switch; label: string; help: string }[] = [
 ];
 
 // What External leaves an external persona's people choosing between for
-// Resources: none, or their own folder (#2290).
+// Resources (#2290): none, reading their own folder, or reading it and
+// uploading to it (#2744). Whether they upload is chosen here, on the row an
+// administrator reads for files, rather than by a separate switch further
+// down the section, where two administrators did not find it.
+const EXTERNAL_UPLOAD = "upload";
 const EXTERNAL_RESOURCES = [
   { value: "none", label: "None" },
-  { value: "shared", label: "Their own folder" },
+  { value: "shared", label: "Read their own folder" },
+  { value: EXTERNAL_UPLOAD, label: "Read and upload to their own folder" },
 ];
+
+// EXTERNAL_RESOURCES_NOTE is what each external Resources choice gives.
+const EXTERNAL_RESOURCES_NOTE: Record<string, string> = {
+  none: "No Resources page, and no files.",
+  shared: "They read their own folder and what is shared with them. They cannot upload; choose Read and upload to let them.",
+  [EXTERNAL_UPLOAD]:
+    "They upload files to their own folder and read what is shared with them. People whose persona has External files, and administrators, see what they upload.",
+};
+
+/** externalResourcesValue is the external Resources choice a portal setting reads as. */
+export function externalResourcesValue(p: Pick<ResolvedPortal, "resources" | "uploads">): string {
+  if (p.resources === "none") return "none";
+  return p.uploads ? EXTERNAL_UPLOAD : "shared";
+}
+
+/** externalResourcesPatch is the portal setting an external Resources choice saves. */
+export function externalResourcesPatch(value: string): Partial<ResolvedPortal> {
+  if (value === "none") return { resources: "none", uploads: false };
+  return { resources: "shared", uploads: value === EXTERNAL_UPLOAD };
+}
 
 function optionLabel(key: Leveled, value: string): string {
   return LEVELED.find((a) => a.key === key)?.options.find((o) => o.value === value)?.label ?? value;
@@ -155,9 +180,6 @@ export function PortalAccessSection({
           ))}
           <SharingRow draft={draft} onUpdate={onUpdate} disabled={ctx.disabled} />
         </div>
-        {draft.external && (
-          <UploadsRow on={draft.portal.uploads} onChange={(uploads) => ctx.set({ uploads })} disabled={ctx.disabled} />
-        )}
         {!draft.external && <GlobalWritesRow persona={draft.name} blocked={blocksUploads(ctx.effective)} />}
       </fieldset>
     </EditorSection>
@@ -180,9 +202,9 @@ function cappedNote(ctx: RowContext, key: string, saved: string, applied: string
 /** leveledValue is what a leveled row shows: what applies when External set it. */
 function leveledValue(area: Leveled, ctx: RowContext, locked: boolean, externalResources: boolean): string {
   if (locked) return ctx.effective[area];
-  // An external persona chooses between none and its folder; the saved level
-  // reads as the second of those.
-  if (externalResources) return ctx.draft.portal.resources === "none" ? "none" : "shared";
+  // An external persona chooses between none, reading its folder and
+  // uploading to it; the saved level and uploads read as one of those.
+  if (externalResources) return externalResourcesValue(ctx.draft.portal);
   return ctx.draft.portal[area];
 }
 
@@ -199,7 +221,9 @@ function LeveledRow({ area, ctx }: { area: (typeof LEVELED)[number]; ctx: RowCon
       <div>
         <Select
           value={leveledValue(area.key, ctx, locked, externalResources)}
-          onValueChange={(v) => ctx.set({ [area.key]: v } as Partial<ResolvedPortal>)}
+          onValueChange={(v) =>
+            ctx.set(externalResources ? externalResourcesPatch(v) : ({ [area.key]: v } as Partial<ResolvedPortal>))
+          }
           disabled={ctx.disabled || locked}
         >
           <SelectTrigger id={`persona-portal-${area.key}`} size="sm" className="h-8 w-full max-w-md" aria-label={area.label}>
@@ -213,7 +237,11 @@ function LeveledRow({ area, ctx }: { area: (typeof LEVELED)[number]; ctx: RowCon
             ))}
           </SelectContent>
         </Select>
-        <RowNotes area={area} note={note ?? (externalResources ? "An external persona's people read their own folder and what is shared with them." : undefined)} name={ctx.draft.name} />
+        <RowNotes
+          area={area}
+          note={note ?? (externalResources ? EXTERNAL_RESOURCES_NOTE[externalResourcesValue(ctx.draft.portal)] : undefined)}
+          name={ctx.draft.name}
+        />
       </div>
     </div>
   );
@@ -278,28 +306,6 @@ function SharingRow({
           {draft.external
             ? `Set by External: Off. Saved choice: ${switchText(draft.allowSharing)}.`
             : "Share what they own with a person, a persona or a channel"}
-        </span>
-      </span>
-    </label>
-  );
-}
-
-// UploadsRow is an external persona's uploads (#2258, #2290): whether its
-// people upload files to their own folder.
-function UploadsRow({ on, onChange, disabled }: { on: boolean; onChange: (v: boolean) => void; disabled: boolean }) {
-  return (
-    <label className="flex items-start gap-2 border-t pt-4 text-sm">
-      <input
-        type="checkbox"
-        className="mt-0.5"
-        checked={on}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.checked)}
-      />
-      <span>
-        <span className="font-medium">Uploads</span>
-        <span className="block text-xs text-muted-foreground">
-          Upload files to their own folder. People whose persona has External files see them.
         </span>
       </span>
     </label>

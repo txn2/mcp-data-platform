@@ -139,3 +139,25 @@ func TestSend_Target(t *testing.T) {
 		t.Errorf("target = %v", got["target"])
 	}
 }
+
+// TestSend_LinkNoneOrEmptySendsNone (#2743): no link is the run's page, None
+// and "" send none, and a link of another type is refused naming the forms
+// it takes.
+func TestSend_LinkNoneOrEmptySendsNone(t *testing.T) {
+	for src, want := range map[string]string{
+		`notify(channel="ops", title="t")`:            "https://portal.example.com/portal/automations/s1/runs/r1",
+		`notify(channel="ops", title="t", link=None)`: "",
+		`notify(channel="ops", title="t", link="")`:   "",
+	} {
+		got, err := call(t, src)
+		if err != nil {
+			t.Fatalf("%s: %v", src, err)
+		}
+		if got["link"] != want {
+			t.Errorf("%s: link = %q, want %q", src, got["link"], want)
+		}
+	}
+	if _, err := call(t, `notify(channel="ops", title="t", link=3)`); err == nil || !strings.Contains(err.Error(), "link must be a string, or None to send no link") {
+		t.Errorf("link=3: err = %v", err)
+	}
+}

@@ -1664,7 +1664,7 @@ func (p *Platform) initSearch() error {
 		VerifiableInsights: p.config.Knowledge.IsVerifiableInsightsEnabled(),
 		QueryProvider:      p.queryProvider,
 		PersonasForRoles:   iam.PersonasForRoles(p.personaRegistry),
-		ConnectionScope:    connectionScopeFor(p.personaRegistry, p.toolkitRegistry),
+		ConnectionScope:    connscope.ForRegistry(p.personaRegistry, p.toolkitRegistry),
 		Registry:           p.toolkitRegistry,
 		Embedding:          p.embeddingProv,
 	})

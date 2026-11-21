@@ -1,6 +1,7 @@
 import { defineConfig } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
+import { acceptanceOutput } from "../acceptanceOutput";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -12,6 +13,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // assets, makes the shares and names them in VISUALS_* variables. The
 // libraries load from public CDNs, so the run needs network egress.
 export default defineConfig({
+  outputDir: acceptanceOutput("visual-libraries"),
   testDir: __dirname,
   testMatch: "*.spec.ts",
   timeout: 180_000,

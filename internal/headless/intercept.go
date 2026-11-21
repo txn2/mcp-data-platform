@@ -65,6 +65,8 @@ func (rs *render) answer(m message) {
 	switch {
 	case err != nil:
 		rs.refuse(ctx, m.SessionID, p.RequestID)
+	case !reads(p.Request.Method):
+		rs.refuseWrite(ctx, m.SessionID, p.RequestID, u)
 	case rs.substitute(ctx, m.SessionID, p.RequestID, u):
 	case strings.EqualFold(u.Host, rs.host):
 		rs.serveOwn(ctx, m.SessionID, p.RequestID, u.Path, requestHeader(p.Request.Headers))
@@ -94,7 +96,29 @@ func (rs *render) substitute(ctx context.Context, session, requestID string, u *
 // page's behalf: a read of an http or https URL.
 func fetchable(u *url.URL, method string) bool {
 	web := u.Scheme == "http" || u.Scheme == schemeHTTPS
-	return web && (method == http.MethodGet || method == http.MethodHead)
+	return web && reads(method)
+}
+
+// reads reports whether method only reads.
+func reads(method string) bool {
+	return method == http.MethodGet || method == http.MethodHead
+}
+
+// refuseWrite answers a request that would change something. A page being
+// drawn reads and changes nothing (#2747): its own origin answers 405, which
+// is what the page's script sees, and no Files or Substitute answer is asked
+// for, so a write never reaches what serves the page (a site's endpoints run
+// for a tile). Any other origin is refused as the public fetch refuses it.
+func (rs *render) refuseWrite(ctx context.Context, session, requestID string, u *url.URL) {
+	if !strings.EqualFold(u.Host, rs.host) {
+		rs.refuse(ctx, session, requestID)
+		return
+	}
+	rs.fulfill(ctx, session, requestID, reply{
+		http.StatusMethodNotAllowed,
+		map[string]string{"Content-Type": "text/plain; charset=utf-8", "Allow": "GET, HEAD"},
+		[]byte("a page being drawn reads and changes nothing"),
+	})
 }
 
 // serveOwn answers a request on the page's own origin: the document at the

@@ -748,6 +748,30 @@ describe("what the page offers depends on who is reading", () => {
     expect(screen.getByTestId("resources-read-only").textContent).toContain("Published by platform administrators");
   });
 
+  it("tells an external person without uploads why their folder has no Upload (#2744)", () => {
+    signIn({ persona: "client", portal: { resources: "shared", external: true, uploads: false } });
+    renderPage();
+    expect(screen.queryByRole("button", { name: "Upload" })).toBeNull();
+    expect(screen.getByTestId("resources-uploads-off-note").textContent).toBe(
+      "Uploads are not turned on for you. An administrator turns them on in your persona.",
+    );
+  });
+
+  it("shows no such note to an external person whose persona lets them upload (#2744)", () => {
+    signIn({ persona: "client", portal: { resources: "shared", external: true, uploads: true } });
+    renderPage();
+    expect(screen.getByRole("button", { name: "Upload" })).toBeTruthy();
+    expect(screen.queryByTestId("resources-uploads-off-note")).toBeNull();
+  });
+
+  it("says why an empty own folder takes no files, without claiming the reader can add to it (#2744)", () => {
+    seed({ ...held, user: [] });
+    signIn({ persona: "client", portal: { resources: "shared", external: true, uploads: false } });
+    renderPage();
+    expect(screen.getByTestId("resources-uploads-off").textContent).toContain("Uploads are not turned on for you");
+    expect(screen.getByTestId("resources-read-only").textContent).not.toContain("can add");
+  });
+
   it("offers them to a platform administrator on Global", () => {
     signIn({ is_admin: true });
     renderPage("/resources/lib/global/brand");

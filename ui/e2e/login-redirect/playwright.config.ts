@@ -1,6 +1,7 @@
 import { defineConfig } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
+import { acceptanceOutput } from "../acceptanceOutput";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -10,6 +11,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // LOGIN_REDIRECT_BASE_URL; the identity provider is the dev stack's Keycloak.
 // Nothing else runs it: against a stack without the setting every case fails.
 export default defineConfig({
+  outputDir: acceptanceOutput("login-redirect"),
   testDir: __dirname,
   testMatch: "*.spec.ts",
   timeout: 90_000,

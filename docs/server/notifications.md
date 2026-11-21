@@ -525,7 +525,30 @@ so an upstream outage is a retry rather than a failed script.
 An `email` channel fans out at enqueue to **one row per recipient**, so a
 person on an operator's list keeps everything a person has: their own delivery
 mode, their own digest window, and the unsubscribe link in the footer. One
-person opting out silences nothing for anybody else.
+person opting out silences nothing for anybody else. A send says how many of
+the list it did not reach (#2743): the `notify` result's `opted_out` and its
+detail ("accepted for 2 of 3 recipients of "sales"; 1 has opted out of email
+and was not sent it"), the run log line a script's post writes, the run page's
+posts ("1 of 3 recipients opted out of email", from `opted_out` on
+`GET /api/v1/portal/scripts/{id}/runs/{runID}/posts`), and the Channels page,
+which names each email channel's opted-out recipients (`opted_out` on the
+admin channel routes).
+
+### Delivery lists
+
+An `email` channel marked **Delivery list** (`delivery_list: true`, #2743) is
+a fixed list an administrator keeps of mailboxes outside the platform, such as
+the addresses a scheduled data file is sent to at a client. Every address
+listed receives every message as it is sent, whatever notification
+preferences the address has: the administrator's list decides, and removing
+an address is how sending to it stops. Its messages carry no preferences line,
+no unsubscribe link and no `List-Unsubscribe` or `List-Unsubscribe-Post`
+header, so neither a person nor a mail client can stop the feed while the
+sender sees it accepted. A daily digest made only of such rows carries no
+footer; one that also holds a person's own notifications keeps it. Only an
+email channel can be a delivery list; the admin API refuses it on another
+kind. Pair it with `link=None` on `platform.notify` so the message carries no
+button to a portal page its readers cannot sign in to.
 
 A failure that retrying cannot fix - a deleted channel, a revoked bot token, a
 chat channel the bot was never invited to - fails the row at once rather than
@@ -607,7 +630,7 @@ excerpt of the upstream's answer.
 | Surface | How |
 | --- | --- |
 | A person in a session | the `notify` tool: `action=list`, then `action=send` (with optional `target`, `data`, `attachments`, `key` and `repeat_after`) or `action=publish` (with optional `target`, `access`, `expires_in`, `key` and `repeat_after`) |
-| A managed script | `platform.notify(channel, title, body="", link="", data=None, key="", repeat_after="", attachments=None, target="")` and `platform.publish(channel, name, message="", key="", repeat_after="", access="", expires_in="", target="")` |
+| A managed script | `platform.notify(channel, title, body="", link=<the run's page>, data=None, key="", repeat_after="", attachments=None, target="")` and `platform.publish(channel, name, message="", key="", repeat_after="", access="", expires_in="", target="")` |
 | A person in the portal | **Share** on an asset they own, under **Share to a Channel**: the channel, who can open the posted link, and an optional message |
 | An administrator | **Send test** on the channel's editor, which delivers immediately and reports what the upstream said |
 | The platform | the [review-queue](#review-queue-alerts), [connection revocation](#connection-revocation-alerts) and [scheduled run failure](#scheduled-run-failures) alerts, to the channels each names |
@@ -623,8 +646,11 @@ limit and audit apply to it unchanged. A script's send is the run's principal,
 holding the roles its version author held, and is refused in a draft run
 without `allow_writes` - a message in somebody else's chat client is not
 something a rehearsal may leave behind. A script's post links back to the run
-that produced it unless the script names its own link, and the run's page
-lists every post the run made, with whether it was delivered.
+that produced it unless the script names its own link; `link=None` or
+`link=""` sends no link and no **Open** button (#2743), for an email read by
+people with no account here. The `notify` tool sends no link unless one is
+given. The run's page lists every post the run made, with whether it was
+delivered and how many recipients opted out.
 
 ### A bot's chat channels
 
@@ -801,7 +827,8 @@ body `List-Unsubscribe=One-Click`; the server records the opt-out and
 returns a bare status with no page. Providers fire this only on a real user
 action in their own UI, so it is not exposed to scanner prefetch.
 Transactional sends (one-time guest links, admin SMTP tests) carry neither
-the footer nor the headers.
+the footer nor the headers, and neither does a [delivery list](#delivery-lists)'s
+message (#2743).
 
 An opted-out share recipient keeps a way back in: when the recipient of an
 email share has delivery mode `off`, the share's landing page shows a

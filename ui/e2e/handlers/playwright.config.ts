@@ -1,6 +1,7 @@
 import { defineConfig } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
+import { acceptanceOutput } from "../acceptanceOutput";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -8,6 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Automations list's Type filter and type badges, and a schedule added from a
 // script's Handlers section, need the real portal.
 export default defineConfig({
+  outputDir: acceptanceOutput("handlers"),
   testDir: __dirname,
   testMatch: "*.spec.ts",
   timeout: 90_000,

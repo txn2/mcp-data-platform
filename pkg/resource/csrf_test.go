@@ -2,8 +2,10 @@ package resource
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -26,6 +28,31 @@ func TestHandleForbiddenMapsTo403(t *testing.T) {
 
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 for CSRF rejection, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// testRefusalError is a refusal for what a persona allows, as resourcelevel
+// returns one.
+type testRefusalError struct{ msg string }
+
+func (r testRefusalError) Error() string   { return r.msg }
+func (r testRefusalError) Refusal() string { return r.msg }
+
+// TestHandleRefusedSaysWhy (#2744): a refusal for what the caller's persona
+// allows is 403 in its own words, not the CSRF message, wrapped or not.
+func TestHandleRefusedSaysWhy(t *testing.T) {
+	refused := testRefusalError{msg: "uploads are not turned on for your persona (client)"}
+	h := newTestHandler(newMockStore(), newMockS3(), func(_ *http.Request) (*Claims, error) {
+		return nil, fmt.Errorf("claims: %w", refused)
+	})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/resources", http.NoBody)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", rec.Code)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, refused.msg) || strings.Contains(body, "CSRF") {
+		t.Fatalf("the refusal should say what is turned off, got %s", body)
 	}
 }
 

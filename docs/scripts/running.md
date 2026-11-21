@@ -1442,7 +1442,7 @@ as `run.event`:
 def main():
     """Thanks each person who sends the contact form."""
     values = run.event["payload"]["values"]
-    platform.notify(channel = "sales", text = "New request from " + values["email"])
+    platform.notify(channel = "sales", title = "New request from " + values["email"])
 ```
 
 `run.event` is `None` on every other run. A run binds each parameter's

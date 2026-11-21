@@ -1,6 +1,7 @@
 import { defineConfig } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
+import { acceptanceOutput } from "../acceptanceOutput";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -22,7 +23,7 @@ export default defineConfig({
     navigationTimeout: 30_000,
     acceptDownloads: true,
   },
-  outputDir: path.join(__dirname, "../../../build/standalone-results"),
+  outputDir: acceptanceOutput("standalone"),
   workers: 1,
   reporter: [["list"]],
 });

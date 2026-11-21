@@ -6,6 +6,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/cfgmap"
+	"github.com/txn2/mcp-data-platform/internal/platform/connscope"
 	"github.com/txn2/mcp-data-platform/internal/platform/connstored"
 	"github.com/txn2/mcp-data-platform/pkg/connview"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge"
@@ -54,7 +55,7 @@ func (p *Platform) handleListConnections(ctx context.Context, _ *mcp.CallToolReq
 		personaName = pc.PersonaName
 	}
 	var permit connview.Permit
-	if scope := connectionScopeFor(p.personaRegistry, p.toolkitRegistry); scope != nil {
+	if scope := connscope.ForRegistry(p.personaRegistry, p.toolkitRegistry); scope != nil {
 		permit = func(_, name string) bool { return scope.AllowConnection(personaName, name) }
 	}
 

@@ -1,6 +1,7 @@
 import { defineConfig } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
+import { acceptanceOutput } from "../acceptanceOutput";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -8,6 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // test/acceptance/issue_2580_test.go and issue_2546_test.go against the dev
 // stack. A layout overflow needs a real browser: vitest's DOM has no layout.
 export default defineConfig({
+  outputDir: acceptanceOutput("feedback-drawer"),
   testDir: __dirname,
   testMatch: "*.spec.ts",
   timeout: 90_000,

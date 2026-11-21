@@ -1,6 +1,7 @@
 import { defineConfig } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
+import { acceptanceOutput } from "../acceptanceOutput";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -22,7 +23,7 @@ export default defineConfig({
     actionTimeout: 30_000,
     navigationTimeout: 30_000,
   },
-  outputDir: path.join(__dirname, "../../../build/drawn-sources-results"),
+  outputDir: acceptanceOutput("drawn-sources"),
   workers: 1,
   reporter: [["list"]],
 });

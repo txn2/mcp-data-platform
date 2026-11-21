@@ -68,6 +68,11 @@ type ChannelInput struct {
 	// Format is a webhook channel's payload: "text" (the default) posts
 	// {"text": ...}; "json" posts an envelope for a system to receive.
 	Format string `json:"format,omitempty" example:"json"`
+	// DeliveryList makes an email channel a fixed list of outside mailboxes
+	// (#2743): every address receives every message whatever its
+	// notification preferences, with no preferences or unsubscribe link and
+	// no List-Unsubscribe header. Refused on any other kind.
+	DeliveryList bool `json:"delivery_list,omitempty" example:"false"`
 }
 
 // ChannelView is the read shape. It carries no credential because a channel
@@ -86,9 +91,15 @@ type ChannelView struct {
 	MaxPerHour  int      `json:"max_per_hour"`
 	// Format is a webhook channel's payload format, "text" or "json";
 	// absent for the other kinds.
-	Format    string `json:"format,omitempty"`
-	CreatedBy string `json:"created_by,omitempty"`
-	UpdatedAt string `json:"updated_at,omitempty"`
+	Format string `json:"format,omitempty"`
+	// DeliveryList is an email channel kept as a fixed list (#2743).
+	DeliveryList bool `json:"delivery_list"`
+	// OptedOut lists the recipients of an email channel that is not a
+	// delivery list who turned email notifications off, so are sent nothing
+	// it carries (#2743); empty for every other channel.
+	OptedOut  []string `json:"opted_out"`
+	CreatedBy string   `json:"created_by,omitempty"`
+	UpdatedAt string   `json:"updated_at,omitempty"`
 	// Warnings report a channel that saves cleanly but cannot deliver -- a
 	// connection no live toolkit serves. They are warnings rather than
 	// refusals so an operator can create the channel and the connection in
@@ -274,16 +285,17 @@ func (h *handler) loadChannel(w http.ResponseWriter, r *http.Request) (*notifica
 // an omitted field means.
 func channelFrom(name string, in ChannelInput) (notification.Channel, error) {
 	ch := notification.Channel{
-		Name:        strings.TrimSpace(name),
-		Kind:        strings.TrimSpace(in.Kind),
-		Description: strings.TrimSpace(in.Description),
-		Enabled:     in.Enabled == nil || *in.Enabled,
-		Connection:  strings.TrimSpace(in.Connection),
-		Target:      strings.TrimSpace(in.Target),
-		Recipients:  trimAll(in.Recipients),
-		Mode:        strings.TrimSpace(in.Mode),
-		MaxPerHour:  in.MaxPerHour,
-		Format:      strings.TrimSpace(in.Format),
+		Name:         strings.TrimSpace(name),
+		Kind:         strings.TrimSpace(in.Kind),
+		Description:  strings.TrimSpace(in.Description),
+		Enabled:      in.Enabled == nil || *in.Enabled,
+		Connection:   strings.TrimSpace(in.Connection),
+		Target:       strings.TrimSpace(in.Target),
+		Recipients:   trimAll(in.Recipients),
+		Mode:         strings.TrimSpace(in.Mode),
+		MaxPerHour:   in.MaxPerHour,
+		Format:       strings.TrimSpace(in.Format),
+		DeliveryList: in.DeliveryList,
 	}
 	if ch.Mode == "" {
 		ch.Mode = notification.ChannelModeImmediate
@@ -317,18 +329,20 @@ func trimAll(in []string) []string {
 // it cannot deliver as configured.
 func (h *handler) channelView(ctx context.Context, ch notification.Channel) ChannelView {
 	view := ChannelView{
-		Name:        ch.Name,
-		Kind:        ch.Kind,
-		Description: ch.Description,
-		Enabled:     ch.Enabled,
-		Connection:  ch.Connection,
-		Target:      ch.Target,
-		Recipients:  ch.Recipients,
-		Mode:        ch.Mode,
-		RepeatAfter: ch.RepeatWindow().String(),
-		MaxPerHour:  ch.HourlyCap(),
-		CreatedBy:   ch.CreatedBy,
-		Warnings:    h.channelWarnings(ctx, ch),
+		Name:         ch.Name,
+		Kind:         ch.Kind,
+		Description:  ch.Description,
+		Enabled:      ch.Enabled,
+		Connection:   ch.Connection,
+		Target:       ch.Target,
+		Recipients:   ch.Recipients,
+		Mode:         ch.Mode,
+		RepeatAfter:  ch.RepeatWindow().String(),
+		MaxPerHour:   ch.HourlyCap(),
+		CreatedBy:    ch.CreatedBy,
+		Warnings:     h.channelWarnings(ctx, ch),
+		DeliveryList: ch.DeliveryList,
+		OptedOut:     h.optedOut(ctx, ch),
 	}
 	if ch.Kind == notification.ChannelKindWebhook {
 		view.Format = ch.PayloadFormat()
@@ -337,6 +351,26 @@ func (h *handler) channelView(ctx context.Context, ch notification.Channel) Chan
 		view.UpdatedAt = ch.UpdatedAt.UTC().Format(time.RFC3339)
 	}
 	return view
+}
+
+// optedOut is the recipients of an email channel, not a delivery list, whose
+// notification preferences are off: what the channel sends never reaches
+// them, and the Channels page names them (#2743). An address whose
+// preferences cannot be read is left out rather than guessed. Never nil, so
+// the page reads an empty list as none.
+func (h *handler) optedOut(ctx context.Context, ch notification.Channel) []string {
+	out := []string{}
+	if ch.Kind != notification.ChannelKindEmail || ch.DeliveryList || h.cfg.Prefs == nil {
+		return out
+	}
+	for _, addr := range ch.Recipients {
+		recipient := notification.NormalizeAddress(addr)
+		prefs, err := h.cfg.Prefs.Get(ctx, recipient)
+		if err == nil && prefs.Mode == notification.ModeOff {
+			out = append(out, recipient)
+		}
+	}
+	return out
 }
 
 // channelWarnings reports what will stop this channel delivering. A named
