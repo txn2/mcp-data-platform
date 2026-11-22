@@ -13,8 +13,10 @@ import (
 // moving every reference to its name in one transaction under the site's row
 // lock: the environment, its domains, its live history, its jobs, the main
 // address, each grant's environment list, the application parts and pins
-// written "<site>/<env>", and the target of pending approvals. The rename is
-// recorded in the environment's history.
+// written "<site>/<env>", the target of pending approvals, and its tile, which
+// still shows what it serves (#2751; a tile row already under the new name,
+// left by an earlier removal, is deleted first). The rename is recorded in the
+// environment's history.
 func (s *Store) RenameEnvironment(ctx context.Context, siteID, from, to, actor string) error {
 	return s.withTx(ctx, func(tx *sql.Tx) error {
 		var siteName string
@@ -41,6 +43,8 @@ func (s *Store) RenameEnvironment(ctx context.Context, siteID, from, to, actor s
 			query string
 			args  []any
 		}{
+			{`DELETE FROM site_tiles WHERE site_id = $1 AND environment = $3 AND $2 <> $3`, []any{siteID, from, to}},
+			{`UPDATE site_tiles SET environment = $3 WHERE site_id = $1 AND environment = $2`, []any{siteID, from, to}},
 			{`UPDATE site_domains SET environment = $3 WHERE site_id = $1 AND environment = $2`, []any{siteID, from, to}},
 			{`UPDATE site_deployments SET environment = $3 WHERE site_id = $1 AND environment = $2 AND removed_at IS NULL`, []any{siteID, from, to}},
 			{`UPDATE site_jobs SET environment = $3 WHERE site_id = $1 AND environment = $2`, []any{siteID, from, to}},
@@ -69,7 +73,8 @@ func (s *Store) RenameEnvironment(ctx context.Context, siteID, from, to, actor s
 // It withdraws pending approvals that target it, drops it from each grant's
 // environment list and deletes a grant that named only it (an empty list means
 // every private environment, so emptying one would widen the grant), marks its
-// history removed, and numbers the remaining environments again.
+// history removed, deletes its tile so the tile's object is reclaimed (#2751),
+// and numbers the remaining environments again.
 func (s *Store) RemoveEnvironment(ctx context.Context, siteID, name string) error {
 	return s.withTx(ctx, func(tx *sql.Tx) error {
 		held, err := lockForRemoval(ctx, tx, siteID, name)
@@ -110,7 +115,9 @@ func lockForRemoval(ctx context.Context, tx *sql.Tx, siteID, name string) (remov
 
 // afterRemoval carries the rest of a removal out: pending approvals
 // withdrawn, grants narrowed (one naming only it deleted), its history marked
-// removed, and the order numbered again.
+// removed, its tile deleted, and the order numbered again. Nothing else reads
+// a tile row whose environment is gone, and the storage reconcile counts its
+// tile_key as a reference, so a row left behind would keep the object forever.
 func afterRemoval(ctx context.Context, tx *sql.Tx, siteID, name string) error {
 	for _, stmt := range []string{
 		`UPDATE approval_requests SET status = 'withdrawn'
@@ -120,6 +127,7 @@ func afterRemoval(ctx context.Context, tx *sql.Tx, siteID, name string) error {
 		`DELETE FROM site_grants WHERE site_id = $1 AND environments = ARRAY[$2]::text[]`,
 		`UPDATE site_grants SET environments = array_remove(environments, $2) WHERE site_id = $1 AND $2 = ANY(environments)`,
 		`UPDATE site_deployments SET removed_at = NOW() WHERE site_id = $1 AND environment = $2 AND removed_at IS NULL`,
+		`DELETE FROM site_tiles WHERE site_id = $1 AND environment = $2`,
 		`UPDATE site_environments e SET position = o.n - 1
 		   FROM (SELECT name, ROW_NUMBER() OVER (ORDER BY position, name) AS n FROM site_environments WHERE site_id = $1) o
 		  WHERE e.site_id = $1 AND e.name = o.name AND $2 <> ''`,

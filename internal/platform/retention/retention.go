@@ -81,6 +81,15 @@ func New(db *sql.DB, interval time.Duration, sweeps ...Sweep) *Loop {
 	return &Loop{db: db, sweeps: sweeps, interval: interval}
 }
 
+// Add appends sweeps a layer assembled after the loop was built (the
+// collection item sweep needs the portal's authorization core, #2752). A
+// sweep added after Start runs from the next pass.
+func (l *Loop) Add(sweeps ...Sweep) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.sweeps = append(l.sweeps, sweeps...)
+}
+
 // Start runs every sweep now and then on the interval, in its own goroutine.
 // A second call, a loop with no database and a loop with no sweeps do nothing.
 func (l *Loop) Start() {
@@ -118,8 +127,11 @@ func (l *Loop) Close() error {
 // and one that fails is logged, returned joined with the others' failures,
 // and does not stop them.
 func (l *Loop) RunOnce(ctx context.Context) error {
+	l.mu.Lock()
+	sweeps := append([]Sweep(nil), l.sweeps...)
+	l.mu.Unlock()
 	var errs []error
-	for _, s := range l.sweeps {
+	for _, s := range sweeps {
 		if ctx.Err() != nil {
 			break
 		}

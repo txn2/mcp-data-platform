@@ -145,14 +145,32 @@ func grantees(ts toks, from bool) []string {
 
 // rolesInDo reads the statements written in a DO block's body for the roles
 // they name, so a role created idempotently (IF NOT EXISTS ... THEN CREATE
-// ROLE) is held to the rule as a plain CREATE ROLE is. A statement the body
-// assembles at run time (EXECUTE format(...)) cannot be read; applying a
-// migration is for administrators and the personas a connection names.
+// ROLE) is held to the rule as a plain CREATE ROLE is. SQL the body passes as
+// a string (EXECUTE '...', dblink_exec) is read once unquoted, and a body
+// that builds SQL at run time naming a role statement (EXECUTE format('GRANT
+// ... TO %I', ...)), which cannot be read, is refused (#2750).
 func (l *linter) rolesInDo(n int, stmt string) {
 	if l.sec.target.Schema == "" {
 		return
 	}
-	for _, inner := range splitStatements(dollarBody(stmt)) {
+	body := dollarBody(stmt)
+	if pglex.BuildsSQL(body) && namesRoleStatement(pglex.Words(body)) {
+		l.add(Finding{
+			Rule: RuleRoleNamed, Severity: SeverityRefused, Statement: n, Object: pglex.BuiltAtRunTime,
+			Effect: "builds a statement at run time that names a role, which cannot be read before it runs; a role belongs " +
+				"to the whole server, so a grant it makes would reach data in another environment or another application",
+			Safe: "leave the role out: the platform grants each environment's run role SELECT, INSERT, UPDATE and DELETE on " +
+				"what the migration creates in that environment's schema",
+		})
+		return
+	}
+	l.rolesInBody(n, body, 0)
+}
+
+// rolesInBody reads each statement of a body, and the SQL each string literal
+// in it stands for, for the roles they name, to maxLiteralDepth.
+func (l *linter) rolesInBody(n int, body string, depth int) {
+	for _, inner := range splitStatements(body) {
 		ts := lex(inner)
 		for i := range ts {
 			if namesRoles(ts[i:]) {
@@ -160,7 +178,32 @@ func (l *linter) rolesInDo(n int, stmt string) {
 				break
 			}
 		}
+		if depth < maxLiteralDepth {
+			for _, text := range pglex.StringLiterals(inner) {
+				l.rolesInBody(n, text, depth+1)
+			}
+		}
 	}
+}
+
+// maxLiteralDepth bounds how deep a string literal inside a literal is read.
+const maxLiteralDepth = 4
+
+// namesRoleStatement reports whether words, a unit's words with its literals'
+// read in place, name a statement namedRoles reads: CREATE, ALTER or DROP of
+// a role, user or group, GRANT, REVOKE, or ALTER DEFAULT PRIVILEGES.
+func namesRoleStatement(words []string) bool {
+	for i, w := range words {
+		switch w {
+		case "grant", kwRevoke:
+			return true
+		case kwCreate, kwAlter, kwDrop:
+			if i+1 < len(words) && (roleWords[words[i+1]] || (w == kwAlter && words[i+1] == "default")) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // namesRoles reports whether ts opens a statement namedRoles reads.

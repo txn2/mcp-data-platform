@@ -392,7 +392,7 @@ The environments between `dev` and `prod` can be renamed and removed (#2630);
 is not `dev`, `prod`, `default` or one the site uses. One transaction moves every
 reference: the environment, its domains, its history, its jobs, the main
 address, each share's environments, the application parts and pins written
-`<site>/<env>`, and pending approvals that target it. It answers at
+`<site>/<env>`, pending approvals that target it, and its tile (#2751). It answers at
 `<site>--<new>` at once; the old `<site>--<old>` answers "Nothing is published
 here", its domains keep answering, and `mcp:site:<site>/<old>` references written
 elsewhere stop resolving.
@@ -401,8 +401,8 @@ elsewhere stop resolving.
 refused while the environment has a domain, holds the main address, is a part of
 an application or has a job running, each naming what to do first, and only an
 administrator removes one that requires approval. One transaction removes it,
-withdraws pending approvals that target it, drops it from every share, and
-**deletes a share that named only it**: an empty list means every private
+withdraws pending approvals that target it, deletes its tile (#2751), drops it
+from every share, and **deletes a share that named only it**: an empty list means every private
 environment, so emptying one would widen it. Its history stays, marked removed,
 and stops counting toward its release limit, so releases only it kept go at the
 next sweep; an environment created later with the same name starts with no

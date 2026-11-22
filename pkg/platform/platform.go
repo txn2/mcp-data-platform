@@ -16,6 +16,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/retention"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/apps"
@@ -267,6 +269,10 @@ type Platform struct {
 	// accessors. nil until WireAPIGatewayEmbedJobsFromDB runs, which requires
 	// both a database connection and a configured embedding provider.
 	indexQueue *indexqueue.Handle
+
+	// retention is the #1904 sweep loop, nil without a database; the HTTP
+	// layer adds the collection item sweep to it (#2752).
+	retention *retention.Loop
 
 	// portalStore owns the asset-portal store layer: the five Postgres stores
 	// (asset, share, version, collection, thread), the knowledge-page store, the

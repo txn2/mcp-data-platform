@@ -1279,9 +1279,13 @@ func (s *postgresShareStore) shareSummariesByTarget(ctx context.Context, targetT
 	return result, nil
 }
 
-func (s *postgresShareStore) GetUserAssetPermissionViaCollection(ctx context.Context, assetID, userID, email string) (portaldomain.SharePermission, error) { //nolint:revive // interface impl
-	query := `
-		SELECT ps.permission FROM portal_shares ps
+// collectionSharesHolding is the active collection shares addressed to a
+// person ($2 user id, $3 address, $4 persona) whose live collection holds the
+// asset $1: what a collection share opens an asset to. The permission lookup
+// and the collection item sweep (#2752) both read it, so the collections the
+// sweep follows are the ones a read is granted through.
+const collectionSharesHolding = `
+		FROM portal_shares ps
 		JOIN portal_collections pc ON pc.id = ps.collection_id AND pc.deleted_at IS NULL
 		JOIN portal_collection_sections cs ON cs.collection_id = ps.collection_id
 		JOIN portal_collection_items ci ON ci.section_id = cs.id
@@ -1290,7 +1294,34 @@ func (s *postgresShareStore) GetUserAssetPermissionViaCollection(ctx context.Con
 		  AND ps.revoked = FALSE
 		  AND (ps.expires_at IS NULL OR ps.expires_at > NOW())
 		  AND (ps.shared_with_user_id = $2 OR ($3 != '' AND LOWER(ps.shared_with_email) = LOWER($3))
-		       OR ($4 <> '' AND ps.shared_with_persona = $4))
+		       OR ($4 <> '' AND ps.shared_with_persona = $4))`
+
+// CollectionsGrantingAsset returns the collections whose share opens the asset
+// to the person: the collections GetUserAssetPermissionViaCollection grants
+// through, each once.
+func (s *postgresShareStore) CollectionsGrantingAsset(ctx context.Context, assetID, userID, email string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT ps.collection_id `+collectionSharesHolding+` ORDER BY ps.collection_id`,
+		assetID, userID, email, portaldomain.CallerPersona(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("querying collections granting an asset: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scanning a collection granting an asset: %w", err)
+		}
+		out = append(out, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("reading collections granting an asset: %w", err)
+	}
+	return out, nil
+}
+
+func (s *postgresShareStore) GetUserAssetPermissionViaCollection(ctx context.Context, assetID, userID, email string) (portaldomain.SharePermission, error) { //nolint:revive // interface impl
+	query := `SELECT ps.permission ` + collectionSharesHolding + `
 		ORDER BY CASE ps.permission WHEN 'editor' THEN 0 ELSE 1 END
 		LIMIT 1
 	`

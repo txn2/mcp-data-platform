@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -1701,4 +1702,48 @@ func TestPostgresShareStoreGetUserCollectionPermissions(t *testing.T) {
 	_, err = store.GetUserCollectionPermissions(context.Background(), []string{"c1"}, "u1", "")
 	require.Error(t, err, "a cut read")
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// CollectionsGrantingAsset lists the collections whose share opens an asset
+// to a person, read from the same predicate the permission lookup reads.
+func TestPostgresShareStoreCollectionsGrantingAsset(t *testing.T) {
+	ctx := context.Background()
+	t.Run("found", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		require.NoError(t, err)
+		defer db.Close() //nolint:errcheck // test cleanup
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT DISTINCT ps.collection_id FROM portal_shares ps")).
+			WithArgs("asset-1", "user-1", "user@example.com", "finance").
+			WillReturnRows(sqlmock.NewRows([]string{"collection_id"}).AddRow("c1").AddRow("c2"))
+		got, err := (&postgresShareStore{db: db}).CollectionsGrantingAsset(portaldomain.WithCallerPersona(ctx, "finance"), "asset-1", "user-1", "user@example.com")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"c1", "c2"}, got)
+	})
+	t.Run("none is empty, never nil", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		require.NoError(t, err)
+		defer db.Close() //nolint:errcheck // test cleanup
+		mock.ExpectQuery("SELECT DISTINCT ps.collection_id").WillReturnRows(sqlmock.NewRows([]string{"collection_id"}))
+		got, err := (&postgresShareStore{db: db}).CollectionsGrantingAsset(ctx, "a", "u", "")
+		require.NoError(t, err)
+		assert.Equal(t, []string{}, got)
+	})
+	for name, rows := range map[string]func(sqlmock.Sqlmock){
+		"query": func(m sqlmock.Sqlmock) { m.ExpectQuery("SELECT DISTINCT").WillReturnError(errors.New("down")) },
+		"scan": func(m sqlmock.Sqlmock) {
+			m.ExpectQuery("SELECT DISTINCT").WillReturnRows(sqlmock.NewRows([]string{"a", "b"}).AddRow("c", "d"))
+		},
+		"rows": func(m sqlmock.Sqlmock) {
+			m.ExpectQuery("SELECT DISTINCT").WillReturnRows(sqlmock.NewRows([]string{"c"}).AddRow("c").RowError(0, errors.New("cut")))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			require.NoError(t, err)
+			defer db.Close() //nolint:errcheck // test cleanup
+			rows(mock)
+			_, err = (&postgresShareStore{db: db}).CollectionsGrantingAsset(ctx, "a", "u", "")
+			require.Error(t, err)
+		})
+	}
 }

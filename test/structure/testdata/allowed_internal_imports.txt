@@ -431,6 +431,7 @@ internal/httpserver -> internal/httpserver/assetwire
 internal/httpserver -> internal/httpserver/attachhttp
 internal/httpserver -> internal/httpserver/catalogwire
 internal/httpserver -> internal/httpserver/changesethttp
+internal/httpserver -> internal/httpserver/collectionsweepwire
 internal/httpserver -> internal/httpserver/corshttp
 internal/httpserver -> internal/httpserver/embedwire
 internal/httpserver -> internal/httpserver/endpointwire
@@ -680,6 +681,10 @@ internal/httpserver/channelhttp -> internal/platform/toolratelimit
 internal/httpserver/channelhttp -> internal/portal/access
 internal/httpserver/channelhttp -> pkg/middleware
 internal/httpserver/channelhttp -> pkg/persona
+internal/httpserver/collectionsweepwire -> internal/portal/access
+internal/httpserver/collectionsweepwire -> internal/portal/collectionsweep
+internal/httpserver/collectionsweepwire -> internal/portal/threadreach
+internal/httpserver/collectionsweepwire -> pkg/auth
 internal/httpserver/corshttp -> internal/endpoint/ephttp
 internal/httpserver/corshttp -> internal/httpserver/maphttp
 internal/httpserver/corshttp -> internal/webhook/receiver
@@ -2173,6 +2178,9 @@ internal/portal/assetverify -> pkg/notification
 internal/portal/callapi -> internal/httpjson
 internal/portal/callapi -> internal/platform/callrecord
 internal/portal/callapi -> internal/portal/access
+internal/portal/collectionsweep -> internal/logsan
+internal/portal/collectionsweep -> internal/portal/access
+internal/portal/collectionsweep -> internal/portal/portaldomain
 internal/portal/collitems -> internal/portal/portaldomain
 internal/portal/contentrefs -> pkg/contenttype
 internal/portal/contentrefs -> pkg/portal/knowledgepage

@@ -151,7 +151,10 @@ every table, sequence and routine in it, and nothing elsewhere. A migration
 that creates, alters, drops or grants to a role, `PUBLIC` included (`CREATE
 ROLE`, `GRANT ... TO`, `ALTER DEFAULT PRIVILEGES`, a `REVOKE ... FROM` a named
 role), or names a name qualified by its own schema, in a statement or in a
-function's body, is refused when it is added. `REVOKE ... FROM PUBLIC` is
+function's body, is refused when it is added. A role statement a `DO` block
+passes to `EXECUTE` as a string is read the same way, and one it builds at
+run time (`EXECUTE format('GRANT ... TO %I', ...)`) is refused, since it
+cannot be read. `REVOKE ... FROM PUBLIC` is
 accepted, and is what `security_definer_public_execute` asks of a `SECURITY
 DEFINER` function. A function that must keep its schema pins it with `SET
 search_path FROM CURRENT`: a migration runs with its schema then `pg_temp` on

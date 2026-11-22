@@ -200,14 +200,25 @@ func (l *linter) createObject(n int, ts toks) {
 // application is exported in. PASSWORD NULL sets none. The statement is read
 // by pglex.PasswordLiteral, the rule the audit sanitizer redacts a stored copy
 // of the SQL by (#2475). The finding names the object, never the value.
+//
+// SQL a body passes as a string (EXECUTE '...', dblink_exec) is read once
+// unquoted, and SQL a body builds at run time naming a role and PASSWORD,
+// which cannot be read, is refused as one (#2750).
 func (l *linter) passwordLiteral(n int, stmt string) {
-	if object, ok := pglex.PasswordLiteral(stmt); ok {
-		l.add(Finding{
-			Rule: rulePasswordLiteral, Severity: SeverityRefused, Statement: n, Object: object,
-			Effect: "writes a credential into the migration, which is stored, applied and exported as written",
-			Safe:   "create the role without a password and set it outside the migration; a persona's role password belongs in the connection's persona_role_passwords, kept encrypted",
-		})
+	object, ok := pglex.PasswordLiteral(stmt)
+	if !ok {
+		return
 	}
+	effect := "writes a credential into the migration, which is stored, applied and exported as written"
+	if object == pglex.BuiltAtRunTime {
+		effect = "builds a statement at run time that gives a role a password, which cannot be read before it runs, " +
+			"so a credential it carries would be stored, applied and exported as written"
+	}
+	l.add(Finding{
+		Rule: rulePasswordLiteral, Severity: SeverityRefused, Statement: n, Object: object,
+		Effect: effect,
+		Safe:   "create the role without a password and set it outside the migration; a persona's role password belongs in the connection's persona_role_passwords, kept encrypted",
+	})
 }
 
 // createExtension refuses an extension that installs an untrusted language.

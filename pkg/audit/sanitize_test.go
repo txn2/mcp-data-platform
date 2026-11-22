@@ -159,3 +159,19 @@ func TestSanitizeParametersCopiedSiteAddress(t *testing.T) {
 		t.Fatalf("another command's url was changed: %v", other["url"])
 	}
 }
+
+// A migration's SQL passing a role's password to EXECUTE or dblink_exec, or
+// building one at run time, is stored with no form of the password (#2750).
+func TestSanitizeParametersRedactsPasswordsInDynamicSQL(t *testing.T) {
+	const pw = "dyn-2750-value"
+	for _, up := range []string{
+		"DO $$ BEGIN EXECUTE 'ALTER USER app WITH PASSWORD ''" + pw + "'''; END $$",
+		"DO $$ BEGIN EXECUTE format('ALTER ROLE %I PASSWORD %L', 'app', '" + pw + "'); END $$",
+		"DO $$ BEGIN EXECUTE 'ALTER ROLE app PASSWORD ' || quote_literal('" + pw + "'); END $$",
+		"DO $$ BEGIN PERFORM dblink_exec('c', 'ALTER ROLE app PASSWORD ''" + pw + "'''); END $$",
+	} {
+		got := SanitizeParameters(map[string]any{"command": "add", "up": up})
+		assert.NotContains(t, got["up"], pw, up)
+		assert.Contains(t, got["up"], "[REDACTED]", up)
+	}
+}

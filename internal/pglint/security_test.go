@@ -158,6 +158,11 @@ func TestLintSecurity_PasswordLiteral(t *testing.T) {
 		"ALTER USER app WITH ENCRYPTED PASSWORD '" + secret + "'",
 		"CREATE USER MAPPING FOR app SERVER remote OPTIONS (user 'x', password '" + secret + "')",
 		"CREATE GROUP app WITH PASSWORD '" + secret + "'",
+		// #2750: SQL a body passes as a string, and SQL it builds at run time.
+		"DO $$ BEGIN EXECUTE 'ALTER USER app WITH PASSWORD ''" + secret + "'''; END $$",
+		"DO $$ BEGIN EXECUTE format('ALTER ROLE %I PASSWORD %L', 'app', '" + secret + "'); END $$",
+		"DO $$ BEGIN EXECUTE 'ALTER ROLE app PASSWORD ' || quote_literal('" + secret + "'); END $$",
+		"DO $$ BEGIN PERFORM dblink_exec('c', 'ALTER ROLE app PASSWORD ''" + secret + "'''); END $$",
 	}
 	for _, up := range refused {
 		findings, _ := Lint(up, target17)

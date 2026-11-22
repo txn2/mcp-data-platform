@@ -259,3 +259,22 @@ func TestPersonOf(t *testing.T) {
 		t.Error("with no directory nobody is known")
 	}
 }
+
+// Person judges a record's owner under the id and address it records, with
+// the directory's roles; Access is the checker the decisions are made with.
+func TestPersonAndAccess(t *testing.T) {
+	r := newReach(&fakeShares{}, &fakePages{})
+	u, persona := r.Person(context.Background(), "owner-sub", " Persona@X.io ")
+	if u.UserID != "owner-sub" || u.Email != "persona@x.io" || persona != "analyst" || len(u.Roles) != 1 {
+		t.Errorf("Person = %+v, %q", u, persona)
+	}
+	if u, persona := r.Person(context.Background(), "nobody-sub", ""); u.UserID != "nobody-sub" || persona != "" || u.Roles != nil {
+		t.Errorf("Person with no address = %+v, %q", u, persona)
+	}
+	if r.Access() == nil || !r.Access().IsAdmin(&access.User{Roles: []string{"admin"}}) {
+		t.Error("Access is the reach's checker")
+	}
+	if r.PersonaName([]string{"analyst"}) != "analyst" || New(Config{}).PersonaName([]string{"analyst"}) != "" {
+		t.Error("PersonaName resolves through the configured resolver, and to nothing without one")
+	}
+}

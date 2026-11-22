@@ -296,11 +296,15 @@ func isGeneratedKeyShape(token string) bool {
 	return err == nil
 }
 
+// APIKeySubjectPrefix opens the user id a key bound to nobody authenticates
+// as: the prefix, then the key's name.
+const APIKeySubjectPrefix = "apikey:"
+
 // keyUserInfo is the standalone identity a key bound to nobody authenticates
 // as. Expiry is checked by userInfo, which is the only caller.
 func keyUserInfo(key *APIKey) *middleware.UserInfo {
 	return &middleware.UserInfo{
-		UserID:     "apikey:" + key.Name,
+		UserID:     APIKeySubjectPrefix + key.Name,
 		Email:      apiKeyEmail(*key),
 		Claims:     attributeClaims(key.Attributes),
 		Roles:      key.Roles,
