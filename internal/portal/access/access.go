@@ -360,14 +360,25 @@ func (c *Checker) SeesAssetHistory(ctx context.Context, asset *portaldomain.Asse
 // avoid a collection query on the hot path, where callers resolve many assets
 // in a loop.
 func (c *Checker) CanViewAsset(ctx context.Context, assetID string, asset *portaldomain.Asset, user *User) bool {
-	if OwnsAsset(asset, user) {
-		return true
-	}
-	if perm, err := c.AssetSharePermission(ctx, assetID, user); err == nil && perm != "" {
+	if direct, _ := c.DirectViewGrant(ctx, assetID, asset, user); direct {
 		return true
 	}
 	collPerm, _ := c.cfg.Shares.GetUserAssetPermissionViaCollection(ctx, assetID, user.UserID, user.Email)
 	return collPerm != ""
+}
+
+// DirectViewGrant reports whether the user may view the asset without a
+// collection share: by owning it, or by a share of the asset itself. It is
+// the half of CanViewAsset and AssetViewGrant that reads no collection, which
+// the collection item sweep (#2752) judges an item by before it follows a
+// collection share to the item that share holds. A non-nil error means the
+// direct-share lookup failed.
+func (c *Checker) DirectViewGrant(ctx context.Context, assetID string, asset *portaldomain.Asset, user *User) (bool, error) {
+	if OwnsAsset(asset, user) {
+		return true, nil
+	}
+	perm, err := c.AssetSharePermission(ctx, assetID, user)
+	return err == nil && perm != "", err
 }
 
 // AssetViewGrant reports whether the user may view the asset, distinguishing a
@@ -375,14 +386,11 @@ func (c *Checker) CanViewAsset(ctx context.Context, assetID string, asset *porta
 // lookup failed and no collection grant covered for it, which callers surface as
 // 500 rather than 403.
 func (c *Checker) AssetViewGrant(ctx context.Context, assetID string, asset *portaldomain.Asset, user *User) (bool, error) {
-	if OwnsAsset(asset, user) {
-		return true, nil
-	}
-	perm, err := c.AssetSharePermission(ctx, assetID, user)
+	direct, err := c.DirectViewGrant(ctx, assetID, asset, user)
 	if err != nil {
 		return false, err
 	}
-	if perm != "" {
+	if direct {
 		return true, nil
 	}
 	collPerm, _ := c.cfg.Shares.GetUserAssetPermissionViaCollection(ctx, assetID, user.UserID, user.Email)

@@ -200,7 +200,13 @@ const personIDPrefix = "threadreach:"
 // personOf builds the person an address belongs to.
 func (r *Reach) personOf(ctx context.Context, email string) person {
 	email = strings.ToLower(strings.TrimSpace(email))
-	p := person{User: &access.User{UserID: personIDPrefix + email, Email: email}}
+	return r.lookup(ctx, personIDPrefix+email, email)
+}
+
+// lookup builds the person recorded under userID and email, with the roles
+// the directory last recorded for the address.
+func (r *Reach) lookup(ctx context.Context, userID, email string) person {
+	p := person{User: &access.User{UserID: userID, Email: email}}
 	if r.cfg.Directory == nil || email == "" {
 		return p
 	}
@@ -215,6 +221,27 @@ func (r *Reach) personOf(ctx context.Context, email string) person {
 	}
 	return p
 }
+
+// Person is the principal a record's owner is judged as -- the owner id and
+// address it records, with the roles the directory last recorded for the
+// address, none when it holds no record -- and the persona those roles
+// resolve to. The collection item sweep (#2752) judges a collection's owner
+// by it, as a mention judges a named person.
+func (r *Reach) Person(ctx context.Context, userID, email string) (u *access.User, persona string) {
+	p := r.lookup(ctx, userID, strings.ToLower(strings.TrimSpace(email)))
+	return p.User, p.Persona
+}
+
+// PersonaName is the persona roles resolve to, "" with no resolver.
+func (r *Reach) PersonaName(roles []string) string {
+	if r.cfg.PersonaName == nil {
+		return ""
+	}
+	return r.cfg.PersonaName(roles)
+}
+
+// Access is the authorization core the decisions are made with.
+func (r *Reach) Access() *access.Checker { return r.cfg.Access }
 
 // CanOpen reports whether the person at an address can open the target now.
 func (r *Reach) CanOpen(ctx context.Context, email, targetType, targetID string) bool {

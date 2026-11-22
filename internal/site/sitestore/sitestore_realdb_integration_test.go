@@ -1060,3 +1060,40 @@ func TestRealDB_GrantedSiteIDs(t *testing.T) {
 	assert.Empty(t, ids, "no identity matches the persona grants stored with an empty email")
 	assert.NotNil(t, ids)
 }
+
+// A renamed environment takes its tile with it, replacing a row an earlier
+// removal left under the new name, and a removed one deletes its tile, so the
+// storage reconcile no longer counts the tile's object as referenced (#2751).
+func TestRealDB_EnvironmentTileFollowsRenameAndRemove(t *testing.T) {
+	db := testdb.New(t)
+	ctx := context.Background()
+	s := New(db)
+	st := realSite(ctx, t, s, "tiles2751")
+	require.NoError(t, s.SetEnvironment(ctx, st.ID, "stage", site.EnvironmentSettings{}, realOwner))
+	tile := func(env, key string) {
+		_, err := db.ExecContext(ctx, `INSERT INTO site_tiles (site_id, environment, tile_key, renderer) VALUES ($1, $2, $3, 1)`, st.ID, env, key)
+		require.NoError(t, err)
+	}
+	tiles := func() map[string]string {
+		rows, err := db.QueryContext(ctx, `SELECT environment, tile_key FROM site_tiles WHERE site_id = $1`, st.ID)
+		require.NoError(t, err)
+		defer func() { _ = rows.Close() }()
+		out := map[string]string{}
+		for rows.Next() {
+			var env, key string
+			require.NoError(t, rows.Scan(&env, &key))
+			out[env] = key
+		}
+		require.NoError(t, rows.Err())
+		return out
+	}
+	tile("stage", "tiles/stage.webp")
+	tile("qa", "tiles/left-behind.webp")
+	tile(site.EnvDev, "tiles/dev.webp")
+
+	require.NoError(t, s.RenameEnvironment(ctx, st.ID, "stage", "qa", realOwner))
+	assert.Equal(t, map[string]string{"qa": "tiles/stage.webp", site.EnvDev: "tiles/dev.webp"}, tiles(), "the tile moves with the name")
+
+	require.NoError(t, s.RemoveEnvironment(ctx, st.ID, "qa"))
+	assert.Equal(t, map[string]string{site.EnvDev: "tiles/dev.webp"}, tiles(), "a removed environment leaves no tile")
+}

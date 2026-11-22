@@ -260,15 +260,24 @@ index of a generated column declared without `STORED`. `COPY ... PROGRAM`,
 `ALTER SYSTEM`, and a role, user, group or user mapping given a password in
 the migration (`PASSWORD '...'`) are refused, in the up SQL and the down SQL
 alike: a migration is stored, applied and exported as written, so a
-credential never belongs in one. Two more refusals follow from an
+credential never belongs in one. A password is found in a `DO` block or a
+function's body too, and in SQL a body passes as a string (`EXECUTE
+'ALTER ROLE ... PASSWORD ...'`, `dblink_exec`), read once unquoted; a body
+that builds such a statement at run time (`EXECUTE format(...)`, a
+concatenation) cannot be read and is refused as one, named `SQL built at run
+time`. Two more refusals follow from an
 application's environments each running in a schema of its own (#2709): a
 statement that creates, alters, drops or grants to a role, `PUBLIC` included
-(`role_named`), and a name qualified by the migration's own schema
+(`role_named`; in a `DO` block's body and its `EXECUTE` strings too, and a
+body building one at run time is refused), and a name qualified by the
+migration's own schema
 (`schema_qualified`, in a function's or `DO` block's body too). The same
 migration applies to every environment's schema with the search path set to
 it, so a bare name lands in that environment's schema, and the platform
 grants each environment's run role what the migration creates. The audit row of the call keeps the SQL with
-the password replaced by `'[REDACTED]'`.
+the password replaced by `'[REDACTED]'`, inside an `EXECUTE` string as well;
+a body that builds the statement at run time has every literal it holds
+replaced.
 
 `status` also reports `schema_drift` for the schema: the applied migrations
 are built from zero on a throwaway database and compared with the live

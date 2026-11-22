@@ -207,3 +207,19 @@ func TestAssetBucket(t *testing.T) {
 	assert.Zero(t, n)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
+
+// A sweep added after the loop was built runs on the next pass (#2752).
+func TestAddAndCollectionItems(t *testing.T) {
+	assert.Nil(t, CollectionItems(nil))
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	ran := false
+	l := New(db, 0)
+	l.Add(CollectionItems(func(context.Context) (int64, error) { ran = true; return 2, nil })...)
+	mock.ExpectQuery(lockQ).WithArgs(lockCollectionItems).WillReturnRows(sqlmock.NewRows([]string{"l"}).AddRow(true))
+	mock.ExpectExec(unlockQ).WithArgs(lockCollectionItems).WillReturnResult(sqlmock.NewResult(0, 0))
+	require.NoError(t, l.RunOnce(context.Background()))
+	assert.True(t, ran)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}

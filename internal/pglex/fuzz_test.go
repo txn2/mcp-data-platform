@@ -53,6 +53,9 @@ func FuzzRedactPasswords(f *testing.F) {
 	for _, s := range []string{"ALTER ROLE app PASSWORD 'hunter2'", "CREATE USER u WITH PASSWORD 'p''w'", "SELECT 1"} {
 		f.Add(s)
 	}
+	for _, c := range issue2750Forms {
+		f.Add(c.sql)
+	}
 	f.Fuzz(func(t *testing.T, sql string) {
 		once := RedactPasswords(sql)
 		if twice := RedactPasswords(once); twice != once {

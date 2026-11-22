@@ -64,7 +64,7 @@ func TestRenameEnvironment(t *testing.T) {
 		s, mock := newMock(t)
 		lock(mock)
 		mock.ExpectQuery(q("UPDATE site_environments SET name = $3")).WithArgs("site_1", "uat", "qa", "a").WillReturnRows(sqlmock.NewRows([]string{"r"}).AddRow(4))
-		for _, stmt := range []string{"UPDATE site_domains", "UPDATE site_deployments", "UPDATE site_jobs", "UPDATE sites SET main_environment", "UPDATE site_grants"} {
+		for _, stmt := range []string{"DELETE FROM site_tiles", "UPDATE site_tiles SET environment = $3", "UPDATE site_domains", "UPDATE site_deployments", "UPDATE site_jobs", "UPDATE sites SET main_environment", "UPDATE site_grants"} {
 			mock.ExpectExec(q(stmt)).WithArgs("site_1", "uat", "qa").WillReturnResult(sqlmock.NewResult(0, 1))
 		}
 		mock.ExpectExec(q("UPDATE application_parts")).WithArgs("marketing/uat", "marketing/qa").WillReturnResult(sqlmock.NewResult(0, 1))
@@ -115,6 +115,7 @@ func TestRemoveEnvironment(t *testing.T) {
 		mock.ExpectExec(q("DELETE FROM site_grants WHERE site_id = $1 AND environments = ARRAY[$2]::text[]")).WithArgs("site_1", "stage").WillReturnResult(sqlmock.NewResult(0, 1))
 		mock.ExpectExec(q("UPDATE site_grants SET environments = array_remove")).WithArgs("site_1", "stage").WillReturnResult(sqlmock.NewResult(0, 1))
 		mock.ExpectExec(q("UPDATE site_deployments SET removed_at = NOW()")).WithArgs("site_1", "stage").WillReturnResult(sqlmock.NewResult(0, 2))
+		mock.ExpectExec(q("DELETE FROM site_tiles WHERE site_id = $1 AND environment = $2")).WithArgs("site_1", "stage").WillReturnResult(sqlmock.NewResult(0, 1))
 		mock.ExpectExec(q("UPDATE site_environments e SET position")).WithArgs("site_1", "stage").WillReturnResult(sqlmock.NewResult(0, 3))
 		mock.ExpectCommit()
 		require.NoError(t, s.RemoveEnvironment(ctx, "site_1", "stage"))

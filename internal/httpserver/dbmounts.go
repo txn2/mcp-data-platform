@@ -20,6 +20,8 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/txn2/mcp-data-platform/internal/httpserver/collectionsweepwire"
+
 	"github.com/txn2/mcp-data-platform/internal/httpserver/accessreqwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/apiwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/applicationwire"
@@ -187,6 +189,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 		Directory: p.UserStore(), Audit: p.Audit().Logger(), HasDatabase: p.DB() != nil,
 	})
 	general := notifywire.WirePortalNotifications(&deps, p, notify, mentionAudience(p), reach)
+	collectionsweepwire.Wire(p, reach, deps.ShareStore) // items owners cannot open, swept (#2752)
 
 	// Guest access path for email shares (#1001): branded denial pages plus
 	// one-time view links for recipients without an account. The share store

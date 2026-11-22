@@ -504,9 +504,9 @@ manage_site command=set_environment site=marketing environment=prod status=onlin
 A redirect target is an `https://` address on another site. On an environment that
 requires approval, a redirect by someone who is not an administrator waits in
 Approvals. `rename_to` renames an environment between `dev` and `prod` (every
-reference moves; `mcp:site:<site>/<old>` references stop resolving), and
-`remove_environment` removes one with no domain, no main address, no application
-part and no job running. `get` answers `traffic`: the last 24 hours of requests
+reference moves, its tile included; `mcp:site:<site>/<old>` references stop
+resolving), and `remove_environment` removes one with no domain, no main
+address, no application part and no job running, and deletes its tile. `get` answers `traffic`: the last 24 hours of requests
 and latency (p50, p95, p99) for the site and per environment, which answers "is
 the site slow" without Prometheus.
 

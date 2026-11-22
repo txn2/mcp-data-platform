@@ -66,7 +66,17 @@ const (
 	lockBotCheckAnswers   int64 = 4713210108
 	lockScriptTokenUses   int64 = 4713210109
 	lockEndpointRefusals  int64 = 4713210110
+	lockCollectionItems   int64 = 4713210111
 )
+
+// CollectionItems is the sweep that removes from each collection the items
+// its owner cannot open (#2752), run by remove. Nothing without one.
+func CollectionItems(remove func(ctx context.Context) (int64, error)) []Sweep {
+	if remove == nil {
+		return nil
+	}
+	return []Sweep{{Name: "collection_items", LockKey: lockCollectionItems, Run: remove}}
+}
 
 // PortalDeleted is the sweep that purges portal items deleted more than days
 // ago, with their objects. Nothing when days is 0.

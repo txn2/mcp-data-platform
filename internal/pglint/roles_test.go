@@ -37,6 +37,15 @@ func TestLint_RolesNamed(t *testing.T) {
 		"membership in another's role at create": {up: `CREATE ROLE shop_x NOLOGIN IN ROLE billing_write`, want: []string{"shop_x", "billing_write"}},
 		"a grant inside a DO block":              {up: `DO $body$ BEGIN GRANT billing_write TO shop_run; END $body$`, want: []string{"billing_write", "shop_run"}},
 		"a DO block with no role":                {up: `DO $$BEGIN PERFORM 1; END$$`},
+		// #2750: SQL a body passes as a string is read unquoted, and SQL it
+		// builds at run time naming a role statement is refused.
+		"a grant in an EXECUTE literal":   {up: `DO $$ BEGIN EXECUTE 'GRANT billing_write TO shop_run'; END $$`, want: []string{"billing_write", "shop_run"}},
+		"a role in a dblink literal":      {up: `DO $$ BEGIN PERFORM dblink_exec('c', 'DROP ROLE old'); END $$`, want: []string{"old"}},
+		"a role in a nested literal":      {up: `DO $$ BEGIN EXECUTE 'EXECUTE ''ALTER ROLE nested LOGIN'''; END $$`, want: []string{"nested"}},
+		"a grant built at run time":       {up: `DO $$ BEGIN EXECUTE format('GRANT SELECT ON %I TO %I', 't', 'r'); END $$`, want: []string{"SQL built at run time"}},
+		"a role built by concatenation":   {up: `DO $$ BEGIN EXECUTE 'CREATE ROLE ' || quote_ident('x'); END $$`, want: []string{"SQL built at run time"}},
+		"a table built at run time":       {up: `DO $$ BEGIN EXECUTE format('CREATE TABLE %I (id int)', 't'); END $$`},
+		"an EXECUTE literal with no role": {up: `DO $$ BEGIN EXECUTE 'CREATE TABLE t (id int)'; END $$`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			assert.ElementsMatch(t, tc.want, refused(tc.up))

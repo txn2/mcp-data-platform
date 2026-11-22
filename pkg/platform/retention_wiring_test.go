@@ -33,3 +33,21 @@ func TestWireRetention(t *testing.T) {
 		require.NoError(t, lc.Stop(context.Background()))
 	}
 }
+
+// The collection item sweep joins the retention loop only where there is one
+// and the portal is on (#2752).
+func TestAddCollectionItemSweep(t *testing.T) {
+	run := func(context.Context) (int64, error) { return 0, nil }
+	(&Platform{config: &Config{}}).AddCollectionItemSweep(run) // no loop: nothing
+
+	db, _, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	off := false
+	for _, portal := range []*bool{nil, &off} {
+		p := &Platform{db: db, config: &Config{Portal: PortalConfig{Enabled: portal}}, lifecycle: NewLifecycle()}
+		wireRetention(p)
+		require.NotNil(t, p.retention)
+		p.AddCollectionItemSweep(run)
+	}
+}
