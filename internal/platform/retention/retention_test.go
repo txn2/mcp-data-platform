@@ -101,6 +101,99 @@ func TestStartAndClose(t *testing.T) {
 	New(nil, 0, Sweep{}).Start() // no database: nothing starts
 }
 
+// waitRun waits for a sweep to report it ran, failing the test if it does not
+// within the bound, which is far shorter than the loop's interval.
+func waitRun(t *testing.T, ran <-chan string, want string) {
+	t.Helper()
+	select {
+	case got := <-ran:
+		assert.Equal(t, want, got)
+	case <-time.After(10 * time.Second):
+		t.Fatalf("sweep %s did not run in the first pass", want)
+	}
+}
+
+// lockedSweep expects one lock and unlock of key, in any order beside the
+// other sweeps', and reports name on ran when it runs.
+func lockedSweep(mock sqlmock.Sqlmock, name string, key int64, ran chan<- string) Sweep {
+	mock.ExpectQuery(lockQ).WithArgs(key).WillReturnRows(sqlmock.NewRows([]string{"l"}).AddRow(true))
+	mock.ExpectExec(unlockQ).WithArgs(key).WillReturnResult(sqlmock.NewResult(0, 0))
+	return Sweep{Name: name, LockKey: key, Run: func(context.Context) (int64, error) {
+		ran <- name
+		return 0, nil
+	}}
+}
+
+// A sweep added after the first pass has read the sweeps runs at once, not a
+// whole interval later (#2757): the HTTP layer adds the collection item sweep
+// after the platform started the loop.
+func TestAddAfterTheFirstPassRunsTheSweepAtOnce(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	mock.MatchExpectationsInOrder(false)
+	ran := make(chan string, 2)
+
+	built, added := lockedSweep(mock, "built", 11, ran), lockedSweep(mock, "added", 12, ran)
+	loop := New(db, time.Hour, built)
+	loop.Start()
+	waitRun(t, ran, "built")
+
+	loop.Add(added)
+	waitRun(t, ran, "added")
+	require.NoError(t, loop.Close())
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// A sweep added before the first pass reads the sweeps runs in that pass,
+// once: Add does not run it a second time beside it.
+func TestAddBeforeTheFirstPassRunsInIt(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	ran := make(chan string, 4)
+
+	loop := New(db, time.Hour, lockedSweep(mock, "built", 21, ran))
+	loop.Add(lockedSweep(mock, "added", 22, ran))
+	loop.Start()
+	waitRun(t, ran, "built")
+	waitRun(t, ran, "added")
+	require.NoError(t, loop.Close())
+	assert.Empty(t, ran, "each sweep ran once")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// A loop Start found empty starts when its first sweep is added; a sweep added
+// to a closed loop never runs.
+func TestAddStartsAnEmptyLoopAndNotAClosedOne(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	ran := make(chan string, 2)
+
+	first := lockedSweep(mock, "first", 31, ran)
+	loop := New(db, time.Hour)
+	loop.Start()
+	loop.Add() // nothing to add: still waiting
+	loop.Add(first)
+	waitRun(t, ran, "first")
+	require.NoError(t, loop.Close())
+
+	loop.Add(Sweep{Name: "late", LockKey: 32, Run: func(context.Context) (int64, error) {
+		ran <- "late"
+		return 0, nil
+	}})
+	loop.Start() // a closed loop does not start again
+	require.NoError(t, loop.Close())
+	assert.Empty(t, ran, "a sweep added after Close does not run")
+	assert.NoError(t, mock.ExpectationsWereMet())
+
+	empty := New(db, time.Hour)
+	empty.Add(Sweep{Name: "unstarted", Run: func(context.Context) (int64, error) { ran <- "unstarted"; return 0, nil }})
+	require.NoError(t, empty.Close())
+	assert.Empty(t, ran, "a loop nobody started does not run what is added")
+}
+
 // The sweeps run their statement with the cutoff and report the rows removed.
 func TestSweepStatements(t *testing.T) {
 	db, mock, err := sqlmock.New()

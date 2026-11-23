@@ -174,6 +174,7 @@ nav:
       - Providers: reference/providers.md
       - Middleware: reference/middleware.md
       - Tuning and Scaling: reference/tuning-and-scaling.md
+      - Development Rules: reference/development-rules.md
     - Go Library:
       - Overview: library/overview.md
       - Quick Start: library/quickstart.md

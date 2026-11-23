@@ -10,7 +10,7 @@ services:
   postgres:
     # pgvector image: the platform's embedded migrations create the `vector`
     # extension (000031+), so a plain postgres image fails platform startup.
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg16@sha256:484e838076e04939d27d3e176e91c86eea96236126023be8d3059761122e579f
     container_name: e2e-postgres
     environment:
       POSTGRES_USER: platform
@@ -50,7 +50,7 @@ services:
       - e2e-network
 
   trino:
-    image: trinodb/trino:453
+    image: trinodb/trino:453@sha256:86f7a156aeeca1dda3a1ba1e97474913d10c75f8fb7cda0da1d29a52b5731e0c
     container_name: e2e-trino
     ports:
       - "8090:8080"
@@ -117,7 +117,7 @@ services:
 
   # Trino setup - creates test tables
   trino-setup:
-    image: trinodb/trino:453
+    image: trinodb/trino:453@sha256:86f7a156aeeca1dda3a1ba1e97474913d10c75f8fb7cda0da1d29a52b5731e0c
     container_name: e2e-trino-setup
     depends_on:
       trino:

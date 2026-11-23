@@ -3,7 +3,10 @@ package notifylayer
 import (
 	"context"
 	"errors"
+	"slices"
+	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -48,15 +51,22 @@ func (m *memShares) Revoke(_ context.Context, id string) error {
 	return nil
 }
 
-// memTargets answers every listing with the same chat channels.
+// memTargets answers every listing with the same chat channels, recording
+// the kind and connection of each listing it was asked for.
 type memTargets struct {
 	targets []notification.ChatTarget
 	err     error
-	calls   int
+
+	mu     sync.Mutex
+	calls  int
+	listed []string
 }
 
-func (m *memTargets) Targets(context.Context, notification.Channel) ([]notification.ChatTarget, error) {
+func (m *memTargets) Targets(_ context.Context, ch notification.Channel) ([]notification.ChatTarget, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.calls++
+	m.listed = append(m.listed, ch.Kind+"/"+ch.Connection)
 	return m.targets, m.err
 }
 
@@ -288,6 +298,53 @@ func TestList_ReportsEachBotsChannels(t *testing.T) {
 		if e := entry(t, v); e["name"] == "mm" && e["targets_error"] != "down" {
 			t.Errorf("a failed listing reads %v", e)
 		}
+	}
+}
+
+// Channels whose bot is one connection share one listing (#2770): three
+// mattermost channels on one connection, each addressed to its own chat
+// channel, are listed once and each reports the bot's chat channels; another
+// connection, and another kind on the same connection, are listings of their
+// own.
+func TestList_ReadsEachBotConnectionOnce(t *testing.T) {
+	mm := func(name, conn, target string) notification.Channel {
+		return notification.Channel{
+			Name: name, Kind: notification.ChannelKindMattermost, Enabled: true,
+			Mode: notification.ChannelModeImmediate, Connection: conn, Target: target,
+		}
+	}
+	slack := notification.Channel{
+		Name: "sl", Kind: notification.ChannelKindSlack, Enabled: true,
+		Mode: notification.ChannelModeImmediate, Connection: "chat", Target: "C1",
+	}
+	targets := &memTargets{targets: []notification.ChatTarget{{ID: "ops", Name: "Ops"}, {ID: "sales", Name: "Sales"}}}
+	h, _ := testHandle(t, []notification.Channel{mm("mm-ops", "chat", "ops"), mm("mm-sales", "chat", "sales"), mm("mm-town", "chat", ""), mm("mm-other", "other", "x"), slack},
+		[]string{"chat", "other"}, func(c *Config) { c.Targets = targets })
+	entries := listed(t, resultJSON(t, callNotify(t, h, `{"action":"list"}`)))
+	if len(entries) != 5 {
+		t.Fatalf("listed %d channels, want 5", len(entries))
+	}
+	for _, v := range entries {
+		e := entry(t, v)
+		if got, _ := e["targets"].([]any); len(got) != 2 {
+			t.Errorf("%v lists %v, want its bot's two chat channels", e["name"], e["targets"])
+		}
+	}
+	sort.Strings(targets.listed)
+	if want := []string{"mattermost/chat", "mattermost/other", "slack/chat"}; !slices.Equal(targets.listed, want) {
+		t.Errorf("listed %v, want one listing per kind and connection %v", targets.listed, want)
+	}
+
+	failing := &memTargets{err: errors.New("down")}
+	h, _ = testHandle(t, []notification.Channel{mm("mm-ops", "chat", "ops"), mm("mm-sales", "chat", "sales")},
+		[]string{"chat"}, func(c *Config) { c.Targets = failing })
+	for _, v := range listed(t, resultJSON(t, callNotify(t, h, `{"action":"list"}`))) {
+		if e := entry(t, v); e["targets_error"] != "down" {
+			t.Errorf("%v reads %v, want the shared listing's failure", e["name"], e)
+		}
+	}
+	if failing.calls != 1 {
+		t.Errorf("a failing bot was listed %d times, want once", failing.calls)
 	}
 }
 

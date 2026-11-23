@@ -20,6 +20,11 @@ final tag: a fix is another candidate.
                   any branch whose commit has the tagged commit's tree counts
                   as the tag's own (#2487), unless a run on main that failed
                   finished after it.
+                  - any tag, candidate or final, while an open issue carries
+                  the `security` label: a secret reaching a sink, an
+                  authorization bypass or a decryption oracle (CLAUDE.md,
+                  Security Design Before Code, rule 4; #2550). Nothing
+                  releases over it: the fix closes the issue.
   previous <tag>  print the last FINAL release before <tag>: what the changelog
                   and the release gates measure from, so neither a final tag's
                   notes nor its checks shrink to what changed since a candidate.
@@ -28,6 +33,7 @@ final tag: a fix is another candidate.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -39,6 +45,8 @@ import e2e_nightly  # noqa: E402
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)(?:-rc(\d+))?$")
 NIGHTLY_OVERRIDE_RE = re.compile(r"^release-without-nightly:\s*\S", re.MULTILINE)
+# SECURITY_LABEL marks an issue that holds every tag while it is open.
+SECURITY_LABEL = "security"
 
 
 def git(*args: str) -> str:
@@ -145,9 +153,31 @@ def older_than(sha: str, commit: str) -> bool:
 def check(tag: str) -> int:
     if (code := check_candidates(tag)) != 0:
         return code
+    if (code := check_security(tag)) != 0:
+        return code
     if parse(tag)[3] is not None:  # type: ignore[index]
         return 0
     return check_nightly(tag)
+
+
+def check_security(tag: str) -> int:
+    """Refuse any tag while an open issue carries the security label."""
+    try:
+        out = e2e_nightly.gh("issue", "list", "--label", SECURITY_LABEL, "--state", "open",
+                             "--json", "number,title,url", "--limit", "100")
+        issues = json.loads(out or "[]")
+    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as err:
+        detail = getattr(err, "stderr", "") or str(err)
+        print(f"FAIL release tag: {tag}: the open `{SECURITY_LABEL}` issues could not be read ({str(detail).strip()}); "
+              f"fix gh access and tag again.", file=sys.stderr)
+        return 1
+    if not issues:
+        print(f"release tag: no open issue carries the `{SECURITY_LABEL}` label.")
+        return 0
+    named = "; ".join(f"#{i.get('number')} {i.get('title', '')} ({i.get('url', '')})" for i in issues)
+    print(f"FAIL release tag: {tag}: {len(issues)} open issue(s) carry the `{SECURITY_LABEL}` label: {named}. "
+          f"A tag waits until each is fixed and closed.", file=sys.stderr)
+    return 1
 
 
 def check_candidates(tag: str) -> int:

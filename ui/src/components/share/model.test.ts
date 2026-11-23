@@ -105,4 +105,28 @@ describe("where a post went (#2291)", () => {
     expect(out.map((d) => `${d.label} · ${d.kind}`)).toEqual(["ops-mail · Email", "mm · Mattermost", "#general · Slack", "#hooks · Webhook"]);
     expect(out.find((d) => d.channel === "mm")?.unavailable).toBe("token expired");
   });
+
+  it("offers each chat channel of a shared bot once, through the channel addressed to it (#2770)", () => {
+    const bot = [
+      { id: "ops", name: "Ops" },
+      { id: "sales", name: "Sales" },
+      { id: "town", name: "Town Square" },
+    ];
+    const mm = (name: string, target?: string) => ({ name, kind: "mattermost", mode: "", carries: "", target, targets: bot });
+    const out = destinations([
+      mm("mm-sales", "sales"),
+      mm("mm-ops", "ops"),
+      mm("mm-bot"),
+      { name: "team", kind: "slack", mode: "", carries: "", target: "ops", targets: [{ id: "ops", name: "Ops" }] },
+    ]);
+    expect(out.map((d) => `${d.label} · ${d.kind}`)).toEqual([
+      "#Ops · Mattermost",
+      "#Sales · Mattermost",
+      "#Town Square · Mattermost",
+      "#Ops · Slack",
+    ]);
+    const via = Object.fromEntries(out.filter((d) => d.kind === "Mattermost").map((d) => [d.target, d.channel]));
+    expect(via).toEqual({ ops: "mm-ops", sales: "mm-sales", town: "mm-sales" });
+    expect(new Set(out.map((d) => d.key)).size).toBe(out.length);
+  });
 });

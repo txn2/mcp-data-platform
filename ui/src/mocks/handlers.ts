@@ -4669,6 +4669,18 @@ export const handlers = [
             { id: "mm-ops", name: "ops-alerts" },
           ],
         },
+        // A second channel on the same bot, addressed to ops-alerts: it lists
+        // the bot's chat channels too, and the picker offers each once (#2770).
+        {
+          name: "ops-alerts-mm", kind: "mattermost", mode: "immediate",
+          description: "Operations alerts in Mattermost",
+          carries: "a title, a markdown body, files and a link",
+          target: "mm-ops",
+          targets: [
+            { id: "mm-town", name: "town-square" },
+            { id: "mm-ops", name: "ops-alerts" },
+          ],
+        },
         {
           name: "ops-email", kind: "email", mode: "daily", description: "The operations mailing list",
           carries: "a subject, a rendered body, files and a link button, in the deployment's branded template",

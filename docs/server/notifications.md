@@ -666,6 +666,12 @@ and a send to a channel with no target of its own that names none is refused.
 A `daily` channel collects one bulletin for one chat channel, so it needs its own target and takes none per post. One immediate channel per workspace is enough: the person posting chooses among the
 channels the bot was invited to, and a channel the bot joined a minute ago is
 offered on the next list. A target outside the bot's channels is refused.
+Channels on one connection share one bot, so each lists the same chat
+channels: the list reads them once per connection however many channels
+deliver through it, and the portal's **Post to a channel** offers each chat
+channel once, posted through the channel whose own `target` it is when there
+is one, so that channel's limits apply, and otherwise through the first channel
+that lists it (#2770).
 
 ### Who can open a published link
 

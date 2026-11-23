@@ -36,19 +36,44 @@ export function kindLabel(kind: string): string {
   return known[kind] ?? kind.charAt(0).toUpperCase() + kind.slice(1);
 }
 
+/** destinationBase is what every place a channel posts to shares. */
+function destinationBase(ch: PortalChannel) {
+  return { channel: ch.name, kind: kindLabel(ch.kind), showsFiles: FILE_KINDS.has(ch.kind) };
+}
+
+/**
+ * chatDestinations offers every chat channel the channels' bots are in once.
+ * Several channels can share one bot, and each lists the bot's chat channels
+ * (#2770): a chat channel is posted through the channel addressed to it when
+ * there is one, so that channel's limits apply, and otherwise through the
+ * first channel that lists it.
+ */
+function chatDestinations(channels: PortalChannel[]): Destination[] {
+  const chat = new Map<string, { row: Destination; own: boolean }>();
+  for (const ch of channels) {
+    for (const t of ch.targets) {
+      const id = `${ch.kind}\u0000${t.id}`;
+      const own = ch.target === t.id;
+      const held = chat.get(id);
+      if (held && (held.own || !own)) continue;
+      chat.set(id, { row: { ...destinationBase(ch), key: `${ch.name}\u0000${t.id}`, target: t.id, label: `#${t.name}` }, own });
+    }
+  }
+  return [...chat.values()].map((c) => c.row);
+}
+
 /**
  * destinations flattens the channels into the places a post can go: every
- * chat channel a Slack or Mattermost bot is in, every other channel as
- * itself, and a bot whose chat channels could not be read, shown with why.
- * They are ordered by kind and then by label, the order the picker groups
- * them in (#2389).
+ * chat channel a Slack or Mattermost bot is in, once (chatDestinations), every
+ * other channel as itself, and a bot whose chat channels could not be read,
+ * shown with why. They are ordered by kind and then by label, the order the
+ * picker groups them in (#2389).
  */
 export function destinations(channels: PortalChannel[]): Destination[] {
-  const out: Destination[] = [];
+  const out = chatDestinations(channels);
   for (const ch of channels) {
-    const base = { channel: ch.name, kind: kindLabel(ch.kind), showsFiles: FILE_KINDS.has(ch.kind) };
-    for (const t of ch.targets) out.push({ ...base, key: `${ch.name}\u0000${t.id}`, target: t.id, label: `#${t.name}` });
     if (ch.targets.length > 0) continue;
+    const base = destinationBase(ch);
     const bot = ch.kind === "slack" || ch.kind === "mattermost";
     if (bot && ch.targets_error) {
       out.push({ ...base, key: ch.name, label: ch.name, unavailable: ch.targets_error });

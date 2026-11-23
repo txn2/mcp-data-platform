@@ -12,12 +12,16 @@ import { authenticate } from "../screenshots/helpers/auth";
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
-    const w = window as unknown as { __posts: number };
+    const w = window as unknown as { __posts: number; __channels: string[] };
     w.__posts = 0;
+    w.__channels = [];
     const native = window.fetch.bind(window);
     window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      if (url.endsWith("/channel-shares")) w.__posts++;
+      if (url.endsWith("/channel-shares")) {
+        w.__posts++;
+        if (typeof init?.body === "string") w.__channels.push((JSON.parse(init.body) as { channel: string }).channel);
+      }
       return native(input, init);
     };
   });
@@ -28,6 +32,9 @@ test.beforeEach(async ({ page }) => {
 
 const posts = (page: import("@playwright/test").Page) =>
   page.evaluate(() => (window as unknown as { __posts: number }).__posts);
+
+const postedThrough = (page: import("@playwright/test").Page) =>
+  page.evaluate(() => (window as unknown as { __channels: string[] }).__channels);
 
 test("a double click on Post sends one post, and a second post takes choosing again", async ({ page }) => {
   await page.getByRole("button", { name: "Share", exact: true }).click();
@@ -49,4 +56,22 @@ test("a double click on Post sends one post, and a second post takes choosing ag
   await dialog.getByRole("button", { name: "Post", exact: true }).click();
   await expect(dialog.getByTestId("share-toast")).toContainText("Posted to #ops-alerts");
   expect(await posts(page)).toBe(2);
+});
+
+// Two channels on one bot each list its chat channels; the picker offers each
+// chat channel once, and a post to the one a channel is addressed to goes
+// through that channel (#2770).
+test("a bot two channels share offers each of its chat channels once", async ({ page }) => {
+  await page.getByRole("button", { name: "Share", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "Post to a channel" }).click();
+  await dialog.getByRole("combobox", { name: "Channel" }).click();
+  await expect(page.getByRole("option", { name: /· Mattermost/ })).toHaveCount(2);
+  await expect(page.getByRole("option", { name: /#ops-alerts · Mattermost/ })).toHaveCount(1);
+  await expect(page.getByRole("option", { name: /#town-square · Mattermost/ })).toHaveCount(1);
+
+  await page.getByRole("option", { name: /#ops-alerts · Mattermost/ }).click();
+  await dialog.getByRole("button", { name: "Post", exact: true }).click();
+  await expect(dialog.getByTestId("share-toast")).toContainText("Posted to #ops-alerts");
+  expect(await postedThrough(page)).toEqual(["ops-alerts-mm"]);
 });

@@ -1535,6 +1535,20 @@ Head-based sampling is in-app via a ParentBased ratio sampler (a sampled caller'
 
 ---
 
+# Development Rules
+
+CLAUDE.md states the rules every change to this repository is held to. docs/reference/development-rules.md lists each numbered rule and CRITICAL section with its status: enforced (a Makefile target, a Go test or a CI job fails a change that breaks it, named in the row) or human (a step only a person or the agent doing the work can take, such as a threat model, a review or the choice of an integration test). There is no third class: a rule with no gate gains one or is marked a human step. TestEveryRuleIsClassified (test/gates/claude_rules_test.go) fails when CLAUDE.md gains a rule the table does not list, when the table lists one CLAUDE.md no longer states, when a row names a gate that does not exist, and on any other status.
+
+Gates added with the table (#2550):
+
+- No tag while a security finding is open: an issue reporting a secret reaching a sink, an authorization bypass or a decryption oracle carries the `security` label, and scripts/release-tag.py check refuses every tag, candidate or final, while one is open, in the release workflow and in `make release-tag-check`.
+- Pinned Dependencies: TestDependenciesArePinnedByDigest fails on a GitHub Action not pinned to a commit, or a Dockerfile base image (other than scratch) or compose image not pinned to a digest.
+- Diagrams: TestDocsDrawDiagramsInMermaid fails on a box drawn in characters in a tracked Markdown file; a directory tree passes.
+
+Human steps named as such: the Factual Integrity rules, the threat model and the attacker's review, integration tests for cross-component behavior, human review, tautological tests, dependency-first verification, coverage of each new function on top of the patch-coverage gate, and reading the dead-code report `make verify` prints.
+
+---
+
 # Platform Catalog
 
 The platform keeps its own data catalog in PostgreSQL. It records the datasets
@@ -2855,7 +2869,7 @@ Collection API endpoints:
 - Sections: PUT `/api/v1/portal/collections/{id}/sections` (full replace)
 - Add one asset: POST `/api/v1/portal/collections/{id}/items` with `asset_id` and optional `section_id` (appends at the end of that section, or the last section, or a new untitled one; 409 for a duplicate, a full section or a stale section id), and POST `/api/v1/portal/collections` with `asset_id` for a new collection holding it (#2260)
 - Add-to-collection picker: GET `/api/v1/portal/assets/{id}/collection-targets` lists the collections the caller can edit, newest first, each with its sections and whether the asset is in each (`search` narrows); the asset viewer's **Add to collection** action reads it
-- Collection item sweep (#2752): with the retention sweeps, under its own advisory lock, every collection item its owner cannot open now is removed (an administrator's collection keeps everything); a grant through another collection's share counts only while that collection's own item stays, so two collections opening an asset only to each other lose it. The asset is untouched, the other items keep their order, and each removal is recorded in `portal_collection_item_removals` (collection, asset, time; no content).
+- Collection item sweep (#2752): with the retention sweeps, under its own advisory lock, every collection item its owner cannot open now is removed (an administrator's collection keeps everything); a grant through another collection's share counts only while that collection's own item stays, so two collections opening an asset only to each other lose it. The asset is untouched, the other items keep their order, and each removal is recorded in `portal_collection_item_removals` (collection, asset, time; no content). It runs in each process's first retention pass, as soon as it is added after the loop has started, so a replica restarted more often than `retention.every` still runs it (#2757).
 - Config: PUT `/api/v1/portal/collections/{id}/config`
 - Sharing: POST/GET `/api/v1/portal/collections/{id}/shares`
 - Shared with me: GET `/api/v1/portal/shared-collections`
@@ -6108,7 +6122,10 @@ resource_id with an optional name. A slack or mattermost channel's target is
 optional (#2241): without one it stands for its bot, action=list reports the
 chat channels the bot is in under targets (Slack users.conversations, public
 only without groups:read; Mattermost every team's open and private channels),
-and a post names one of them as target. publish takes access (#2088):
+and a post names one of them as target. Channels on one connection share one
+listing, read once per list call (#2770), and the portal's Post to a channel
+offers each chat channel once, through the channel whose own target it is
+when there is one, otherwise the first channel listing it. publish takes access (#2088):
 signed_in (default) creates or reuses a link share any signed-in user opens,
 public creates one that expires after expires_in (required), existing posts
 the asset page link; signed_in and public need the asset's owner (or an
@@ -6197,7 +6214,7 @@ connection.
 
 # Data Retention
 
-Source: docs/server/data-retention.md (#1904). Every table the platform writes that grows with use is removed on age, bounded by count, or kept on purpose. Removed on age: soft-deleted assets/collections/threads/knowledge pages after `portal.deleted_retention_days` (30) with their objects, tiles and mosaics; archived `memory_records` after `memory.archived_retention_days` (90), counted from the record's last edit, which the platform's own writes about it (its embedding, the similar-record check) do not move (#2217); `content_producers` rows whose asset or resource is gone after `portal.orphaned_producer_retention_days` (90); unresolved failed `index_jobs` after `apigateway.embed_jobs.failed_retention_days` (90); expired `webhook_windows` records after `webhooks.compactor.expired_window_retention_days` (90); plus the existing audit (90), call catalog (90), finished index jobs (14) and script runs (365), and exports run as MCP tasks (`call_tasks`) past their own expiry (`tasks.retention_days`, 7; #2009). Failed endpoint requests (`script_endpoint_failures`) are kept 7 days and answered bot check challenges (`bot_check_answers`) until the challenge expires (#2172, #2173). For each, `0` takes the default and a negative value keeps rows forever. The portal, memory, producer and GraphQL sweeps live in `internal/platform/retention`: every `retention.every` (default 24h) on every replica, first run at startup, each under its own advisory lock. Removed when superseded: `graphql_operation_embeddings` of a schema hash the connection no longer holds (`graphql_connection_schemas` is one row per connection). Bounded by count: asset versions (100), resource versions (10), script draft runs (20 per script and author). Kept on purpose: script, prompt and knowledge-page version history (product history), `config_changelog` and `knowledge_changesets` (administrative record, low volume).
+Source: docs/server/data-retention.md (#1904). Every table the platform writes that grows with use is removed on age, bounded by count, or kept on purpose. Removed on age: soft-deleted assets/collections/threads/knowledge pages after `portal.deleted_retention_days` (30) with their objects, tiles and mosaics; archived `memory_records` after `memory.archived_retention_days` (90), counted from the record's last edit, which the platform's own writes about it (its embedding, the similar-record check) do not move (#2217); `content_producers` rows whose asset or resource is gone after `portal.orphaned_producer_retention_days` (90); unresolved failed `index_jobs` after `apigateway.embed_jobs.failed_retention_days` (90); expired `webhook_windows` records after `webhooks.compactor.expired_window_retention_days` (90); plus the existing audit (90), call catalog (90), finished index jobs (14) and script runs (365), and exports run as MCP tasks (`call_tasks`) past their own expiry (`tasks.retention_days`, 7; #2009). Failed endpoint requests (`script_endpoint_failures`) are kept 7 days and answered bot check challenges (`bot_check_answers`) until the challenge expires (#2172, #2173). For each, `0` takes the default and a negative value keeps rows forever. The portal, memory, producer and GraphQL sweeps live in `internal/platform/retention`: every `retention.every` (default 24h) on every replica, first run at startup, each under its own advisory lock; a sweep a later layer adds (the collection item sweep) runs in that first run as soon as it is added (#2757). Removed when superseded: `graphql_operation_embeddings` of a schema hash the connection no longer holds (`graphql_connection_schemas` is one row per connection). Bounded by count: asset versions (100), resource versions (10), script draft runs (20 per script and author). Kept on purpose: script, prompt and knowledge-page version history (product history), `config_changelog` and `knowledge_changesets` (administrative record, low volume).
 
 ---
 
