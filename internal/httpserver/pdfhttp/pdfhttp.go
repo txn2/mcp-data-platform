@@ -486,7 +486,7 @@ func (h *Handler) files(p string, header http.Header) (headless.File, bool) {
 	clean := path.Clean(p)
 	for _, prefix := range ownPrefixes {
 		if strings.HasPrefix(clean, prefix) {
-			res, ok := inproc.Read(h.deps.Routes, clean, header, fileTimeout)
+			res, ok := inproc.Read(h.deps.Routes, clean, header, fileTimeout, headless.MaxFileBytes)
 			if !ok {
 				return headless.File{}, false
 			}

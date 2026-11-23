@@ -918,6 +918,12 @@ the reason as the environment's `tile_failure`, and its tile reads "Can't draw"
 with the reason beneath it (on a small tile, as its hover title). Only a
 renderer that stops answering is tried again (#2664).
 
+A file the page loads is answered up to 16 MiB, a range from its start for a
+video, and a release's `index.html` larger than that is recorded as a tile that
+cannot be drawn; the files every tile being drawn in a replica loads are held to
+64 MiB together (#2721), so redrawing every site's tile after an upgrade costs
+what drawing one does. See [Thumbnails](configuration.md#thumbnails).
+
 ## In the portal
 
 The Sites section's Environments tab opens with **How this site works**: changes

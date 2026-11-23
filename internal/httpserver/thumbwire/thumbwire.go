@@ -55,9 +55,8 @@ func Build(p *platform.Platform, routes http.Handler) *thumbworker.Worker {
 	return assemble(p, routes, contentviewer.TileEntryURL(), sitePage(p))
 }
 
-// tileCacheBytes bounds the memory and the disk the tile page's gateway holds
-// file bytes in: tiles are drawn a few at a time, and the serving layer keeps
-// its own.
+// tileCacheBytes bounds the memory the tile page's gateway holds file bytes
+// in: tiles are drawn a few at a time, and the serving layer keeps its own.
 const tileCacheBytes = 32 << 20
 
 // sitePage builds the page a site environment's tile is drawn from, nil on a
@@ -74,16 +73,17 @@ func sitePage(p *platform.Platform) thumbworker.SitePage {
 	if !ok {
 		return nil
 	}
-	// A cache of its own, never the serving layer's directory: two caches
-	// evicting in one directory would remove each other's files.
+	// A memory cache of its own and no disk (#2721): a file past what memory
+	// holds is read by range, so a large one costs the part a page is
+	// answered with, not its whole size.
 	cfg := rt.Config
-	cfg.Cache = siteconfig.CacheConfig{MemoryBytes: tileCacheBytes, DiskBytes: tileCacheBytes, Dir: rt.Config.Limits().Cache.Dir + "-tiles"}
+	cfg.Cache = siteconfig.CacheConfig{MemoryBytes: tileCacheBytes}
 	// The application endpoints run through the server a site's own address
 	// runs them through, as the site's owner (#2747); no traffic tally is
 	// given, so a draw is never the site's traffic.
 	gw := sitegw.New(sitegw.Deps{
 		Store: rt.Store, Objects: objects, Bucket: p.Config().Portal.S3Bucket, Config: cfg, Live: rt.Live, Media: rt.Media,
-		Pages: sitepages.ForTiles(p),
+		Pages: sitepages.ForTiles(p), NoDiskCache: true,
 	})
 	host := ""
 	if u, err := url.Parse(p.Config().Portal.PublicBaseURL); err == nil {

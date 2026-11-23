@@ -31,7 +31,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -40,6 +39,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
 	"github.com/txn2/mcp-data-platform/internal/headless"
+	"github.com/txn2/mcp-data-platform/internal/inproc"
 	"github.com/txn2/mcp-data-platform/internal/site"
 )
 
@@ -78,9 +78,6 @@ const ready = `new Promise(function(done){
 
 // slash is the root of a site's paths.
 const slash = "/"
-
-// maxFile bounds one answer read from the gateway for the page.
-const maxFile = 64 << 20
 
 // ErrNoDocument is a release with no page at its root to draw.
 var ErrNoDocument = errors.New("the release has no index.html at its root to draw")
@@ -134,6 +131,9 @@ func (r Release) Page(ctx context.Context, siteID, environment string, number in
 	}
 	t := tile{ctx: ctx, server: r.Server, route: route, owner: owner, platformHost: r.PlatformHost, platform: platform}
 	root := t.serve(slash, nil)
+	if root.Status == http.StatusRequestEntityTooLarge {
+		return headless.Page{}, fmt.Errorf("the release's index.html is larger than the %d MiB a tile's page is read up to", headless.MaxFileBytes>>20)
+	}
 	if root.Status != http.StatusOK || !strings.Contains(strings.ToLower(root.ContentType), "html") {
 		return headless.Page{}, ErrNoDocument
 	}
@@ -205,15 +205,15 @@ func (t tile) serve(p string, h http.Header) headless.File {
 			req.Header[k] = v
 		}
 	}
-	rec := httptest.NewRecorder()
+	// A file larger than the renderer takes is stopped where it passes the
+	// bound and answered 413, never buffered whole (#2721): the gateway's
+	// answer to a tile page used to be held in full, then cut.
+	rec := inproc.NewRecorder(headless.MaxFileBytes)
 	t.server.Tile(rec, req, t.route, t.owner)
-	res := rec.Result()
-	defer func() { _ = res.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(res.Body, maxFile))
-	if err != nil {
-		return headless.File{Status: http.StatusServiceUnavailable}
+	if rec.Over() {
+		return headless.File{Status: http.StatusRequestEntityTooLarge}
 	}
-	return headless.RouteFile(res.StatusCode, res.Header, body)
+	return headless.RouteFile(rec.Code(), rec.Header(), rec.Body.Bytes())
 }
 
 // substitute answers a request on another hostname that is not a public

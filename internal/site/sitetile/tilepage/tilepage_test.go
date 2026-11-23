@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -282,4 +283,30 @@ func TestPage_AnOwnerWhoDoesNotResolveIsNobody(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestPage_AFileLargerThanTheRendererTakesIsNotHeld: a file past
+// headless.MaxFileBytes is answered 413, never buffered whole and cut, and a
+// document past it is refused naming the bound (#2721).
+func TestPage_AFileLargerThanTheRendererTakesIsNotHeld(t *testing.T) {
+	big := strings.Repeat("x", headless.MaxFileBytes+1)
+	g := newGateway()
+	g.paths["/hero.png"] = answer{status: http.StatusOK, ctype: "image/png", body: big}
+	g.paths["/fits.png"] = answer{status: http.StatusOK, ctype: "image/png", body: big[:headless.MaxFileBytes]}
+	p := page(t, g)
+
+	f, ok := p.Files("/hero.png", nil)
+	require.True(t, ok)
+	assert.Equal(t, http.StatusRequestEntityTooLarge, f.Status)
+	assert.Empty(t, f.Body)
+
+	f, ok = p.Files("/fits.png", nil)
+	require.True(t, ok)
+	assert.Equal(t, http.StatusOK, f.Status)
+	assert.Len(t, f.Body, headless.MaxFileBytes)
+
+	g.paths["/"] = answer{status: http.StatusOK, ctype: "text/html", body: big}
+	_, err := Release{Store: releases{}, Server: g}.Page(context.Background(), "s1", "dev", 1, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "larger than the 16 MiB")
 }

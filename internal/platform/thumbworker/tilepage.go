@@ -178,11 +178,12 @@ func servedInProcess(p string) bool {
 // export makes. A file the platform failed to serve -- a 5xx, or no answer
 // in time -- is answered with that status, which fails the render to be
 // tried again rather than drawn without it (#2218); one that is not there is
-// the page's 404.
+// the page's 404. One larger than headless.MaxFileBytes answers 413, and the
+// page is drawn without it (#2721).
 func serveInProcess(routes http.Handler, p string, header http.Header) (headless.File, bool) {
-	res, ok := inproc.Read(routes, p, header, storageTimeout)
+	res, ok := inproc.Read(routes, p, header, storageTimeout, headless.MaxFileBytes)
 	if !ok {
-		if res.Status >= http.StatusInternalServerError {
+		if res.Status >= http.StatusInternalServerError || res.Status == http.StatusRequestEntityTooLarge {
 			return headless.File{Status: res.Status, ContentType: "text/plain; charset=utf-8", Body: []byte("not served")}, true
 		}
 		return headless.File{}, false

@@ -38,6 +38,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/semaphore"
+
 	"github.com/txn2/mcp-data-platform/internal/outbound"
 )
 
@@ -56,8 +58,6 @@ const (
 
 	// publicFetchTimeout bounds one public resource a document names.
 	publicFetchTimeout = 15 * time.Second
-	// maxPublicBody bounds one public resource a document names.
-	maxPublicBody = 16 << 20
 	// disposeTimeout bounds tearing a render down after its own deadline has
 	// already passed.
 	disposeTimeout = 5 * time.Second
@@ -179,6 +179,10 @@ type Renderer struct {
 	// cache keeps the public responses documents fetched, for the renders
 	// after them (#2122).
 	cache *publicCache
+	// answers holds answerBudget across every render this renderer runs,
+	// made on first use (#2721).
+	answersOnce sync.Once
+	answers     *semaphore.Weighted
 	// local reaches the renderer itself: its discovery document and the
 	// DevTools socket, on the outbound chain (#1895).
 	local *http.Client

@@ -725,7 +725,7 @@ func (f failingTransport) RoundTrip(*http.Request) (*http.Response, error) { ret
 
 func TestAnswer_APublicFetchThatCannotCompleteFails(t *testing.T) {
 	huge := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write(make([]byte, maxPublicBody+1))
+		_, _ = w.Write(make([]byte, MaxFileBytes+1))
 	}))
 	defer huge.Close()
 	for _, tc := range []struct {

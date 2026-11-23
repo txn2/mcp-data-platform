@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -215,6 +216,22 @@ func (c *conn) call(ctx context.Context, session, method string, params, out any
 		}
 		raw = b
 	}
+	return c.callWith(ctx, session, method, paramsWriter{size: frameOverhead + len(raw), write: func(dst []byte) []byte { return append(dst, raw...) }}, out)
+}
+
+// paramsWriter appends a command's parameters, one JSON object, to a message
+// being written; size is room for the message, frameOverhead for the keys
+// around the parameters included.
+type paramsWriter struct {
+	size  int
+	write func([]byte) []byte
+}
+
+// callWith is call with the parameters written straight into the message
+// (#2721). A file answered to the page is base64 of tens of megabytes:
+// encoding it apart from the message and then the message around it held it
+// several times over.
+func (c *conn) callWith(ctx context.Context, session, method string, params paramsWriter, out any) error {
 	id := c.nextID.Add(1)
 	ch := make(chan message, 1)
 	c.mu.Lock()
@@ -225,7 +242,7 @@ func (c *conn) call(ctx context.Context, session, method string, params, out any
 	c.pending[id] = ch
 	c.mu.Unlock()
 
-	frame, err := json.Marshal(message{ID: id, Method: method, Params: raw, SessionID: session})
+	frame, err := appendFrame(make([]byte, 0, min(params.size, maxFrameHint)), id, method, session, params.write)
 	if err != nil {
 		c.forget(id)
 		return fmt.Errorf("headless: encoding %s: %w", method, err)
@@ -243,6 +260,47 @@ func (c *conn) call(ctx context.Context, session, method string, params, out any
 		return fmt.Errorf("headless: sending %s: %w", method, err)
 	}
 	return c.await(ctx, id, ch, method, out)
+}
+
+// frameOverhead is room for a command's keys around its parameters: the id,
+// the method and the session, each well under it.
+const frameOverhead = 256
+
+// maxFrameHint caps the room a message is made with up front: the frame of
+// the largest file a page is answered with. A larger message, a document the
+// tile worker's source bounds admit, grows as it is written.
+const maxFrameHint = frameOverhead + (MaxFileBytes+2)/3*4 + 1024
+
+// decimal is the base numbers are written and read in, and int64Bits the
+// width they are read into.
+const (
+	decimal   = 10
+	int64Bits = 64
+)
+
+// appendFrame writes one command, {"id":..,"method":..,"sessionId":..,
+// "params":{..}}, as a message would marshal it (sessionId only when there
+// is one).
+func appendFrame(dst []byte, id int64, method, session string, params func([]byte) []byte) ([]byte, error) {
+	name, err := json.Marshal(method)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // the caller says which command
+	}
+	dst = append(dst, `{"id":`...)
+	dst = strconv.AppendInt(dst, id, decimal)
+	dst = append(dst, `,"method":`...)
+	dst = append(dst, name...)
+	if session != "" {
+		sid, err := json.Marshal(session)
+		if err != nil {
+			return nil, err //nolint:wrapcheck // the caller says which command
+		}
+		dst = append(dst, `,"sessionId":`...)
+		dst = append(dst, sid...)
+	}
+	dst = append(dst, `,"params":`...)
+	dst = params(dst)
+	return append(dst, '}'), nil
 }
 
 // await waits for the answer to command id and decodes its result into out.

@@ -23,20 +23,20 @@ func TestRead(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	res, ok := Read(mux, "/ok", nil, time.Second)
+	res, ok := Read(mux, "/ok", nil, time.Second, 1<<20)
 	if !ok || res.Status != http.StatusOK || string(res.Body) != "a{}" || res.Header.Get("Content-Type") != "text/css" {
 		t.Fatalf("Read(/ok) = %v %d %q", ok, res.Status, res.Body)
 	}
-	if _, ok := Read(mux, "/silent", nil, time.Second); !ok {
+	if _, ok := Read(mux, "/silent", nil, time.Second, 1<<20); !ok {
 		t.Error("a route that wrote nothing answered 200 and was refused")
 	}
-	if _, ok := Read(mux, "/gone", nil, time.Second); ok {
+	if _, ok := Read(mux, "/gone", nil, time.Second, 1<<20); ok {
 		t.Error("a 410 was taken for an answer; the first status written is the one that counts")
 	}
-	if _, ok := Read(mux, "/missing", nil, time.Second); ok {
+	if _, ok := Read(mux, "/missing", nil, time.Second, 1<<20); ok {
 		t.Error("a 404 was taken for an answer")
 	}
-	if _, ok := Read(mux, "%zz", nil, time.Second); ok {
+	if _, ok := Read(mux, "%zz", nil, time.Second, 1<<20); ok {
 		t.Error("a path that is not a URL was answered")
 	}
 }
@@ -52,7 +52,7 @@ func TestRead_KeepsTheStatusOfARefusal(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	})
 	for path, want := range map[string]int{"/busy": http.StatusServiceUnavailable, "/missing": http.StatusNotFound, "/slow": http.StatusServiceUnavailable} {
-		res, ok := Read(mux, path, nil, 20*time.Millisecond)
+		res, ok := Read(mux, path, nil, 20*time.Millisecond, 1<<20)
 		if ok || res.Status != want {
 			t.Errorf("Read(%s) = %v %d, want refused with %d", path, ok, res.Status, want)
 		}
@@ -68,7 +68,7 @@ func TestRead_PassesARangedReadThrough(t *testing.T) {
 		w.Header().Set("X-Origin-Seen", r.Header.Get("Origin"))
 		http.ServeContent(w, r, "a.bin", time.Time{}, strings.NewReader("0123456789"))
 	})
-	res, ok := Read(routes, "/a.bin", http.Header{"Range": {"bytes=2-4"}, "Origin": {"null"}, "Cookie": {"s=1"}}, time.Second)
+	res, ok := Read(routes, "/a.bin", http.Header{"Range": {"bytes=2-4"}, "Origin": {"null"}, "Cookie": {"s=1"}}, time.Second, 1<<20)
 	if !ok || res.Status != http.StatusPartialContent || string(res.Body) != "234" {
 		t.Fatalf("ranged read = %v %d %q", ok, res.Status, res.Body)
 	}
@@ -76,10 +76,48 @@ func TestRead_PassesARangedReadThrough(t *testing.T) {
 		t.Errorf("headers = %v", res.Header)
 	}
 
-	if _, ok := Read(http.NotFoundHandler(), "/a.bin", nil, time.Second); ok {
+	if _, ok := Read(http.NotFoundHandler(), "/a.bin", nil, time.Second, 1<<20); ok {
 		t.Error("a 404 was answered")
 	}
-	if _, ok := Read(routes, "://bad", nil, time.Second); ok {
+	if _, ok := Read(routes, "://bad", nil, time.Second, 1<<20); ok {
 		t.Error("an unparseable path was answered")
+	}
+}
+
+// A route answering more than the reader takes is stopped where it passes the
+// limit, or before a byte when it declares its length, and Read reports 413
+// rather than the part it wrote (#2721).
+func TestRead_ABodyPastTheLimitIsNotHeld(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/streamed", func(w http.ResponseWriter, _ *http.Request) {
+		for range 4 {
+			if _, err := w.Write(make([]byte, 400)); err != nil {
+				return
+			}
+		}
+		t.Error("the route kept writing after the limit refused it")
+	})
+	mux.HandleFunc("/declared", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "5000")
+		w.WriteHeader(http.StatusOK)
+		if _, err := w.Write([]byte("x")); err == nil {
+			t.Error("a body declared past the limit was taken")
+		}
+	})
+	mux.HandleFunc("/fits", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "1000")
+		w.WriteHeader(http.StatusOK)
+		w.WriteHeader(http.StatusTeapot) // a second status is ignored
+		_, _ = w.Write(make([]byte, 1000))
+	})
+	for _, p := range []string{"/streamed", "/declared"} {
+		res, ok := Read(mux, p, nil, time.Second, 1000)
+		if ok || res.Status != http.StatusRequestEntityTooLarge || len(res.Body) != 0 {
+			t.Errorf("Read(%s) = %v %d %d bytes, want 413", p, ok, res.Status, len(res.Body))
+		}
+	}
+	res, ok := Read(mux, "/fits", nil, time.Second, 1000)
+	if !ok || res.Status != http.StatusOK || len(res.Body) != 1000 {
+		t.Errorf("Read(/fits) = %v %d %d bytes", ok, res.Status, len(res.Body))
 	}
 }

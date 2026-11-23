@@ -104,6 +104,11 @@ type Deps struct {
 	// Secure is true where the origins answer over https: what decides
 	// whether an answer carries Strict-Transport-Security (#2557).
 	Secure bool
+	// NoDiskCache keeps no file on disk (#2721): a file past what memory holds
+	// is served by ranged reads of the object rather than read whole to be
+	// written there. The tile page's gateway reads a file once per draw, and
+	// reading a large one whole cost its size for each file a page asked for.
+	NoDiskCache bool
 }
 
 // Gateway routes by Host.
@@ -133,8 +138,12 @@ type manifest struct {
 // New builds the gateway.
 func New(d Deps) *Gateway {
 	limits := d.Config.Limits()
+	dir := limits.Cache.Dir
+	if d.NoDiskCache {
+		dir = ""
+	}
 	g := &Gateway{
-		deps: d, cache: newCache(limits.Cache.MemoryBytes, limits.Cache.Dir, limits.Cache.DiskBytes),
+		deps: d, cache: newCache(limits.Cache.MemoryBytes, dir, limits.Cache.DiskBytes),
 		routes: map[string]routeEntry{}, manifest: map[string]*manifest{}, media: map[string]mediaEntry{},
 	}
 	if d.Pages != nil {

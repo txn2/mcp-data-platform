@@ -62,16 +62,29 @@ func (rs *render) answer(m message) {
 	defer cancel()
 
 	u, err := url.Parse(p.Request.URL)
-	switch {
-	case err != nil:
+	if err != nil {
 		rs.refuse(ctx, m.SessionID, p.RequestID)
-	case !reads(p.Request.Method):
+		return
+	}
+	if !reads(p.Request.Method) {
 		rs.refuseWrite(ctx, m.SessionID, p.RequestID, u)
-	case rs.substitute(ctx, m.SessionID, p.RequestID, u):
+		return
+	}
+	// A file is read and sent within the process's answer budget (#2721):
+	// the wait for room is part of the request's time.
+	b, err := rs.r.take(ctx)
+	if err != nil {
+		rs.fail(ctx, m.SessionID, p.RequestID)
+		return
+	}
+	defer b.release()
+	clampRange(p.Request.Headers)
+	switch {
+	case rs.substitute(ctx, b, m.SessionID, p.RequestID, u):
 	case strings.EqualFold(u.Host, rs.host):
-		rs.serveOwn(ctx, m.SessionID, p.RequestID, u.Path, requestHeader(p.Request.Headers))
+		rs.serveOwn(ctx, b, pausedAt{m.SessionID, p.RequestID}, u.Path, requestHeader(p.Request.Headers))
 	case rs.r.public != nil && fetchable(u, p.Request.Method):
-		rs.servePublic(ctx, m.SessionID, p)
+		rs.servePublic(ctx, b, m.SessionID, p)
 	default:
 		rs.refuse(ctx, m.SessionID, p.RequestID)
 	}
@@ -79,7 +92,7 @@ func (rs *render) answer(m message) {
 
 // substitute answers a request the page's Substitute claims, and reports
 // whether it did. The document at the page's own root is never substituted.
-func (rs *render) substitute(ctx context.Context, session, requestID string, u *url.URL) bool {
+func (rs *render) substitute(ctx context.Context, b *budget, session, requestID string, u *url.URL) bool {
 	own := strings.EqualFold(u.Host, rs.host)
 	if rs.page.Substitute == nil || (own && (u.Path == "/" || u.Path == "")) {
 		return false
@@ -88,7 +101,7 @@ func (rs *render) substitute(ctx context.Context, session, requestID string, u *
 	if !ok {
 		return false
 	}
-	rs.fulfill(ctx, session, requestID, ownReply(f))
+	rs.fulfill(ctx, b, session, requestID, ownReply(f))
 	return true
 }
 
@@ -114,7 +127,7 @@ func (rs *render) refuseWrite(ctx context.Context, session, requestID string, u 
 		rs.refuse(ctx, session, requestID)
 		return
 	}
-	rs.fulfill(ctx, session, requestID, reply{
+	rs.fulfill(ctx, nil, session, requestID, reply{
 		http.StatusMethodNotAllowed,
 		map[string]string{"Content-Type": "text/plain; charset=utf-8", "Allow": "GET, HEAD"},
 		[]byte("a page being drawn reads and changes nothing"),
@@ -123,9 +136,10 @@ func (rs *render) refuseWrite(ctx context.Context, session, requestID string, u 
 
 // serveOwn answers a request on the page's own origin: the document at the
 // root, a file the page declared, or a 404.
-func (rs *render) serveOwn(ctx context.Context, session, requestID, path string, header http.Header) {
+func (rs *render) serveOwn(ctx context.Context, b *budget, at pausedAt, path string, header http.Header) {
+	session, requestID := at.session, at.requestID
 	if path == "/" || path == "" {
-		rs.fulfill(ctx, session, requestID, reply{http.StatusOK, map[string]string{"Content-Type": "text/html; charset=utf-8"}, rs.page.Document})
+		rs.fulfill(ctx, b, session, requestID, reply{http.StatusOK, map[string]string{"Content-Type": "text/html; charset=utf-8"}, rs.page.Document})
 		return
 	}
 	if rs.page.Files != nil {
@@ -133,12 +147,15 @@ func (rs *render) serveOwn(ctx context.Context, session, requestID, path string,
 			if f.Status >= http.StatusInternalServerError {
 				rs.noteOwnFailure(path, f.Status)
 			}
-			rs.fulfill(ctx, session, requestID, ownReply(f))
+			rs.fulfill(ctx, b, session, requestID, ownReply(f))
 			return
 		}
 	}
-	rs.fulfill(ctx, session, requestID, reply{http.StatusNotFound, map[string]string{"Content-Type": "text/plain; charset=utf-8"}, []byte("not found")})
+	rs.fulfill(ctx, b, session, requestID, reply{http.StatusNotFound, map[string]string{"Content-Type": "text/plain; charset=utf-8"}, []byte("not found")})
 }
+
+// pausedAt names one paused request: the session it was paused in and its id.
+type pausedAt struct{ session, requestID string }
 
 // requestHeader is a paused request's headers as an http.Header.
 func requestHeader(h map[string]string) http.Header {
@@ -188,22 +205,17 @@ func ownReply(f File) reply {
 // followed, so each hop is a new request that is paused and vetted in turn and
 // a module resolves its relative imports against the address it was served
 // from.
-func (rs *render) servePublic(ctx context.Context, session string, p pausedRequest) {
+func (rs *render) servePublic(ctx context.Context, b *budget, session string, p pausedRequest) {
 	if r, ok := rs.r.cache.get(p); ok {
-		rs.fulfill(ctx, session, p.RequestID, r)
+		rs.fulfill(ctx, b, session, p.RequestID, r)
 		return
 	}
 	fctx, cancel := context.WithTimeout(ctx, publicFetchTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(fctx, p.Request.Method, p.Request.URL, http.NoBody)
+	req, err := publicRequest(fctx, p)
 	if err != nil {
 		rs.refuse(ctx, session, p.RequestID)
 		return
-	}
-	for _, h := range forwardedRequestHeaders {
-		if v := headerValue(p.Request.Headers, h); v != "" {
-			req.Header.Set(h, v)
-		}
 	}
 	res, err := rs.r.public.Do(req) // #nosec G107 G704 -- every dial passes the egress guard the caller built this client with
 	if err != nil {
@@ -217,8 +229,8 @@ func (rs *render) servePublic(ctx context.Context, session string, p pausedReque
 		return
 	}
 	defer res.Body.Close() //nolint:errcheck // read-only response
-	body, err := io.ReadAll(io.LimitReader(res.Body, maxPublicBody+1))
-	if err != nil || len(body) > maxPublicBody {
+	body, err := io.ReadAll(io.LimitReader(res.Body, MaxFileBytes+1))
+	if err != nil || len(body) > MaxFileBytes {
 		rs.noteMissing(p, "it could not be read")
 		rs.fail(ctx, session, p.RequestID)
 		return
@@ -226,15 +238,35 @@ func (rs *render) servePublic(ctx context.Context, session string, p pausedReque
 	if transient(res.StatusCode) {
 		rs.noteMissing(p, "its server answered "+strconv.Itoa(res.StatusCode))
 	}
-	headers := map[string]string{}
-	for _, h := range forwardedResponseHeaders {
-		if v := res.Header.Get(h); v != "" {
-			headers[h] = v
+	r := reply{res.StatusCode, publicHeaders(res.Header), body}
+	rs.r.cache.put(p, r, res.Header.Get("Cache-Control"))
+	rs.fulfill(ctx, b, session, p.RequestID, r)
+}
+
+// publicRequest is the request the platform makes for a paused public one,
+// with the request headers a public server chooses its answer by.
+func publicRequest(ctx context.Context, p pausedRequest) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, p.Request.Method, p.Request.URL, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("headless: building the public request: %w", err)
+	}
+	for _, h := range forwardedRequestHeaders {
+		if v := headerValue(p.Request.Headers, h); v != "" {
+			req.Header.Set(h, v)
 		}
 	}
-	r := reply{res.StatusCode, headers, body}
-	rs.r.cache.put(p, r, res.Header.Get("Cache-Control"))
-	rs.fulfill(ctx, session, p.RequestID, r)
+	return req, nil
+}
+
+// publicHeaders are the headers of a public response the page is given.
+func publicHeaders(h http.Header) map[string]string {
+	out := map[string]string{}
+	for _, name := range forwardedResponseHeaders {
+		if v := h.Get(name); v != "" {
+			out[name] = v
+		}
+	}
+	return out
 }
 
 // transient reports whether a public server's status says it may answer if
@@ -304,15 +336,43 @@ type reply struct {
 	body    []byte
 }
 
-func (rs *render) fulfill(ctx context.Context, session, requestID string, r reply) {
-	entries := make([]map[string]string, 0, len(r.headers))
+// fulfill sends r as the answer to a paused request, within b: what b holds
+// past the body's size is given back first. The body is written as base64
+// once, straight into the message the connection sends (#2721): a string of
+// it and two encodings around it held a file four times over.
+func (rs *render) fulfill(ctx context.Context, b *budget, session, requestID string, r reply) {
+	b.fit(len(r.body))
+	entries := make([]header, 0, len(r.headers))
 	for k, v := range r.headers {
-		entries = append(entries, map[string]string{"name": k, "value": v})
+		entries = append(entries, header{Name: k, Value: v})
 	}
-	_ = rs.c.call(ctx, session, "Fetch.fulfillRequest", map[string]any{ //nolint:errcheck // a request whose page is gone has nobody to answer
-		"requestId": requestID, "responseCode": r.status, "responseHeaders": entries,
-		"body": base64.StdEncoding.EncodeToString(r.body),
-	}, nil)
+	head, err := json.Marshal(fulfillParams{RequestID: requestID, ResponseCode: r.status, ResponseHeaders: entries})
+	if err != nil {
+		return
+	}
+	// The body is at most MaxFileBytes, or a document the tile worker's
+	// source bounds held, so the size cannot overflow; it is a capacity hint.
+	params := paramsWriter{size: frameOverhead + len(head) + base64.StdEncoding.EncodedLen(len(r.body)), write: func(dst []byte) []byte {
+		dst = append(dst, head[:len(head)-1]...)
+		dst = append(dst, `,"body":"`...)
+		dst = base64.StdEncoding.AppendEncode(dst, r.body)
+		return append(dst, `"}`...)
+	}}
+	_ = rs.c.callWith(ctx, session, "Fetch.fulfillRequest", params, nil) //nolint:errcheck // a request whose page is gone has nobody to answer
+}
+
+// header is one response header of Fetch.fulfillRequest.
+type header struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// fulfillParams is Fetch.fulfillRequest without its body, which fulfill
+// writes after it.
+type fulfillParams struct {
+	RequestID       string   `json:"requestId"`
+	ResponseCode    int      `json:"responseCode"`
+	ResponseHeaders []header `json:"responseHeaders"`
 }
 
 // refuse fails a request the page is not allowed to make.
