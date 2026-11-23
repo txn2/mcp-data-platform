@@ -53,7 +53,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "d3-array": "^3.2.4",
-    "d3-force": "^3.0.0",
+    "d3-force": "^3.0.1",
     "d3-polygon": "^3.0.1",
     "d3-sankey": "^0.12.3",
     "d3-scale": "^4.0.2",
@@ -88,11 +88,11 @@
     "vega-embed": "^7.3.0",
     "vega-interpreter": "^2.3.2",
     "vega-lite": "^6.5.0",
-    "zustand": "^5.0.5"
+    "zustand": "^5.1.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@playwright/test": "^1.63.0",
+    "@playwright/test": "^1.65.1",
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.3",
