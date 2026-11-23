@@ -88,7 +88,7 @@
     "vega-embed": "^7.3.0",
     "vega-interpreter": "^2.3.2",
     "vega-lite": "^6.5.0",
-    "zustand": "^5.0.5"
+    "zustand": "^5.1.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
