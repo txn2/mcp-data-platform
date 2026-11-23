@@ -43,7 +43,7 @@ require (
 	github.com/txn2/mcp-s3 v1.5.1
 	github.com/txn2/mcp-trino v1.9.0
 	github.com/vektah/gqlparser/v2 v2.5.64
-	github.com/wneessen/go-mail v0.8.1
+	github.com/wneessen/go-mail v0.8.2
 	github.com/xuri/excelize/v2 v2.11.1
 	github.com/yosida95/uritemplate/v3 v3.0.2
 	github.com/yuin/goldmark v1.8.7
