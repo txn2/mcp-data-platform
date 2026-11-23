@@ -88,10 +88,12 @@ v1.152.1 shipped a webhook auth mode that stored the secret it verified in every
    - every documented promise the change must keep (write-only secrets, redaction on read, encryption at rest), checked against the docs, not memory.
 2. **Every "never" is a criterion.** Each sink the threat model rules out becomes an acceptance criterion that searches that sink, through the real surface, for the secret (as written, base64, hex, URL- and JSON-escaped). A criterion that only checks the feature works does not count.
 3. **A separate security review before `make verify`.** After the correctness review, review the diff again as an attacker holding the threat model: what can be read that should not be, what can be opened that was sealed for something else, what an error repeats. A finding a scanner, a reviewer or another agent reports after the PR is recorded as a miss of this review.
-4. **No tag while a security finding is open.** Before a release, list open issues that report a secret reaching a sink, an authorization bypass, or a decryption oracle; any one blocks the tag.
+4. **No tag while a security finding is open.** An issue that reports a secret reaching a sink, an authorization bypass, or a decryption oracle carries the `security` label, and while any such issue is open `scripts/release-tag.py check` refuses every tag, candidate or final, in the release workflow and in `make release-tag-check` (#2550).
 5. **One list per rule.** What is encrypted at rest, redacted when a connection is read and redacted in the config export all read the encryption layer's key sets (`pkg/platform/fieldcrypt`), and `TestSanitizeParametersCoversEveryEncryptedKey` fails when the audit sanitizer would store one of those keys' values. A second hand-kept copy is how `session_token` was described as encrypted and stored in clear (#2359).
 
 ## Code Standards
+
+Which rule a gate enforces, and which is a human step, is listed in `docs/reference/development-rules.md`. `TestEveryRuleIsClassified` (`test/gates/claude_rules_test.go`) fails when this file gains a numbered rule or a CRITICAL section the table does not list, when a row names a gate that no longer exists, and on a rule classified as neither (#2550).
 
 1. **Idiomatic Go**: All code must follow idiomatic Go patterns and conventions. Use `gofmt`, follow Effective Go guidelines, and adhere to Go Code Review Comments.
 
@@ -108,7 +110,7 @@ v1.152.1 shipped a webhook auth mode that stored the secret it verified in every
    - **The load harness module** (`make load-test`, `make load-lint`, #2729): `test/load` is a separate Go module the root build, test and lint never reach; verify builds, vets, tests and lints it (skipped while `test/load` is unchanged since it passed), and `.github/workflows/load.yml` runs both on a pull request that changes it. A load report counts each failed operation's failures by what each said (`error_reasons`).
    - Code formatting (`gofmt -s -w .`)
    - **API description converts to OpenAPI 3 (`make apidocs-openapi3-check`, #2022)** — runs the swagger2openapi conversion `npm run generate-api-types` runs over `internal/apidocs/swagger.json`, in verify's serial preamble and in CI's frontend job. swag writes a document the conversion refuses (a path parameter marked optional, on PDF routes that shared one annotation block), and `ui/src/api/generated` is gitignored, so nothing else converts it.
-   - **Tagged build (`make vet-tags`, #1799)** — `go vet -tags=integration ./...`, run in verify's serial preamble before the lanes fan out. Nothing else cheap compiles a file behind `//go:build integration`: every other consumer of the tag wants a machine (`test-realdb` Docker and a migrated Postgres, `acceptance` a dev stack and a renderer, `smoke` a running server), `.golangci.yml` sets no build tags, and `npm run build` is not Go. So a one-character compile error in a tagged file used to be reported by `verify-docker` after the daemon was up and the migrations had replayed: on #1794 three tagged files referenced two deleted constants, every cheap gate passed, and the Docker lane failed six minutes in. This answers the same question in about a second. **Run it yourself before `make verify`**, beside `make lint` and `make patch-coverage` — those two are the gates the pre-verify list already names, and neither reads a tagged file.
+   - **Tagged build (`make vet-tags`, #1799)** — `go vet -tags=integration ./...`, run in verify's serial preamble before the lanes fan out. Nothing else cheap compiles a file behind `//go:build integration`: every other consumer of the tag wants a machine (`test-realdb` Docker and a migrated Postgres, `acceptance` a dev stack and a renderer, `smoke` a running server), `.golangci.yml` sets no build tags, and `npm run build` is not Go. So a one-character compile error in a tagged file used to be reported by `verify-docker` after the daemon was up and the migrations had replayed: on #1794 three tagged files referenced two deleted constants, every cheap gate passed, and the Docker lane failed six minutes in. This answers the same question in about a second.
    - **Standalone e2e (`make e2e-standalone`, #2342)** — runs in verify's serial preamble and in CI's test job: every `test/e2e` test except those calling `helpers.NeedsServices` (they read the PostgreSQL, Trino or SeaweedFS `make e2e-up` starts, and only the E2E Nightly runs them), about thirty seconds. #2337 changed the admin API's non-admin answer from 401 to 403 deliberately, every gate passed, and `TestAdminAPI_AuthEnforcement`, which needs no service, failed the next nightly. A new e2e test runs here unless it calls `NeedsServices`. Separately, a pull request that changes a ticket's `test/acceptance/issue_<n>_test.go` runs those criteria in CI on a fresh Linux stack with no `.env` (`Acceptance (changed criteria)`, `ACCEPTANCE_TICKETS`, #2341): #2179's passed locally with an encryption key the runners never had.
    - Unit tests with race detection (`go test -race ./...`)
    - Schedule lane (`make schedule-lane`, #1711, #2039) — the `Test` functions in every `_test.go` file changed against `main` run `go test -race -cpu=1,2 -count=5`, each package under a ten-minute budget, and a failure prints the command that reproduces it, and, when the binary died with no failing test (a runtime fatal error, an `os.Exit`, the race runtime giving up), the test it died in and what that test printed; CI runs the same target on every pull request. The unit is the changed test, not its package: the whole-package form ran ten passes of `pkg/platform` on one core, an hour locally and a timeout in CI, almost all of it tests the change did not touch (#2039). The lane prints each package's measured time per CPU setting. Each package's `go test` writes its `-json` stream to a file of its own, never to a pipe read later: the lane starts every package together and collects them one at a time, and a verbose package read late used to block `go test` on a full pipe until its one-minute WaitDelay reported "Test I/O incomplete after exiting" and dropped the rest of the stream, which read as a binary dying mid-test (#2045; it killed five packages on each of #2046's CI runs and never reproduced alone). `make test` runs each test once at this machine's CPU count, which is not the schedule a loaded CI runner chooses: `TestWithRevocations_WiredLate` passed two `make verify` runs on 18 cores and fails 140 of 300 runs at `-cpu=1`. The frontend half (`make schedule-lane-ui`, in place of `frontend-test`) runs every changed `*.test.ts(x)` file five times beside the full vitest suite.
@@ -151,10 +153,8 @@ v1.152.1 shipped a webhook auth mode that stored the secret it verified in every
 
 4. **CRITICAL - Coverage Verification Before Completion**: Before declaring ANY implementation task complete:
    - Run `go test -coverprofile=coverage.out ./...` (note: `./...` not `./pkg/...` — covers `cmd/` too)
-   - For EVERY new function or method added, run: `go tool cover -func=coverage.out | grep <function_name>`
-   - **If ANY new function shows less than 80% coverage (or 0.0%), you MUST add tests before declaring done**
-   - This is a BLOCKING requirement - do not tell the user the work is complete until all new code has adequate test coverage
-   - The CI/CD pipeline includes Codecov patch coverage checks that will fail if new code lacks tests
+   - The gate is `make patch-coverage`: the lines a change touches must be ≥80% covered, as Codecov's patch check requires in CI
+   - Per function is a human step on top of it: for every new function or method, run `go tool cover -func=coverage.out | grep <function_name>`, and add tests to any below 80% (or at 0.0%) before declaring done, since a well-covered change can still carry one untested function
 
 5. **CRITICAL - Integration Tests for Cross-Component Behavior**: Unit tests are NOT sufficient for features that span multiple components (middleware chains, provider pipelines, context propagation). Before declaring such work complete:
    - **Write an integration test that exercises the real assembled system**, not just individual functions with hand-crafted inputs
@@ -187,12 +187,14 @@ v1.152.1 shipped a webhook auth mode that stored the secret it verified in every
    - **license**: Valid license file present
    - **misspell**: No spelling errors in comments/strings
 
-9. **Diagrams**: Use Mermaid for all diagrams. Never use ASCII art.
+9. **Diagrams**: Use Mermaid for all diagrams. Never use ASCII art. `TestDocsDrawDiagramsInMermaid` (`test/gates/claude_rules_test.go`) fails on a box drawn in characters in a tracked Markdown file.
 
 10. **Pinned Dependencies**: All external dependencies must be pinned to specific versions with SHA digests for reproducibility and security:
     - Docker base images: `alpine:3.21@sha256:...`
-    - GitHub Actions: `actions/checkout@sha256:...`
+    - Compose service images: `trinodb/trino:453@sha256:...`
+    - GitHub Actions: `actions/checkout@<40-hex commit>`
     - Go modules are pinned via `go.sum`
+    - `TestDependenciesArePinnedByDigest` (`test/gates/claude_rules_test.go`) fails on an action, a Dockerfile `FROM` (other than `scratch`) or a compose image without one
 
 11. **Documentation Updates**: When modifying documentation in `docs/`, also update the LLM-readable files:
     - `docs/llms.txt` - Index of documentation with brief descriptions
@@ -805,7 +807,7 @@ When AI (Claude Code or similar) contributes code, the following additional chec
 
 3. **Mutation Survival Review**: After adding tests, run `make mutate` on the affected packages. Surviving mutants in security-critical paths (auth, audit, encryption) must be addressed with targeted tests. Informational mutants in logging or formatting may be deferred.
 
-4. **Dead Code Audit**: Run `make dead-code` before submitting. Functions reported as dead should be either deleted or moved to test files. Public API functions may be false positives (library exports) and can be ignored with justification.
+4. **Dead Code Audit**: `make verify` prints deadcode's report (`make dead-code`) and does not fail on it. Reading it is a human step: functions reported as dead are deleted or moved to test files, and public API functions may be false positives (library exports), ignored with justification.
 
 5. **No Vaporware**: Every database migration table must have corresponding DML (INSERT/SELECT/UPDATE/DELETE) in non-test Go source code. Every Go package under `pkg/` must be imported by at least one non-test file. Every interface with a noop implementation must also have a real (non-noop) implementation. These invariants are enforced by three tests:
    - `TestMigrationTablesHaveConsumers` (`pkg/database/migrate/`) — no orphaned migration tables

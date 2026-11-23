@@ -224,11 +224,15 @@ func (h *Handle) withdraw(ctx context.Context, link postLink) {
 }
 
 // summaries renders the list action's entries, reading the chat channels of
-// every slack and mattermost channel's bot at once: each listing is an
-// upstream call, and one slow chat service holds back only its own entry.
+// every slack and mattermost bot at once: each listing is an upstream call,
+// and one slow chat service holds back only its own entries. A listing names
+// what the bot is in, which depends only on the kind and the connection, so
+// it is read once per connection and given to every channel delivering
+// through it (#2770).
 func (h *Handle) summaries(ctx context.Context, channels []notification.Channel) []channelSummary {
 	out := make([]channelSummary, len(channels))
-	var wg sync.WaitGroup
+	bots := map[botKey][]int{}
+	var order []botKey
 	for i, ch := range channels {
 		out[i] = channelSummary{
 			Name: ch.Name, Kind: ch.Kind, Mode: ch.Mode, Description: ch.Description,
@@ -239,17 +243,34 @@ func (h *Handle) summaries(ctx context.Context, channels []notification.Channel)
 		if !notification.ChannelHasTarget(ch.Kind) || ch.Mode == notification.ChannelModeDaily || h.cfg.Targets == nil {
 			continue
 		}
+		key := botKey{kind: ch.Kind, connection: ch.Connection}
+		if _, seen := bots[key]; !seen {
+			order = append(order, key)
+		}
+		bots[key] = append(bots[key], i)
+	}
+	var wg sync.WaitGroup
+	for _, key := range order {
+		members := bots[key]
 		wg.Go(func() {
 			listCtx, cancel := context.WithTimeout(ctx, targetListTimeout)
 			defer cancel()
-			targets, err := h.cfg.Targets.Targets(listCtx, ch)
-			if err != nil {
-				out[i].TargetsError = err.Error()
-				return
+			targets, err := h.cfg.Targets.Targets(listCtx, channels[members[0]])
+			for _, i := range members {
+				if err != nil {
+					out[i].TargetsError = err.Error()
+					continue
+				}
+				out[i].Targets = append(out[i].Targets, targets...)
 			}
-			out[i].Targets = append(out[i].Targets, targets...)
 		})
 	}
 	wg.Wait()
 	return out
+}
+
+// botKey is what a chat channel listing depends on: the kind and the
+// connection its bot's token is held by.
+type botKey struct {
+	kind, connection string
 }

@@ -16,6 +16,7 @@ jobs:
       id-token: write  # Required for keyless signing with Cosign
       attestations: write  # Required for GitHub attestations
       actions: read  # The E2E Nightly's last result, read by the tag rules (#2036)
+      issues: read  # The open `security` issues, which hold every tag (#2550)
     steps:
       # GoReleaser builds every platform and the multi-arch images on this one
       # runner, and the v1.153.0 run's first attempt failed compiling
@@ -98,7 +99,8 @@ jobs:
       # A final tag sits on the commit its last release candidate was built
       # from, and every release measures its changelog from the last FINAL
       # release, never from a candidate (#2012). A final tag is refused while
-      # the most recent E2E Nightly on main failed (#2036).
+      # the most recent E2E Nightly on main failed (#2036), and every tag while
+      # an open issue carries the `security` label (#2550).
       - name: Release candidate rules
         id: tags
         env:

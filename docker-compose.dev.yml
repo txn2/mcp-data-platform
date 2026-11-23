@@ -19,7 +19,7 @@ services:
   # Test Harness for MCP Apps development
   # Open http://localhost:8000/test-harness.html
   test-harness:
-    image: python:3.12-alpine
+    image: python:3.12-alpine@sha256:c5ba3deef00c7758561a0f03c26f44f10589263d40e732b8748e0d1f38f6dd89
     container_name: mcp-dev-harness
     working_dir: /apps
     command: python -m http.server 8000
@@ -53,7 +53,7 @@ services:
 
   # Trino SQL Engine
   trino:
-    image: trinodb/trino:462
+    image: trinodb/trino:462@sha256:1f01fdaa070e16d55769a31065d2948f552b39883988ae71084c19b9368325d0
     container_name: mcp-dev-trino
     ports:
       - "8090:8080"
@@ -66,7 +66,7 @@ services:
 
   # MCP Inspector (Web UI for testing)
   inspector:
-    image: node:22-alpine
+    image: node:22-alpine@sha256:1314fb30ec37592d5845e5a160d522c0e680972aa534549940b8d73bde88481a
     container_name: mcp-dev-inspector
     working_dir: /app
     environment:

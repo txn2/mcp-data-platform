@@ -148,7 +148,9 @@ func TestReleaseTag_AFinalTagWithNoCandidate(t *testing.T) {
 
 func TestReleaseTag_CandidatesAndMalformedTags(t *testing.T) {
 	root, _ := releaseRepo(t)
-	if out, ok := runScript(t, root, []string{releaseTagScript, "check", "v1.139.0-rc2"}, nil); !ok {
+	// A candidate reads the open security issues (#2550); here there are none.
+	env := fakeGH(t, root, nightlyPassed, "", "[]")
+	if out, ok := runScript(t, root, []string{releaseTagScript, "check", "v1.139.0-rc2"}, env); !ok {
 		t.Fatalf("a candidate was refused: %s", out)
 	}
 	for _, tag := range []string{"v1.139", "release-1", "v1.139.0-rc0", "v1.139.0-beta1"} {
@@ -456,5 +458,27 @@ func TestReleaseTag_AGreenNightlyOnTheTaggedTree(t *testing.T) {
 			out, ok := runScript(t, root, []string{releaseTagScript, "check", "v1.140.0"}, env)
 			assertOutput(t, out, ok, tc.expect)
 		})
+	}
+}
+
+// An open issue carrying the security label holds every tag, a candidate
+// and a final one alike, and the refusal names it (#2550). Once it is
+// closed the tag passes.
+func TestReleaseTag_AnOpenSecurityIssueHoldsEveryTag(t *testing.T) {
+	root, commits := releaseRepo(t)
+	open := `[{"number": 4242, "title": "A secret reaches the audit row", "url": "https://example.com/issues/4242"}]`
+	env := fakeGH(t, root, nightlyPassed, "", open)
+	runIn(t, root, "git", "tag", "v1.139.0", commits[2])
+	runIn(t, root, "git", "tag", "v1.140.0-rc1", commits[3])
+	for _, tag := range []string{"v1.139.0", "v1.140.0-rc1"} {
+		out, ok := runScript(t, root, []string{releaseTagScript, "check", tag}, env)
+		if ok || !strings.Contains(out, "#4242") || !strings.Contains(out, "security") {
+			t.Errorf("%s was not held by an open security issue: %s", tag, out)
+		}
+	}
+
+	env = fakeGH(t, root, nightlyPassed, "", "[]")
+	if out, ok := runScript(t, root, []string{releaseTagScript, "check", "v1.139.0"}, env); !ok {
+		t.Errorf("with no open security issue the tag was refused: %s", out)
 	}
 }

@@ -33,7 +33,10 @@ removed, because restoring the built-in pages brings it back.
 
 The portal, memory, producer and GraphQL sweeps run once a day on every
 replica; each takes a PostgreSQL advisory lock of its own, so only one replica
-deletes at a time. The first run happens at startup. How often they run is
+deletes at a time. The first run happens at startup. A sweep a later layer of
+the platform adds, such as the collection item sweep (#2752), runs in that first
+run too, as soon as it is added, so a replica restarted more often than the
+interval still runs every sweep (#2757). How often they run is
 `retention.every`:
 
 ```yaml

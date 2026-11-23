@@ -67,9 +67,18 @@ type Loop struct {
 	sweeps   []Sweep
 	interval time.Duration
 
-	mu     sync.Mutex
-	cancel context.CancelFunc
-	done   chan struct{}
+	mu sync.Mutex
+	// wantStart records a Start that found no sweeps, so the first Add
+	// starts the loop it asked for.
+	wantStart bool
+	// passTaken is set when a pass has read the sweeps; a sweep added
+	// before then runs in that pass, one added after it runs at once.
+	passTaken bool
+	closed    bool
+	ctx       context.Context
+	cancel    context.CancelFunc
+	done      chan struct{}
+	added     sync.WaitGroup
 }
 
 // New builds a loop over sweeps. A non-positive interval takes
@@ -82,24 +91,46 @@ func New(db *sql.DB, interval time.Duration, sweeps ...Sweep) *Loop {
 }
 
 // Add appends sweeps a layer assembled after the loop was built (the
-// collection item sweep needs the portal's authorization core, #2752). A
-// sweep added after Start runs from the next pass.
+// collection item sweep needs the portal's authorization core, #2752). Every
+// added sweep runs in the process's first pass, whenever it is added (#2757):
+// one added before that pass has read the sweeps is in it, and one added
+// after is run at once, beside it, so a replica that restarts more often than
+// the interval still runs it. A sweep added to a loop Start found empty
+// starts the loop.
 func (l *Loop) Add(sweeps ...Sweep) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.sweeps = append(l.sweeps, sweeps...)
+	switch {
+	case len(sweeps) == 0 || l.closed:
+	case l.cancel != nil && l.passTaken:
+		ctx := l.ctx
+		l.added.Go(func() { _ = l.runSweeps(ctx, sweeps) })
+	case l.cancel == nil && l.wantStart:
+		l.startLocked()
+	}
 }
 
 // Start runs every sweep now and then on the interval, in its own goroutine.
-// A second call, a loop with no database and a loop with no sweeps do nothing.
+// A second call and a loop with no database do nothing; a loop with no sweeps
+// starts when the first is added.
 func (l *Loop) Start() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.db == nil || len(l.sweeps) == 0 || l.cancel != nil {
+	if l.db == nil || l.cancel != nil || l.closed {
 		return
 	}
+	if len(l.sweeps) == 0 {
+		l.wantStart = true
+		return
+	}
+	l.startLocked()
+}
+
+// startLocked starts the loop's goroutine; l.mu is held.
+func (l *Loop) startLocked() {
 	ctx, cancel := context.WithCancel(context.Background())
-	l.cancel, l.done = cancel, make(chan struct{})
+	l.ctx, l.cancel, l.done = ctx, cancel, make(chan struct{})
 	go func() {
 		defer close(l.done)
 		bgloop.Run(ctx, bgloop.Loop{
@@ -108,9 +139,11 @@ func (l *Loop) Start() {
 	}()
 }
 
-// Close stops the loop and waits for a running pass to return.
+// Close stops the loop and waits for a running pass, and any added sweeps
+// running beside it, to return.
 func (l *Loop) Close() error {
 	l.mu.Lock()
+	l.closed = true
 	cancel, done := l.cancel, l.done
 	l.mu.Unlock()
 	if cancel == nil {
@@ -118,6 +151,7 @@ func (l *Loop) Close() error {
 	}
 	cancel()
 	<-done
+	l.added.Wait()
 	return nil
 }
 
@@ -129,7 +163,13 @@ func (l *Loop) Close() error {
 func (l *Loop) RunOnce(ctx context.Context) error {
 	l.mu.Lock()
 	sweeps := append([]Sweep(nil), l.sweeps...)
+	l.passTaken = true
 	l.mu.Unlock()
+	return l.runSweeps(ctx, sweeps)
+}
+
+// runSweeps runs sweeps once, as RunOnce describes.
+func (l *Loop) runSweeps(ctx context.Context, sweeps []Sweep) error {
 	var errs []error
 	for _, s := range sweeps {
 		if ctx.Err() != nil {

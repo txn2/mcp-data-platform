@@ -9,7 +9,7 @@
 
 services:
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg16@sha256:484e838076e04939d27d3e176e91c86eea96236126023be8d3059761122e579f
     container_name: acme-dev-postgres
     environment:
       POSTGRES_USER: platform
