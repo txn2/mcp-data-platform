@@ -2,6 +2,11 @@ version: "2"
 
 run:
   timeout: 10m
+  # The threads lint runs on (GOMAXPROCS). On an 18-core workstation a cold
+  # run at full width spent 8,807s in the kernel against 305s of user time and
+  # passed the 10m timeout; the same tree at 8 finished in 519s (#2772). CI's
+  # runners have fewer cores than this, so it changes nothing there.
+  concurrency: 8
   modules-download-mode: readonly
 
 linters:

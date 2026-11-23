@@ -12,17 +12,17 @@ require (
 	github.com/aws/smithy-go v1.28.8
 	github.com/bazelbuild/buildtools v0.0.0-20260904073137-eaa4d125b423
 	github.com/coder/websocket v1.8.15
-	github.com/emersion/go-imap/v2 v2.0.0-beta.8
+	github.com/emersion/go-imap/v2 v2.0.0-beta.9
 	github.com/emersion/go-message v0.18.2
 	github.com/emersion/go-msgauth v0.7.0
-	github.com/evanw/esbuild v0.28.1
+	github.com/evanw/esbuild v0.28.2
 	github.com/getkin/kin-openapi v0.153.0
-	github.com/go-json-experiment/json v0.0.0-20260623181947-01eb4420fa68
+	github.com/go-json-experiment/json v1.27.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/golang-migrate/migrate/v4 v4.20.1
 	github.com/google/jsonschema-go v0.4.3
 	github.com/google/uuid v1.6.0
-	github.com/jackc/pgx/v5 v5.12.0
+	github.com/jackc/pgx/v5 v5.13.0
 	github.com/klippa-app/go-pdfium v1.21.4
 	github.com/lib/pq v1.12.3
 	github.com/modelcontextprotocol/go-sdk v1.8.0
@@ -43,7 +43,7 @@ require (
 	github.com/txn2/mcp-s3 v1.5.1
 	github.com/txn2/mcp-trino v1.9.0
 	github.com/vektah/gqlparser/v2 v2.5.64
-	github.com/wneessen/go-mail v0.8.1
+	github.com/wneessen/go-mail v0.8.2
 	github.com/xuri/excelize/v2 v2.11.1
 	github.com/yosida95/uritemplate/v3 v3.0.2
 	github.com/yuin/goldmark v1.8.7
