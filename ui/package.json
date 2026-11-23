@@ -77,7 +77,7 @@
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",
     "recharts": "^2.15.3",
-    "redoc": "2.5.4",
+    "redoc": "3.2.0",
     "remark-gfm": "^4.0.1",
     "reveal.js": "6.0.2",
     "sucrase": "^3.35.1",
