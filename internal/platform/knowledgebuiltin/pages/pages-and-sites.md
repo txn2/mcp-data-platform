@@ -408,7 +408,10 @@ An environment's tile in the portal is drawn as the site's owner sees it
 `site_tile` and the run's audit row marked `tile_draw`. Any other method answers
 405 while a tile is drawn, so keep a GET handler free of writes. An owner the
 directory no longer holds draws the page for nobody (`/_viewer` and the
-endpoints answer 401).
+endpoints answer 401). A file the page loads is answered to the tile up to
+16 MiB (#2721): a larger image is answered 413 and the tile is drawn without
+it, a video gets its first 16 MiB as a range, and an `index.html` larger than
+that cannot be drawn, so keep a first screen's images under the bound.
 
 ### Two shapes
 

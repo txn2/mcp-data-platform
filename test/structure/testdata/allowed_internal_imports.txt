@@ -2368,6 +2368,7 @@ internal/site/sitesvc -> pkg/contenttype
 internal/site/sitesvc -> pkg/textpatch
 internal/site/sitetile/tilepage -> internal/endpoint/epform
 internal/site/sitetile/tilepage -> internal/headless
+internal/site/sitetile/tilepage -> internal/inproc
 internal/site/sitetile/tilepage -> internal/site
 internal/site/sitetool -> internal/bucketsource
 internal/site/sitetool -> internal/logsan

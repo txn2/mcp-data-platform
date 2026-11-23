@@ -57,7 +57,7 @@ func encodeWindow(events []whevent.Stored) ([]byte, error) {
 // a window whose raw segments retention already deleted keeps the events those
 // segments held.
 func decodeWindow(data []byte) ([]whevent.Stored, error) {
-	f, err := parquet.OpenFile(bytes.NewReader(data), int64(len(data)))
+	f, err := tableparquet.Open(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return nil, fmt.Errorf("opening the window's Parquet file: %w", err)
 	}

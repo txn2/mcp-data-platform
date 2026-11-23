@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/parquet-go/parquet-go"
+	"github.com/parquet-go/parquet-go/encoding/thrift"
 	"github.com/parquet-go/parquet-go/format"
 
 	"github.com/txn2/mcp-data-platform/internal/tabletype"
@@ -68,53 +69,96 @@ func notParquetf(tmpl string, args ...any) error {
 // last eight, and the footer they point at, so a file of any size costs a few
 // kilobytes.
 func Columns(r io.ReaderAt, size int64) ([]tabletype.Column, error) {
-	if err := checkMagic(r, size); err != nil {
-		return nil, err
-	}
-	f, err := parquet.OpenFile(r, size, parquet.SkipPageIndex(true), parquet.SkipBloomFilters(true))
-	if err != nil {
-		return nil, notParquetf("its footer could not be read (%s)", err.Error())
-	}
-	root, err := buildTree(f.Metadata().Schema)
+	_, root, err := openChecked(r, size, parquet.SkipPageIndex(true), parquet.SkipBloomFilters(true))
 	if err != nil {
 		return nil, err
 	}
 	return columnsOf(root)
 }
 
+// Open opens a Parquet file through the library once its footer has been read
+// and its schema checked here (#2754). The library trusts the footer's schema:
+// a group declaring a negative number of children panics it while it lays the
+// columns out, so every Parquet file the platform opens is opened through this.
+func Open(r io.ReaderAt, size int64, opts ...parquet.FileOption) (*parquet.File, error) {
+	f, _, err := openChecked(r, size, opts...)
+	return f, err
+}
+
+// openChecked is Open returning the checked schema tree beside the file.
+func openChecked(r io.ReaderAt, size int64, opts ...parquet.FileOption) (*parquet.File, *node, error) {
+	footerSize, err := checkMagic(r, size)
+	if err != nil {
+		return nil, nil, err
+	}
+	var md format.FileMetaData
+	if err := readFooter(r, size, footerSize, &md); err != nil {
+		return nil, nil, err
+	}
+	root, err := buildTree(md.Schema)
+	if err != nil {
+		return nil, nil, err
+	}
+	f, err := parquet.OpenFile(r, size, opts...)
+	if err != nil {
+		return nil, nil, footerUnreadable(err)
+	}
+	return f, root, nil
+}
+
+// readFooter decodes the footerSize bytes before the trailer into md, with the
+// decoder the library reads them with. A signed footer's trailing signature is
+// left unread, as the library leaves it.
+func readFooter(r io.ReaderAt, size, footerSize int64, md *format.FileMetaData) error {
+	buf := make([]byte, footerSize)
+	if _, err := r.ReadAt(buf, size-int64(trailerBytes)-footerSize); err != nil {
+		return fmt.Errorf("reading the file's footer: %w", err)
+	}
+	var compact thrift.CompactProtocol
+	if err := thrift.NewDecoder(compact.NewReaderFromBytes(buf)).Decode(md); err != nil {
+		return footerUnreadable(err)
+	}
+	return nil
+}
+
+// footerUnreadable is the refusal of a footer that does not decode.
+func footerUnreadable(err error) error {
+	return notParquetf("its footer could not be read (%s)", err.Error())
+}
+
 // checkMagic refuses bytes that are not a Parquet file before the footer is
 // parsed, so a file with the wrong name says so rather than reporting a thrift
-// error. An encrypted footer ("PARE") is named as such: it is Parquet, and the
-// platform holds no key to read it with.
+// error, and returns the footer's length. An encrypted footer ("PARE") is
+// named as such: it is Parquet, and the platform holds no key to read it with.
 //
 // The four bytes before the trailing magic are the footer's length, and the
-// reader allocates that many bytes before reading them, so a 16-byte file
-// claiming a 4 GiB footer would allocate 4 GiB to fail. The length is held to
-// the file it came from here, where the refusal costs one buffer.
-func checkMagic(r io.ReaderAt, size int64) error {
+// footer is read into a buffer that long, so a 16-byte file claiming a 4 GiB
+// footer would allocate 4 GiB to fail. The length is held to the file it came
+// from here, where the refusal costs one buffer.
+func checkMagic(r io.ReaderAt, size int64) (int64, error) {
 	if size < minFileSize {
-		return notParquetf("it is %d bytes, shorter than the smallest Parquet file", size)
+		return 0, notParquetf("it is %d bytes, shorter than the smallest Parquet file", size)
 	}
 	head := make([]byte, len(Magic))
 	tail := make([]byte, trailerBytes)
 	if _, err := r.ReadAt(head, 0); err != nil {
-		return fmt.Errorf("reading the start of the file: %w", err)
+		return 0, fmt.Errorf("reading the start of the file: %w", err)
 	}
 	if _, err := r.ReadAt(tail, size-int64(len(tail))); err != nil {
-		return fmt.Errorf("reading the end of the file: %w", err)
+		return 0, fmt.Errorf("reading the end of the file: %w", err)
 	}
 	trailer := string(tail[footerLenBytes:])
 	if trailer == "PARE" {
-		return errors.New("the Parquet file's footer is encrypted, and a table cannot be read over an encrypted file")
+		return 0, errors.New("the Parquet file's footer is encrypted, and a table cannot be read over an encrypted file")
 	}
 	if string(head) != Magic || trailer != Magic {
-		return notParquetf("it does not begin and end with %q", Magic)
+		return 0, notParquetf("it does not begin and end with %q", Magic)
 	}
 	footerSize := int64(binary.LittleEndian.Uint32(tail[:footerLenBytes]))
 	if footerSize == 0 || footerSize > size-minFileSize {
-		return notParquetf("its footer says it is %d bytes, which does not fit in a file of %d bytes", footerSize, size)
+		return 0, notParquetf("its footer says it is %d bytes, which does not fit in a file of %d bytes", footerSize, size)
 	}
-	return nil
+	return footerSize, nil
 }
 
 // node is one element of the schema tree the footer lists depth-first.
@@ -144,6 +188,9 @@ func subtree(els []format.SchemaElement, i, depth int) (*node, int, error) {
 	}
 	n := &node{el: els[i]}
 	count, _ := els[i].NumChildren.Get()
+	if count < 0 {
+		return nil, 0, notParquetf("its schema says %q has %d children", els[i].Name, count)
+	}
 	next := i + 1
 	for range count {
 		if next >= len(els) {
