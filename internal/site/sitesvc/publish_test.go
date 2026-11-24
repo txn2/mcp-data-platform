@@ -36,7 +36,7 @@ func TestCleanPath(t *testing.T) {
 		{name: "a dot inside a name", in: "a.b/c.d", want: "a.b/c.d"},
 		{name: "empty", in: "", refusal: "cannot be served"},
 		{name: "blank", in: "   ", refusal: "cannot be served"},
-		{name: "too long", in: strings.Repeat("a", maxPathLen+1), refusal: "cannot be served"},
+		{name: "too long", in: strings.Repeat("a", 1024+1), refusal: "cannot be served"},
 		{name: "not utf-8", in: "a\xff.txt", refusal: "cannot be served"},
 		{name: "a backslash", in: `a\b.txt`, refusal: "cannot be served"},
 		{name: "a nul", in: "a\x00b", refusal: "cannot be served"},

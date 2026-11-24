@@ -6,12 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"reflect"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/refscheme"
 
 	"gopkg.in/yaml.v3"
 
@@ -490,6 +491,10 @@ type ServerConfig struct {
 	// TrustedProxies are the CIDRs whose X-Forwarded-For an endpoint reads a
 	// client's address from (#2556); portal and OAuth limits use them when theirs are empty.
 	TrustedProxies []string `yaml:"trusted_proxies"`
+	// ReferenceScheme is the scheme the references the platform hands out
+	// start with (#2776): acme:asset:<id> rather than mcp:asset:<id>. Both
+	// are read; stored references keep mcp:. Default "mcp".
+	ReferenceScheme string `yaml:"reference_scheme"`
 }
 
 // ShutdownConfig configures graceful shutdown timing.
@@ -1146,7 +1151,7 @@ const defaultManagedResourcesS3Bucket = "managed-resources"
 // Enabled by default when a database is available. Set enabled: false to disable.
 type ManagedResourcesCfg struct {
 	Enabled      *bool  `yaml:"enabled"`       // nil = auto (enabled when DB available)
-	URIScheme    string `yaml:"uri_scheme"`    // default: "mcp"
+	URIScheme    string `yaml:"uri_scheme"`    // default: "mcp", written out as server.reference_scheme (#2776)
 	S3Connection string `yaml:"s3_connection"` // name of S3 toolkit instance
 	S3Bucket     string `yaml:"s3_bucket"`     // bucket for resource blobs (default: "managed-resources")
 	// MaxVersions caps the content revisions a resource keeps, counting the
@@ -2068,7 +2073,7 @@ func (c *Config) Validate() error {
 	_, runBudget := c.Scripts.Worker.RunMemoryBudget(0)
 	_, thumbs := c.Thumbnails.Tuning()
 	_, thumbSources := c.Thumbnails.SourceLimits()
-	for _, err := range []error{admission, runBudget, thumbs, thumbSources, dbobs.CheckPoolSize(c.Database.MaxOpenConns), c.Scripts.SQL.Validate(), c.Scripts.Draft.Validate(), c.Webhooks.Validate(), c.Resources.Index.Validate(), c.Tools.ResultBudget.Validate(), c.Portal.AssetRefs.Validate(), c.Portal.Embeds.Validate(), c.Sites.Check(c.Portal.PublicBaseURL, c.Auth.BrowserSession.Domain), ratelimit.CheckTrustedProxies("server.trusted_proxies", c.Server.TrustedProxies)} {
+	for _, err := range []error{admission, runBudget, thumbs, thumbSources, dbobs.CheckPoolSize(c.Database.MaxOpenConns), c.Scripts.SQL.Validate(), c.Scripts.Draft.Validate(), c.Webhooks.Validate(), c.Resources.Index.Validate(), c.Tools.ResultBudget.Validate(), c.Portal.AssetRefs.Validate(), c.Portal.Embeds.Validate(), c.Sites.Check(c.Portal.PublicBaseURL, c.Auth.BrowserSession.Domain), ratelimit.CheckTrustedProxies("server.trusted_proxies", c.Server.TrustedProxies), refscheme.Validate(c.Server.ReferenceScheme)} {
 		if err != nil {
 			errs = append(errs, err.Error())
 		}
@@ -2128,33 +2133,8 @@ func (c *Config) validateOAuth(errs []string) []string {
 
 // validateBrowserSession checks browser session configuration validity and appends any errors.
 func (c *Config) validateBrowserSession(errs []string) []string {
-	if !c.Auth.BrowserSession.Enabled {
-		return errs
-	}
-	if !c.Auth.OIDC.Enabled {
-		errs = append(errs, "auth.oidc must be enabled when browser_session is enabled")
-	}
-	if c.Auth.BrowserSession.SigningKey == "" {
-		errs = append(errs, "auth.browser_session.signing_key is required")
-	}
-	// Reject an unrecognized same_site value at startup. ParseSameSite maps any
-	// typo to the zero value, which resolves to Lax, so without this check a
-	// misspelled "strict" would silently run as Lax and weaken the intended
-	// cross-site posture with no error.
-	if !browsersession.IsValidSameSite(c.Auth.BrowserSession.SameSite) {
-		errs = append(errs, fmt.Sprintf(
-			"auth.browser_session.same_site=%q is invalid (want \"lax\", \"strict\", or \"none\")",
-			c.Auth.BrowserSession.SameSite))
-	}
-	// SameSite=None requires the Secure attribute; browsers silently drop a
-	// SameSite=None cookie that is not Secure, which would break all portal
-	// login. Reject the combination at startup rather than ship a session
-	// that never persists.
-	if browsersession.ParseSameSite(c.Auth.BrowserSession.SameSite) == http.SameSiteNoneMode &&
-		!c.Auth.BrowserSession.IsSecure() {
-		errs = append(errs, "auth.browser_session.same_site=none requires auth.browser_session.secure=true")
-	}
-	return errs
+	bs := c.Auth.BrowserSession
+	return append(errs, browsersession.CheckSettings(bs.Enabled, c.Auth.OIDC.Enabled, bs.SigningKey != "", bs.SameSite, bs.IsSecure())...)
 }
 
 // errDefaultPersonaRemovedMsg tells an operator what to do about a config that

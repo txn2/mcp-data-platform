@@ -1,3 +1,4 @@
+import { referenceScheme } from "@/lib/refScheme";
 import { useState } from "react";
 import { MoreHorizontal } from "lucide-react";
 import { DEV_ENVIRONMENT, PROD_ENVIRONMENT, statusOf, useRemoveSiteEnvironment, useSetSiteEnvironment, type Site, type SiteEnvironment } from "@/api/portal/hooks/sites";
@@ -101,7 +102,7 @@ export function RenameDialog({ site, env, onClose }: { site: Site; env: SiteEnvi
             </div>
           )}
           <p className="text-xs text-muted-foreground">
-            The old address stops working at once, and <span className="font-mono">mcp:site:{site.name}/{env.name}</span> references written in assets, knowledge pages or scripts stop resolving. Domains added to {env.name} keep answering.
+            The old address stops working at once, and <span className="font-mono">{referenceScheme()}:site:{site.name}/{env.name}</span> references written in assets, knowledge pages or scripts stop resolving. Domains added to {env.name} keep answering.
           </p>
           <Failure text={failure} />
         </div>

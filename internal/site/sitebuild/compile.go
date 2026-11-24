@@ -2,11 +2,13 @@ package sitebuild
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"path"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -16,7 +18,7 @@ import (
 // Version names what an output is a function of beyond its inputs: the
 // compiler and these options. An output compiled under another version is
 // compiled again.
-const Version = reviewedCompiler + "/1"
+const Version = reviewedCompiler + "/2"
 
 // reviewedCompiler is the esbuild these options were written against; a test
 // holds it to go.mod.
@@ -69,19 +71,37 @@ type Output struct {
 	Body []byte
 }
 
-// Result is one entry compiled: its outputs, and every path of the tree it
-// read or looked for, so it is compiled again when any of them changes.
+// Result is one entry compiled: its outputs, every path of the tree it read or
+// looked for, so it is compiled again when any of them changes, and what it
+// produced from what (#2783).
 type Result struct {
 	Outputs []Output
 	Inputs  []string
+	Report  *Report
 }
 
-// Namespaces a module is placed in: a file of the tree, or a module by URL.
+// Namespaces a module is placed in: a file of the tree, a module by URL, or a
+// stylesheet by URL a script imports, which becomes an @import of the entry's
+// stylesheet (#2779).
 const (
-	nsSite = "site"
-	nsURL  = "url"
-	outDir = "/out/"
+	nsSite   = "site"
+	nsURL    = "url"
+	nsCSSURL = "cssurl"
+	outDir   = "/out/"
 )
+
+// SiteMetaInput is the input an entry that reads import.meta.site records: it
+// is compiled again for every release, since the release is what it reads.
+// No path of a release can hold a NUL.
+const SiteMetaInput = "\x00import.meta.site"
+
+// SiteMeta is what import.meta.site holds (#2784): the release, not the
+// environment, so a release promoted elsewhere serves the same bytes.
+type SiteMeta struct {
+	Release     int    `json:"release"`
+	PublishedAt string `json:"published_at"`
+	Site        string `json:"site"`
+}
 
 // Options are what a compile is given besides its tree and entry.
 type Options struct {
@@ -89,6 +109,17 @@ type Options struct {
 	Limits Limits
 	// Fetch reads URL modules in bundle mode; nil refuses them.
 	Fetch Fetcher
+	// Site is what import.meta.site holds; nil leaves it unset.
+	Site *SiteMeta
+	// Stylesheets rewrites a stylesheet before it is compiled; Tailwind is
+	// one (#2780). Nil leaves every stylesheet as written.
+	Stylesheets StylesheetCompiler
+}
+
+// StylesheetCompiler turns a stylesheet of the tree into the CSS the build
+// reads in its place, reporting whether it changed it.
+type StylesheetCompiler interface {
+	CompileStylesheet(ctx context.Context, name string, body []byte) (out []byte, changed bool, err error)
 }
 
 // Compile builds one entry of the tree. Every module it reads comes from src
@@ -104,6 +135,7 @@ func Compile(ctx context.Context, src fs.FS, entry string, opts Options) (res *R
 			res, err = nil, fmt.Errorf("the compiler failed on %s: %v", entry, p)
 		}
 	}()
+	c.opts = opts
 	result := api.Build(c.options())
 	if c.stop != nil {
 		return nil, c.stop
@@ -111,7 +143,15 @@ func Compile(ctx context.Context, src fs.FS, entry string, opts Options) (res *R
 	if len(result.Errors) > 0 {
 		return nil, &Error{Messages: messages(result.Errors)}
 	}
-	return c.result(result.OutputFiles)
+	if len(c.envReads) > 0 {
+		return nil, &Error{Messages: c.envReads}
+	}
+	res, err = c.result(result.OutputFiles)
+	if err != nil {
+		return nil, err
+	}
+	res.Report, err = condense(entry, result.Metafile, res.Outputs, opts.Config)
+	return res, err
 }
 
 // compile is one entry's build: what it has read, and the limit it crossed.
@@ -123,30 +163,39 @@ type compile struct {
 	limits Limits
 	fetch  Fetcher
 
-	mu      sync.Mutex
-	inputs  map[string]bool
-	modules int
-	read    int64
-	stop    error
+	opts     Options
+	mu       sync.Mutex
+	inputs   map[string]bool
+	modules  int
+	read     int64
+	stop     error
+	envReads []Message
+	// bare, when set, collects the bare specifiers the graph imports instead
+	// of resolving them (Specifiers).
+	bare map[string]bool
 }
 
 func (c *compile) options() api.BuildOptions {
 	opts := api.BuildOptions{
-		EntryPoints:   []string{c.entry},
-		Bundle:        true,
-		Write:         false,
-		Format:        api.FormatESModule,
-		Platform:      api.PlatformBrowser,
-		Target:        api.ES2022,
-		JSX:           api.JSXAutomatic,
-		Outfile:       outDir + OutputOf(c.entry),
-		AbsWorkingDir: "/",
-		LegalComments: api.LegalCommentsEndOfFile,
-		Define:        map[string]string{"process.env.NODE_ENV": `"production"`},
-		LogLevel:      api.LogLevelSilent,
-		Plugins:       []api.Plugin{{Name: "site", Setup: c.setup}},
+		EntryPointsAdvanced: []api.EntryPoint{{InputPath: c.entry, OutputPath: strings.TrimSuffix(c.entry, path.Ext(c.entry))}},
+		Bundle:              true,
+		Write:               false,
+		Format:              api.FormatESModule,
+		Platform:            api.PlatformBrowser,
+		Target:              api.ES2022,
+		JSX:                 api.JSXAutomatic,
+		Outdir:              outDir,
+		Splitting:           c.cfg.Splits(),
+		ChunkNames:          ChunkDir + "/[name]-[hash]",
+		AssetNames:          ChunkDir + "/[name]-[hash]",
+		Metafile:            true,
+		AbsWorkingDir:       "/",
+		LegalComments:       api.LegalCommentsEndOfFile,
+		Define:              c.defines(),
+		LogLevel:            api.LogLevelSilent,
+		Plugins:             []api.Plugin{{Name: "site", Setup: c.setup}},
 	}
-	if c.cfg.Sourcemap {
+	if c.cfg.Sourcemap != SourcemapOff {
 		opts.Sourcemap = api.SourceMapLinked
 	}
 	if c.cfg.Minify {
@@ -155,10 +204,33 @@ func (c *compile) options() api.BuildOptions {
 	return opts
 }
 
+// defines are the names the compile replaces: NODE_ENV, what the control file
+// declares, and import.meta.site.
+func (c *compile) defines() map[string]string {
+	out := map[string]string{"process.env.NODE_ENV": `"production"`}
+	for key, raw := range c.cfg.Define {
+		out[key] = string(raw)
+	}
+	if c.opts.Site != nil {
+		meta, _ := json.Marshal(c.opts.Site) //nolint:errchkjson // three plain fields
+		out["import.meta.site"] = string(meta)
+	}
+	return out
+}
+
 func (c *compile) setup(b api.PluginBuild) {
 	b.OnResolve(api.OnResolveOptions{Filter: `.*`}, c.resolve)
 	b.OnLoad(api.OnLoadOptions{Filter: `.*`, Namespace: nsSite}, c.loadFile)
 	b.OnLoad(api.OnLoadOptions{Filter: `.*`, Namespace: nsURL}, c.loadURL)
+	b.OnLoad(api.OnLoadOptions{Filter: `.*`, Namespace: nsCSSURL}, loadCSSURL)
+}
+
+// loadCSSURL is a stylesheet on the web a script imports, as the stylesheet
+// that imports it: the entry's own stylesheet then loads it, where a browser
+// would refuse it as a module (#2779).
+func loadCSSURL(args api.OnLoadArgs) (api.OnLoadResult, error) {
+	css := "@import " + strconv.Quote(args.Path) + ";\n"
+	return api.OnLoadResult{Contents: &css, Loader: api.LoaderCSS}, nil
 }
 
 // halt records the first limit crossed, which says more than the compile
@@ -220,12 +292,55 @@ func (c *compile) loadFile(args api.OnLoadArgs) (api.OnLoadResult, error) {
 	if err != nil {
 		return api.OnLoadResult{}, fmt.Errorf("reading %s: %w", name, err)
 	}
-	loader, ok := loaders[strings.ToLower(path.Ext(name))]
+	ext := strings.ToLower(path.Ext(name))
+	loader, ok := loaders[ext]
 	if !ok {
 		return api.OnLoadResult{}, fmt.Errorf("the file %s cannot be imported: a build reads %s", name, strings.Join(loadable(), ", "))
 	}
+	if ext == extCSS && c.opts.Stylesheets != nil {
+		if body, err = c.stylesheet(name, body); err != nil {
+			return api.OnLoadResult{}, err
+		}
+	}
+	if loader != api.LoaderCSS && loader != api.LoaderJSON {
+		c.checkScript(name, body)
+	}
 	contents := string(body)
 	return api.OnLoadResult{Contents: &contents, Loader: loader}, nil
+}
+
+// stylesheet is a stylesheet as the stylesheet compiler leaves it.
+func (c *compile) stylesheet(name string, body []byte) ([]byte, error) {
+	out, changed, err := c.opts.Stylesheets.CompileStylesheet(c.ctx, name, body)
+	if err != nil {
+		return nil, c.halt(err)
+	}
+	if !changed {
+		return body, nil
+	}
+	return out, nil
+}
+
+// checkScript records what a script reads that nothing defines (#2781), and
+// that it reads import.meta.site, which every release compiles again.
+func (c *compile) checkScript(name string, body []byte) {
+	reads, site := scanMeta(body)
+	if site {
+		c.noteInput(SiteMetaInput)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, r := range reads {
+		if _, ok := c.cfg.Define[r.key]; ok {
+			continue
+		}
+		text := fmt.Sprintf("reads %s, which %s does not define, so it would be undefined when the page runs; "+
+			"add it to \"define\" with the value it should have, or read the setting from somewhere else", r.key, ControlFile)
+		if r.key == envRoot {
+			text = "reads import.meta.env as a whole; name each value it uses and add it to \"define\""
+		}
+		c.envReads = append(c.envReads, Message{File: name, Line: r.line, Column: r.column, Text: text})
+	}
 }
 
 func loadable() []string {

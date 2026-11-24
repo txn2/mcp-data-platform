@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/admin/brandingapi"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	httpswagger "github.com/swaggo/http-swagger/v2"
 
@@ -538,7 +540,7 @@ func (h *Handler) registerSystemRoutes() {
 	}
 	h.mux.HandleFunc("GET /api/v1/admin/connections", h.listConnections)
 	h.mux.HandleFunc("GET /api/v1/admin/embedding/status", h.getEmbeddingStatus)
-	h.publicMux.HandleFunc("GET /api/v1/admin/public/branding", h.getPublicBranding)
+	h.publicMux.HandleFunc("GET /api/v1/admin/public/branding", brandingapi.Handler(h.deps.Config))
 	// The spec is served from the embedded document rather than through
 	// swag.ReadDoc, which renders docs.go's template at run time.
 	//

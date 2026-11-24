@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/refscheme"
+
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
@@ -27,14 +29,24 @@ var namedAssetPrefix = knowledgepage.EntityRef{TargetType: knowledgepage.RefTarg
 // endpoint by (#2457); assetrefs.FormURIPrefix and EndpointURIPrefix,
 // restated so this package stays free of the reference layer.
 const (
-	namedFormPrefix     = "mcp:form:"
-	namedEndpointPrefix = "mcp:endpoint:"
+	namedFormPrefix     = refscheme.Form
+	namedEndpointPrefix = refscheme.Endpoint
 )
 
 // namedPrefixes are the reference forms a body is read for: a managed resource
 // by its default-scheme URI, then an asset by its mcp:asset:<id> reference,
 // then a form by mcp:form:<endpoint> and an endpoint by mcp:endpoint:<name>.
 var namedPrefixes = []string{resource.DefaultURIScheme + "://", namedAssetPrefix, namedFormPrefix, namedEndpointPrefix}
+
+// prefixes are namedPrefixes and the scheme resources are stored under, when
+// the deployment named its own (#2776).
+func prefixes() []string {
+	stored := refscheme.StoredResourceScheme() + "://"
+	if stored == namedPrefixes[0] {
+		return namedPrefixes
+	}
+	return append([]string{stored}, namedPrefixes...)
+}
 
 // uriTerminators end a reference string written into a body: whitespace, the
 // quotes and brackets markup and code put around a URL, and the backslash a
@@ -56,20 +68,20 @@ const UndeclaredConsequence = "they are served as written and resolve to nothing
 // managed resource by its mcp:// URI, then each asset by its mcp:asset:<id>
 // reference, both in the order they first appear.
 //
-// It recognizes the default resource scheme only. A deployment that renamed
-// its scheme (resources.managed.uri_scheme) writes URIs this does not see, so a
-// caller must treat an empty result as "found none", never as "there are
-// none". Declaration is unaffected: it is the Declarer's, which takes the
-// deployment's scheme.
+// It recognizes mcp:// and the scheme resources are stored under
+// (resources.managed.uri_scheme), and references under the deployment's
+// reference scheme as well as mcp: (#2776), returning each in the canonical
+// form.
 //
 // It is the reading the serving rewrite would need a declaration for, so a
 // surface can tell an author which references in a document will be served as
 // written and resolve to nothing (#1834, #1875). It grants nothing: a string
 // found here is a string, and only a declaration makes it load.
 func Named(body string) []string {
+	body = refscheme.Canon(body)
 	var out []string
 	seen := map[string]bool{}
-	for _, prefix := range namedPrefixes {
+	for _, prefix := range prefixes() {
 		rest := body
 		for {
 			i := strings.Index(rest, prefix)
@@ -252,7 +264,7 @@ func RefusedLinks(body, contentType string) []string {
 // AssetID returns the asset id an mcp:asset:<id> reference names, without a
 // fragment or query, and whether ref is one.
 func AssetID(ref string) (string, bool) {
-	id, ok := strings.CutPrefix(ref, namedAssetPrefix)
+	id, ok := strings.CutPrefix(refscheme.Canon(ref), namedAssetPrefix)
 	if !ok {
 		return "", false
 	}

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/refscheme"
+
 	"github.com/google/uuid"
 
 	"github.com/txn2/mcp-data-platform/pkg/catalog"
@@ -13,7 +15,7 @@ import (
 // mcpScheme prefixes the serialized form of an internal-entity reference, for
 // example "mcp:asset:<id>" or "mcp:connection:(trino,warehouse)". It is the
 // platform's existing internal scheme (pkg/resource uses "mcp" as well).
-const mcpScheme = "mcp:"
+const mcpScheme = refscheme.Prefix
 
 // URN returns the serialized projection of a reference: the mcp: form, resolved
 // by id for an internal entity so a rename does not change it, and the catalog
@@ -55,7 +57,7 @@ func (r EntityRef) URN() string {
 // catalog entity. Source and the owning page id are not part of the serialized
 // form and are left to the caller.
 func ParseEntityRef(s string) (EntityRef, error) {
-	s = strings.TrimSpace(s)
+	s = refscheme.Canon(strings.TrimSpace(s))
 	switch {
 	case s == "":
 		return EntityRef{}, errors.New("empty entity reference")

@@ -182,6 +182,7 @@ server:
   transport: stdio             # stdio or http
   address: ":8080"             # Listen address for HTTP transports
   trusted_proxies: []          # e.g. ["10.42.0.0/16"]: the ingress's range
+  reference_scheme: mcp        # e.g. acme: references read acme:asset:<id>
   tls:
     enabled: false
     cert_file: ""
@@ -202,6 +203,45 @@ server:
 | `slow_request_threshold` | duration | `5s` | An inbound HTTP request slower than this is logged at WARN with its route template, method, status and duration (`slow HTTP request`); see [Observability](observability.md#inbound-requests) |
 | `state_probe_interval` | duration | `1m` | How often `dependency_up` re-pings each dependency, at most once per interval and only when `/metrics` is scraped; a signal only, `/readyz` never reads it. `mcp_platform_connections` sends nothing: it reads the outcome of the last call through each connection. See [Observability](observability.md#authentication-configuration-and-platform-state) |
 | `trusted_proxies` | array | `[]` | CIDRs of the proxies in front of the platform whose `X-Forwarded-For` it reads a client's address from: an endpoint's `ip_rate_limit` and `req["client_ip"]` (#2556), and the portal and OAuth rate limits when their own `trusted_proxies` are empty. Empty trusts none, and the peer's address is used. A range wider than /8 (IPv4) or /32 (IPv6) is refused at startup. See [The client's address](#the-clients-address) |
+| `reference_scheme` | string | `mcp` | The scheme every platform reference is written under (#2776): `acme` makes the references the platform hands to agents and people read `acme:asset:<id>`, `acme:dataset:(...)`, `acme:knowledge_page:<slug>`. See [Reference scheme](#reference-scheme) |
+
+### Reference scheme
+
+A deployment that ships the platform under its own name names its reference scheme
+once:
+
+```yaml
+server:
+  reference_scheme: acme
+```
+
+- **Written out under it.** Every reference the platform hands out uses it: search
+  results' `reference`, `fetch`, every tool result that cites (`save_asset`,
+  `apply_knowledge`, `run_script`, lineage, call references), the tool descriptions in
+  `tools/list`, `platform_info`, the server's instructions, the built-in knowledge
+  pages as served, and every JSON answer of the portal and admin API, which is what
+  the portal's copy-reference controls copy.
+- **Read under it and under `mcp:`.** A tool argument, a REST path, query or JSON body,
+  a script's `platform.read`, and a reference inside a document body are accepted in
+  either form. `mcp:` is accepted for good: every reference already stored keeps
+  resolving with no migration.
+- **Stored canonical.** What is stored and compared is the `mcp:` form, so
+  `acme:asset:X` and `mcp:asset:X` are one entity to search, citation counts, "Linked
+  from" and call reuse, and changing the setting later changes only what is written
+  out. With no setting nothing is rewritten.
+- **Resource URIs follow it.** With `resources.managed.uri_scheme` unset, resource URIs
+  are written out as `acme://global/...` and stored as `mcp://`; a scheme set there is
+  stored and written as it is. `mcp://` is read either way.
+- **Checked at startup.** A lowercase letter, then lowercase letters, digits or `-`, at
+  most 32. A scheme with another meaning (`http`, `https`, `file`, `data`,
+  `javascript`, `mailto`, `urn`, and the resource template schemes `schema`, `glossary`,
+  `availability`) is refused, naming the key.
+
+The scheme is file configuration: Admin > Settings > References shows it, and the
+public branding route and the admin system route report it as `reference_scheme`. The
+one package that reads and writes the scheme is `internal/refscheme`, and
+`TestReferencePrefixHasOneOwner` fails when a prefix such as `"mcp:asset:"` is written
+anywhere else.
 
 ### The client's address
 

@@ -3,6 +3,8 @@ package middleware
 import (
 	"context"
 
+	"github.com/txn2/mcp-data-platform/internal/refscheme"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
@@ -11,7 +13,7 @@ import (
 // CallReferenceScheme is the reference form a data call's identifier is handed
 // back under. An agent may cite either the bare id or this reference when it
 // names the calls an asset was built from.
-const CallReferenceScheme = "mcp:call:"
+const CallReferenceScheme = refscheme.Call
 
 // CallReferenceKey is the top-level key of the block this middleware appends.
 const CallReferenceKey = "call_reference"

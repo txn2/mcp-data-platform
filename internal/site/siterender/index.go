@@ -3,6 +3,8 @@ package siterender
 import (
 	"path"
 	"strings"
+
+	"github.com/txn2/mcp-data-platform/internal/site/sitebuild"
 )
 
 // The inputs that are not files: everything in one _data folder, and the front
@@ -32,6 +34,20 @@ const indexVersion = reviewedEngine + "/2"
 type Index struct {
 	Version string  `json:"version"`
 	Entries []Entry `json:"entries"`
+	// Builds are each compiled entry's report (#2783), compared with the
+	// render before.
+	Builds []sitebuild.Report `json:"builds,omitempty"`
+	// PrivateMaps is true when the release's source maps are served only to
+	// the site's managers (#2784).
+	PrivateMaps bool `json:"private_maps,omitempty"`
+}
+
+// current is the index when a render of this version wrote it, nil otherwise.
+func (i *Index) current() *Index {
+	if i == nil || i.Version != indexVersion {
+		return nil
+	}
+	return i
 }
 
 func (i *Index) byOutput() map[string]Entry {
@@ -69,8 +85,12 @@ func newChanges(paths []string) changes {
 	return c
 }
 
-// touches reports whether an input is affected.
+// touches reports whether an input is affected. What import.meta.site reads
+// is the release, which every render is a new one of.
 func (c changes) touches(input string) bool {
+	if input == sitebuild.SiteMetaInput {
+		return true
+	}
 	if input == inputPages {
 		return c.pages
 	}

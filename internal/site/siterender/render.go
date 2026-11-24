@@ -7,6 +7,7 @@ package siterender
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -44,6 +45,11 @@ type Options struct {
 	// Fetch reads the URL modules of a release that bundles them; nil refuses
 	// such a release.
 	Fetch sitebuild.Fetcher
+	// Site is what a compiled entry's import.meta.site holds (#2784).
+	Site *sitebuild.SiteMeta
+	// Stylesheets builds the stylesheet compiler a build file asks for
+	// (Tailwind, #2780); nil refuses a build file that asks for one.
+	Stylesheets func(ctx context.Context, cfg *sitebuild.Config, src fs.FS) (sitebuild.StylesheetCompiler, error)
 }
 
 // Failure is one place a render could not get past.
@@ -143,6 +149,12 @@ type run struct {
 	compiling bool
 	build     *sitebuild.Config
 	fetch     sitebuild.Fetcher
+	opts      Options
+	// prior is the previous render's index, chunks the digest of each chunk
+	// written, and builds each compiled entry's report.
+	prior  *Index
+	chunks map[string][sha256.Size]byte
+	builds []sitebuild.Report
 
 	parsedLayouts map[string]*layoutFile
 }
@@ -165,15 +177,18 @@ func Render(ctx context.Context, src fs.FS, opts Options, sink Sink) (*Index, er
 		ctx: ctx, src: src, limits: limits, meter: newMeter(ctx, limits), sink: sink,
 		layouts: map[string]bool{}, data: map[string]*collection{}, outputs: map[string]string{},
 		previous: opts.Previous.byOutput(), changes: newChanges(opts.Changed), parsedLayouts: map[string]*layoutFile{},
-		compiling: compiles(src), fetch: opts.Fetch,
+		compiling: compiles(src), fetch: opts.Fetch, opts: opts, prior: opts.Previous.current(), chunks: map[string][sha256.Size]byte{},
 	}
 	engine, err := newEngine(r.meter, r)
 	if err != nil {
 		return nil, err
 	}
 	r.engine, engine.onRead = engine, r.dep
-	// A tree that compiles and has no layouts is compiled and nothing else.
-	r.liquid = hasLayouts(src) || !r.compiling
+	// A tree with layouts runs Liquid, and so does one that does not compile
+	// and holds includes or records. One that compiles and has no layouts is
+	// compiled and nothing else, and one rendered only to keep its guide or a
+	// tooling file unserved is served as written.
+	r.liquid = hasLayouts(src) || (!r.compiling && hasLiquidFolders(src))
 	if err := r.scan(); err != nil {
 		return nil, err
 	}
@@ -206,17 +221,23 @@ func (r *run) noteCollection(dir string) {
 }
 
 func (r *run) scanFile(name string) error {
-	if r.compiling && sitebuild.IsSource(name) {
+	if r.compiling && (sitebuild.IsSource(name) || r.build != nil && r.build.Excluded(name)) {
 		return nil
 	}
 	first, _, _ := strings.Cut(name, "/")
 	switch {
-	case !r.liquid:
 	case first == layoutsDir:
+		// Layouts, includes and records are the render's, never served, whether
+		// or not Liquid runs (#2779); nor is the site's guide (#2782), nor a
+		// tooling dotfile (#2785).
 		r.layouts[name] = true
 		return nil
-	case first == includesDir, first == dataDir:
+	case first == includesDir, first == dataDir, name == sitebuild.GuideFile, sitebuild.ToolingDotfile(name):
 		return nil
+	case first == sitebuild.ChunkDir && r.build != nil && r.build.Splits():
+		r.report(Failure{File: name, Message: fmt.Sprintf("%s/ is where the compile writes the code entries load later; move this file out of it", sitebuild.ChunkDir)})
+		return nil
+	case !r.liquid:
 	case isTemplated(name):
 		return r.scanTemplated(name)
 	}
@@ -286,6 +307,8 @@ func (r *run) renderAll() (*Index, error) {
 	if err := r.failed(); err != nil {
 		return nil, err
 	}
+	index.Builds = r.builds
+	index.PrivateMaps = r.build != nil && r.build.Sourcemap == sitebuild.SourcemapPrivate
 	return index, nil
 }
 

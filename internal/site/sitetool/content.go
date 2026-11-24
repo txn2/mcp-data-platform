@@ -76,6 +76,9 @@ func (c *Content) Handle(ctx context.Context, in portalkit.SiteContentInput) (*m
 		return fail(err), nil, nil
 	}
 	fields[fieldRef] = in.Target
+	if guide := shownGuide(ctx, c.Service, actorOf(ctx), ref.Site); guide != nil {
+		fields[fieldGuide] = guide
+	}
 	return jsonResult(fields)
 }
 
@@ -175,6 +178,9 @@ func (c *Content) patch(ctx context.Context, actor sitesvc.Actor, q contentCall)
 	}
 	fields := textpatch.PatchFields(done.Result)
 	maps.Copy(fields, map[string]any{fieldVersion: done.Release, fieldType: done.ContentType, "change_summary": summary, "address": done.Address})
+	if len(done.Builds) > 0 {
+		fields[fieldBuilds] = done.Builds
+	}
 	switch {
 	case q.in.DryRun:
 		fields["dry_run"], fields["message"], fields["outputs_changed"] = true, "Dry run: no release was created.", done.OutputsChanged

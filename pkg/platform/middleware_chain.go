@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/txn2/mcp-data-platform/internal/refscheme"
+
 	"github.com/txn2/mcp-data-platform/internal/mcpobs"
 	"github.com/txn2/mcp-data-platform/internal/platform/callcatchup"
 	"github.com/txn2/mcp-data-platform/internal/platform/callrecord"
@@ -24,6 +26,7 @@ type mwName = mwchain.Name
 
 const (
 	mwMethodObserver      mwName = "method_observer"
+	mwReferenceScheme     mwName = "reference_scheme"
 	mwResultType          mwName = "result_type"
 	mwIcons               mwName = "icons"
 	mwDescriptionOverride mwName = "description_override"
@@ -78,6 +81,11 @@ func (p *Platform) receivingMiddlewareChain() []mwSpec {
 	return []mwSpec{
 		// Method observer (outermost): a span and a count for every method other than tools/call (#1889).
 		{Name: mwMethodObserver, Register: func() { p.mcpServer.AddReceivingMiddleware(mcpobs.Middleware(p.obs.Tracer(), p.obs.Metrics())) }},
+
+		// Reference scheme: every reference in a request reaches the layers
+		// below canonical, and every one in a result leaves under the
+		// deployment's scheme (#2776). Outer to everything that writes one.
+		{Name: mwReferenceScheme, Register: func() { p.mcpServer.AddReceivingMiddleware(refscheme.Middleware()) }},
 
 		// Result type: types every result the layers below hand back, theirs included (#1382, #1383).
 		{Name: mwResultType, Register: func() { p.mcpServer.AddReceivingMiddleware(middleware.MCPResultTypeMiddleware()) }},

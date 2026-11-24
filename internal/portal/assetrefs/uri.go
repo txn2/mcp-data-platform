@@ -3,12 +3,14 @@ package assetrefs
 import (
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/refscheme"
+
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 )
 
 // FormURIPrefix starts the reference an asset embeds a form by:
 // mcp:form:<endpoint> (#2177).
-const FormURIPrefix = "mcp:form:"
+const FormURIPrefix = refscheme.Form
 
 // FormPagePrefix is the form page a form reference is rewritten to:
 // internal/endpoint/epform's PagePrefix, restated here so this package does
@@ -20,7 +22,7 @@ func FormURI(endpoint string) string { return FormURIPrefix + endpoint }
 
 // ParseFormURI is the endpoint a form reference names, and whether uri is one.
 func ParseFormURI(uri string) (string, bool) {
-	name, ok := strings.CutPrefix(uri, FormURIPrefix)
+	name, ok := strings.CutPrefix(refscheme.Canon(uri), FormURIPrefix)
 	return name, ok && name != ""
 }
 
@@ -28,7 +30,7 @@ func ParseFormURI(uri string) (string, bool) {
 // mcp:endpoint:<name> (#2457). EndpointPathPrefix is where it is rewritten
 // to, internal/endpoint/epbinding's PathPrefix restated.
 const (
-	EndpointURIPrefix  = "mcp:endpoint:"
+	EndpointURIPrefix  = refscheme.Endpoint
 	EndpointPathPrefix = "/endpoints/"
 )
 
@@ -38,7 +40,7 @@ func EndpointURI(name string) string { return EndpointURIPrefix + name }
 // ParseEndpointURI is the endpoint an endpoint reference names, and whether
 // uri is one.
 func ParseEndpointURI(uri string) (string, bool) {
-	name, ok := strings.CutPrefix(uri, EndpointURIPrefix)
+	name, ok := strings.CutPrefix(refscheme.Canon(uri), EndpointURIPrefix)
 	return name, ok && name != ""
 }
 

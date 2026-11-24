@@ -95,6 +95,9 @@ type Release struct {
 	SourceRemoved []string `json:"-"`
 	// RenderIndex is the file holding what each output read.
 	RenderIndex *File `json:"-"`
+	// PrivateMaps is true when the release's source maps are served only to
+	// the site's managers (#2784).
+	PrivateMaps bool `json:"private_maps,omitempty"`
 	// Pruned is true once a sweep removed the release's files (#2602); its
 	// record stays so the deployments and approvals naming it read as before.
 	Pruned   bool       `json:"pruned,omitempty"`

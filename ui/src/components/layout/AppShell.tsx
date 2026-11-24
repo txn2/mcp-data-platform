@@ -5,6 +5,7 @@ import { Header } from "./Header";
 import { MobileSidebarOverlay } from "./MobileSidebarOverlay";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { usePortalFavicon } from "@/hooks/usePortalFavicon";
+import { useBranding } from "@/api/portal/hooks";
 import { useAuthStore } from "@/stores/auth";
 
 // Every page below is its own chunk. The shell used to import all of them
@@ -249,6 +250,9 @@ export function AppShell() {
   const isAdmin = useAuthStore((s) => s.isAdmin());
   const isMobile = useIsMobile();
   usePortalFavicon();
+  // Reads the deployment's reference scheme, which every reference the
+  // portal copies or shows is written under (#2776).
+  useBranding();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   // Sidebar collapsed state: auto-collapse on asset deep-link, otherwise restore from localStorage

@@ -21,6 +21,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/refscheme"
+
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/portal/shareaccess"
 )
@@ -465,7 +467,7 @@ type ProvenanceCapturer func(ctx context.Context, req ProvenanceRequest) Provena
 // anything was left after trimming.
 func ParseCallReference(source string) (string, bool) {
 	id := strings.TrimSpace(source)
-	id = strings.TrimPrefix(id, "mcp:call:")
+	id = strings.TrimPrefix(id, refscheme.Call)
 	return id, id != ""
 }
 

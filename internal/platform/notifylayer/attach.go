@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/refscheme"
+
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
@@ -20,7 +22,7 @@ type ResourceReader interface {
 
 // resourceURIPrefix is the form a managed resource's reference takes in
 // prose and in a knowledge page, accepted beside the bare id.
-const resourceURIPrefix = "mcp:resource:"
+const resourceURIPrefix = refscheme.Resource
 
 // attachmentInput is one entry of the attachments parameter in its object
 // form. The string form is the same reference with nothing else said.

@@ -12,6 +12,9 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"time"
+
+	sgpostgres "github.com/txn2/mcp-data-platform/pkg/searchgate/postgres"
 
 	"github.com/txn2/mcp-data-platform/internal/site/siterouting"
 
@@ -29,6 +32,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/settingsjson"
 	"github.com/txn2/mcp-data-platform/internal/site"
 	"github.com/txn2/mcp-data-platform/internal/site/sitebuild/modfetch"
+	"github.com/txn2/mcp-data-platform/internal/site/sitebuild/tailwind"
 	"github.com/txn2/mcp-data-platform/internal/site/sitecontract"
 	"github.com/txn2/mcp-data-platform/internal/site/sitecrawl"
 	"github.com/txn2/mcp-data-platform/internal/site/sitegw"
@@ -186,9 +190,13 @@ func Register(server *mcp.Server, d Deps) (*Runtime, error) {
 		return nil, fmt.Errorf("sites: %w", err)
 	}
 	tool.Crawler = crawler
-	if svc.Fetch, err = modfetch.NewGuardedFetcher(); err != nil {
+	fetcher, err := modfetch.NewGuardedFetcher()
+	if err != nil {
 		return nil, fmt.Errorf("sites: %w", err)
 	}
+	svc.Fetch = fetcher
+	svc.Stylesheets = (&tailwind.Loader{Fetch: fetcher.Fetch}).Factory(tailwind.Limits{})
+	sitetool.UseGuideStore(sgpostgres.Shared(d.DB, 24*time.Hour))
 	tool.Register(server)
 	rt := &Runtime{
 		Service: svc, Store: store, Config: d.Config, Apps: apps, Live: live,

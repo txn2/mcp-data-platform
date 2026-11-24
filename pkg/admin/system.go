@@ -5,10 +5,11 @@ import (
 	"net/http"
 	"sort"
 
+	"github.com/txn2/mcp-data-platform/internal/refscheme"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/buildinfo"
-	"github.com/txn2/mcp-data-platform/internal/platform/portalcfg"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -33,6 +34,9 @@ type systemInfoResponse struct {
 	Features        systemFeatures `json:"features"`
 	ToolkitCount    int            `json:"toolkit_count" example:"5"`
 	PersonaCount    int            `json:"persona_count" example:"3"`
+	// ReferenceScheme is the scheme the references the platform hands out
+	// start with, server.reference_scheme (#2776).
+	ReferenceScheme string `json:"reference_scheme" example:"mcp"`
 }
 
 // systemFeatures lists platform features based on runtime availability.
@@ -57,10 +61,11 @@ type systemFeatures struct {
 func (h *Handler) getSystemInfo(w http.ResponseWriter, r *http.Request) {
 	cfg := h.deps.Config
 	resp := systemInfoResponse{
-		Version:    buildinfo.Version,
-		Commit:     buildinfo.Commit,
-		BuildDate:  buildinfo.Date,
-		ConfigMode: configModeFile,
+		Version:         buildinfo.Version,
+		Commit:          buildinfo.Commit,
+		BuildDate:       buildinfo.Date,
+		ConfigMode:      configModeFile,
+		ReferenceScheme: refscheme.Scheme(),
 	}
 	if cfg != nil {
 		resp.Name = cfg.Server.Name
@@ -89,52 +94,6 @@ func (h *Handler) getSystemInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	if h.deps.PersonaRegistry != nil {
 		resp.PersonaCount = len(h.deps.PersonaRegistry.All())
-	}
-	writeJSON(w, http.StatusOK, resp)
-}
-
-// publicBrandingResponse is returned by the unauthenticated branding endpoint.
-type publicBrandingResponse struct {
-	Name            string `json:"name" example:"acme-data-platform"`
-	Version         string `json:"version" example:"1.55.11"`
-	PortalTitle     string `json:"portal_title" example:"ACME Data Platform"`
-	BrandName       string `json:"brand_name" example:"ACME"`
-	BrandURL        string `json:"brand_url" example:"https://acme.example.com"`
-	VersionURL      string `json:"version_url" example:"https://acme.example.com/changelog"`
-	PortalTagline   string `json:"portal_tagline" example:"Sign in to access your data."`
-	OIDCButtonLabel string `json:"oidc_button_label" example:"Sign in with ACME Keycloak"`
-	PortalLogo      string `json:"portal_logo" example:"https://example.com/logo.svg"`
-	PortalLogoLight string `json:"portal_logo_light" example:"https://example.com/logo-light.svg"`
-	PortalLogoDark  string `json:"portal_logo_dark" example:"https://example.com/logo-dark.svg"`
-	OIDCEnabled     bool   `json:"oidc_enabled" example:"false"`
-	// LoginRedirect: the login screen sends a signed-out visitor straight to
-	// the identity provider; true only with portal.login_redirect and OIDC on.
-	LoginRedirect bool `json:"login_redirect" example:"false"`
-	// AllowAPIKeyLogin: /portal/?login=api_key offers the API key form.
-	AllowAPIKeyLogin bool `json:"allow_api_key_login" example:"true"`
-}
-
-// getPublicBranding handles GET /api/v1/admin/public/branding.
-// This endpoint is unauthenticated and returns only non-sensitive display info.
-func (h *Handler) getPublicBranding(w http.ResponseWriter, _ *http.Request) {
-	resp := publicBrandingResponse{
-		Version:          buildinfo.Version,
-		AllowAPIKeyLogin: true,
-	}
-	if h.deps.Config != nil {
-		resp.Name = h.deps.Config.Server.Name
-		resp.PortalTitle = h.deps.Config.Portal.Title
-		resp.BrandName = h.deps.Config.Portal.BrandName
-		resp.BrandURL = h.deps.Config.Portal.BrandURL
-		resp.VersionURL = h.deps.Config.Portal.VersionURL
-		resp.PortalTagline = h.deps.Config.Portal.Tagline
-		resp.OIDCButtonLabel = h.deps.Config.Portal.OIDCButtonLabel
-		resp.PortalLogo = h.deps.Config.Portal.Logo
-		resp.PortalLogoLight = h.deps.Config.Portal.LogoLight
-		resp.PortalLogoDark = h.deps.Config.Portal.LogoDark
-		resp.OIDCEnabled = h.deps.Config.Auth.BrowserSession.Enabled && h.deps.Config.Auth.OIDC.Enabled
-		resp.LoginRedirect, _ = portalcfg.LoginRedirect(h.deps.Config.Portal.LoginRedirect, resp.OIDCEnabled)
-		resp.AllowAPIKeyLogin = portalcfg.APIKeyLoginAllowed(h.deps.Config.Portal.AllowAPIKeyLogin)
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

@@ -50,7 +50,39 @@ func isMarkdown(name string) bool {
 // Active reports whether a source tree is rendered at all: a tree with neither
 // a _layouts folder nor a build file is served exactly as it was published.
 func Active(src fs.FS) bool {
-	return hasLayouts(src) || compiles(src)
+	return hasLayouts(src) || compiles(src) || keepsUnserved(src)
+}
+
+// keepsUnserved reports a tree holding what a release never serves: its guide,
+// a Liquid folder, or a tooling dotfile (#2779, #2782, #2785). Such a tree is
+// rendered so that they are left out of what it serves.
+func keepsUnserved(src fs.FS) bool {
+	if hasLiquidFolders(src) {
+		return true
+	}
+	if _, err := fs.Stat(src, sitebuild.GuideFile); err == nil {
+		return true
+	}
+	entries, err := fs.ReadDir(src, ".")
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() && sitebuild.ToolingDotfile(e.Name()) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasLiquidFolders reports a tree holding includes or records.
+func hasLiquidFolders(src fs.FS) bool {
+	for _, dir := range []string{includesDir, dataDir} {
+		if info, err := fs.Stat(src, dir); err == nil && info.IsDir() {
+			return true
+		}
+	}
+	return false
 }
 
 func hasLayouts(src fs.FS) bool {

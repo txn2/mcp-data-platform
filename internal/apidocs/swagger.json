@@ -38575,6 +38575,11 @@
                     "type": "string",
                     "example": "ACME Data Platform"
                 },
+                "reference_scheme": {
+                    "description": "ReferenceScheme is the scheme the references the platform hands out\nstart with, server.reference_scheme (#2776).",
+                    "type": "string",
+                    "example": "mcp"
+                },
                 "toolkit_count": {
                     "type": "integer",
                     "example": 5
@@ -58439,6 +58444,10 @@
                     "type": "integer",
                     "example": 3
                 },
+                "private_maps": {
+                    "description": "PrivateMaps is true when the release's source maps are served only to\nthe site's managers (#2784).",
+                    "type": "boolean"
+                },
                 "pruned": {
                     "description": "Pruned is true once a sweep removed the release's files (#2602); its\nrecord stays so the deployments and approvals naming it read as before.",
                     "type": "boolean"
@@ -58621,6 +58630,77 @@
                 "site": {
                     "type": "string",
                     "example": "marketing"
+                }
+            }
+        },
+        "sitebuild.InputSize": {
+            "type": "object",
+            "properties": {
+                "bytes": {
+                    "type": "integer"
+                },
+                "path": {
+                    "type": "string"
+                }
+            }
+        },
+        "sitebuild.OutputSize": {
+            "type": "object",
+            "properties": {
+                "bytes": {
+                    "type": "integer"
+                },
+                "change": {
+                    "type": "string"
+                },
+                "chunk": {
+                    "description": "Chunk is true for code loaded when first used, under _chunks/.",
+                    "type": "boolean"
+                },
+                "gzip_bytes": {
+                    "type": "integer"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "previous_bytes": {
+                    "description": "Previous and Change compare it with the release before, when that\nrelease served an output at the same path; an output whose name carries\na hash is compared by the name without it.",
+                    "type": "integer"
+                }
+            }
+        },
+        "sitebuild.Report": {
+            "type": "object",
+            "properties": {
+                "entry": {
+                    "type": "string"
+                },
+                "largest_inputs": {
+                    "description": "LargestInputs are the modules contributing most bytes, at most ten:\npaths of the site, and URLs fetched in bundle mode.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sitebuild.InputSize"
+                    }
+                },
+                "outputs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sitebuild.OutputSize"
+                    }
+                },
+                "start_imports": {
+                    "description": "StartImports are the URLs the entry imports when it is loaded, not the\nones a chunk imports when it is first used.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "warnings": {
+                    "description": "Warnings are the budgets the entry's first load exceeds.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -59278,6 +59358,10 @@
                     "type": "integer",
                     "example": 3
                 },
+                "private_maps": {
+                    "description": "PrivateMaps is true when the release's source maps are served only to\nthe site's managers (#2784).",
+                    "type": "boolean"
+                },
                 "pruned": {
                     "description": "Pruned is true once a sweep removed the release's files (#2602); its\nrecord stays so the deployments and approvals naming it read as before.",
                     "type": "boolean"
@@ -59382,6 +59466,10 @@
                 "number": {
                     "type": "integer",
                     "example": 3
+                },
+                "private_maps": {
+                    "description": "PrivateMaps is true when the release's source maps are served only to\nthe site's managers (#2784).",
+                    "type": "boolean"
                 },
                 "pruned": {
                     "description": "Pruned is true once a sweep removed the release's files (#2602); its\nrecord stays so the deployments and approvals naming it read as before.",
@@ -60336,6 +60424,13 @@
                 "address": {
                     "description": "Address is where the environment answers, \"\" before it has one.",
                     "type": "string"
+                },
+                "builds": {
+                    "description": "Builds is each compiled entry's report (#2783): its outputs' sizes and\ntheir change from the release before, its largest inputs, the URLs it\nloads at start, and any budget it exceeds.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sitebuild.Report"
+                    }
                 },
                 "environment": {
                     "type": "string"

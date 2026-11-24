@@ -278,7 +278,7 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, host string) {
 	if g.serveSiteRoutes(w, r, route, viewer) {
 		return
 	}
-	g.serveSite(w, r, route)
+	g.serveSite(w, r, route, viewer)
 }
 
 // primaryRedirectMaxAge is how long a browser may hold a redirect domain's
@@ -443,7 +443,7 @@ func (g *Gateway) manifestOf(ctx context.Context, rel *site.Release) (*manifest,
 
 // serveSite answers a request for an environment's release: the file at the
 // path, a directory's index, a redirect rule, or the release's 404 page.
-func (g *Gateway) serveSite(w http.ResponseWriter, r *http.Request, route *site.Route) {
+func (g *Gateway) serveSite(w http.ResponseWriter, r *http.Request, route *site.Route, viewer *epform.Viewer) {
 	w.Header().Set(hdrNosniff, nosniff)
 	w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 	releaseHeaders(w, r, route)
@@ -462,33 +462,20 @@ func (g *Gateway) serveSite(w http.ResponseWriter, r *http.Request, route *site.
 		http.Error(w, "this site could not be read", http.StatusServiceUnavailable)
 		return
 	}
-	g.answer(w, r, route, m)
+	g.answer(w, r, route, m, viewer)
 }
 
-func (g *Gateway) answer(w http.ResponseWriter, r *http.Request, route *site.Route, m *manifest) {
+func (g *Gateway) answer(w http.ResponseWriter, r *http.Request, route *site.Route, m *manifest, viewer *epform.Viewer) {
 	p := path.Clean(pathSep + r.URL.Path)
-	if f, ok := m.resolve(p, strings.HasSuffix(r.URL.Path, pathSep)); ok {
+	if g.hiddenMap(r, route, p, viewer) {
+		g.answerNotFound(w, r, route, m)
+		return
+	}
+	if f, ok := g.fileAt(r, route, m, p); ok {
 		g.serveFile(w, r, route, f, http.StatusOK)
 		return
 	}
-	if g.serveMedia(w, r, route, p) {
-		return
-	}
-	if target, status, ok := matchRedirect(route.Release.Redirects, p); ok {
-		if status == http.StatusOK {
-			// A rewrite answers in place with the file the rule names, or falls
-			// through to the not-found answer when the release has none.
-			if g.rewrite(w, r, route, m, target) {
-				return
-			}
-			g.answerNotFound(w, r, route, m)
-			return
-		}
-		if r.URL.RawQuery != "" && !strings.Contains(target, "?") {
-			target += "?" + r.URL.RawQuery
-		}
-		// nosemgrep: go.lang.security.injection.open-redirect.open-redirect
-		http.Redirect(w, r, target, status) // #nosec G710 -- the target comes from this release's validated redirect rules
+	if g.serveMedia(w, r, route, p) || g.redirect(w, r, route, m, p) {
 		return
 	}
 	if p != pathSep && !strings.HasSuffix(r.URL.Path, pathSep) {
@@ -499,6 +486,37 @@ func (g *Gateway) answer(w http.ResponseWriter, r *http.Request, route *site.Rou
 		}
 	}
 	g.answerNotFound(w, r, route, m)
+}
+
+// fileAt is the file a path names in the release, or a chunk from a release
+// before it (#2778).
+func (g *Gateway) fileAt(r *http.Request, route *site.Route, m *manifest, p string) (site.File, bool) {
+	if f, ok := m.resolve(p, strings.HasSuffix(r.URL.Path, pathSep)); ok {
+		return f, true
+	}
+	return g.earlierChunk(r.Context(), route, p)
+}
+
+// redirect answers a path a redirect rule matches, reporting whether one did.
+func (g *Gateway) redirect(w http.ResponseWriter, r *http.Request, route *site.Route, m *manifest, p string) bool {
+	target, status, ok := matchRedirect(route.Release.Redirects, p)
+	if !ok {
+		return false
+	}
+	if status == http.StatusOK {
+		// A rewrite answers in place with the file the rule names, or falls
+		// through to the not-found answer when the release has none.
+		if !g.rewrite(w, r, route, m, target) {
+			g.answerNotFound(w, r, route, m)
+		}
+		return true
+	}
+	if r.URL.RawQuery != "" && !strings.Contains(target, "?") {
+		target += "?" + r.URL.RawQuery
+	}
+	// nosemgrep: go.lang.security.injection.open-redirect.open-redirect
+	http.Redirect(w, r, target, status) // #nosec G710 -- the target comes from this release's validated redirect rules
+	return true
 }
 
 // rewrite answers r with the release file target names, in place and with
@@ -621,7 +639,7 @@ func (g *Gateway) serveFile(w http.ResponseWriter, r *http.Request, route *site.
 	switch {
 	case route.Private:
 		h.Set(hdrCache, cachePrivate)
-	case fingerprinted(path.Base(f.Path)):
+	case strings.HasPrefix(pathSep+f.Path, chunkPrefix) && !strings.HasSuffix(f.Path, ".map"), fingerprinted(path.Base(f.Path)):
 		h.Set(hdrCache, cacheImmutable)
 	default:
 		h.Set(hdrCache, cacheRevalidate)

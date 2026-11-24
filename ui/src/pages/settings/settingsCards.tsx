@@ -13,6 +13,7 @@ import { EmbedHostsSettingsCard } from "./EmbedHostsSettingsCard";
 import { StorageSettingsCard } from "./StorageSettingsCard";
 import { WebhookAlertCard } from "./WebhookAlertCard";
 import { IntegrationsCard } from "./IntegrationsCard";
+import { ReferencesCard } from "./ReferencesCard";
 import type { SettingsSectionId } from "./settingsSections";
 
 // OTHER_SECTION_CARDS is the card every settings section but Email shows
@@ -52,4 +53,5 @@ export const OTHER_SECTION_CARDS: Record<Exclude<SettingsSectionId, "email">, (i
   "bot-checks": (ro) => <BotChecksSettingsCard isReadOnly={ro} />,
   "access-requests": (ro) => <AccessRequestsSettingsCard isReadOnly={ro} />,
   integrations: (ro) => <IntegrationsCard isReadOnly={ro} />,
+  references: () => <ReferencesCard />,
 };

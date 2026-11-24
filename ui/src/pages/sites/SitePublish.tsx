@@ -1,3 +1,4 @@
+import { refOf } from "@/lib/refScheme";
 import { useRef, useState, type DragEvent } from "react";
 import { Upload } from "lucide-react";
 import { DEV_ENVIRONMENT, usePublishSite, useSites, type BucketSource, type Site, type SiteLimits } from "@/api/portal/hooks/sites";
@@ -243,7 +244,7 @@ function relativePath(f: File) {
 }
 
 function resourceTarget(r: Resource) {
-  return { archive: `mcp:resource:${r.id}`, source: r.filename };
+  return { archive: refOf("resource", r.id), source: r.filename };
 }
 
 function bucketTarget(b: Required<BucketSource>) {
@@ -280,7 +281,7 @@ async function uploadPicked(p: Picked, { site, userId }: UploadTarget, upload: U
     last = await upload(form);
   }
   if (p.folder) return { folder: folderPath, source: p.label };
-  return { archive: `mcp:resource:${last!.id}`, source: p.label };
+  return { archive: refOf("resource", last!.id), source: p.label };
 }
 
 function UploadDrop({ picked, onPick, limits }: { picked: Picked | null; onPick: (p: Picked | null) => void; limits?: SiteLimits }) {

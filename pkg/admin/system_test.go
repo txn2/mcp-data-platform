@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/txn2/mcp-data-platform/internal/admin/brandingapi"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -146,7 +148,7 @@ func TestGetPublicBranding(t *testing.T) {
 		h.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
-		var body publicBrandingResponse
+		var body brandingapi.Response
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
 		assert.Equal(t, "acme-platform", body.Name)
 		assert.NotEmpty(t, body.Version)
@@ -206,7 +208,7 @@ func TestGetPublicBranding(t *testing.T) {
 		h.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
-		var body publicBrandingResponse
+		var body brandingapi.Response
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
 		assert.Empty(t, body.Name)
 		assert.Empty(t, body.PortalTitle)
@@ -233,7 +235,7 @@ func TestGetPublicBranding(t *testing.T) {
 
 		assert.False(t, authCalled, "auth middleware should not be called for public endpoints")
 		assert.Equal(t, http.StatusOK, w.Code)
-		var body publicBrandingResponse
+		var body brandingapi.Response
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
 		assert.Equal(t, "test-platform", body.Name)
 	})

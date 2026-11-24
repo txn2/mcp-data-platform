@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/txn2/mcp-data-platform/internal/refscheme"
 )
 
 // Kind names what a catalog reference points at.
@@ -31,7 +33,7 @@ const (
 
 // scheme prefixes every catalog reference, as it does every other internal
 // platform reference (mcp:asset:, mcp:connection:, ...).
-const scheme = "mcp:"
+const scheme = refscheme.Prefix
 
 // ErrInvalidRef is returned for a string that is not a well-formed catalog
 // reference. Callers that route references by form treat it as "not mine".
@@ -169,7 +171,7 @@ func (r Ref) validateTuple() error {
 // platform reference, a string of another scheme, or a malformed catalog reference — is
 // ErrInvalidRef.
 func ParseRef(s string) (Ref, error) {
-	s = strings.TrimSpace(s)
+	s = refscheme.Canon(strings.TrimSpace(s))
 	rest, ok := strings.CutPrefix(s, scheme)
 	if !ok {
 		return Ref{}, fmt.Errorf("reference %q is not an mcp: reference: %w", s, ErrInvalidRef)

@@ -1,3 +1,4 @@
+import { canonRef } from "./refScheme";
 import { createContext, useContext, useEffect, type RefObject } from "react";
 import { OPEN_VIDEO_MESSAGE, videoWatchURL } from "./videoCards";
 
@@ -108,7 +109,7 @@ const MAX_ASSET_ID = 200;
  */
 export function assetLinkId(href: string | null | undefined): string | null {
   if (typeof href !== "string") return null;
-  const ref = href.trim();
+  const ref = canonRef(href);
   if (!ref.startsWith(ASSET_LINK_PREFIX)) return null;
   const id = ref.slice(ASSET_LINK_PREFIX.length).split(/[#?/]/)[0] ?? "";
   return id.length > 0 && id.length <= MAX_ASSET_ID ? id : null;
@@ -173,7 +174,7 @@ export function followAssetLink(
  */
 export function contentAssetLinks(content: string): string[] {
   const out = new Set<string>();
-  const re = /(?:href\s*=\s*\{?\s*["'`]?\s*|\]\(\s*<?)(mcp:asset:[^\s"'`<>()[\]{}\\]+)/gi;
+  const re = /(?:href\s*=\s*\{?\s*["'`]?\s*|\]\(\s*<?)([a-z][a-z0-9-]{0,31}:asset:[^\s"'`<>()[\]{}\\]+)/gi;
   for (const m of content.matchAll(re)) {
     const id = assetLinkId(m[1]);
     if (id) out.add(id);
@@ -220,7 +221,7 @@ export const LINK_SCRIPT_SOURCE =
   `window.addEventListener("click",function(e){if(e.defaultPrevented||e.button!==0)return;var a=f(e);` +
   `if(!a||a.hasAttribute("download"))return;var r=a.getAttribute("href");if(r===null)r=a.getAttributeNS(X,"href");` +
   `r=String(r).trim();if(r==="")return;if(r.charAt(0)==="#"){e.preventDefault();location.hash=r;return}` +
-  `if(r.indexOf(A)===0){e.preventDefault();parent.postMessage({type:M,id:r.slice(A.length).split(/[#?\\/]/)[0]},"*");return}` +
+  `var k=/^[a-z][a-z0-9-]{0,31}:asset:/.exec(r);if(k){e.preventDefault();parent.postMessage({type:M,id:r.slice(k[0].length).split(/[#?\\/]/)[0]},"*");return}` +
   `var h=u(r);if(!h)return;e.preventDefault();p(h)});` +
   `var o=window.open;window.open=function(r){if(r===undefined||r===null||String(r).trim()==="")return o.apply(window,arguments);` +
   `var h=u(r);if(h){p(h);return null}return o.apply(window,arguments)};` +

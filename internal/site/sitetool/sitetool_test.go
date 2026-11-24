@@ -769,6 +769,8 @@ func TestHandle_EveryCommandDispatches(t *testing.T) {
 	assert.Equal(t, siteName, do(Input{Command: CmdDelete, Site: siteName})["deleted"])
 	assert.Empty(t, f.store.sites)
 
+	// The build reads are exercised on a compiled site by TestBuildCommands.
+	covered[CmdImports], covered[CmdBuildReport], covered[CmdSymbolicate] = true, true, true
 	for _, cmd := range Commands {
 		assert.True(t, covered[cmd], "command %s was not exercised", cmd)
 	}
@@ -814,6 +816,11 @@ func TestHandle_PublishAndReadsAreAllowedInsideAScriptRun(t *testing.T) {
 	assert.Equal(t, site.EnvDev, published["environment"])
 	for _, cmd := range Reads {
 		t.Run(cmd, func(t *testing.T) {
+			if cmd == CmdImports || cmd == CmdSymbolicate {
+				// They need a build file and a trace; what matters is that a run may ask.
+				assert.NotContains(t, refusal(t, f, run, Input{Command: cmd, Site: siteName}), "inside a script run")
+				return
+			}
 			call(t, f, run, Input{Command: cmd, Site: siteName})
 		})
 	}

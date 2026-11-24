@@ -28,7 +28,7 @@ var (
 var (
 	siteCols    = []string{"id", "name", "description", "owner_email", "main_environment", "created_by", "created_at", "updated_at"}
 	envCols     = []string{"name", "release_number", "requires_approval", "internal_view", "updated_by", "updated_at", "keep_releases", "status", "status_message", "back_at", "redirect_to", "redirect_keep_path", "status_changed_by", "status_changed_at", "agents_may_promote", "kept", "public_domains", "tile_failure", "application_id", "application_name"}
-	releaseCols = []string{"id", "site_id", "number", "source", "note", "file_count", "total_bytes", "manifest_sha256", "redirects", "created_by", "created_at", "base_number", "manifest_parent", "manifest_depth", "rendered", "pruned_at", "headers", "contract"}
+	releaseCols = []string{"id", "site_id", "number", "source", "note", "file_count", "total_bytes", "manifest_sha256", "redirects", "created_by", "created_at", "base_number", "manifest_parent", "manifest_depth", "rendered", "pruned_at", "headers", "contract", "private_maps"}
 	fileCols    = []string{"path", "sha256", "content_type", "size", "gzip_size", "brotli_size", "stored_in"}
 	deployCols  = []string{"environment", "action", "from_release", "to_release", "actor", "detail", "decided_by", "removed", "created_at"}
 	domainCols  = []string{"hostname", "site_id", "name", "environment", "application_id", "application", "created_by", "created_at", "public", "access_changed_at", "is_primary", "mode", "redirects_to", "primary_public"}
@@ -53,7 +53,7 @@ func siteRows(name string) *sqlmock.Rows {
 }
 
 func releaseRow(n int, redirects string) []driver.Value {
-	return []driver.Value{"srel_1", "site_1", n, "ci", "note", 2, int64(30), "digest", []byte(redirects), "jane@example.com", rowTime, 0, "", 0, false, nil, []byte(`[]`), ""}
+	return []driver.Value{"srel_1", "site_1", n, "ci", "note", 2, int64(30), "digest", []byte(redirects), "jane@example.com", rowTime, 0, "", 0, false, nil, []byte(`[]`), "", false}
 }
 
 func domainRow(host string) []driver.Value {
@@ -406,7 +406,7 @@ func TestRecordRelease(t *testing.T) {
 		lock(mock)
 		mock.ExpectQuery(q("SELECT COALESCE(MAX(number), 0) + 1")).WithArgs("site_1").WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(2))
 		mock.ExpectQuery(q("INSERT INTO site_releases")).
-			WithArgs("srel_1", "site_1", 2, "ci", "n", 2, int64(30), "digest", []byte(`[{"from":"/a","to":"/b","status":301}]`), "jane@example.com", 0, "", 0, false, []byte(`[]`), "").
+			WithArgs("srel_1", "site_1", 2, "ci", "n", 2, int64(30), "digest", []byte(`[{"from":"/a","to":"/b","status":301}]`), "jane@example.com", 0, "", 0, false, []byte(`[]`), "", false).
 			WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(rowTime))
 		mock.ExpectExec(q("INSERT INTO site_release_files")).WillReturnResult(sqlmock.NewResult(0, 2))
 		mock.ExpectCommit()
@@ -474,7 +474,17 @@ func TestRecordRelease(t *testing.T) {
 		mock.ExpectExec(q("UPDATE site_environments")).WithArgs("site_1", "default", 7, "a@b").WillReturnResult(sqlmock.NewResult(0, 1))
 		mock.ExpectExec(q("INSERT INTO site_deployments")).WithArgs("site_1", "default", "publish", 6, 7, "a@b", "").WillReturnResult(sqlmock.NewResult(0, 1))
 		mock.ExpectCommit()
-		require.NoError(t, s.RecordRelease(ctx, newRelease(), &site.Pointer{SiteID: "site_1", Environment: "default", After: 6, Action: "publish", Actor: "a@b"}))
+		r := newRelease()
+		r.Number = 0
+		require.NoError(t, s.RecordRelease(ctx, r, &site.Pointer{SiteID: "site_1", Environment: "default", After: 6, Action: "publish", Actor: "a@b"}))
+		require.Equal(t, 7, r.Number)
+	})
+	t.Run("a release compiled to read its number refuses another number", func(t *testing.T) {
+		s, mock := newMock(t)
+		lock(mock)
+		mock.ExpectQuery(q("SELECT COALESCE(MAX(number), 0) + 1")).WithArgs("site_1").WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(3))
+		mock.ExpectRollback()
+		require.ErrorIs(t, s.RecordRelease(ctx, newRelease(), nil), site.ErrStale)
 	})
 	t.Run("a move that lost the race undoes the release with it", func(t *testing.T) {
 		s, mock := newMock(t)
@@ -485,7 +495,9 @@ func TestRecordRelease(t *testing.T) {
 		mock.ExpectQuery(q("FOR SHARE")).WillReturnRows(sqlmock.NewRows([]string{"x"}).AddRow(1))
 		mock.ExpectQuery(q("FOR UPDATE OF e")).WillReturnRows(sqlmock.NewRows([]string{"n", "pruned"}).AddRow(9, false))
 		mock.ExpectRollback()
-		require.ErrorIs(t, s.RecordRelease(ctx, newRelease(), &site.Pointer{SiteID: "site_1", Environment: "default", After: 6, Action: "publish", Actor: "a@b"}), site.ErrStale)
+		r := newRelease()
+		r.Number = 0
+		require.ErrorIs(t, s.RecordRelease(ctx, r, &site.Pointer{SiteID: "site_1", Environment: "default", After: 6, Action: "publish", Actor: "a@b"}), site.ErrStale)
 	})
 }
 

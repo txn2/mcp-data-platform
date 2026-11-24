@@ -97,6 +97,10 @@ type Access struct {
 	// PersonaFor works out the persona roles resolve to in the live registry;
 	// nil keeps the persona the person signed in with.
 	PersonaFor func(roles []string) string
+	// MayManage reports whether the person at an address manages the site:
+	// its owner or a manage grant (#2784, private source maps). Nil is no one
+	// but an administrator.
+	MayManage func(ctx context.Context, siteID, email string) bool
 	// FormKey is what the two token keys derive from; nil signs nobody in.
 	FormKey     []byte
 	PortalURL   string

@@ -1,10 +1,12 @@
 package scriptcontract
 
+import "github.com/txn2/mcp-data-platform/internal/refscheme"
+
 // knowledgePageRefPrefix is the fetchable form of a knowledge-page key. It is
 // written out rather than taken from pkg/portal/knowledgepage so the contract
 // does not depend on the portal's page store to name a page it only
 // points at; the scheme is pinned by the drift test in knowledgebuiltin.
-const knowledgePageRefPrefix = "mcp:knowledge_page:"
+const knowledgePageRefPrefix = refscheme.KnowledgePage
 
 // KnowledgePage names one built-in knowledge page an author should read.
 type KnowledgePage struct {

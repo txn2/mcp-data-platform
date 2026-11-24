@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/refscheme"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
@@ -171,7 +173,7 @@ func normalizeScriptRef(s string) (ref, id string, err error) {
 }
 
 // scriptRefPrefix is the canonical reference form, named for error messages.
-const scriptRefPrefix = "mcp:script:"
+const scriptRefPrefix = refscheme.Script
 
 // ScriptAttachRequest is one request to reference a script from a prompt.
 type ScriptAttachRequest struct {

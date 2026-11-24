@@ -32,6 +32,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/refscheme"
 )
 
 // The media types Build accepts.
@@ -170,8 +172,8 @@ const (
 	vendorPrefix   = "/portal/vendor/"
 	mapsPrefix     = "/portal/maps/"
 	formsPrefix    = "/forms/"
-	formScheme     = "mcp:form:"
-	endpointScheme = "mcp:endpoint:"
+	formScheme     = refscheme.Form
+	endpointScheme = refscheme.Endpoint
 	// endpointEmbed marks an endpoint address an asset's served copy carries
 	// (#2457): the marker and the reader's token belong to the platform.
 	endpointEmbed = "endpoint_embed="

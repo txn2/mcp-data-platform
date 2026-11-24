@@ -16,6 +16,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/refscheme"
+
 	"github.com/txn2/mcp-data-platform/internal/platform/retention"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -353,6 +355,12 @@ func New(opts ...Option) (*Platform, error) {
 
 	// Read by the stores' claims and every asset and resource read (#2072).
 	if err := options.Config.Thumbnails.InstallSourceLimits(); err != nil {
+		return nil, err //nolint:wrapcheck // names the setting already
+	}
+	// Every reference handed out is written under the deployment's scheme,
+	// and resource URIs too unless resources.managed.uri_scheme names its own
+	// (#2776).
+	if err := refscheme.Configure(options.Config.Server.ReferenceScheme, options.Config.Resources.Managed.URIScheme); err != nil {
 		return nil, err //nolint:wrapcheck // names the setting already
 	}
 
