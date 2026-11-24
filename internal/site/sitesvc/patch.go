@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/site"
+	"github.com/txn2/mcp-data-platform/internal/site/sitebuild"
 	"github.com/txn2/mcp-data-platform/pkg/textpatch"
 )
 
@@ -33,6 +34,8 @@ type Patched struct {
 	Unchanged bool
 	// OutputsChanged is how many served files a dry run would change.
 	OutputsChanged int
+	// Builds is each compiled entry's report (#2783).
+	Builds []sitebuild.Report
 }
 
 // PatchFile applies anchored edits to one file and writes the result as a new
@@ -73,7 +76,7 @@ func (s *Service) PatchFile(ctx context.Context, actor Actor, req PatchRequest) 
 	}
 	return &Patched{
 		Result: res, Path: name, ContentType: contentType, Release: pub.Release.Number, Address: pub.Address,
-		Unchanged: pub.Unchanged, OutputsChanged: pub.OutputsChanged,
+		Unchanged: pub.Unchanged, OutputsChanged: pub.OutputsChanged, Builds: pub.Builds,
 	}, nil
 }
 

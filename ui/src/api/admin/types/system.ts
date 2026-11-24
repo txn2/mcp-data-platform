@@ -21,6 +21,8 @@ export interface SystemInfo {
   features: SystemFeatures;
   toolkit_count: number;
   persona_count: number;
+  /** The scheme references are written under, server.reference_scheme (#2776). */
+  reference_scheme?: string;
 }
 
 export interface SystemFeatures {

@@ -1,3 +1,4 @@
+import { canonRef, displayRef, refOf } from "./refScheme";
 // Client-side helpers for the inline entity references that knowledge-page
 // bodies carry (#664). The serialized forms mirror the Go projection:
 // mcp:<type>:<id> for internal entities, mcp:connection:(kind,name) for a
@@ -101,7 +102,7 @@ const CATALOG_KINDS = new Set([
 /** catalogKind returns the kind segment of a catalog reference
  * ("mcp:tag:pii" -> "tag"), or "" when the string is not one. */
 export function catalogKind(ref: string): string {
-  const trimmed = ref.trim();
+  const trimmed = canonRef(ref);
   if (!trimmed.startsWith("mcp:")) return "";
   const rest = trimmed.slice("mcp:".length);
   const sep = rest.indexOf(":");
@@ -151,8 +152,8 @@ export function catalogHref(ref: string): string | null {
 /** columnDataset is the dataset reference a column reference belongs to:
  * mcp:column:(trino,acme,a.b.c,amount) -> mcp:dataset:(trino,acme,a.b.c). */
 export function columnDataset(ref: string): string {
-  const m = ref.trim().match(/^mcp:column:\((.*),("(?:[^"]|"")*"|[^,"]*)\)$/);
-  return m ? `mcp:dataset:(${m[1]})` : ref;
+  const m = canonRef(ref).match(/^mcp:column:\((.*),("(?:[^"]|"")*"|[^,"]*)\)$/);
+  return m ? displayRef(`mcp:dataset:(${m[1]})`) : ref;
 }
 
 // REF_SPECIAL are the characters a reference part is quoted for, as the
@@ -169,8 +170,8 @@ export function quoteRefPart(p: string): string {
 /** columnRef is the reference of one column of a dataset:
  * mcp:dataset:(trino,acme,a.b.c) + amount -> mcp:column:(trino,acme,a.b.c,amount). */
 export function columnRef(datasetRef: string, column: string): string {
-  const inner = datasetRef.trim().replace(/^mcp:dataset:\(/, "").replace(/\)$/, "");
-  return `mcp:column:(${inner},${quoteRefPart(column)})`;
+  const inner = canonRef(datasetRef).replace(/^mcp:dataset:\(/, "").replace(/\)$/, "");
+  return displayRef(`mcp:column:(${inner},${quoteRefPart(column)})`);
 }
 
 /** refHref returns the destination for any parsed reference: the id-based route
@@ -196,8 +197,10 @@ export interface ResolvedRef {
 // enclosing paren.
 // Exported as a source string so other modules (the markdown renderer) build a
 // fresh RegExp from the same pattern rather than copying it.
+// The scheme part matches any scheme a deployment may name (#2776); parseRef
+// keeps only mcp: and the deployment's own.
 export const REF_TOKEN_SOURCE =
-  "mcp:[a-z_]+:\\([^)]*\\)|mcp:[a-z_]+:[A-Za-z0-9_.-]+";
+  "(?<![A-Za-z0-9_.\\-/])[a-z][a-z0-9-]{0,31}:[a-z_]+:\\([^)]*\\)|(?<![A-Za-z0-9_.\\-/])[a-z][a-z0-9-]{0,31}:[a-z_]+:[A-Za-z0-9_.-]+";
 const REF_TOKEN_RE = new RegExp(REF_TOKEN_SOURCE, "g");
 
 // Fenced code blocks and inline code spans are stripped before scanning so a
@@ -244,13 +247,13 @@ export function isCatalogRefType(type: PickableRefType): boolean {
 
 /** buildRefUrn serializes an internal entity reference for a single-id type. */
 export function buildRefUrn(type: PickableRefType, id: string): string {
-  return `mcp:${type}:${id}`;
+  return refOf(type, id);
 }
 
 /** isRefUrn reports whether an href is a serialized entity reference. */
 export function isRefUrn(href: string | undefined): boolean {
   if (!href) return false;
-  return href.startsWith("mcp:");
+  return canonRef(href).startsWith("mcp:");
 }
 
 /** extractRefUrns returns the distinct reference URNs mentioned in a body. */
@@ -263,7 +266,7 @@ export function extractRefUrns(body: string): string[] {
 
 /** parseRef parses a serialized reference into its type and a fallback label. */
 export function parseRef(urn: string): ParsedRef | null {
-  const trimmed = urn.trim();
+  const trimmed = canonRef(urn);
   if (!trimmed.startsWith("mcp:")) return null;
 
   const rest = trimmed.slice("mcp:".length);

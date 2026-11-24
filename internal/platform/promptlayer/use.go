@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/refscheme"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/opsobs"
@@ -18,7 +20,7 @@ import (
 // promptRefPrefix is the universal fetch-reference scheme for prompts, the same
 // mcp:prompt:<id> form the search federation emits, accepted by `use` as a
 // stable handle.
-const promptRefPrefix = "mcp:prompt:"
+const promptRefPrefix = refscheme.Prompt
 
 // useConfidenceMargin is the minimum score gap between the top two ranked
 // candidates for the top result to count as the single confident match; a

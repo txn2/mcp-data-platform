@@ -16,11 +16,13 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/txn2/mcp-data-platform/internal/refscheme"
+
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
 // referencePrefix is the reference form a search hit and a write report.
-const referencePrefix = "mcp:resource:"
+const referencePrefix = refscheme.Resource
 
 // ErrNotFound is a reference that names no file the caller may read.
 var ErrNotFound = errors.New("no managed resource you can read is at that reference")
@@ -51,7 +53,7 @@ func New(store resource.Store, blobs resource.S3Client, bucket, scheme string) *
 // or the mcp:// URI the file answers at. A file the caller may not read is
 // reported as absent, never as forbidden, so a reference reveals nothing.
 func (r *Reader) Resolve(ctx context.Context, ref string, claims resource.Claims) (*resource.Resource, error) {
-	ref = strings.TrimSpace(ref)
+	ref = refscheme.Canon(strings.TrimSpace(ref))
 	var (
 		res *resource.Resource
 		err error

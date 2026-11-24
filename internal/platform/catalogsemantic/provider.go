@@ -18,6 +18,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/refscheme"
+
 	"github.com/txn2/mcp-data-platform/pkg/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
@@ -379,7 +381,7 @@ func lineageEntities(hops []catalog.Hop, dir catalog.Direction) []semantic.Linea
 // entityType names what a lineage reference is: a dataset, or the kind of
 // platform record a file edge names (resource, asset).
 func entityType(ref string) string {
-	rest, ok := strings.CutPrefix(ref, "mcp:")
+	rest, ok := strings.CutPrefix(ref, refscheme.Prefix)
 	if !ok {
 		return "dataset"
 	}

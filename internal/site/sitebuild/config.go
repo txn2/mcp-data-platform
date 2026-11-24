@@ -57,9 +57,10 @@ const (
 var sourceExts = []string{extTS, extTSX, extJSX, extMTS, extCTS}
 
 // IsSource reports whether a release path is compiled source, which a release
-// with a control file never serves.
+// with a control file never serves: the TypeScript and JSX, the control file,
+// and a project's package and tooling files (#2785).
 func IsSource(name string) bool {
-	return name == ControlFile || slices.Contains(sourceExts, strings.ToLower(path.Ext(name)))
+	return name == ControlFile || slices.Contains(sourceExts, strings.ToLower(path.Ext(name))) || IsProjectFile(name)
 }
 
 // OutputOf is the file an entry compiles to: the same path ending in .js.
@@ -76,10 +77,37 @@ type Config struct {
 	Imports map[string]string `json:"imports"`
 	// Remote is RemoteExternal (the default) or RemoteBundle.
 	Remote string `json:"remote"`
-	// Sourcemap writes <output>.map beside each output, holding the source.
-	Sourcemap bool `json:"sourcemap"`
+	// Sourcemap writes <output>.map beside each output, holding the source:
+	// served to anyone (true), or only to the site's managers ("private").
+	Sourcemap SourcemapMode `json:"sourcemap"`
 	// Minify shortens the output.
 	Minify bool `json:"minify"`
+	// Splitting puts what an entry loads by import() in chunks of its own
+	// under _chunks/, loaded when first used (#2778). Nil is on.
+	Splitting *bool `json:"splitting"`
+	// Define replaces each import.meta.env.X or process.env.X it names with
+	// its JSON value (#2781).
+	Define map[string]json.RawMessage `json:"define"`
+	// Tailwind is the exact Tailwind CSS 4 version that compiles the
+	// stylesheet holding @import "tailwindcss" (#2780), and TailwindInput
+	// that stylesheet when it is not an entry's own.
+	Tailwind      string `json:"tailwind"`
+	TailwindInput string `json:"tailwind_input"`
+	// Budgets warns when an entry's first load is larger than it should be
+	// (#2783).
+	Budgets map[string]Budget `json:"budgets"`
+	// ImportsFrom generates the imports map from package.json and the lockfile
+	// at every publish, the entries in Imports winning (#2785).
+	ImportsFrom string `json:"imports_from"`
+	// Singletons are packages only one copy of which may load, beside react and
+	// react-dom.
+	Singletons []string `json:"singletons"`
+	// Exclude are globs of files kept as source and never served.
+	Exclude []string `json:"exclude"`
+
+	// localPrefixes are the Imports keys that map to a folder of the site.
+	localPrefixes map[string]string
+	excludeRes    []*regexp.Regexp
 }
 
 // pinnedURL is an https URL naming an exact version: name@1.2.3, with an
@@ -113,7 +141,10 @@ func Parse(data []byte) (*Config, error) {
 	if err := checkEntries(cfg.Entries); err != nil {
 		return nil, err
 	}
-	if err := checkImports(cfg.Imports); err != nil {
+	if err := cfg.checkImports(); err != nil {
+		return nil, err
+	}
+	if err := cfg.checkOptions(); err != nil {
 		return nil, err
 	}
 	return cfg, nil
@@ -143,20 +174,35 @@ func checkEntries(entries []string) error {
 	return nil
 }
 
-func checkImports(imports map[string]string) error {
+func (c *Config) checkImports() error {
+	imports := c.Imports
 	if len(imports) > maxImports {
 		return fmt.Errorf("imports maps %d names, more than the %d allowed", len(imports), maxImports)
 	}
+	c.localPrefixes = map[string]string{}
 	for _, key := range sortedKeys(imports) {
-		u := imports[key]
-		switch {
-		case key == "" || len(key) > maxKeyLen || !isBare(key):
-			return fmt.Errorf("imports: %q is not a package name; local files are imported by a path starting ./", key)
-		case !Pinned(u):
-			return fmt.Errorf("imports: %q maps to %q, which is not an https URL at an exact version, such as https://esm.sh/react@18.3.1", key, u)
-		case strings.HasSuffix(key, sep) != strings.HasSuffix(u, sep):
-			return fmt.Errorf("imports: %q and %q must both end in / or neither", key, u)
+		if err := c.checkImport(key, imports[key]); err != nil {
+			return err
 		}
+	}
+	return nil
+}
+
+// checkImport refuses one imports entry it cannot honor, and records a prefix
+// that maps to a folder of the site.
+func (c *Config) checkImport(key, u string) error {
+	switch {
+	case key == "" || len(key) > maxKeyLen || !isBare(key):
+		return fmt.Errorf("imports: %q is not a package name; local files are imported by a path starting ./", key)
+	case strings.HasSuffix(key, sep) && !strings.HasPrefix(u, "https:"):
+		if err := checkLocalPrefix(key, u); err != nil {
+			return err
+		}
+		c.localPrefixes[key] = u
+	case !Pinned(u):
+		return fmt.Errorf("imports: %q maps to %q, which is not an https URL at an exact version, such as https://esm.sh/react@18.3.1", key, u)
+	case strings.HasSuffix(key, sep) != strings.HasSuffix(u, sep):
+		return fmt.Errorf("imports: %q and %q must both end in / or neither", key, u)
 	}
 	return nil
 }
@@ -175,27 +221,38 @@ func isBare(spec string) bool {
 	return !strings.HasPrefix(spec, dot) && !strings.HasPrefix(spec, sep) && !strings.Contains(spec, ":")
 }
 
-// mapped is the URL a bare specifier is loaded from: its own entry, the longest
+// mapped is where a bare specifier is loaded from: its own entry, the longest
 // prefix entry ending in / that holds it, or, for a path inside a package whose
 // root is mapped, that URL with the path added (react/jsx-runtime from react).
-func (c *Config) mapped(spec string) (string, bool) {
-	if u, ok := c.Imports[spec]; ok {
-		return u, true
+// local is true when a prefix maps it to a file of the site (#2781): the
+// answer is then a path from the root.
+func (c *Config) mapped(spec string) (target string, local, ok bool) {
+	if u, found := c.Imports[spec]; found && c.localPrefixes[spec] == "" {
+		return u, false, true
 	}
+	if best := c.longestPrefix(spec); best != "" {
+		rest := strings.TrimPrefix(spec, best)
+		if dir, isLocal := c.localPrefixes[best]; isLocal {
+			return dir + rest, true, true
+		}
+		return c.Imports[best] + rest, false, true
+	}
+	pkg, sub := packageOf(spec)
+	if u, found := c.Imports[pkg]; found && sub != "" && !strings.ContainsAny(u, "?#") {
+		return strings.TrimSuffix(u, sep) + sep + sub, false, true
+	}
+	return "", false, false
+}
+
+// longestPrefix is the longest imports key ending in / that holds spec.
+func (c *Config) longestPrefix(spec string) string {
 	best := ""
 	for key := range c.Imports {
 		if strings.HasSuffix(key, sep) && strings.HasPrefix(spec, key) && len(key) > len(best) {
 			best = key
 		}
 	}
-	if best != "" {
-		return c.Imports[best] + strings.TrimPrefix(spec, best), true
-	}
-	pkg, sub := packageOf(spec)
-	if u, ok := c.Imports[pkg]; ok && sub != "" && !strings.ContainsAny(u, "?#") {
-		return strings.TrimSuffix(u, sep) + sep + sub, true
-	}
-	return "", false
+	return best
 }
 
 // packageOf splits a bare specifier into its package and the path inside it:

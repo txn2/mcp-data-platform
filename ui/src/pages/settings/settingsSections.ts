@@ -22,6 +22,7 @@ export const SETTINGS_SECTIONS = [
   { id: "embed-hosts", label: "Embed hosts", group: "Content" },
   { id: "bot-checks", label: "Bot checks", group: "Endpoints" },
   { id: "integrations", label: "Integrations", group: "Deployment" },
+  { id: "references", label: "References", group: "Deployment" },
   { id: "access-requests", label: "Access requests", group: "Access" },
 ] as const satisfies readonly { id: string; label: string; group: (typeof SECTION_GROUPS)[number] }[];
 

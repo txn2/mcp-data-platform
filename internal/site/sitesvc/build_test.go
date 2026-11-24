@@ -2,6 +2,7 @@ package sitesvc
 
 import (
 	"context"
+	"io/fs"
 	"strings"
 	"testing"
 
@@ -74,4 +75,35 @@ func TestPublish_ATreeWithoutABuildFileServesItsTypeScriptAsText(t *testing.T) {
 		}
 	}
 	assert.ElementsMatch(t, []string{"Table.tsx", "app.tsx", "index.html"}, paths(treeOfNewest(t, store, site.TreeOutput)))
+}
+
+// #2783-#2785: ReadBuild hands an editor a release's source, output and
+// render record, refuses anyone else, and reads release numbers it is given.
+func TestReadBuild(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _, _ := fixture(t)
+	pub, err := svc.Publish(ctx, owner, PublishRequest{Site: "marketing", Files: builtFiles()})
+	require.NoError(t, err)
+	require.Len(t, pub.Builds, 1, "a publish reports what its entry compiled to")
+	b, err := svc.ReadBuild(ctx, owner, "marketing", "", 0)
+	require.NoError(t, err)
+	assert.Equal(t, 1, b.Release.Number)
+	require.NotNil(t, b.Index)
+	assert.Len(t, b.Index.Builds, 1)
+	src, err := fs.ReadFile(b.Source, "Table.tsx")
+	require.NoError(t, err)
+	assert.Contains(t, string(src), "data-v")
+	out, err := fs.ReadFile(b.Output, "app.js")
+	require.NoError(t, err)
+	assert.Contains(t, string(out), "data-v")
+	again, err := svc.ReadBuild(ctx, owner, "marketing", "", 1)
+	require.NoError(t, err)
+	assert.Equal(t, b.Release.ID, again.Release.ID)
+
+	_, err = svc.ReadBuild(ctx, Actor{Email: "someone@else.example"}, "marketing", "", 0)
+	require.Error(t, err)
+	_, err = svc.ReadBuild(ctx, owner, "marketing", "", 99)
+	require.Error(t, err)
+	_, err = svc.ReadBuild(ctx, owner, "nope", "", 0)
+	require.Error(t, err)
 }

@@ -29,17 +29,38 @@ func (c *compile) resolve(args api.OnResolveArgs) (api.OnResolveResult, error) {
 	case args.Namespace == nsURL:
 		return fromURLModule(args)
 	case strings.HasPrefix(args.Path, "https://"):
-		return c.remote(args.Path)
+		return c.remote(args.Path, args.Kind)
 	case strings.HasPrefix(args.Path, dot), strings.HasPrefix(args.Path, sep):
 		return c.local(args.Path, args.Importer)
 	case !isBare(args.Path):
 		return api.OnResolveResult{}, fmt.Errorf("imports %q: a build imports a file of the site by a path starting ./, or a module by its https URL", args.Path)
 	}
-	u, ok := c.cfg.mapped(args.Path)
-	if !ok {
-		return api.OnResolveResult{}, fmt.Errorf("imports %q, which %s does not map; add it to \"imports\" with an https URL at an exact version", args.Path, ControlFile)
+	target, local, ok := c.cfg.mapped(args.Path)
+	if c.bare != nil && !local {
+		c.mu.Lock()
+		c.bare[args.Path] = true
+		c.mu.Unlock()
+		return api.OnResolveResult{Path: args.Path, External: true}, nil
 	}
-	return c.remote(u)
+	switch {
+	case !ok:
+		return api.OnResolveResult{}, fmt.Errorf("imports %q, which %s does not map; add it to \"imports\" with an https URL at an exact version", args.Path, ControlFile)
+	case local:
+		return c.local(target, sep)
+	}
+	return c.remote(target, args.Kind)
+}
+
+// scriptImport is an import a script makes, not a stylesheet.
+func scriptImport(kind api.ResolveKind) bool {
+	return kind == api.ResolveJSImportStatement || kind == api.ResolveJSDynamicImport || kind == api.ResolveJSRequireCall
+}
+
+// isStylesheetURL reports a URL whose path names a stylesheet.
+func isStylesheetURL(u string) bool {
+	p, _, _ := strings.Cut(u, "?")
+	p, _, _ = strings.Cut(p, "#")
+	return strings.HasSuffix(strings.ToLower(p), extCSS)
 }
 
 // cssReference is a reference a stylesheet makes that is not a module: a
@@ -54,13 +75,19 @@ func cssReference(args api.OnResolveArgs) bool {
 	return false
 }
 
-// remote is a URL module: left for the browser, or fetched and bundled.
-func (c *compile) remote(u string) (api.OnResolveResult, error) {
+// remote is a URL module: left for the browser, or fetched and bundled. A
+// stylesheet a script imports by URL is never left as a module import, which a
+// browser refuses: left for the browser, it becomes an @import of the entry's
+// stylesheet (#2779).
+func (c *compile) remote(u string, kind api.ResolveKind) (api.OnResolveResult, error) {
 	if !Pinned(u) {
 		return api.OnResolveResult{}, fmt.Errorf("imports %q, which is not an https URL at an exact version, such as https://esm.sh/react@18.3.1", u)
 	}
-	if c.cfg.Remote == RemoteBundle {
+	switch {
+	case c.cfg.Remote == RemoteBundle:
 		return api.OnResolveResult{Path: u, Namespace: nsURL}, nil
+	case scriptImport(kind) && isStylesheetURL(u):
+		return api.OnResolveResult{Path: u, Namespace: nsCSSURL}, nil
 	}
 	return api.OnResolveResult{Path: u, External: true}, nil
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/sitepages"
 	"github.com/txn2/mcp-data-platform/internal/site/sitegw"
+	"github.com/txn2/mcp-data-platform/internal/site/sitesvc"
 	"github.com/txn2/mcp-data-platform/internal/site/sitetraffic"
 	"github.com/txn2/mcp-data-platform/internal/site/sitewire"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
@@ -116,6 +117,10 @@ func accessOver(p *platform.Platform, rt *sitewire.Runtime, portal *url.URL) *si
 			return ""
 		},
 		Session: func(*http.Request) (*sitegw.SiteViewer, error) { return nil, nil }, //nolint:nilnil // no browser sign-in: nobody is signed in
+		MayManage: func(ctx context.Context, siteID, email string) bool {
+			st, err := rt.Service.Find(ctx, siteID)
+			return err == nil && rt.Service.MayEdit(ctx, sitesvc.Actor{Email: email}, st) == nil
+		},
 	}
 	if ba := p.BrowserSessionAuth(); ba != nil {
 		a.Session = func(r *http.Request) (*sitegw.SiteViewer, error) {

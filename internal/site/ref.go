@@ -3,11 +3,13 @@ package site
 import (
 	"fmt"
 	"strings"
+
+	"github.com/txn2/mcp-data-platform/internal/refscheme"
 )
 
 // RefPrefix starts the reference that names a site's files to the tools that
 // read and edit content.
-const RefPrefix = "mcp:site:"
+const RefPrefix = refscheme.Site
 
 const refParts = 3
 
@@ -23,11 +25,11 @@ type Ref struct {
 func (r Ref) IsFile() bool { return r.Path != "" && !strings.HasSuffix(r.Path, "/") }
 
 // IsRef reports whether s is a site reference.
-func IsRef(s string) bool { return strings.HasPrefix(s, RefPrefix) }
+func IsRef(s string) bool { return strings.HasPrefix(refscheme.Canon(s), RefPrefix) }
 
 // ParseRef reads mcp:site:<site>/<environment>[/<path>].
 func ParseRef(s string) (Ref, error) {
-	rest, ok := strings.CutPrefix(s, RefPrefix)
+	rest, ok := strings.CutPrefix(refscheme.Canon(s), RefPrefix)
 	if !ok {
 		return Ref{}, fmt.Errorf("not a site reference: %q", s)
 	}

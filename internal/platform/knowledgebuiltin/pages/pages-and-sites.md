@@ -373,37 +373,102 @@ A release without `_build.json` is published exactly as before.
   "entries": ["app.tsx", "admin/admin.tsx"],
   "imports": {
     "react": "https://esm.sh/react@18.3.1",
-    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client"
+    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client?deps=react@18.3.1",
+    "react-router-dom": "https://esm.sh/react-router-dom@6.28.0?deps=react@18.3.1,react-dom@18.3.1",
+    "@/": "/src/"
   },
-  "remote": "external"
+  "define": { "import.meta.env.DEV": false, "import.meta.env.VITE_API_BASE_URL": "/api" },
+  "remote": "external",
+  "sourcemap": "private"
 }
 ```
 
 | Key | What it does |
 |---|---|
-| `entries` | The files compiled. Each, with the local modules it imports, becomes one ES module at the same path ending `.js`: `app.tsx` is served as `/app.js`, so the page loads `<script type="module" src="/app.js">`. A CSS file an entry imports becomes `app.css` beside it; its `url()` references are left as written. |
-| `imports` | Where each library comes from: a package name, or a prefix ending `/`, mapped to an `https` URL at an exact version (`@18.3.1`; `@18` or `@^18` is refused). A path inside a mapped package follows its URL: with `react` mapped, `react/jsx-runtime` is `https://esm.sh/react@18.3.1/jsx-runtime`. An import of a name not mapped refuses the publish, naming it. There is no npm install and no `node_modules`. |
+| `entries` | The files compiled. Each, with the local modules it imports, becomes an ES module at the same path ending `.js`: `app.tsx` is served as `/app.js`, so the page loads `<script type="module" src="/app.js">`. A CSS file an entry imports becomes `app.css` beside it (name the imported stylesheet something else, such as `styles.css`, or it collides with that output); its `url()` references are left as written. |
+| `imports` | Where each library comes from: a package name, or a prefix ending `/`, mapped to an `https` URL at an exact version (`@18.3.1`; `@18` or `@^18` is refused). A path inside a mapped package follows its URL: with `react` mapped, `react/jsx-runtime` is `https://esm.sh/react@18.3.1/jsx-runtime`. A prefix may instead map to a folder of the site, written from its root: `"@/": "/src/"` makes `@/components/Button` the local file `/src/components/Button.tsx`, as `tsconfig` paths do. `"@/": "/../"` and `"@/": "src/"` are refused. An import of a name not mapped refuses the publish, naming it. There is no npm install and no `node_modules`. |
+| `imports_from` | `"package.json"` generates the imports map at every publish from `package.json` and the lockfile (`package-lock.json`, `pnpm-lock.yaml` or `yarn.lock`), as `manage_site imports` proposes it; an entry you write in `imports` wins. |
+| `define` | Replaces `import.meta.env.X` or `process.env.X` with a JSON value (a string, number, `true`, `false` or `null`). A read of an `import.meta.env.X` that `define` does not set refuses the publish, naming the file, line and key, rather than compiling into a page that throws. The values are the same in every environment: a release is promoted unchanged, so a value that differs per environment comes from an application endpoint read when the page starts. |
 | `remote` | `external` (the default) leaves URL imports as URLs, which the browser loads from the CDN; the compile reads nothing from the network. `bundle` fetches them at publish and bundles them into the output, so the site loads nothing from a CDN. |
-| `sourcemap` | `true` writes `app.js.map` beside the output. It holds the source text, and is served. |
+| `splitting` | `true` (the default) puts what an entry loads by `import()` (`React.lazy(() => import("./pages/Reports"))`) in chunks of its own under `/_chunks/`, named by a hash of their content, loaded when first used. An entry with no dynamic import is one file, as before. `false` compiles each entry into one file. |
+| `sourcemap` | `true` writes `app.js.map` beside each output, holding the source text, served to anyone. `"private"` writes the same maps and serves them only to the people who manage the site, on the environment's own address while signed in there (`/_signin`); anyone else gets 404. `false` writes none. |
 | `minify` | `true` shortens the output. |
+| `tailwind` | An exact Tailwind CSS 4 version (`"4.1.13"`): the stylesheet holding `@import "tailwindcss"` is compiled by Tailwind at publish, in the platform, and its output takes its place. `tailwind_input` names that stylesheet when it is not an entry's own. Configure in CSS with `@theme`, `@custom-variant` and `@utility`; `@plugin` and `@config` refuse the publish, since no code from the site runs. |
+| `budgets` | `{"app.tsx": {"js_gzip": "300KB"}}`: a publish whose entry is larger than its budget (`js`, `js_gzip`, `css`, `css_gzip`, a size such as `"300KB"` at 1024 bytes to the KB, or a number of bytes) warns in its result; it is not refused. |
+| `singletons` | Packages only one copy of which may load, beside `react` and `react-dom`. |
+| `exclude` | Globs of files kept as source and never served: `["e2e/**", "docs/**"]`. |
 
 Local imports start `./`, `../` or `/` and resolve inside the site, trying the path,
 then `.tsx`, `.ts`, `.jsx`, `.js`, `.mjs`, `.json` and `.css`, then the folder's `index`
-file. A `.js` file may hold JSX. An import that leaves the site is refused. The `.ts`,
-`.tsx`, `.jsx` files and `_build.json` are source: they read and patch through
-`manage_asset` like any source file and are never served. A file in the release at an
-output's path (an `app.js` beside `app.tsx`) refuses the publish, naming both.
+file. A `.js` file may hold JSX. An import that leaves the site is refused. Source is
+never served: the `.ts`, `.tsx`, `.jsx` files, `_build.json`, a project's package and
+tooling files at the root (`package.json`, the lockfiles, `tsconfig*.json`,
+`*.config.{js,ts,mjs,cjs,mts,cts}`, `.nvmrc`, `.eslintrc*`, `.prettierrc*`) and what
+`exclude` names. They read and patch through `manage_asset` like any source file.
+`.npmrc` is refused at publish: it often holds a registry token. A file in the release
+at an output's path (an `app.js` beside `app.tsx`, or anything under `_chunks/`)
+refuses the publish, naming both, including when a publish with `base` adds the file
+and the entry itself is unchanged.
+
+One copy of React across CDN libraries: on esm.sh every library that uses React is
+built against its own copy unless its URL pins the same versions with `?deps=`, and two
+copies make hooks fail when the page runs ("Invalid hook call"). Give each library that
+uses React `?deps=react@18.3.1,react-dom@18.3.1`, and `react-dom/client`
+`?deps=react@18.3.1`. A URL with a query does not pass its path on to subpaths, so
+`react-dom/client` and `@hookform/resolvers/zod` need keys of their own. A publish in
+`external` mode refuses a map that would load two copies: two URLs naming React at
+different versions, a `deps` pin of another version, or an esm.sh URL for a package that
+peers on React without pinning it (peers read from the lockfile, else from the npm
+registry), naming the URL and the package. `manage_site imports` writes such a map for
+you.
+
+A library stylesheet a component imports (`import "some-editor/style.css"`), mapped to a
+URL in `external` mode, becomes an `@import` of that URL at the top of the entry's
+stylesheet, since a browser refuses a stylesheet loaded as a module. The page links the
+entry's `.css` output (`app.css`), which is written when the entry had no stylesheet of
+its own. In `bundle` mode the fetched stylesheet is bundled into it.
+
+The compile defines `import.meta.site` as `{ release, published_at, site }`: the
+release's number, when it was published, and the site's name. It describes the release,
+not the environment, so a release promoted elsewhere serves the same bytes. Show it as a
+build number: `` `${config.version}+r${import.meta.site.release}` ``.
+
+Chunks are served with `Cache-Control: public, max-age=31536000, immutable`; an entry
+is revalidated, which is how a page picks up the chunk names of a new release. A page
+still running release N after N+1 is published can load a chunk N has and N+1 does not:
+it is served from one of the five releases before the current one, while they are kept.
+After that, a lazy route can fail with "Failed to fetch dynamically imported module";
+the usual remedy is to reload the page when a dynamic import fails.
+
+A publish, a patch and a dry run report what each entry compiled to, in `builds`: each
+output with its bytes and gzip bytes and, against the release before, its change
+(`app.js 412 KB → 498 KB (+86 KB)`; a chunk is compared by its name without the hash),
+the inputs contributing most bytes, the URLs the entry loads when it starts, and any
+budget it exceeds. `manage_site build_report` reads a release's report later, and
+`manage_site symbolicate` with `stack` maps a stack trace from the minified output to
+original files, lines and columns through the release's maps.
 
 A compile error refuses the release, naming every file, line and column, and the
 environment does not move. A patch compiles again only the entries that read the file
-you changed, and `dry_run` reports `outputs_changed` and any compile error without
-writing a release. The render limits cover the compile: the modules and bytes one
-entry may read, the bytes it may write, and the time.
+you changed (an entry that reads `import.meta.site` compiles at every publish), and
+`dry_run` reports `outputs_changed`, `builds` and any compile error without writing a
+release. The render limits cover the compile: the modules and bytes one entry may read,
+the bytes it may write, and the time; a Tailwind run has limits on time, candidates and
+output of its own, and a refusal names the one it hit.
 
 Types are not checked: TypeScript's types are removed, not verified, so a type error
-publishes. Tailwind, PostCSS, Sass, Vue and Svelte single-file components need a
-JavaScript toolchain and are not compiled; write the CSS, or import CSS files from an
-entry.
+publishes. PostCSS, Sass, Vue and Svelte single-file components need a JavaScript
+toolchain and are not compiled; write the CSS, or import CSS files from an entry.
+
+### A site's guide
+
+`AGENTS.md` at a site's root is the site's guide for whoever works on it next: how it
+is built, where its settings live, which libraries are pinned and why, what not to
+touch. It is never served, whatever else the site holds, and it is versioned with the
+release. `manage_site get` returns it, and the first `manage_asset` read or patch, or
+`manage_site publish`, on a site in a session carries it in the result as
+`site_guide`. Read it before you change the site, and keep it current when you change
+how the site is built, what it loads or where its settings live.
 
 ### Who has access
 
@@ -489,12 +554,14 @@ manage_site command=promote site=cool-site to=prod
 | `_redirects` | The redirect map, not served: `from to [status]`, with `/old/*` and `:splat`. Status 200 is a rewrite: the path is answered in place, with status 200, by the file of this site the target names, which is how a single-page application answers its routes (`/* /index.html 200`); a file the release holds still answers itself, and a rewrite to a file the release lacks is the 404 page |
 | `_headers` | The headers each path is served with, not served: a path line (`/*`), then indented `Name: value` lines. Only `Content-Security-Policy`, `Content-Security-Policy-Report-Only`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`, `Cross-Origin-Embedder-Policy`, `Cross-Origin-Resource-Policy` and `X-Frame-Options`; anything else refuses the publish naming the line. A release declaring no framing rule is served with `frame-ancestors 'self'` |
 | `_build.json` | Compiles the release's TypeScript, TSX and JSX at publish, not served; see TypeScript, TSX and JSX above |
+| `AGENTS.md` | The site's guide, never served; see A site's guide above |
+| `_layouts/`, `_includes/`, `_data/` | The render's templates and records, never served, whether or not the site uses Liquid |
 | `404.html` | Served with status 404 for a path nothing answers |
 | `index.html` in a folder | The folder's address |
 | `name.html` | Also answers at `/name` |
 
-A file whose name carries a content hash (`site.3f2a9c1b.css`) is served as
-immutable. Dotted paths other than `.well-known` are refused, so a source tree's
+A file whose name carries a content hash (`site.3f2a9c1b.css`), and every file under
+`/_chunks/`, is served as immutable. Dotted paths other than `.well-known` are refused, so a source tree's
 `.env` or `.git` cannot become a public address. Text files are compressed with
 gzip and brotli when published.
 

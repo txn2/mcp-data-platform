@@ -88,10 +88,14 @@ func ParseURI(scheme, uri string) (ParsedURI, error) {
 		scheme = DefaultURIScheme
 	}
 	prefix := scheme + "://"
-	if !strings.HasPrefix(uri, prefix) {
+	rest, ok := strings.CutPrefix(uri, prefix)
+	if !ok {
+		// The default scheme is read whatever the deployment's is (#2776).
+		rest, ok = strings.CutPrefix(uri, DefaultURIScheme+"://")
+	}
+	if !ok {
 		return ParsedURI{}, fmt.Errorf("uri does not start with %s: %s", prefix, uri)
 	}
-	rest := strings.TrimPrefix(uri, prefix)
 	parts := strings.SplitN(rest, "/", 2)
 	if len(parts) < 2 {
 		return ParsedURI{}, fmt.Errorf("uri missing path: %s", uri)

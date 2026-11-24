@@ -51,7 +51,7 @@ func TestParseDefaultsAndMapping(t *testing.T) {
 		"vue":                            "",
 	}
 	for spec, want := range cases {
-		got, ok := cfg.mapped(spec)
+		got, _, ok := cfg.mapped(spec)
 		if got != want || ok != (want != "") {
 			t.Errorf("%s: %q %v, want %q", spec, got, ok, want)
 		}

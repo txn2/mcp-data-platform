@@ -7,18 +7,19 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"path"
 	"slices"
 	"strings"
 	"sync/atomic"
-	"unicode/utf8"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
 	"github.com/txn2/mcp-data-platform/internal/contentenc"
 	"github.com/txn2/mcp-data-platform/internal/site"
+	"github.com/txn2/mcp-data-platform/internal/site/sitebuild"
 	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
+	"github.com/txn2/mcp-data-platform/internal/site/sitepath"
 	"github.com/txn2/mcp-data-platform/internal/site/siterender"
 	"github.com/txn2/mcp-data-platform/internal/site/sitestore"
 	"github.com/txn2/mcp-data-platform/pkg/textpatch"
@@ -33,9 +34,6 @@ const (
 // Publishing's bounds.
 const (
 	parallelUploads = 8
-	firstPrintable  = 0x20
-	deleteRune      = 0x7f
-	maxPathLen      = 1024
 	// maxManifestDepth is how many derived releases may stand between a
 	// release and one holding its whole file set: reading a file set walks
 	// them, and a site can take thousands of patches.
@@ -54,41 +52,8 @@ type InputFile struct {
 	sum string
 }
 
-// CleanPath is a file's path as the release keys it, or a refusal: relative,
-// forward-slashed, with no parent reference, no control character, and no
-// dotted segment other than .well-known, so a source tree's .env or .git never
-// becomes a public URL.
-func CleanPath(name string) (string, error) {
-	p := strings.TrimPrefix(strings.TrimSpace(name), "./")
-	switch {
-	case unservablePath(p):
-		return "", fmt.Errorf("file path %q cannot be served", name)
-	case strings.ContainsFunc(p, isControlRune):
-		return "", fmt.Errorf("file path %q holds a control character", name)
-	case strings.HasPrefix(p, "/") || path.Clean(p) != p:
-		return "", fmt.Errorf("file path %q must be relative and clean", name)
-	}
-	for seg := range strings.SplitSeq(p, "/") {
-		if dottedSegment(seg) {
-			return "", fmt.Errorf("file path %q has a dotted segment; a release is public, so only .well-known is served", name)
-		}
-	}
-	return p, nil
-}
-
-// unservablePath reports a path no release can key: empty, overlong, not
-// UTF-8, or holding a backslash or a NUL.
-func unservablePath(p string) bool {
-	return p == "" || len(p) > maxPathLen || !utf8.ValidString(p) || strings.ContainsAny(p, "\\\x00")
-}
-
-func isControlRune(r rune) bool { return r < firstPrintable || r == deleteRune }
-
-// dottedSegment reports a parent reference or a hidden name; .well-known is
-// the one dotted segment a release may hold.
-func dottedSegment(seg string) bool {
-	return seg == ".." || (strings.HasPrefix(seg, ".") && seg != ".well-known")
-}
+// CleanPath is a file's path as the release keys it, or a refusal.
+var CleanPath = sitepath.CleanPath
 
 func isJunk(name string) bool {
 	return slices.Contains(junkNames, path.Base(name)) || strings.HasPrefix(name, "__MACOSX/")
@@ -97,35 +62,12 @@ func isJunk(name string) bool {
 // contentTypeOf is the type a file is served as (site.ServedType).
 var contentTypeOf = site.ServedType
 
-// ObjectKey is where one form of a file is stored: "" for the file itself,
-// "gz" or "br" for a compressed variant. Objects are kept by digest, per site,
-// so a release that keeps a file costs nothing and a caller's path never
-// reaches a key; a file written before that stays under its release's prefix.
-func ObjectKey(siteID string, f site.File, encoding string) string {
-	if f.StoredIn != "" {
-		form := "files"
-		if encoding != "" {
-			form = encoding
-		}
-		return fmt.Sprintf("sites/%s/releases/%s/%s/%s", siteID, f.StoredIn, form, f.Path)
-	}
-	key := fmt.Sprintf("sites/%s/objects/%s", siteID, f.SHA256)
-	if encoding != "" {
-		key += "." + encoding
-	}
-	return key
-}
-
-// Digest fixes a file set: every path and content digest, in path order.
-func Digest(files []site.File) string {
-	sorted := slices.Clone(files)
-	slices.SortFunc(sorted, func(a, b site.File) int { return strings.Compare(a.Path, b.Path) })
-	h := sha256.New()
-	for _, f := range sorted {
-		_, _ = io.WriteString(h, f.Path+"\x00"+f.SHA256+"\n")
-	}
-	return hex.EncodeToString(h.Sum(nil))
-}
+// ObjectKey and Digest are sitepath's: where a stored file lives and what fixes
+// a file set.
+var (
+	ObjectKey = sitepath.ObjectKey
+	Digest    = sitepath.Digest
+)
 
 // built is a publish's files read and checked, before any is stored.
 type built struct {
@@ -434,6 +376,10 @@ type Published struct {
 	// OutputsChanged is how many served files a dry run would add, change or
 	// remove.
 	OutputsChanged int `json:"outputs_changed,omitempty"`
+	// Builds is each compiled entry's report (#2783): its outputs' sizes and
+	// their change from the release before, its largest inputs, the URLs it
+	// loads at start, and any budget it exceeds.
+	Builds []sitebuild.Report `json:"builds,omitempty"`
 }
 
 // Publish writes a new release and points the environment at it. An
@@ -464,10 +410,13 @@ func (s *Service) Publish(ctx context.Context, actor Actor, req PublishRequest) 
 		return &Published{Release: &rel, Env: env.Name, Address: s.Address(ctx, st, env.Name), Unchanged: true}, nil
 	}
 	p := publication{st: st, env: env, req: req, built: built, base: base}
+	if p.meta, err = s.releaseMeta(ctx, st); err != nil {
+		return nil, err
+	}
 	if req.DryRun {
 		return s.preview(ctx, p)
 	}
-	rel, err := s.record(ctx, actor, p)
+	rel, err := s.record(ctx, actor, &p)
 	if err != nil {
 		return nil, err
 	}
@@ -475,7 +424,20 @@ func (s *Service) Publish(ctx context.Context, actor Actor, req PublishRequest) 
 		s.Invalidate(st.Name)
 	}
 	rel.Files, rel.Removed = nil, nil
-	return &Published{Release: rel, Env: env.Name, Address: s.Address(ctx, st, env.Name)}, nil
+	return &Published{Release: rel, Env: env.Name, Address: s.Address(ctx, st, env.Name), Builds: p.builds}, nil
+}
+
+// releaseMeta is import.meta.site (#2784): the number the write then checks.
+func (s *Service) releaseMeta(ctx context.Context, st *site.Site) (*sitebuild.SiteMeta, error) {
+	releases, err := s.Store.Releases(ctx, st.ID)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // read by identity
+	}
+	next := 1
+	for _, r := range releases {
+		next = max(next, r.Number+1)
+	}
+	return &sitebuild.SiteMeta{Release: next, PublishedAt: time.Now().UTC().Format(time.RFC3339), Site: st.Name}, nil
 }
 
 // publishTarget is the environment a publish lands in, or why it cannot.
@@ -526,6 +488,9 @@ type publication struct {
 	req   PublishRequest
 	built *built
 	base  *basis
+	meta  *sitebuild.SiteMeta
+	// builds is what the render reported, once it has run.
+	builds []sitebuild.Report
 }
 
 // record stores the files and writes the release with the move to it, in the
@@ -533,23 +498,26 @@ type publication struct {
 // site's stored files are held from the first file stored until the release
 // is recorded, so a release sweep cannot delete one in between
 // (sitestore/holds.go).
-func (s *Service) record(ctx context.Context, actor Actor, p publication) (*site.Release, error) {
+func (s *Service) record(ctx context.Context, actor Actor, p *publication) (*site.Release, error) {
 	hold, err := s.holdUpload(ctx, p.st.ID)
 	if err != nil {
 		return nil, err
 	}
 	defer hold.Release(ctx)
 	ctx = sitestore.WithHold(ctx, hold)
-	trees, err := s.buildTrees(ctx, p)
+	trees, err := s.buildTrees(ctx, *p)
 	if err != nil {
 		return nil, holdRefusal(err)
 	}
 	rel := &site.Release{
-		ID: sitestore.NewReleaseID(), SiteID: p.st.ID, Source: p.req.Source, Note: p.req.Note, Base: p.req.Base, Rendered: trees.rendered,
+		ID: sitestore.NewReleaseID(), SiteID: p.st.ID, Number: p.meta.Release, Source: p.req.Source, Note: p.req.Note, Base: p.req.Base, Rendered: trees.rendered,
 		FileCount: len(trees.output), TotalBytes: totalSize(trees.output), ManifestSHA256: Digest(trees.output), Redirects: p.built.data.Redirects, Headers: p.built.data.Headers, Contract: p.built.data.Contract,
 		CreatedBy: actor.Email, RenderIndex: trees.index,
 	}
 	trees.fill(rel, p.base, p.req.Base != 0)
+	if trees.builds != nil {
+		rel.PrivateMaps, p.builds = trees.builds.PrivateMaps, trees.builds.Builds
+	}
 	if p.req.Phase != nil {
 		p.req.Phase("Switching " + p.env.Name + " to the new release")
 	}

@@ -1,3 +1,4 @@
+import { displayRef, referenceScheme } from "@/lib/refScheme";
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import {
@@ -230,12 +231,12 @@ function CallDetailModal({
                 Call reference
               </p>
               <CopyButton
-                text={`mcp:call:${call.event_id}`}
+                text={displayRef(`mcp:call:${call.event_id}`)}
                 label="Copy call reference"
               />
             </div>
             <p className="font-mono text-xs break-all text-muted-foreground">
-              mcp:call:{call.event_id}
+              {referenceScheme() === "mcp" ? <>mcp:call:{call.event_id}</> : displayRef(`mcp:call:${call.event_id}`)}
             </p>
           </div>
         )}

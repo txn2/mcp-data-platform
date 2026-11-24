@@ -1,3 +1,4 @@
+import { refOf } from "@/lib/refScheme";
 import { BookOpen } from "lucide-react";
 import { useKnowledgeBacklinks } from "@/api/portal/hooks";
 import { SectionCard } from "@/components/patterns/SectionCard";
@@ -41,7 +42,7 @@ export function KnowledgeBacklinks({
     >
       <div className="flex flex-wrap gap-1.5">
         {pages.map((p) => {
-          const pageUrn = `mcp:knowledge_page:${p.id}`;
+          const pageUrn = refOf("knowledge_page", p.id);
           return (
             <EntityChip
               key={p.id}

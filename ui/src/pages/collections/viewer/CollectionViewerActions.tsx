@@ -1,3 +1,4 @@
+import { refOf } from "@/lib/refScheme";
 import { Pencil, Share2, Trash2 } from "lucide-react";
 import { FeedbackButton } from "@/components/feedback/FeedbackButton";
 import { KnowledgeBacklinksButton } from "@/components/knowledge/KnowledgeBacklinksButton";
@@ -53,7 +54,7 @@ export function CollectionViewerActions({
         <Badge variant="warning">Shared{canEdit ? " (Editor)" : " (Viewer)"}</Badge>
       )}
       <SharedPageLink />
-      <KnowledgeBacklinksButton urn={`mcp:collection:${collectionId}`} onNavigate={onNavigate} />
+      <KnowledgeBacklinksButton urn={refOf("collection", collectionId)} onNavigate={onNavigate} />
       <FeedbackButton target={{ type: "collection", id: collectionId }} canModerate={canEdit} />
       {canEdit && (
         <Button variant="outline" size="sm" onClick={onEdit}>

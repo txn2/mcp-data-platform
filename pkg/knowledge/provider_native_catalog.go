@@ -9,6 +9,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/txn2/mcp-data-platform/internal/refscheme"
+
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
@@ -168,7 +170,7 @@ func sourceRefs(d *catalog.Dataset) []DocumentRef {
 		out = append(out, DocumentRef{Reference: d.SchemaDocument, Type: knowledgepage.RefTargetCatalog})
 	}
 	if d.SchemaResourceID != "" {
-		out = append(out, DocumentRef{Reference: "mcp:resource:" + d.SchemaResourceID, Type: knowledgepage.RefTargetResource})
+		out = append(out, DocumentRef{Reference: refscheme.Resource + d.SchemaResourceID, Type: knowledgepage.RefTargetResource})
 	}
 	if len(out) == 0 {
 		return nil

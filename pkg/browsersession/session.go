@@ -6,6 +6,7 @@
 package browsersession
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -140,4 +141,29 @@ func IsValidSameSite(s string) bool {
 	default:
 		return false
 	}
+}
+
+// CheckSettings is what is wrong with a browser session configuration, empty
+// for nothing: enabled needs OIDC and a signing key, same_site must be one of
+// lax, strict or none (ParseSameSite maps a typo to Lax, which would silently
+// weaken a misspelled "strict"), and none needs secure, since a browser drops
+// a SameSite=None cookie that is not Secure and every portal login would fail.
+func CheckSettings(enabled, oidc, hasSigningKey bool, sameSite string, secure bool) []string {
+	if !enabled {
+		return nil
+	}
+	var errs []string
+	if !oidc {
+		errs = append(errs, "auth.oidc must be enabled when browser_session is enabled")
+	}
+	if !hasSigningKey {
+		errs = append(errs, "auth.browser_session.signing_key is required")
+	}
+	if !IsValidSameSite(sameSite) {
+		errs = append(errs, fmt.Sprintf("auth.browser_session.same_site=%q is invalid (want \"lax\", \"strict\", or \"none\")", sameSite))
+	}
+	if ParseSameSite(sameSite) == http.SameSiteNoneMode && !secure {
+		errs = append(errs, "auth.browser_session.same_site=none requires auth.browser_session.secure=true")
+	}
+	return errs
 }

@@ -1,3 +1,4 @@
+import { refOf } from "@/lib/refScheme";
 import type {
   ApplicationPartKind,
   ApplicationPartView,
@@ -112,7 +113,7 @@ function lowerFirst(s: string): string {
 
 /** partReference is the mcp: reference a part is cited by; a webhook source and a schema have none. */
 export function partReference(kind: ApplicationPartKind, id: string): string | null {
-  return kind === "source" || kind === "schema" || kind === "site" ? null : `mcp:${kind}:${id}`;
+  return kind === "source" || kind === "schema" || kind === "site" ? null : refOf(kind, id);
 }
 
 export const ACTION_LABEL: Record<ApplicationReleaseAction, string> = {

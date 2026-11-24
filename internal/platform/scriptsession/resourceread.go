@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/refscheme"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -30,7 +32,7 @@ const frameTooLarge = "exceeded the configured maximum line length"
 
 // referencePrefix is the reference form manage_resource and fetch name a
 // resource by.
-const referencePrefix = "mcp:resource:"
+const referencePrefix = refscheme.Resource
 
 // readResource reads one managed resource through the session's own
 // resources/read, so the read is authenticated as the run, refused for a
@@ -81,6 +83,7 @@ func (c *SessionCaller) readLimit() int {
 // resourceURI is the address a read names: an address as given, or the one a
 // reference resolves to.
 func (c *SessionCaller) resourceURI(ctx context.Context, ref string) (string, error) {
+	ref = refscheme.Canon(ref)
 	switch {
 	case ref == "":
 		return "", fmt.Errorf("name the resource by its address (%s) or its reference (%s<id>)", "mcp://...", referencePrefix)

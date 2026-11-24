@@ -325,7 +325,7 @@ var actionTools = map[string]actionRule{
 	// move what an environment serves, crawl publishes a copied site, and
 	// set_domain changes who a domain answers (#2619).
 	"manage_site": {arg: "command", reads: set(
-		"get", "list", "releases", "deployments", "domains",
+		"get", "list", "releases", "deployments", "domains", "imports", "build_report", "symbolicate",
 	), writes: set("create", "update", "delete", "set_environment", "publish", "promote", "rollback",
 		"add_domain", "set_domain", "remove_domain", "crawl", "grant", "revoke", "remove_environment")},
 	// manage_approval (#2437, #2494): submit files a request and decide

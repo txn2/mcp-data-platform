@@ -35,8 +35,8 @@ func TestABuildOnlyTreeCompilesAndServesNoSource(t *testing.T) {
 		t.Errorf("app.js: %s", c.files["app.js"])
 	}
 	slices.Sort(c.copies)
-	if want := []string{"_data/x.json", "index.html", "style.css"}; !slices.Equal(c.copies, want) {
-		t.Errorf("copied %v, want %v: a tree with no layouts is not a template, and source is not served", c.copies, want)
+	if want := []string{"index.html", "style.css"}; !slices.Equal(c.copies, want) {
+		t.Errorf("copied %v, want %v: a tree with no layouts is not a template, and neither source nor _data is served (#2779)", c.copies, want)
 	}
 	for _, e := range idx.Entries {
 		if e.Output == "app.js" && (e.Build != sitebuild.Version || !slices.Contains(e.Inputs, "Table.tsx") || !slices.Contains(e.Inputs, sitebuild.ControlFile)) {
@@ -142,8 +142,13 @@ func TestBuildRefusals(t *testing.T) {
 func TestATreeWithoutABuildFileIsUnchanged(t *testing.T) {
 	files := builtSite()
 	delete(files, sitebuild.ControlFile)
+	delete(files, "_data/x.json")
 	if Active(tree(files)) {
 		t.Fatal("a tree with neither layouts nor a build file is active")
+	}
+	files["_data/x.json"] = "{}"
+	if !Active(tree(files)) {
+		t.Fatal("a tree with records is not rendered, so they would be served")
 	}
 	if !Active(tree(builtSite())) {
 		t.Fatal("a tree with a build file is not active")

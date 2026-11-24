@@ -695,20 +695,64 @@ compile stays a function of the source tree. `remote: "bundle"` fetches them at
 publish through the egress guard (public `https` only, no redirects, 8 MiB a
 module, 30 seconds a fetch, kept in the replica's memory by URL) and bundles them,
 so the release loads nothing from a CDN. `sourcemap: true` writes `app.js.map`,
-which holds the source text and is served.
+which holds the source text and is served; see `sourcemap` below for `"private"`.
 
 The `.ts`, `.tsx`, `.jsx`, `.mts` and `.cts` files and `_build.json` are source:
 they are stored as `text/plain`, read and patch through `manage_asset`, and are
-never served. A file in the release at an output's path refuses the publish,
-naming both. A compile error refuses the release, naming each file, line and
-column, and the environment does not move. Each output records what it read and
+never served. So are a project's package and tooling files at the root of a
+release with `_build.json` (`package.json`, `package-lock.json`, `pnpm-lock.yaml`,
+`pnpm-workspace.yaml`, `yarn.lock`, `tsconfig*.json`, `*.config.{js,ts,mjs,cjs,mts,cts}`,
+and the dotfiles `.nvmrc`, `.node-version`, `.eslintrc*`, `.prettierrc*`,
+`.editorconfig`, `.browserslistrc`, which a release accepts at its root), and what
+`exclude` globs name (#2785). `.npmrc` is refused at publish, since it often holds a
+registry token. In every rendered release `_layouts/`, `_includes/`, `_data/` and the
+site's guide `AGENTS.md` are never served (#2779, #2782); a release holding any of
+them is rendered, Liquid running only where it has layouts or does not compile.
+
+A file in the release at an output's path, or under `_chunks/`, refuses the
+publish, naming both, also when a publish with `base` adds it beside an entry that
+did not change (#2777). A compile error refuses the release, naming each file, line
+and column, and the environment does not move. Each output records what it read and
 what it looked for, so a patch compiles again only the entries that read the
 changed file, and a newer compiler compiles everything again. The render's
 deadline and limits cover the compile: per entry 2,000 modules, 4 MiB a module,
 64 MiB of modules, and `sites.max_file_bytes` of output, within the release's
 `sites.max_release_bytes` and `sites.max_release_files`. Types are removed, not
-checked. Tailwind, PostCSS, Sass and Vue or Svelte single-file components need a
-JavaScript toolchain and are not compiled.
+checked. PostCSS, Sass and Vue or Svelte single-file components need a JavaScript
+toolchain and are not compiled.
+
+The rest of `_build.json`:
+
+| Key | What it does |
+|---|---|
+| `splitting` | Default `true` (#2778): each `import()` an entry makes becomes a chunk at `/_chunks/<name>-<hash>.js` (`ChunkNames`), the entry keeping its path. An entry with no dynamic import is one file, as before; `false` is one file always. Two entries that load the same module write one chunk; the same path with different bytes refuses the publish. Chunks are served `public, max-age=31536000, immutable`; a chunk the current release lacks is served from one of the five releases before it that is not pruned, so a page loaded before a publish still loads its lazy routes. |
+| `imports` local prefixes | A key ending `/` may map to a folder of the site written from its root, `"@/": "/src/"` (#2781); it resolves through the local resolver, extensions, `index` files and incremental tracking included. |
+| `define` | `import.meta.env.X` and `process.env.X` replaced by JSON scalars (#2781). A read of an `import.meta.env.X` that `define` does not set, or of `import.meta.env` whole, refuses the publish naming the file, line and key. |
+| `imports_from` | `"package.json"`: the imports map generated at every publish from package.json and the lockfile, the explicit entries winning (#2785). `manage_site imports` returns the same map as a proposal. |
+| `singletons` | Packages beside `react` and `react-dom` only one copy of which may load. In `external` mode a publish is refused when two URLs name one at different versions, a `deps` pin names another version, or an esm.sh URL for a package that peers on one does not pin it; peers come from the lockfile, else the npm registry through the egress guard, and a registry that does not answer leaves them unjudged. |
+| `exclude` | Globs kept as source and never served. |
+| `sourcemap` | `true` serves maps to anyone; `"private"` writes them and serves them only on a private environment's own address to someone signed in there who manages the site (owner, a manage grant, or an administrator), recorded on the release as `site_releases.private_maps` (#2784); `false` writes none. `manage_site symbolicate` maps a stack trace through them. |
+| `tailwind`, `tailwind_input` | Tailwind CSS 4 at an exact version (#2780). `tailwindcss@<version>` is fetched from the npm registry through the egress guard, held to the registry's sha512 integrity, its `dist/lib.js` rewritten for goja by esbuild and kept per version; the stylesheet importing `tailwindcss` is compiled with the release's files split into class candidates (`@source` and `@source not` widen and narrow them), and its output replaces the stylesheet in the entry. No module loader is given, so `@plugin` and `@config` refuse the publish naming the directive. A run is bounded by 30 seconds, 500,000 candidates, 64 MiB of files scanned and 8 MiB of output, and a refusal names the limit. |
+| `budgets` | Per entry `js`, `js_gzip`, `css`, `css_gzip`: a warning in the publish result past it, never a refusal (#2783). |
+
+A JavaScript import of a stylesheet by URL in `external` mode becomes an `@import`
+of it in the entry's stylesheet (#2779), and `import.meta.site` is defined as the
+release's `{release, published_at, site}` (#2784): the release's number is fixed
+before the compile, and a release written by another publish first is refused as a
+conflict to publish again. An entry that reads `import.meta.site` compiles at every
+publish.
+
+Every publish, patch and dry run returns `builds`, one report per compiled entry from
+esbuild's metafile (#2783): each output's bytes and gzip bytes, its change against
+the environment's previous release (a chunk compared by its name without the hash),
+the ten inputs contributing most bytes, the URLs the entry imports at start, and
+budget warnings. Reports are kept in the release's render index, which
+`manage_site build_report` reads.
+
+`AGENTS.md` at a site's root is the site's guide (#2782): `manage_site get` returns it
+(up to 32 KiB, noting when it goes on), and the first `manage_asset` read or patch, or
+`manage_site publish`, on a site in an MCP session carries it as `site_guide`, once per
+session and site on each replica.
 
 The portal's Files tab marks such a site Compiled and opens its TypeScript in the
 editor.

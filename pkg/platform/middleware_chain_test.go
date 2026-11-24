@@ -32,6 +32,7 @@ func TestReceivingMiddlewareChain_CanonicalOrder(t *testing.T) {
 
 	want := []mwName{
 		mwMethodObserver,
+		mwReferenceScheme,
 		mwResultType,
 		mwIcons,
 		mwDescriptionOverride,

@@ -9,6 +9,8 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/txn2/mcp-data-platform/internal/refscheme"
+
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
 	"github.com/txn2/mcp-data-platform/pkg/catalog"
@@ -145,9 +147,9 @@ func (s *Store) catalogTable(ctx context.Context, r tableregister.Registration) 
 func sourceRef(r tableregister.Registration) string {
 	switch r.SourceKind {
 	case tableregister.KindResource:
-		return "mcp:resource:" + r.SourceID
+		return refscheme.Resource + r.SourceID
 	case tableregister.KindAsset:
-		return "mcp:asset:" + r.SourceID
+		return refscheme.Asset + r.SourceID
 	default:
 		return ""
 	}

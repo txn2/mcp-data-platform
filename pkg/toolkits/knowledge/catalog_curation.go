@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/refscheme"
+
 	"github.com/google/uuid"
 
 	"github.com/txn2/mcp-data-platform/pkg/catalog"
@@ -251,7 +253,7 @@ func tagName(v string) (string, error) {
 	if err := refuseURN(v, "a tag", "mcp:tag:<name> or the bare name"); err != nil {
 		return "", err
 	}
-	if name, ok := strings.CutPrefix(v, "mcp:tag:"); ok {
+	if name, ok := strings.CutPrefix(v, refscheme.Tag); ok {
 		return name, nil
 	}
 	return v, nil
@@ -323,7 +325,7 @@ func (p *plan) glossaryTerm(v string) (string, error) {
 	if v == "" {
 		return "", errors.New("detail must name the glossary term")
 	}
-	if strings.HasPrefix(v, "mcp:") {
+	if strings.HasPrefix(v, refscheme.Prefix) {
 		ref, err := catalog.ParseRef(v)
 		if err != nil {
 			return "", fmt.Errorf("glossary term: %w", err)

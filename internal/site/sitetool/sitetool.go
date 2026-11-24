@@ -63,11 +63,11 @@ const (
 var Commands = []string{
 	CmdCreate, CmdGet, CmdList, CmdUpdate, CmdDelete, CmdEnvironment, CmdPublish, CmdPromote, CmdRollback,
 	CmdReleases, CmdDeployments, CmdAddDomain, CmdSetDomain, CmdRemoveDomain, CmdDomains, CmdCrawl, CmdGrant, CmdRevoke,
-	CmdRemoveEnvironment,
+	CmdRemoveEnvironment, CmdImports, CmdBuildReport, CmdSymbolicate,
 }
 
 // Reads is the commands that change nothing.
-var Reads = []string{CmdGet, CmdList, CmdReleases, CmdDeployments, CmdDomains}
+var Reads = []string{CmdGet, CmdList, CmdReleases, CmdDeployments, CmdDomains, CmdImports, CmdBuildReport, CmdSymbolicate}
 
 // allowedInRun is what a script run may do beyond reading: a build publishes
 // to an environment that needs no approval. Anything that changes what a
@@ -127,7 +127,11 @@ type Input struct {
 	// After places an environment in the site's order (#2617).
 	After string `json:"after,omitempty"`
 	// Base makes the files an overlay on that release.
-	Base   int    `json:"base,omitempty"`
+	Base int `json:"base,omitempty"`
+	// DryRun renders and compiles a publish and stores nothing (#2783).
+	DryRun bool `json:"dry_run,omitempty"`
+	// Stack is the stack trace symbolicate maps (#2784).
+	Stack  string `json:"stack,omitempty"`
 	Note   string `json:"note,omitempty"`
 	Reason string `json:"reason,omitempty"`
 	Files  []File `json:"files,omitempty"`
@@ -311,12 +315,14 @@ func schema() map[string]any {
 				"how many releases it keeps, the last N distinct releases it pointed at (0 keeps every one), or \"default\" for the deployment's default. " +
 				"A daily sweep removes every release no environment keeps (one an application release pins or a pending approval names stays), " +
 				"and the files only those releases held: a removed release cannot be rolled back to. Only the owner or an administrator changes it."},
-			"from":    str("promote: the environment whose release moves; it must be the one immediately before to, which is used when from is left out."),
-			"to":      str("promote: the environment that moves."),
-			"release": num("promote: the release, which must be the one the environment before to serves. rollback: the release to return to (default the one before)."),
-			"base":    num("publish: overlay this release instead of replacing the file set. It must be the release dev serves now, so read it first; files you do not send carry over."),
-			"note":    str("publish: what the release is for."),
-			"reason":  str("promote, add_domain and set_domain making a domain public: why, for the approver."),
+			"from":       str("promote: the environment whose release moves; it must be the one immediately before to, which is used when from is left out."),
+			"to":         str("promote: the environment that moves."),
+			fieldRelease: num("promote: the release, which must be the one the environment before to serves. rollback: the release to return to (default the one before). imports, build_report, symbolicate: the release to read (default the one environment serves, dev unless named)."),
+			"dry_run":    map[string]any{keyType: typBool, keyDesc: "publish: render and compile, report the outputs that would change and each compiled entry's sizes (builds), and store nothing."},
+			"stack":      str("symbolicate: a stack trace from the site's minified JavaScript, as the browser printed it; each file:line:column is mapped to the original source through the release's source maps."),
+			"base":       num("publish: overlay this release instead of replacing the file set. It must be the release dev serves now, so read it first; files you do not send carry over."),
+			"note":       str("publish: what the release is for."),
+			"reason":     str("promote, add_domain and set_domain making a domain public: why, for the approver."),
 			"files": map[string]any{
 				keyType: typArray, keyDesc: "publish: the files, up to the inline size a tool call carries.",
 				keyItems: map[string]any{keyType: typObject, keyReq: []string{"path"}, keyProps: map[string]any{
@@ -510,6 +516,9 @@ func (t *Tool) handlers() map[string]handler {
 		},
 		CmdEnvironment: t.setEnvironment,
 		CmdPublish:     t.publish,
+		CmdImports:     t.imports,
+		CmdBuildReport: t.buildReport,
+		CmdSymbolicate: t.symbolicate,
 		CmdPromote: func(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
 			return t.ops().Promote(ctx, a, sitesvc.PromoteRequest{Site: in.Site, From: in.From, To: in.To, Release: in.Release, Reason: in.Reason})
 		},
@@ -657,6 +666,9 @@ func (t *Tool) get(ctx context.Context, actor sitesvc.Actor, in Input) (any, err
 	if err != nil {
 		return nil, err //nolint:wrapcheck // the caller's message
 	}
+	if guide := readGuide(ctx, t.Service, actor, st.Name); guide != nil {
+		out[fieldGuide] = guide
+	}
 	if perms.Manage {
 		if out["grants"], err = t.Service.Store.Grants(ctx, st.ID); err != nil {
 			return nil, fmt.Errorf("listing grants: %w", err)
@@ -738,9 +750,13 @@ func (t *Tool) publish(ctx context.Context, actor sitesvc.Actor, in Input) (any,
 	if err != nil {
 		return nil, err
 	}
-	return t.Service.Publish(ctx, actor, sitesvc.PublishRequest{ //nolint:wrapcheck // the caller's message
-		Site: in.Site, Environment: in.Environment, Source: set.source, Note: in.Note, Files: set.files, Base: in.Base, Remove: set.removed,
+	pub, err := t.Service.Publish(ctx, actor, sitesvc.PublishRequest{
+		Site: in.Site, Environment: in.Environment, Source: set.source, Note: in.Note, Files: set.files, Base: in.Base, Remove: set.removed, DryRun: in.DryRun,
 	})
+	if err != nil {
+		return nil, err //nolint:wrapcheck // the caller's message
+	}
+	return withGuide(pub, shownGuide(ctx, t.Service, actor, in.Site)), nil
 }
 
 // fileSet is what a publish was handed.

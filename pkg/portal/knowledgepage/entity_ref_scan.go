@@ -3,6 +3,8 @@ package knowledgepage
 import (
 	"regexp"
 	"strings"
+
+	"github.com/txn2/mcp-data-platform/internal/refscheme"
 )
 
 // trailingPunct is the set of sentence punctuation trimmed from the tail of an
@@ -36,7 +38,7 @@ var codeSpanRe = regexp.MustCompile("(?s)```.*?```|`[^`]*`")
 // by target, and every ref is marked source=inline so a reconcile can replace only
 // the inline set without touching promoted or manual references.
 func ScanBodyRefs(body string) []EntityRef {
-	body = codeSpanRe.ReplaceAllString(body, " ")
+	body = codeSpanRe.ReplaceAllString(refscheme.Canon(body), " ")
 	matches := refTokenRe.FindAllString(body, -1)
 	if len(matches) == 0 {
 		return nil

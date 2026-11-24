@@ -2,6 +2,7 @@ package sitesvc
 
 import (
 	"bytes"
+	"cmp"
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
@@ -85,6 +86,7 @@ type builtTrees struct {
 	removed        []string
 	output         []site.File
 	index          *site.File
+	builds         *siterender.Index
 }
 
 // fill writes the trees onto a release: only what differs from the parent when
@@ -138,7 +140,7 @@ func (s *Service) buildTrees(ctx context.Context, p publication) (*builtTrees, e
 	if err != nil {
 		return nil, err
 	}
-	trees.rendered, trees.output = true, sink.output()
+	trees.rendered, trees.output, trees.builds = true, sink.output(), index
 	if trees.index, err = s.storeIndex(ctx, p.st.ID, index); err != nil {
 		return nil, err
 	}
@@ -157,12 +159,56 @@ func (s *Service) preview(ctx context.Context, p publication) (*Published, error
 		return out, nil
 	}
 	sink := s.newOutputSink(ctx, p, whole, true)
-	if _, err := s.render(ctx, renderJob{fsys, whole}, p, sink); err != nil {
+	index, err := s.render(ctx, renderJob{fsys, whole}, p, sink)
+	if err != nil {
 		return nil, err
 	}
 	changed, removed := deltaOf(p.base.output, sink.output())
-	out.OutputsChanged = len(changed) + len(removed)
+	out.OutputsChanged, out.Builds = len(changed)+len(removed), index.Builds
 	return out, nil
+}
+
+// ReleaseBuild is a release as its build tools read it (#2783-#2785); Index is
+// nil for a release not rendered, or whose record is lost.
+type ReleaseBuild struct {
+	Release        *site.Release
+	Source, Output fs.FS
+	Index          *siterender.Index
+}
+
+// ReadBuild reads release number, or 0 for environment's, for an editor.
+func (s *Service) ReadBuild(ctx context.Context, actor Actor, ref, environment string, number int) (*ReleaseBuild, error) {
+	st, err := s.Find(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.MayEdit(ctx, actor, st); err != nil {
+		return nil, err
+	}
+	if number == 0 {
+		tree, err := s.treeOf(ctx, st, cmp.Or(environment, site.EnvDev), site.TreeSource)
+		if err != nil {
+			return nil, err
+		}
+		number = tree.rel.Number
+	}
+	rel, err := s.Store.Release(ctx, st.ID, number)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // read by identity
+	}
+	source, err := s.treeFiles(ctx, rel, site.TreeSource)
+	if err != nil {
+		return nil, err
+	}
+	output, err := s.Store.Files(ctx, rel.ID)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // read by identity
+	}
+	index, err := s.readIndex(ctx, st.ID, rel)
+	if err != nil {
+		return nil, err
+	}
+	return &ReleaseBuild{Release: rel, Source: s.treeFS(ctx, st.ID, source, nil), Output: s.treeFS(ctx, st.ID, output, nil), Index: index}, nil
 }
 
 // previewSource is the source tree a dry run renders, its new files not stored.
@@ -191,7 +237,7 @@ func (s *Service) render(ctx context.Context, job renderJob, p publication, sink
 	limits := s.cfg().Limits()
 	index, err := siterender.Render(ctx, job.fsys, siterender.Options{
 		Limits:   siterender.Limits{PageBytes: limits.MaxFileBytes, TotalBytes: limits.MaxReleaseBytes, Pages: limits.MaxFiles},
-		Previous: p.base.index, Changed: changedPaths(p.base.files, job.whole), Fetch: s.Fetch,
+		Previous: p.base.index, Changed: changedPaths(p.base.files, job.whole), Fetch: s.Fetch, Site: p.meta, Stylesheets: s.Stylesheets,
 	}, sink)
 	if werr := sink.wait(); err == nil {
 		err = werr

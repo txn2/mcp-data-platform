@@ -124,3 +124,66 @@ again with `base`, and repeat until none is left. Then give the person dev's
 address and stop: promoting the release to the environment people use, and moving
 the domain, is their decision. An agent's `promote` there asks them, or files a
 request they decide in the portal (`APPROVAL_REQUIRED`).
+
+## Moving a Vite or React project in
+
+A React and TypeScript application moves in as its source with a `_build.json`
+(`mcp:knowledge_page:platform-pages-and-sites`, TypeScript, TSX and JSX). It is compiled
+at publish with no Node; what a workstation build gives it and the platform's compile
+does not needs a decision:
+
+1. **Libraries.** Keep `package.json` and the lockfile in the site (they are source,
+   never served) and run `manage_site imports site=<site>`: it reads which packages the
+   entries import, at the locked versions, with each library's locked peers pinned
+   through `?deps=` so that one copy of React loads. Review it and write it into
+   `imports`, or set `"imports_from": "package.json"` to generate it at every publish.
+   A publish that would load two copies of React is refused, naming the URL.
+2. **Path aliases.** Map a `tsconfig` alias to its folder in `imports`:
+   `"@/": "/src/"`. The source keeps the imports the team's editor and type checker
+   expect.
+3. **`import.meta.env` and `define` constants.** Name every value the code reads in
+   `define`: `{"import.meta.env.DEV": false, "import.meta.env.VITE_API_BASE_URL": "/api"}`.
+   An unset `import.meta.env.X` refuses the publish, naming the file and line. A value
+   that differs per environment comes from an application endpoint the page reads when
+   it starts, since one release is promoted unchanged.
+4. **Tailwind.** Name the version: `"tailwind": "4.1.13"`, with `@import "tailwindcss";`
+   in the entry's stylesheet. Move a `tailwind.config.js` into the stylesheet as
+   `@theme`, `@custom-variant` and `@utility`; plugins do not load. Tailwind 3 is not
+   supported.
+5. **Lazy routes.** `React.lazy(() => import("./pages/Reports"))` becomes a chunk under
+   `/_chunks/`, loaded when the route is first visited.
+6. **Library stylesheets.** `import "lib/style.css"` from a component becomes an
+   `@import` in the entry's stylesheet; link that stylesheet (`/app.css`) from the page.
+7. **Tooling files.** `tsconfig*.json`, `vite.config.ts`, `.eslintrc*`, `.prettierrc*`
+   and `.nvmrc` are kept as source and never served; leave `.npmrc` out (it is refused,
+   since it often holds a token). Name anything else to keep unserved in `exclude`:
+   `["e2e/**", "docs/**"]`.
+8. **Version and errors.** `import.meta.site.release` is the release number; show it as
+   the build number. With `"sourcemap": "private"`, maps are served only to the people
+   who manage the site, and `manage_site symbolicate site=<site> stack=<trace>` maps a
+   minified stack trace to source.
+
+Each publish reports what every entry compiled to, in `builds`: sizes with gzip, the
+change from the release before, the largest inputs and the URLs loaded at start.
+`"budgets": {"src/main.tsx": {"js_gzip": "300KB"}}` warns in that result when an entry
+grows past its budget, and `manage_site build_report` reads a release's report later.
+
+## The site's guide
+
+Write `AGENTS.md` at the site's root before you finish: it is never served, and the next
+agent is handed it on its first call on the site (`manage_site get`, the first read,
+patch or publish). Keep it current whenever you change how the site is built.
+
+```markdown
+# <site>: how it is built
+
+- Build: `_build.json` compiles `src/main.tsx` to `/src/main.js`; `index.html` loads it.
+- Imports: local modules by `@/` (mapped to `/src/`); libraries generated from
+  package.json (`imports_from`), React 18.3.1 pinned through `deps`.
+- Adding a library: add it to package.json and the lockfile, then publish.
+- Settings: `src/settings.ts`; per-environment values come from `/endpoints/config`.
+- Environments: dev is where changes land; prod moves only by promote.
+- Kept as source, not run: `e2e/`, `docs/`.
+- Traps: name the stylesheet `styles.css`, not `main.css` (it would collide with the
+  entry's output).
+```

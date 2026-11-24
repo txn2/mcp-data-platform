@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"slices"
 	"strings"
@@ -88,6 +89,9 @@ type Service struct {
 	// Fetch reads the URL modules a release bundles at publish (#2774); nil
 	// refuses such a release.
 	Fetch sitebuild.Fetcher
+	// Stylesheets builds the Tailwind compiler a release asks for (#2780);
+	// nil refuses such a release.
+	Stylesheets func(ctx context.Context, cfg *sitebuild.Config, src fs.FS) (sitebuild.StylesheetCompiler, error)
 	// rendering lets one render run at a time on a replica, which is what
 	// bounds the memory they can hold.
 	rendering sync.Mutex

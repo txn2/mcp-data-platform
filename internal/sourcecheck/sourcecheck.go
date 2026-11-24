@@ -18,6 +18,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/refscheme"
+
 	"gonum.org/v1/gonum/graph/formats/dot"
 
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
@@ -32,7 +34,7 @@ const maxNamed = 5
 // mcp:asset: reference. Every viewing surface rewrites a declared one to the
 // platform URL serving its current bytes, which is the only place the
 // portal's loader fetches from.
-var referencePrefixes = []string{"mcp://", "mcp:asset:"}
+var referencePrefixes = []string{refscheme.URIPrefix, refscheme.Asset}
 
 // viewKeys are the top-level keys of which a Vega-Lite spec must carry at
 // least one to describe a view: a single mark, or a composition of views.

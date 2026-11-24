@@ -393,15 +393,21 @@ func writeRelease(ctx context.Context, tx *sql.Tx, r *site.Release, redirects, h
 		}
 		return fmt.Errorf("lock site: %w", err)
 	}
+	expected := r.Number
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(number), 0) + 1 FROM site_releases WHERE site_id = $1`, r.SiteID).Scan(&r.Number); err != nil {
 		return fmt.Errorf("number release: %w", err)
 	}
+	if expected != 0 && expected != r.Number {
+		// The release was compiled to read its number (import.meta.site,
+		// #2784), and another release took it first.
+		return site.ErrStale
+	}
 	err := tx.QueryRowContext(ctx, `
 		INSERT INTO site_releases (id, site_id, number, source, note, file_count, total_bytes, manifest_sha256, redirects, created_by,
-		                           base_number, manifest_parent, manifest_depth, rendered, headers, contract)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULLIF($12, ''), $13, $14, $15, $16) RETURNING created_at`,
+		                           base_number, manifest_parent, manifest_depth, rendered, headers, contract, private_maps)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULLIF($12, ''), $13, $14, $15, $16, $17) RETURNING created_at`,
 		r.ID, r.SiteID, r.Number, r.Source, r.Note, r.FileCount, r.TotalBytes, r.ManifestSHA256, redirects, r.CreatedBy,
-		r.Base, r.ManifestParent, r.ManifestDepth, r.Rendered, headers, contractText(r.Contract),
+		r.Base, r.ManifestParent, r.ManifestDepth, r.Rendered, headers, contractText(r.Contract), r.PrivateMaps,
 	).Scan(&r.CreatedAt)
 	if isUnique(err) {
 		return site.ErrStale
@@ -463,7 +469,7 @@ func insertRows(ctx context.Context, tx *sql.Tx, releaseID string, rows *fileRow
 	return nil
 }
 
-const releaseColumns = `id, site_id, number, source, note, file_count, total_bytes, manifest_sha256, redirects, created_by, created_at, base_number, COALESCE(manifest_parent, ''), manifest_depth, rendered, pruned_at, headers, contract`
+const releaseColumns = `id, site_id, number, source, note, file_count, total_bytes, manifest_sha256, redirects, created_by, created_at, base_number, COALESCE(manifest_parent, ''), manifest_depth, rendered, pruned_at, headers, contract, private_maps`
 
 // contractText is a release's contract as stored, "" for none (#2679).
 func contractText(c *site.Contract) string {
@@ -479,7 +485,7 @@ func scanRelease(row interface{ Scan(...any) error }) (*site.Release, error) {
 	var pruned sql.NullTime
 	var contract string
 	err := row.Scan(&r.ID, &r.SiteID, &r.Number, &r.Source, &r.Note, &r.FileCount, &r.TotalBytes, &r.ManifestSHA256,
-		&redirects, &r.CreatedBy, &r.CreatedAt, &r.Base, &r.ManifestParent, &r.ManifestDepth, &r.Rendered, &pruned, &headers, &contract)
+		&redirects, &r.CreatedBy, &r.CreatedAt, &r.Base, &r.ManifestParent, &r.ManifestDepth, &r.Rendered, &pruned, &headers, &contract, &r.PrivateMaps)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, site.ErrNoRelease
 	}

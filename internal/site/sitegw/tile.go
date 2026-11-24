@@ -33,7 +33,7 @@ func (g *Gateway) Tile(w http.ResponseWriter, r *http.Request, route *site.Route
 	case strings.HasPrefix(r.URL.Path, prefixEP):
 		g.tileEndpoint(w, r, route, owner)
 	default:
-		g.serveSite(w, r, route)
+		g.serveSite(w, r, route, nil)
 	}
 }
 
@@ -45,7 +45,7 @@ func (g *Gateway) tileEndpoint(w http.ResponseWriter, r *http.Request, route *si
 		w.Header().Set("Allow", "GET, HEAD")
 		httpjson.WriteError(w, http.StatusMethodNotAllowed, "a page being drawn for a tile reads and changes nothing")
 	case route.PartOf == "" || g.deps.Pages == nil:
-		g.serveSite(w, r, route)
+		g.serveSite(w, r, route, nil)
 	case owner == nil:
 		httpjson.WriteError(w, http.StatusUnauthorized, "sign in to use this endpoint")
 	default:

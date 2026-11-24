@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/txn2/mcp-data-platform/internal/refscheme"
+
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptout/exportrecord"
 	"github.com/txn2/mcp-data-platform/internal/sqltables"
@@ -104,7 +106,7 @@ func (r *Run) Record(ctx context.Context, scriptID, writtenBy string, exports []
 		for _, src := range reads {
 			edges = append(edges, catalog.Edge{
 				Source: src, Target: target, WriterKind: catalog.WriterScript,
-				WriterRef: "mcp:script:" + scriptID, WrittenBy: writtenBy,
+				WriterRef: refscheme.Script + scriptID, WrittenBy: writtenBy,
 			})
 		}
 	}
@@ -125,9 +127,9 @@ func exportRef(e exportrecord.Record) string {
 	case e.Preview:
 		return ""
 	case e.ResourceID != "":
-		return "mcp:resource:" + e.ResourceID
+		return refscheme.Resource + e.ResourceID
 	case e.AssetID != "":
-		return "mcp:asset:" + e.AssetID
+		return refscheme.Asset + e.AssetID
 	default:
 		return ""
 	}

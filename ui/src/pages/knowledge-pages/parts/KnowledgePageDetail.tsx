@@ -1,3 +1,4 @@
+import { refOf } from "@/lib/refScheme";
 import { useMemo, useState } from "react";
 import { Pencil, Trash2, History } from "lucide-react";
 import { useKnowledgePage, useResolveRefs, useDeleteKnowledgePage } from "@/api/portal/hooks";
@@ -91,7 +92,7 @@ export function KnowledgePageDetail({
       </article>
 
       <RelatedPanel pageId={id} onNavigate={onNavigate} />
-      <KnowledgeBacklinks urn={`mcp:knowledge_page:${id}`} onNavigate={onNavigate} />
+      <KnowledgeBacklinks urn={refOf("knowledge_page", id)} onNavigate={onNavigate} />
       {canEdit && <LineagePanel pageId={id} />}
       {canEdit && <RefPicker pageId={id} onNavigate={onNavigate} />}
 

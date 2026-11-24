@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/refscheme"
+
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -288,7 +290,7 @@ func (h *Handle) newShares(ctx context.Context, c caller, since time.Time) ([]Sh
 // through `fetch`. The share store's target types are exactly the reference
 // scheme's type segment (asset, collection, prompt), so no mapping is needed.
 func reference(kind, id string) string {
-	return "mcp:" + kind + ":" + id
+	return refscheme.Of(kind, id)
 }
 
 // noticeTitle is how a thread is named in a notice: its stored title, else

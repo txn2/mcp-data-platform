@@ -1,3 +1,4 @@
+import { setReferenceScheme } from "@/lib/refScheme";
 import {
   useQuery,
   useInfiniteQuery,
@@ -58,6 +59,8 @@ export interface Branding {
   login_redirect?: boolean;
   /** Whether /portal/?login=api_key offers the API key form. */
   allow_api_key_login?: boolean;
+  /** The scheme references are written under (#2776). */
+  reference_scheme?: string;
 }
 
 export function useBranding() {
@@ -66,7 +69,9 @@ export function useBranding() {
     queryFn: async () => {
       const res = await fetch("/api/v1/admin/public/branding");
       if (!res.ok) return null;
-      return res.json() as Promise<Branding>;
+      const branding = (await res.json()) as Branding;
+      setReferenceScheme(branding.reference_scheme);
+      return branding;
     },
     staleTime: 5 * 60_000, // cache for 5 minutes
     retry: false,
