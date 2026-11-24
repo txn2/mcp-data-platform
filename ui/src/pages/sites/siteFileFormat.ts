@@ -37,6 +37,11 @@ export function isRendered(files: SiteFile[]): boolean {
   return files.some((f) => f.path.startsWith("_layouts/"));
 }
 
+/** A site whose source has a _build.json compiles its TypeScript and JSX at publish (#2774). */
+export function isCompiled(files: SiteFile[]): boolean {
+  return files.some((f) => f.path === "_build.json");
+}
+
 /** Whether a file opens in the editor: text, the redirect map, or a page. */
 export function isText(f: Pick<SiteFile, "path" | "content_type">): boolean {
   return f.path === "_redirects" || isTextualType(f.content_type.split(";")[0]!.trim());

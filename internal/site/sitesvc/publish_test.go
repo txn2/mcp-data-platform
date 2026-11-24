@@ -78,8 +78,8 @@ func TestIsJunk(t *testing.T) {
 }
 
 func TestContentTypeOfAndCompressible(t *testing.T) {
-	assert.Equal(t, octetStream, contentTypeOf("no-extension"))
-	assert.Equal(t, octetStream, contentTypeOf("a.unknownext"))
+	assert.Equal(t, "application/octet-stream", contentTypeOf("no-extension"))
+	assert.Equal(t, "application/octet-stream", contentTypeOf("a.unknownext"))
 	assert.Equal(t, "text/css; charset=utf-8", contentTypeOf("a/b.CSS"), "the extension is read case-insensitively")
 	assert.Equal(t, "text/html; charset=utf-8", contentTypeOf("index.html"), "a site's pages are served as pages")
 	assert.Equal(t, "text/javascript; charset=utf-8", contentTypeOf("a.js"))
@@ -87,7 +87,7 @@ func TestContentTypeOfAndCompressible(t *testing.T) {
 	for _, ct := range []string{"text/html", "text/css", "application/json", "application/javascript", "image/svg+xml", "application/ld+json", "font/ttf"} {
 		assert.True(t, contentenc.Compressible(ct), ct)
 	}
-	for _, ct := range []string{"image/png", "image/jpeg", "application/zip", "font/woff2", octetStream} {
+	for _, ct := range []string{"image/png", "image/jpeg", "application/zip", "font/woff2", "application/octet-stream"} {
 		assert.False(t, contentenc.Compressible(ct), ct)
 	}
 }

@@ -32,5 +32,5 @@ postgres-what-does-not-work.md pkg/toolkits/postgres/run.go pkg/toolkits/postgre
 applications.md internal/application/ internal/platform/scriptexamples/ internal/endpoint/epform/
 pages-and-sites.md internal/site/ internal/endpoint/epbinding/ internal/endpoint/ephttp/ internal/endpoint/eprun/cookies.go
 public-applications.md internal/endpoint/eprun/cookies.go internal/endpoint/epbinding/route.go internal/endpoint/epbinding/pageorigins.go internal/endpoint/ephttp/ internal/scripttoken/ internal/site/sitegw/gateway.go
-sites-from-source.md internal/site/sitewire/ internal/site/sitesvc/jobs.go internal/site/sitegw/media.go internal/unarchive/ internal/platform/resourceupload/
+sites-from-source.md internal/site/sitebuild/ internal/site/sitewire/ internal/site/sitesvc/jobs.go internal/site/sitegw/media.go internal/unarchive/ internal/platform/resourceupload/
 application-environments.md internal/application/appsvc/envschema.go internal/application/appsvc/environments.go internal/application/appprepare/ internal/schemaref/ internal/pglint/qualified.go internal/pglint/roles.go pkg/toolkits/postgres/apps.go internal/appdbdrift/clone.go internal/site/sitegw/pages.go internal/platform/scriptsave/scriptsave.go internal/application/apptool/

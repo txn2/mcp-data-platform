@@ -661,6 +661,58 @@ whole numbers) or a whole number in a JSON or YAML record (#2633). A float such 
 refuses the release, lists every file and line that failed, and leaves the environment
 where it was.
 
+### TypeScript, TSX and JSX
+
+A release with a `_build.json` at its root compiles its TypeScript, TSX and JSX
+during publish (#2774), with esbuild inside the platform: no Node, npm or
+`node_modules`. A release without one is published exactly as before.
+
+```json
+{
+  "entries": ["app.tsx", "admin/admin.tsx"],
+  "imports": {
+    "react": "https://esm.sh/react@18.3.1",
+    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client"
+  },
+  "remote": "external",
+  "sourcemap": false,
+  "minify": false
+}
+```
+
+Each entry is bundled with the local modules it imports (`./`, `../` or `/`,
+resolved inside the tree and refused when they leave it) into one ES module at
+the same path ending `.js`: `app.tsx` is served as `/app.js`, and a CSS file it
+imports as `/app.css` (with the local stylesheets it `@import`s; its `url()`
+references and an `@import` of a stylesheet on the web are left as written). A bare import (`react`, `@tanstack/react-query`) is
+resolved only through `imports`: its own key, a key ending `/` that prefixes it,
+or, for a path inside a mapped package, that package's URL with the path added
+(`react/jsx-runtime` from `react`). Every URL is `https` at an exact version
+(`@18.3.1`); an unmapped bare import, a range such as `@18`, and an `http` URL
+refuse the publish, naming it. `remote: "external"` (the default) leaves URL
+imports for the browser to load and reads nothing from the network, so the
+compile stays a function of the source tree. `remote: "bundle"` fetches them at
+publish through the egress guard (public `https` only, no redirects, 8 MiB a
+module, 30 seconds a fetch, kept in the replica's memory by URL) and bundles them,
+so the release loads nothing from a CDN. `sourcemap: true` writes `app.js.map`,
+which holds the source text and is served.
+
+The `.ts`, `.tsx`, `.jsx`, `.mts` and `.cts` files and `_build.json` are source:
+they are stored as `text/plain`, read and patch through `manage_asset`, and are
+never served. A file in the release at an output's path refuses the publish,
+naming both. A compile error refuses the release, naming each file, line and
+column, and the environment does not move. Each output records what it read and
+what it looked for, so a patch compiles again only the entries that read the
+changed file, and a newer compiler compiles everything again. The render's
+deadline and limits cover the compile: per entry 2,000 modules, 4 MiB a module,
+64 MiB of modules, and `sites.max_file_bytes` of output, within the release's
+`sites.max_release_bytes` and `sites.max_release_files`. Types are removed, not
+checked. Tailwind, PostCSS, Sass and Vue or Svelte single-file components need a
+JavaScript toolchain and are not compiled.
+
+The portal's Files tab marks such a site Compiled and opens its TypeScript in the
+editor.
+
 A publish or a copy from the portal runs in the background (`site_jobs`): it goes
 on if the browser goes away, and a copy can be stopped. A job nobody has reported
 on for fifteen minutes reads as failed, since the replica running it has stopped.

@@ -18,6 +18,8 @@ import (
 	"github.com/osteele/liquid/render"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/renderer/html"
+
+	"github.com/txn2/mcp-data-platform/internal/site/sitebuild"
 )
 
 // Sink receives a render's output one file at a time, so a site larger than
@@ -39,12 +41,16 @@ type Options struct {
 	// With no Previous, everything is rendered.
 	Previous *Index
 	Changed  []string
+	// Fetch reads the URL modules of a release that bundles them; nil refuses
+	// such a release.
+	Fetch sitebuild.Fetcher
 }
 
 // Failure is one place a render could not get past.
 type Failure struct {
 	File    string `json:"file"`
 	Line    int    `json:"line,omitempty"`
+	Column  int    `json:"column,omitempty"`
 	Message string `json:"message"`
 }
 
@@ -59,6 +65,10 @@ func (e *RenderError) Error() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "the site did not render:")
 	for _, f := range e.Failures {
+		if f.Column > 0 {
+			fmt.Fprintf(&b, "\n%s:%d:%d: %s", f.File, f.Line, f.Column, f.Message)
+			continue
+		}
 		fmt.Fprintf(&b, "\n%s:%d: %s", f.File, f.Line, f.Message)
 	}
 	if e.Truncated {
@@ -127,6 +137,12 @@ type run struct {
 	previous map[string]Entry
 	changes  changes
 	held     int64
+	// liquid is a tree whose pages are templates; compiling one with a build
+	// file, whose fetch reads its URL modules.
+	liquid    bool
+	compiling bool
+	build     *sitebuild.Config
+	fetch     sitebuild.Fetcher
 
 	parsedLayouts map[string]*layoutFile
 }
@@ -149,12 +165,15 @@ func Render(ctx context.Context, src fs.FS, opts Options, sink Sink) (*Index, er
 		ctx: ctx, src: src, limits: limits, meter: newMeter(ctx, limits), sink: sink,
 		layouts: map[string]bool{}, data: map[string]*collection{}, outputs: map[string]string{},
 		previous: opts.Previous.byOutput(), changes: newChanges(opts.Changed), parsedLayouts: map[string]*layoutFile{},
+		compiling: compiles(src), fetch: opts.Fetch,
 	}
 	engine, err := newEngine(r.meter, r)
 	if err != nil {
 		return nil, err
 	}
 	r.engine, engine.onRead = engine, r.dep
+	// A tree that compiles and has no layouts is compiled and nothing else.
+	r.liquid = hasLayouts(src) || !r.compiling
 	if err := r.scan(); err != nil {
 		return nil, err
 	}
@@ -163,6 +182,7 @@ func Render(ctx context.Context, src fs.FS, opts Options, sink Sink) (*Index, er
 
 // scan sorts the tree into layouts, records, pages and files to copy.
 func (r *run) scan() error {
+	r.readBuild()
 	err := fs.WalkDir(r.src, ".", func(name string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -186,18 +206,21 @@ func (r *run) noteCollection(dir string) {
 }
 
 func (r *run) scanFile(name string) error {
+	if r.compiling && sitebuild.IsSource(name) {
+		return nil
+	}
 	first, _, _ := strings.Cut(name, "/")
-	switch first {
-	case layoutsDir:
+	switch {
+	case !r.liquid:
+	case first == layoutsDir:
 		r.layouts[name] = true
 		return nil
-	case includesDir, dataDir:
+	case first == includesDir, first == dataDir:
 		return nil
+	case isTemplated(name):
+		return r.scanTemplated(name)
 	}
-	if !isTemplated(name) {
-		return r.sink.Copy(name) //nolint:wrapcheck // the sink's own sentence
-	}
-	return r.scanTemplated(name)
+	return r.sink.Copy(name) //nolint:wrapcheck // the sink's own sentence
 }
 
 func (r *run) scanTemplated(name string) error {
@@ -256,6 +279,9 @@ func (r *run) renderAll() (*Index, error) {
 				return nil, r.exhaustion()
 			}
 		}
+	}
+	if err := r.compileAll(index); err != nil {
+		return nil, err
 	}
 	if err := r.failed(); err != nil {
 		return nil, err

@@ -20,6 +20,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/approval"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/site"
+	"github.com/txn2/mcp-data-platform/internal/site/sitebuild"
 	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
 	"github.com/txn2/mcp-data-platform/internal/site/sitestore"
 )
@@ -84,6 +85,9 @@ type Service struct {
 	// PublicScheme and PublicPort are what an address is written with.
 	PublicScheme, PublicPort string
 	Invalidate               Invalidate
+	// Fetch reads the URL modules a release bundles at publish (#2774); nil
+	// refuses such a release.
+	Fetch sitebuild.Fetcher
 	// rendering lets one render run at a time on a replica, which is what
 	// bounds the memory they can hold.
 	rendering sync.Mutex

@@ -2301,8 +2301,11 @@ internal/server -> internal/buildinfo
 internal/server -> internal/platform/knowledgebuiltin
 internal/server -> pkg/platform
 internal/shutdown -> internal/inprocess
+internal/site -> pkg/contenttype
 internal/site/siteaddr -> internal/namesort
 internal/site/siteaddr -> internal/site
+internal/site/sitebuild/modfetch -> internal/egressguard
+internal/site/sitebuild/modfetch -> internal/outbound
 internal/site/siteconfig -> internal/site
 internal/site/sitecontract -> internal/site
 internal/site/sitecrawl -> internal/egressguard
@@ -2342,6 +2345,7 @@ internal/site/siteprune -> internal/site/siteconfig
 internal/site/siteprune -> internal/site/sitestore
 internal/site/siteprune -> internal/site/sitesvc
 internal/site/siteprune -> pkg/portal/s3adapter
+internal/site/siterender -> internal/site/sitebuild
 internal/site/siterouting -> internal/application
 internal/site/siterouting -> internal/logsan
 internal/site/siterouting -> internal/platform/integration
@@ -2360,6 +2364,7 @@ internal/site/sitesvc -> internal/approval
 internal/site/sitesvc -> internal/contentenc
 internal/site/sitesvc -> internal/logsan
 internal/site/sitesvc -> internal/site
+internal/site/sitesvc -> internal/site/sitebuild
 internal/site/sitesvc -> internal/site/siteconfig
 internal/site/sitesvc -> internal/site/sitefs
 internal/site/sitesvc -> internal/site/siterender
@@ -2398,6 +2403,7 @@ internal/site/sitewire -> internal/platform/resourcewrite
 internal/site/sitewire -> internal/platform/scriptsrc
 internal/site/sitewire -> internal/platform/settingsjson
 internal/site/sitewire -> internal/site
+internal/site/sitewire -> internal/site/sitebuild/modfetch
 internal/site/sitewire -> internal/site/siteconfig
 internal/site/sitewire -> internal/site/sitecontract
 internal/site/sitewire -> internal/site/sitecrawl
