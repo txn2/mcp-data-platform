@@ -28,6 +28,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsrc"
 	"github.com/txn2/mcp-data-platform/internal/platform/settingsjson"
 	"github.com/txn2/mcp-data-platform/internal/site"
+	"github.com/txn2/mcp-data-platform/internal/site/sitebuild/modfetch"
 	"github.com/txn2/mcp-data-platform/internal/site/sitecontract"
 	"github.com/txn2/mcp-data-platform/internal/site/sitecrawl"
 	"github.com/txn2/mcp-data-platform/internal/site/sitegw"
@@ -185,6 +186,9 @@ func Register(server *mcp.Server, d Deps) (*Runtime, error) {
 		return nil, fmt.Errorf("sites: %w", err)
 	}
 	tool.Crawler = crawler
+	if svc.Fetch, err = modfetch.NewGuardedFetcher(); err != nil {
+		return nil, fmt.Errorf("sites: %w", err)
+	}
 	tool.Register(server)
 	rt := &Runtime{
 		Service: svc, Store: store, Config: d.Config, Apps: apps, Live: live,

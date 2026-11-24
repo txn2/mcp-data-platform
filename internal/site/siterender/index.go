@@ -20,6 +20,8 @@ type Entry struct {
 	Output string   `json:"output"`
 	Source string   `json:"source"`
 	Inputs []string `json:"inputs"`
+	// Build is the compiler version a compiled output was built under.
+	Build string `json:"build,omitempty"`
 }
 
 // indexVersion names what a render's output is a function of beyond its tree: a

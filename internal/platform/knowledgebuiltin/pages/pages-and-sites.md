@@ -362,6 +362,49 @@ record. A range such as `(1..n)` works only in a `for` tag. Its bounds, and a lo
 such as `6 | divided_by: 2.0` is refused as a bound; `| floor` makes it one. Each render
 has limits on loop iterations, include depth and bytes; going past one fails that page.
 
+### TypeScript, TSX and JSX
+
+A site written in TypeScript or JSX keeps its source in the site: a `_build.json` at
+the release root compiles it when it is published, with no Node, npm or build tool.
+A release without `_build.json` is published exactly as before.
+
+```json
+{
+  "entries": ["app.tsx", "admin/admin.tsx"],
+  "imports": {
+    "react": "https://esm.sh/react@18.3.1",
+    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client"
+  },
+  "remote": "external"
+}
+```
+
+| Key | What it does |
+|---|---|
+| `entries` | The files compiled. Each, with the local modules it imports, becomes one ES module at the same path ending `.js`: `app.tsx` is served as `/app.js`, so the page loads `<script type="module" src="/app.js">`. A CSS file an entry imports becomes `app.css` beside it; its `url()` references are left as written. |
+| `imports` | Where each library comes from: a package name, or a prefix ending `/`, mapped to an `https` URL at an exact version (`@18.3.1`; `@18` or `@^18` is refused). A path inside a mapped package follows its URL: with `react` mapped, `react/jsx-runtime` is `https://esm.sh/react@18.3.1/jsx-runtime`. An import of a name not mapped refuses the publish, naming it. There is no npm install and no `node_modules`. |
+| `remote` | `external` (the default) leaves URL imports as URLs, which the browser loads from the CDN; the compile reads nothing from the network. `bundle` fetches them at publish and bundles them into the output, so the site loads nothing from a CDN. |
+| `sourcemap` | `true` writes `app.js.map` beside the output. It holds the source text, and is served. |
+| `minify` | `true` shortens the output. |
+
+Local imports start `./`, `../` or `/` and resolve inside the site, trying the path,
+then `.tsx`, `.ts`, `.jsx`, `.js`, `.mjs`, `.json` and `.css`, then the folder's `index`
+file. A `.js` file may hold JSX. An import that leaves the site is refused. The `.ts`,
+`.tsx`, `.jsx` files and `_build.json` are source: they read and patch through
+`manage_asset` like any source file and are never served. A file in the release at an
+output's path (an `app.js` beside `app.tsx`) refuses the publish, naming both.
+
+A compile error refuses the release, naming every file, line and column, and the
+environment does not move. A patch compiles again only the entries that read the file
+you changed, and `dry_run` reports `outputs_changed` and any compile error without
+writing a release. The render limits cover the compile: the modules and bytes one
+entry may read, the bytes it may write, and the time.
+
+Types are not checked: TypeScript's types are removed, not verified, so a type error
+publishes. Tailwind, PostCSS, Sass, Vue and Svelte single-file components need a
+JavaScript toolchain and are not compiled; write the CSS, or import CSS files from an
+entry.
+
 ### Who has access
 
 `grant` names **who** and **which environments**:
@@ -445,6 +488,7 @@ manage_site command=promote site=cool-site to=prod
 |---|---|
 | `_redirects` | The redirect map, not served: `from to [status]`, with `/old/*` and `:splat`. Status 200 is a rewrite: the path is answered in place, with status 200, by the file of this site the target names, which is how a single-page application answers its routes (`/* /index.html 200`); a file the release holds still answers itself, and a rewrite to a file the release lacks is the 404 page |
 | `_headers` | The headers each path is served with, not served: a path line (`/*`), then indented `Name: value` lines. Only `Content-Security-Policy`, `Content-Security-Policy-Report-Only`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`, `Cross-Origin-Embedder-Policy`, `Cross-Origin-Resource-Policy` and `X-Frame-Options`; anything else refuses the publish naming the line. A release declaring no framing rule is served with `frame-ancestors 'self'` |
+| `_build.json` | Compiles the release's TypeScript, TSX and JSX at publish, not served; see TypeScript, TSX and JSX above |
 | `404.html` | Served with status 404 for a path nothing answers |
 | `index.html` in a folder | The folder's address |
 | `name.html` | Also answers at `/name` |

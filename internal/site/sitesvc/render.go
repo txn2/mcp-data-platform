@@ -191,7 +191,7 @@ func (s *Service) render(ctx context.Context, job renderJob, p publication, sink
 	limits := s.cfg().Limits()
 	index, err := siterender.Render(ctx, job.fsys, siterender.Options{
 		Limits:   siterender.Limits{PageBytes: limits.MaxFileBytes, TotalBytes: limits.MaxReleaseBytes, Pages: limits.MaxFiles},
-		Previous: p.base.index, Changed: changedPaths(p.base.files, job.whole),
+		Previous: p.base.index, Changed: changedPaths(p.base.files, job.whole), Fetch: s.Fetch,
 	}, sink)
 	if werr := sink.wait(); err == nil {
 		err = werr

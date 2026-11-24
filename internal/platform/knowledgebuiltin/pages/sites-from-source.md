@@ -41,8 +41,16 @@ List, from the source and the running site:
 - Keep each page's existing body markup as HTML. Rewriting working markup into
   another syntax costs more than it saves and changes what people see.
 
-`mcp:knowledge_page:platform-pages-and-sites` describes layouts, includes, records
-and front matter in full.
+- A React or other JavaScript application written in TypeScript or JSX keeps its
+  source as it is. Add a `_build.json` naming its entry files and mapping each
+  library it imports to an exact-version URL, and the platform compiles it at every
+  publish. Do not publish a workstation's build output (a bundle with hashed names, or
+  `jsx(...)` calls): an agent working in the platform could then only edit generated
+  code. A Vite or Next project's `node_modules`, plugins and Tailwind do not come with
+  it; map the libraries to URLs and write the CSS.
+
+`mcp:knowledge_page:platform-pages-and-sites` describes layouts, includes, records,
+front matter and `_build.json` in full.
 
 ## 3. Load the source tree
 

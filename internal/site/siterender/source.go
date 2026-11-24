@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/txn2/mcp-data-platform/internal/site/sitebuild"
 )
 
 // The folders of a source tree that are read, not served.
@@ -45,11 +47,21 @@ func isMarkdown(name string) bool {
 	return ext == extMarkdownShort || ext == extMarkdown
 }
 
-// Active reports whether a source tree is rendered at all: a tree with no
-// _layouts folder is served exactly as it was published.
+// Active reports whether a source tree is rendered at all: a tree with neither
+// a _layouts folder nor a build file is served exactly as it was published.
 func Active(src fs.FS) bool {
+	return hasLayouts(src) || compiles(src)
+}
+
+func hasLayouts(src fs.FS) bool {
 	info, err := fs.Stat(src, layoutsDir)
 	return err == nil && info.IsDir()
+}
+
+// compiles reports a tree whose TypeScript and JSX are compiled (#2774).
+func compiles(src fs.FS) bool {
+	info, err := fs.Stat(src, sitebuild.ControlFile)
+	return err == nil && !info.IsDir()
 }
 
 // sortedMap is a mapping as templates see it. A plain Go map iterates in random

@@ -67,3 +67,19 @@ func TestMountFor_TheLongestPrefixAndThePathUnderIt(t *testing.T) {
 		assert.False(t, ok, p)
 	}
 }
+
+func TestServedTypeIsNamedByTheFileAlone(t *testing.T) {
+	for name, want := range map[string]string{
+		"index.html":   "text/html; charset=utf-8",
+		"app.js":       "text/javascript; charset=utf-8",
+		"Table.tsx":    "text/plain; charset=utf-8",
+		"lib/a.TS":     "text/plain; charset=utf-8",
+		"logo.png":     "image/png",
+		"no-extension": "application/octet-stream",
+		"a.unknownext": "application/octet-stream",
+	} {
+		if got := ServedType(name); got != want {
+			t.Errorf("ServedType(%s) = %q, want %q", name, got, want)
+		}
+	}
+}

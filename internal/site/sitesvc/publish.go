@@ -21,7 +21,6 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/site/siteconfig"
 	"github.com/txn2/mcp-data-platform/internal/site/siterender"
 	"github.com/txn2/mcp-data-platform/internal/site/sitestore"
-	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/textpatch"
 )
 
@@ -37,21 +36,11 @@ const (
 	firstPrintable  = 0x20
 	deleteRune      = 0x7f
 	maxPathLen      = 1024
-	octetStream     = "application/octet-stream"
 	// maxManifestDepth is how many derived releases may stand between a
 	// release and one holding its whole file set: reading a file set walks
 	// them, and a site can take thousands of patches.
 	maxManifestDepth = 32
 )
-
-// activeTypes are the types a site serves that the shared filename table will
-// not name.
-var activeTypes = map[string]string{
-	".html": "text/html; charset=utf-8", ".htm": "text/html; charset=utf-8",
-	".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8",
-	".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json",
-	".wasm": "application/wasm", ".xml": "application/xml", ".txt": "text/plain; charset=utf-8",
-}
 
 // junkNames are files an archive tool or an OS leaves behind, dropped without
 // complaint. Every other dotfile is refused, since a release is public.
@@ -105,19 +94,8 @@ func isJunk(name string) bool {
 	return slices.Contains(junkNames, path.Base(name)) || strings.HasPrefix(name, "__MACOSX/")
 }
 
-// contentTypeOf is the type a file is served as, from its name alone: never
-// from its bytes or from what a source claimed.
-func contentTypeOf(name string) string {
-	// A site's own pages and scripts are what it is for: the shared table
-	// leaves these out because elsewhere a filename must not make a file active.
-	if ct, ok := activeTypes[strings.ToLower(path.Ext(name))]; ok {
-		return ct
-	}
-	if ct := contenttype.TypeForFilename(name); ct != "" {
-		return ct
-	}
-	return octetStream
-}
+// contentTypeOf is the type a file is served as (site.ServedType).
+var contentTypeOf = site.ServedType
 
 // ObjectKey is where one form of a file is stored: "" for the file itself,
 // "gz" or "br" for a compressed variant. Objects are kept by digest, per site,

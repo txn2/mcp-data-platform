@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 )
 
 // The fields of a redirect rule: from, to, and an optional status.
@@ -452,4 +455,30 @@ func (r *Release) SameData(o *Release) bool {
 		}
 	}
 	return true
+}
+
+// activeTypes are the types a site serves that the shared filename table will
+// not name.
+var activeTypes = map[string]string{
+	".html": "text/html; charset=utf-8", ".htm": "text/html; charset=utf-8",
+	".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8",
+	".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json",
+	".wasm": "application/wasm", ".xml": "application/xml", ".txt": dataFileType,
+	// TypeScript and JSX are text a person or an agent reads and patches; a
+	// release that compiles them never serves them (#2774).
+	".ts": dataFileType, ".tsx": dataFileType, ".jsx": dataFileType, ".mts": dataFileType, ".cts": dataFileType,
+}
+
+// ServedType is the type a release file is served as, from its name alone:
+// never from its bytes or from what a source claimed. A site's own pages and
+// scripts are what it is for, so they are named here; the shared table leaves
+// them out because elsewhere a filename must not make a file active.
+func ServedType(name string) string {
+	if ct, ok := activeTypes[strings.ToLower(path.Ext(name))]; ok {
+		return ct
+	}
+	if ct := contenttype.TypeForFilename(name); ct != "" {
+		return ct
+	}
+	return "application/octet-stream"
 }

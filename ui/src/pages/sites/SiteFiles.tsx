@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { DeleteFileDialog, NewFileDialog, UploadDialog } from "./SiteFileDialogs";
 import { PublishDialog } from "./SitePublish";
 import { envAddress, formatBytes } from "./siteFormat";
-import { filePagePath, folderEntries, isRendered, isText } from "./siteFileFormat";
+import { filePagePath, folderEntries, isCompiled, isRendered, isText } from "./siteFileFormat";
 
 // SiteFilesTab is dev's files (#2590): the tree a person opens a file from to
 // fix it by hand. dev is the only environment publish, patch and edits change,
@@ -57,7 +57,7 @@ function FilesBrowser({ site, devRelease, onNavigate }: { site: Site; devRelease
         action={<HeaderActions site={site} manage={manage} filter={filter} onFilter={setFilter} onAct={setDialog} />}
       >
         <div className="space-y-3">
-          <About site={site} release={tree.release} rendered={isRendered(tree.files)} manage={manage} />
+          <About site={site} release={tree.release} rendered={isRendered(tree.files)} compiled={isCompiled(tree.files)} manage={manage} />
           <FilesBody
             tree={tree}
             folder={folder}
@@ -203,14 +203,18 @@ function HeaderActions({ site, manage, filter, onFilter, onAct }: { site: Site; 
   );
 }
 
-function About({ site, release, rendered, manage }: { site: Site; release: number; rendered: boolean; manage: boolean }) {
+function About({ site, release, rendered, compiled, manage }: { site: Site; release: number; rendered: boolean; compiled: boolean; manage: boolean }) {
   let text = `dev serves release ${release}. Saving a change makes release ${release + 1}, and dev serves it at once. Other environments change only when you promote.`;
   if (!manage) text = `dev serves release ${release}. dev is shared with you, so you can read its files. People who manage the site change them.`;
+  else if (compiled)
+    text =
+      "These are the source files. The TypeScript and JSX files are compiled into the JavaScript the site serves, and are never served themselves. A save compiles again only what read the file that changed.";
   else if (rendered) text = "These are the source files. The pages people see are rendered from them, and a save renders again only the pages that read what changed.";
   return (
     <div className="flex flex-wrap items-start gap-2">
       <Badge variant="info">dev · release {release}</Badge>
       {rendered && <Badge variant="muted">Rendered</Badge>}
+      {compiled && <Badge variant="muted">Compiled</Badge>}
       <p className="min-w-0 flex-1 text-sm text-muted-foreground" data-testid="files-about">
         {text}
         <span className="sr-only"> {site.name}</span>
