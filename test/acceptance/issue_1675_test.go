@@ -77,15 +77,10 @@ func TestIssue1675_ExportIsListedOnTheServerWithItsTitleAndDescription(t *testin
 		t.Error("the listed tool carries no description")
 	}
 
-	// platform_find_tools answers from the same inventory, and returned
-	// nothing for this tool on any query.
-	out := c.call("platform_find_tools", map[string]any{"query": "export a graphql result", "purpose": issue1675Purpose})
-	raw, err := json.Marshal(out)
-	if err != nil {
-		t.Fatalf("marshal the tool search: %v", err)
-	}
-	if !strings.Contains(string(raw), issue1675ExportTool) {
-		t.Errorf("platform_find_tools does not return %s:\n%s", issue1675ExportTool, raw)
+	// Search's tools source answers from the same inventory.
+	names := c.searchToolNames("export a graphql result")
+	if !strings.Contains(strings.Join(names, " "), issue1675ExportTool) {
+		t.Errorf("search's tools do not include %s: %v", issue1675ExportTool, names)
 	}
 }
 

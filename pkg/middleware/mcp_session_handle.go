@@ -235,8 +235,10 @@ func (r *SessionResolver) adoptByIdentity(ctx context.Context, pc *PlatformConte
 }
 
 // resolveExplicit validates a presented handle and, on success, adopts it as
-// the session ID and refreshes its TTL. Unknown, expired, and cross-identity
-// handles are rejected identically so a caller cannot probe handle existence.
+// the session ID and refreshes its TTL. A rejected handle is refused naming
+// why (#2816): expired, unknown to this deployment, or issued to another
+// identity. Handles are random tokens, so naming the reason tells a caller
+// nothing it could not learn only by already holding the handle.
 func (r *SessionResolver) resolveExplicit(ctx context.Context, pc *PlatformContext, toolName, handle string) mcp.Result {
 	sess, err := r.store.Get(ctx, handle)
 	if err != nil {
@@ -255,10 +257,11 @@ func (r *SessionResolver) resolveExplicit(ctx context.Context, pc *PlatformConte
 		return nil
 	}
 	if sess == nil || sess.UserID != pc.UserID {
-		slog.WarnContext(ctx, "session handle: rejected (unknown, expired, or identity mismatch)",
-			logKeyTool, toolName, logKeyUserID, pc.UserID)
+		reason := r.rejectReason(ctx, pc, handle, sess)
+		slog.WarnContext(ctx, "session handle: rejected",
+			logKeyTool, toolName, logKeyUserID, pc.UserID, "reason", reason)
 		r.recordMetric(ctx, sessionSourceNone)
-		return createSessionExpiredError(r.initTool)
+		return createSessionExpiredError(r.initTool, reason, r.remint(ctx, pc, reason))
 	}
 	pc.SessionID = handle
 	r.recordMetric(ctx, sessionSourceExplicit)
@@ -395,19 +398,82 @@ func createSessionRequiredError(initTool string) mcp.Result {
 	))
 }
 
-// createSessionExpiredError builds a SESSION_EXPIRED error result for a handle
-// that is unknown, expired, or presented by a different identity.
-func createSessionExpiredError(initTool string) mcp.Result {
-	msg := fmt.Sprintf(
-		"SESSION_EXPIRED: Your session_id is unknown or expired. Call %s again to mint a "+
-			"fresh session_id, then pass it on every subsequent tool call.",
-		initTool,
-	)
-	return BuildErrorResult(NewToolError(
-		CodeSessionExpired, ErrCategorySessionRequired, msg,
-		fmt.Sprintf("Call %s to mint a fresh session_id, then retry. "+
-			"This is a session-setup requirement, not a platform outage.", initTool),
-	))
+// Why a presented handle was refused (#2816). Each is recorded on the
+// refusal's audit row.
+const (
+	// rejectExpired is a handle this deployment issued whose lifetime ran out.
+	rejectExpired = "expired"
+	// rejectUnknown is a handle no session row holds: never issued here, or
+	// expired and since swept.
+	rejectUnknown = "unknown"
+	// rejectOtherIdentity is a live handle issued to another identity.
+	rejectOtherIdentity = "other_identity"
+)
+
+// rejectReason classifies a refused handle. sess is what Get returned: a live
+// row of another identity, or nil for a row that is expired or absent, which a
+// store that reads expired rows tells apart.
+func (r *SessionResolver) rejectReason(ctx context.Context, pc *PlatformContext, handle string, sess *pkgsession.Session) string {
+	if sess != nil && sess.UserID != pc.UserID {
+		return rejectOtherIdentity
+	}
+	anyGetter, ok := r.store.(pkgsession.AnyGetter)
+	if !ok {
+		return rejectUnknown
+	}
+	stale, err := anyGetter.GetAny(ctx, handle)
+	switch {
+	case err != nil || stale == nil:
+		return rejectUnknown
+	case stale.UserID != pc.UserID:
+		return rejectOtherIdentity
+	default:
+		return rejectExpired
+	}
+}
+
+// remint mints a fresh handle for the refused caller's own identity on the
+// expired and unknown paths, so the call is resent in one step instead of a
+// knowledge capture being lost (#2816). It is exactly the handle platform_info
+// would mint the same caller. A handle issued to another identity gets none,
+// and neither does an anonymous caller or a failed write: "" then.
+func (r *SessionResolver) remint(ctx context.Context, pc *PlatformContext, reason string) string {
+	if reason == rejectOtherIdentity || pc.UserID == "" || r.ttl <= 0 {
+		return ""
+	}
+	sess, err := pkgsession.MintHandle(ctx, r.store, pc.UserID, pc.PersonaName, r.ttl)
+	if err != nil {
+		slog.WarnContext(ctx, "session handle: re-mint failed", logKeyError, err)
+		return ""
+	}
+	return sess.ID
+}
+
+// createSessionExpiredError builds a SESSION_EXPIRED error result naming why
+// the handle was refused and, when one was minted for the caller, the
+// session_id to resend the same call with.
+func createSessionExpiredError(initTool, reason, fresh string) mcp.Result {
+	why := map[string]string{
+		rejectExpired: "Your session_id expired: it was idle longer than its lifetime.",
+		rejectUnknown: "Your session_id is not one this deployment issued. A session_id carried over from an earlier " +
+			"conversation or a summary is not valid in this one.",
+		rejectOtherIdentity: "Your session_id was issued to another identity, so it is not valid for you.",
+	}[reason]
+	msg := fmt.Sprintf("SESSION_EXPIRED (reason: %s): %s", reason, why)
+	hint := fmt.Sprintf("Call %s to mint a fresh session_id, then retry. "+
+		"This is a session-setup requirement, not a platform outage.", initTool)
+	if fresh != "" {
+		msg += fmt.Sprintf(" A new session_id was issued to you: %s. Resend the same call with it, and pass it on every later call.", fresh)
+		hint = "Resend the same call with the new session_id named above. " +
+			"This is a session-setup requirement, not a platform outage."
+	}
+	res := BuildErrorResult(NewToolError(CodeSessionExpired, ErrCategorySessionRequired, msg, hint))
+	if fresh != "" {
+		if sc, ok := res.StructuredContent.(map[string]any); ok {
+			sc[sessionHandleArg] = fresh
+		}
+	}
+	return res
 }
 
 // MCPSessionHandleSchemaMiddleware creates MCP protocol-level middleware that

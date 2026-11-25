@@ -1,6 +1,7 @@
 package site
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math/rand"
@@ -505,4 +506,34 @@ func TestWithoutApplications(t *testing.T) {
 	if s.Environments[0].Application == nil {
 		t.Error("the site given was changed")
 	}
+}
+
+func TestPublishHook(t *testing.T) {
+	var nilHook PublishHook
+	nilHook.Call(context.Background(), &Release{}, "dev", "a") // a nil hook does nothing
+	var got string
+	PublishHook(func(_ context.Context, rel *Release, env, by string) { got = rel.ID + "@" + env + " by " + by }).
+		Call(context.Background(), &Release{ID: "r1"}, "dev", "pat")
+	assert.Equal(t, "r1@dev by pat", got)
+}
+
+func TestWithoutFiles(t *testing.T) {
+	r := &Release{ID: "r1", Files: []File{{Path: "a"}}}
+	c := r.WithoutFiles()
+	assert.Nil(t, c.Files)
+	assert.Equal(t, "r1", c.ID)
+	assert.Len(t, r.Files, 1, "the release itself keeps its files")
+}
+
+func TestDiffFilesAndMissingRedirects(t *testing.T) {
+	changed, added, removed := DiffFiles(
+		[]File{{Path: "a", SHA256: "1"}, {Path: "b", SHA256: "2"}, {Path: "z", SHA256: "9"}},
+		[]File{{Path: "a", SHA256: "1"}, {Path: "b", SHA256: "3"}, {Path: "c", SHA256: "4"}},
+	)
+	assert.Equal(t, []string{"b"}, changed)
+	assert.Equal(t, []string{"c"}, added)
+	assert.Equal(t, []string{"z"}, removed)
+	a := []Redirect{{From: "/x", To: "/y", Status: 301}, {From: "/p", To: "/q", Status: 302}}
+	assert.Equal(t, []Redirect{{From: "/p", To: "/q", Status: 302}}, MissingRedirects(a, a[:1]))
+	assert.Equal(t, []Redirect{}, MissingRedirects(nil, a))
 }

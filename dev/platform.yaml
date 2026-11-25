@@ -767,6 +767,10 @@ sites:
     # Seconds rather than the 24h default: #2602's criteria put an object no
     # release names in the bucket and wait for a sweep to remove it.
     orphan_grace: 30s
+  typecheck:
+    # The dev binary runs with no temporary directory, as the published image
+    # does (dev/.air.toml), so the type checks are given one (#2793).
+    dir: build/dev-typecheck
 
 webhooks:
   receiver:

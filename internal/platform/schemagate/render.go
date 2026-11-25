@@ -40,7 +40,9 @@ func refusalResult(tool string, tables []describedTable) mcp.Result {
 	writeTables(&b, tables)
 	return middleware.BuildErrorResult(middleware.NewToolError(
 		codeSchemaRequired, codeSchemaRequired, b.String(),
-		"Correct the statement against the columns listed, then send it again. "+
+		"Correct the statement against the columns listed, then send it again. Next time, read a table's "+
+			"columns before the first SQL on it, with trino_describe_table or by fetching its mcp:dataset reference: "+
+			"either counts as the read, and the statement then runs the first time. "+
 			"This is a workflow requirement, not a platform outage.",
 	))
 }

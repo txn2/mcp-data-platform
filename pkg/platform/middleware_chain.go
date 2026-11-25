@@ -4,18 +4,20 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/txn2/mcp-data-platform/internal/refscheme"
-
 	"github.com/txn2/mcp-data-platform/internal/mcpobs"
 	"github.com/txn2/mcp-data-platform/internal/platform/callcatchup"
 	"github.com/txn2/mcp-data-platform/internal/platform/callrecord"
 	"github.com/txn2/mcp-data-platform/internal/platform/callrun"
+	"github.com/txn2/mcp-data-platform/internal/platform/connroute"
 	"github.com/txn2/mcp-data-platform/internal/platform/mwchain"
 	"github.com/txn2/mcp-data-platform/internal/platform/provenance"
 	"github.com/txn2/mcp-data-platform/internal/platform/resultbudget"
 	"github.com/txn2/mcp-data-platform/internal/platform/schemagate"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolargs"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolratelimit"
+	"github.com/txn2/mcp-data-platform/internal/refscheme"
+	"github.com/txn2/mcp-data-platform/internal/toolhelp"
+	"github.com/txn2/mcp-data-platform/internal/toolschema"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
@@ -46,6 +48,10 @@ const (
 	mwMetrics             mwName = "metrics"
 	mwAudit               mwName = "audit"
 	mwErrorContract       mwName = "error_contract"
+	mwHelp                mwName = "help"
+	mwArgumentRefusal     mwName = "argument_refusal"
+	mwConnectionRoute     mwName = "connection_route"
+	mwRepeatRefusal       mwName = "repeat_refusal"
 	mwConsent             mwName = "consent"
 	mwTasks               mwName = "tasks"
 	mwClientLogging       mwName = "client_logging"
@@ -78,6 +84,9 @@ type mwSpec = mwchain.Spec
 // disabled; the declared position is what the invariant protects, independent
 // of which middlewares are enabled at runtime.
 func (p *Platform) receivingMiddlewareChain() []mwSpec {
+	// One reading of the server's advertised schemas serves the argument
+	// refusal (#2811) and help (#2815).
+	schemas := toolschema.New(p.mcpServer, toolschema.DefaultTTL)
 	return []mwSpec{
 		// Method observer (outermost): a span and a count for every method other than tools/call (#1889).
 		{Name: mwMethodObserver, Register: func() { p.mcpServer.AddReceivingMiddleware(mcpobs.Middleware(p.obs.Tracer(), p.obs.Metrics())) }},
@@ -85,7 +94,7 @@ func (p *Platform) receivingMiddlewareChain() []mwSpec {
 		// Reference scheme: every reference in a request reaches the layers
 		// below canonical, and every one in a result leaves under the
 		// deployment's scheme (#2776). Outer to everything that writes one.
-		{Name: mwReferenceScheme, Register: func() { p.mcpServer.AddReceivingMiddleware(refscheme.Middleware()) }},
+		{Name: mwReferenceScheme, Register: func() { p.mcpServer.AddReceivingMiddleware(refscheme.Middleware(defaultInitTool)) }},
 
 		// Result type: types every result the layers below hand back, theirs included (#1382, #1383).
 		{Name: mwResultType, Register: func() { p.mcpServer.AddReceivingMiddleware(middleware.MCPResultTypeMiddleware()) }},
@@ -176,7 +185,29 @@ func (p *Platform) receivingMiddlewareChain() []mwSpec {
 		// Error contract normalizes handler errors; it is inner to audit/metrics
 		// and reflexive capture so they observe the normalized {code, category}
 		// on the way out rather than the raw handler error.
-		{Name: mwErrorContract, Requires: []mwName{mwAudit, mwMetrics, mwReflexiveCapture}, Register: p.addErrorContractMiddleware},
+		// Repeated refusal (#2820): the second identical refusal in a session says how to report what the platform cannot do.
+		{Name: mwRepeatRefusal, Requires: []mwName{mwAudit, mwMetrics}, Register: func() {
+			p.mcpServer.AddReceivingMiddleware(toolhelp.RepeatMiddleware(func(ctx context.Context) string {
+				if pc := middleware.GetPlatformContext(ctx); pc != nil {
+					return pc.SessionID
+				}
+				return ""
+			}))
+		}},
+		// Argument refusal (#2811): names what the tool accepts, outer to the error contract whose refusal it reads.
+		{Name: mwArgumentRefusal, Requires: []mwName{mwAudit, mwMetrics}, Register: func() {
+			p.mcpServer.AddReceivingMiddleware(toolhelp.RefusalMiddleware(schemas.InputSchema))
+		}},
+		// Connection routing (#2812): a connection sent to a tool of another kind is named with its kind's tools.
+		{Name: mwConnectionRoute, Requires: []mwName{mwAudit, mwMetrics}, Register: func() {
+			p.mcpServer.AddReceivingMiddleware(connroute.Middleware(p.connectionRoutes()))
+		}},
+		{Name: mwErrorContract, Requires: []mwName{mwAudit, mwMetrics, mwReflexiveCapture, mwRepeatRefusal, mwArgumentRefusal, mwConnectionRoute}, Register: p.addErrorContractMiddleware},
+
+		// Help (#2815): every multi-command tool answers help from its schema, inside authorization and the gates.
+		{Name: mwHelp, Requires: []mwName{mwToolCall, mwWorkflowGate, mwRateLimit, mwErrorContract}, Register: func() {
+			p.mcpServer.AddReceivingMiddleware(toolhelp.HelpMiddleware(schemas.InputSchema))
+		}},
 
 		// Consent (#2052): toolkits' prompts (Trino's cost and PII), inside authorization and the gates, inside the error contract.
 		{Name: mwConsent, Requires: []mwName{mwToolCall, mwWorkflowGate, mwRateLimit, mwErrorContract}, Register: func() { p.toolkitRegistry.InstallConsentLayers(p.mcpServer) }},

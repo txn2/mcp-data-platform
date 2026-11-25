@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { errorText, formatWhen } from "./applicationFormat";
 import { AddEnvironmentDialog, PromoteDialog, RemoveEnvironmentDialog } from "./EnvironmentDialogs";
+import { EnvironmentEndpoints, endpointsOf } from "./EnvironmentEndpoints";
 import { counted, envSchemaOf, prepareTotal, siteLabel, sitePartsCalling } from "./environmentModel";
 import { PrepareDialog } from "./PrepareDialog";
 
@@ -56,7 +57,7 @@ export function ApplicationEnvironments({ detail, isAdmin }: Props) {
       <div className="space-y-3">
         <p className="text-sm text-muted-foreground">
           A release lands in {envs[0]!.name} and is promoted one environment at a time. Each runs its own release with its own variables
-          {app.schema ? " and its own schema" : ""}; {envs[envs.length - 1]!.name} is what /endpoints serves. A site environment calls the
+          {app.schema ? " and its own schema" : ""}; {envs[envs.length - 1]!.name} is what the platform's /endpoints serves. A site environment calls the
           environment with its name.
         </p>
         {unprepared && <PrepareBanner detail={detail} onReview={() => setPreparing(true)} />}
@@ -152,7 +153,9 @@ function EnvironmentCard({
       </div>
       <dl className="grid grid-cols-[5rem_1fr] gap-y-1.5 text-sm">
         <dt className="text-muted-foreground">Address</dt>
-        <dd className="truncate font-mono text-xs leading-5">{last ? "/endpoints/…" : `/environments/${env.name}/endpoints/…`}</dd>
+        <dd className="min-w-0">
+          <EnvironmentEndpoints env={env.name} endpoints={endpointsOf(detail, env.name)} />
+        </dd>
         {schema && (
           <>
             <dt className="text-muted-foreground">Schema</dt>

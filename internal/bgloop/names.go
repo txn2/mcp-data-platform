@@ -114,6 +114,9 @@ const (
 	// NameStartupHeap writes a heap profile each time the live heap doubles
 	// in a starting process's first minutes, when an operator asks (#2721).
 	NameStartupHeap = "startup_heap"
+	// NameSiteTypechecks runs each replica's queued site type checks, one at
+	// a time (#2793).
+	NameSiteTypechecks = "site_typechecks"
 
 	// LISTEN connections (Listen). The two pglisten channels report under
 	// "listen_" + their channel name.

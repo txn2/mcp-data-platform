@@ -112,9 +112,13 @@ func checkAgentInstructions(ctx context.Context, text string, registered []strin
 		return
 	}
 	for _, token := range toolnames.Unknown(text, registered) {
+		hint := "verify the tool name exists or remove the stale reference"
+		if replacement, retired := toolnames.Retired[token]; retired {
+			hint = "the platform no longer has this tool; use " + replacement
+		}
 		Warn(ctx, CodeAgentInstructionsUnknownTool, "agent_instructions references unrecognized tool",
 			"token", token,
-			"hint", "verify the tool name exists or remove the stale reference",
+			"hint", hint,
 		)
 	}
 }
@@ -129,10 +133,14 @@ func checkPersonaTools(ctx context.Context, p *persona.Persona, registered []str
 		if strings.ContainsAny(entry, `*?[\`) || slices.Contains(registered, entry) {
 			continue
 		}
+		hint := "correct the tool name, or configure the toolkit that registers it"
+		if replacement, retired := toolnames.Retired[entry]; retired {
+			hint = "the platform no longer has this tool; use " + replacement
+		}
 		Warn(ctx, CodePersonaToolUnregistered, "persona allows a tool this deployment does not register",
 			"persona", logsan.SanitizeForLog(p.Name),
 			"tool", logsan.SanitizeForLog(entry),
-			"hint", "correct the tool name, or configure the toolkit that registers it",
+			"hint", hint,
 		)
 	}
 }

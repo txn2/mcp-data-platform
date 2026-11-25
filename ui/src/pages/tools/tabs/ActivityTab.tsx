@@ -22,6 +22,8 @@ export function ActivityTab({ detail }: { detail: ToolDetail }) {
   }
 
   const successPct = Math.round(a.success_rate * 100);
+  const holds = a.hold_count ?? 0;
+  const finished = a.call_count - holds;
   const successVariant: "success" | "warning" | "error" =
     a.success_rate >= 0.95 ? "success" : a.success_rate >= 0.8 ? "warning" : "error";
 
@@ -30,16 +32,31 @@ export function ActivityTab({ detail }: { detail: ToolDetail }) {
       <p className="text-xs text-muted-foreground">
         Aggregated over the last {formatWindow(a.window_seconds)}.
       </p>
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatCard label="Calls" value={a.call_count.toLocaleString()} />
         {/* The rate is the one figure that carries a verdict, so it reads as a
             status pill rather than as another number. */}
         <StatCard
           label="Success rate"
           value={<StatusBadge variant={successVariant}>{successPct}%</StatusBadge>}
+          detail={`of ${finished.toLocaleString()} calls that finished`}
+        />
+        <StatCard
+          label="Holds"
+          value={holds.toLocaleString()}
+          detail="waited for an approval or an answer"
         />
         <StatCard label="Avg duration" value={formatDuration(a.avg_duration_ms)} />
       </div>
+      {holds > 0 && (
+        <div className="rounded-md border p-3 text-sm">
+          <p className="font-medium">Why holds are counted apart</p>
+          <p className="text-muted-foreground">
+            A call that asks a person to approve or answer is recorded as a hold. It is not a
+            failure, so it is left out of the success rate.
+          </p>
+        </div>
+      )}
       <AuditLogLink href={auditHref}>View full audit log for this tool</AuditLogLink>
     </div>
   );

@@ -10,6 +10,7 @@ export const SETTINGS_SECTIONS = [
   { id: "email", label: "Email", group: "Delivery" },
   { id: "channels", label: "Channels", group: "Delivery" },
   { id: "general-feedback", label: "General feedback", group: "Delivery" },
+  { id: "platform-feedback", label: "Platform feedback", group: "Delivery" },
   { id: "knowledge-review", label: "Knowledge review", group: "Alerts" },
   { id: "approvals-queue", label: "Approvals", group: "Alerts" },
   { id: "connection-revocations", label: "Connection revocations", group: "Alerts" },

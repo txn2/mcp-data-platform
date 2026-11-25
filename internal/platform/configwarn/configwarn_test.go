@@ -328,3 +328,23 @@ func TestConnections_SortedAndDeduplicated(t *testing.T) {
 		}
 	}
 }
+
+// TestRetiredToolsNameTheirReplacement: a persona allow entry or an agent
+// instruction naming a retired tool is warned about with what replaced it
+// (#2807, #2808, #2809).
+func TestRetiredToolsNameTheirReplacement(t *testing.T) {
+	logs := captureLog(t)
+	p := &persona.Persona{Name: "subject", Tools: persona.ToolRules{Allow: []string{"search", "show_prompts"}}}
+	CheckStartup(context.Background(), Startup{
+		Toolkits:          newRegistry(t, &fakeToolkit{kind: "test", name: "primary", tools: []string{"search"}}),
+		Personas:          newPersonas(t, p),
+		Registered:        []string{"search", "trino_query"},
+		AgentInstructions: "Read the plan with trino_explain first.",
+	})
+	out := logs.String()
+	for _, want := range []string{"tool=show_prompts", "use manage_prompt", "token=trino_explain", "use trino_query"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the warnings lack %q:\n%s", want, out)
+		}
+	}
+}

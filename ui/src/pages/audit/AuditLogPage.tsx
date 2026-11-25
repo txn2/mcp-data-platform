@@ -46,7 +46,7 @@ export function AuditLogPage({ initialTab, onNavigate }: { initialTab?: string; 
       </TabsList>
 
       <TabsContent value="mcp">
-        <OverviewTab onNavigate={onNavigate} />
+        <OverviewTab onNavigate={onNavigate} onOpenEvents={() => setTab("events")} />
       </TabsContent>
       <TabsContent value="apigateway">
         <APIGatewayView />

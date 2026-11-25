@@ -1,8 +1,8 @@
 // Package toolsindex is the tools-discovery consumer of the indexjobs
 // framework (#440). It embeds every globally-visible MCP tool's
 // descriptor (name + description + parameter-schema summary) under
-// source_kind "tools" and ranks them by cosine similarity for
-// platform_find_tools.
+// source_kind "tools" and ranks them by cosine similarity for search's
+// tools source (#2809).
 //
 // Unlike the api-catalog consumer, the tool corpus is not a DB table:
 // tools are registered in-process from compiled-in toolkits plus admin

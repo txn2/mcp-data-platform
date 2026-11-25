@@ -3,7 +3,9 @@ import { SectionCard } from "@/components/patterns/SectionCard";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useSiteTypechecks, type TypecheckSummary } from "@/api/portal/hooks/siteTypecheck";
 import { day, when } from "./siteFormat";
+import { TypecheckBadge } from "./SiteTypecheck";
 
 // SiteReleasesTab is every release (#2559): what each was based on (#2590) and
 // what keeps it from the daily cleanup (#2602). A release's content is never
@@ -13,6 +15,9 @@ export function SiteReleasesTab({ site, onNavigate }: { site: Site; onNavigate: 
   const { data, isLoading, error } = useSiteReleases(site.name);
   const open = (n: number) => onNavigate(`/sites/${encodeURIComponent(site.name)}/releases/${n}`);
   const releases = data?.releases ?? [];
+  const checks = useSiteTypechecks(site.name, site.permissions.manage).data?.releases ?? {};
+  // A column only for a manager of a site that has had a release checked (#2793).
+  const checked = Object.keys(checks).length > 0;
   return (
     <SectionCard title="Releases">
       {error ? (
@@ -31,6 +36,7 @@ export function SiteReleasesTab({ site, onNavigate }: { site: Site; onNavigate: 
                 <TableRow>
                   <TableHead>Release</TableHead>
                   <TableHead>Note</TableHead>
+                  {checked && <TableHead>Type check</TableHead>}
                   <TableHead>Source</TableHead>
                   <TableHead>Based on</TableHead>
                   <TableHead>Files</TableHead>
@@ -41,7 +47,14 @@ export function SiteReleasesTab({ site, onNavigate }: { site: Site; onNavigate: 
               </TableHeader>
               <TableBody>
                 {releases.map((r) => (
-                  <ReleaseRow key={r.id} release={r} gone={removedNumbers(releases)} onOpen={open} />
+                  <ReleaseRow
+                    key={r.id}
+                    release={r}
+                    gone={removedNumbers(releases)}
+                    onOpen={open}
+                    checked={checked}
+                    check={checks[String(r.number)]}
+                  />
                 ))}
               </TableBody>
             </Table>
@@ -57,7 +70,19 @@ function removedNumbers(releases: SiteRelease[]): Set<number> {
   return new Set(releases.filter((r) => r.pruned).map((r) => r.number));
 }
 
-function ReleaseRow({ release: r, gone, onOpen }: { release: SiteRelease; gone: Set<number>; onOpen: (n: number) => void }) {
+function ReleaseRow({
+  release: r,
+  gone,
+  onOpen,
+  checked,
+  check,
+}: {
+  release: SiteRelease;
+  gone: Set<number>;
+  onOpen: (n: number) => void;
+  checked: boolean;
+  check?: TypecheckSummary;
+}) {
   return (
     <TableRow data-testid={`release-${r.number}`} className={r.pruned ? "text-muted-foreground" : undefined}>
       <TableCell>
@@ -70,6 +95,11 @@ function ReleaseRow({ release: r, gone, onOpen }: { release: SiteRelease; gone: 
         )}
       </TableCell>
       <TableCell>{r.note}</TableCell>
+      {checked && (
+        <TableCell>
+          <TypecheckBadge summary={check} />
+        </TableCell>
+      )}
       <TableCell className="break-all">{r.source}</TableCell>
       <TableCell>
         <BasedOn base={r.base ?? 0} gone={gone} onOpen={onOpen} />

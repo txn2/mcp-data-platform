@@ -22,8 +22,8 @@ import (
 // TestPlatformToolsAdvertiseAndHonorOutputSchemas assembles the real platform
 // (with the full middleware chain wired by finalizeSetup), connects an in-memory
 // client, and proves the #925 contract for the stable platform-owned tools:
-// tools/list advertises an OutputSchema for platform_info, list_connections, and
-// platform_find_tools, and a real call's structuredContent validates against the
+// tools/list advertises an OutputSchema for platform_info and list_connections,
+// and a real call's structuredContent validates against the
 // advertised schema. It also proves the error envelope (what the error contract
 // substitutes on failure) validates against each schema.
 func TestPlatformToolsAdvertiseAndHonorOutputSchemas(t *testing.T) {
@@ -49,8 +49,8 @@ func TestPlatformToolsAdvertiseAndHonorOutputSchemas(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	// Start registers the platform-level tools (platform_info, list_connections,
-	// platform_find_tools) on the MCP server.
+	// Start registers the platform-level tools (platform_info and
+	// list_connections) on the MCP server.
 	require.NoError(t, p.Start(ctx))
 	defer func() { _ = p.Stop(ctx) }()
 
@@ -96,7 +96,6 @@ func TestPlatformToolsAdvertiseAndHonorOutputSchemas(t *testing.T) {
 		args map[string]any
 	}{
 		{"list_connections", map[string]any{"session_id": sessionID}},
-		{"platform_find_tools", map[string]any{"query": "search", "session_id": sessionID}},
 	}
 	for _, c := range calls {
 		t.Run(c.tool, func(t *testing.T) {
@@ -222,9 +221,8 @@ func validatePlatformSC(t *testing.T, resolved *jsonschema.Resolved, sc any) {
 // the error envelope and any future enrichment key never invalidate a result.
 func TestPlatformOutputSchemasAreOpen(t *testing.T) {
 	for name, s := range map[string]*jsonschema.Schema{
-		"platform_info":       infoOutputSchema,
-		"list_connections":    connectionsOutputSchema,
-		"platform_find_tools": findToolsOutputSchema,
+		"platform_info":    infoOutputSchema,
+		"list_connections": connectionsOutputSchema,
 	} {
 		require.NotNil(t, s.AdditionalProperties, "%s: additionalProperties set", name)
 		assert.Empty(t, s.AdditionalProperties.Type, "%s: additionalProperties is the open {} schema", name)
@@ -307,7 +305,7 @@ func TestThirdPartyToolResultsValidateAgainstTheirAdvertisedSchemas(t *testing.T
 	defer func() { _ = cs.Close() }()
 
 	schemas := listedPlatformSchemas(ctx, t, cs)
-	for _, name := range []string{"trino_query", "trino_describe_table", "trino_explain", "trino_browse", "s3_list", "s3_object"} {
+	for _, name := range []string{"trino_query", "trino_describe_table", "trino_browse", "s3_list", "s3_object"} {
 		require.Contains(t, schemas, name, "%s advertises an output schema", name)
 	}
 	// A real client states a purpose exactly where the server advertised the
@@ -337,7 +335,6 @@ func TestThirdPartyToolResultsValidateAgainstTheirAdvertisedSchemas(t *testing.T
 	args := map[string]map[string]any{
 		"trino_query":          {"sql": "SELECT 1"},
 		"trino_execute":        {"sql": "SELECT 1"},
-		"trino_explain":        {"sql": "SELECT 1"},
 		"trino_describe_table": {"table": "memory.default.t"},
 		"s3_list":              {"bucket": "b"},
 		"s3_object":            {"action": "presign", "bucket": "b", "key": "k"},
@@ -360,5 +357,5 @@ func TestThirdPartyToolResultsValidateAgainstTheirAdvertisedSchemas(t *testing.T
 			validatePlatformSC(t, resolved, res.StructuredContent)
 		})
 	}
-	require.GreaterOrEqual(t, checked, 7, "the real Trino and S3 toolkits were assembled and their tools called")
+	require.GreaterOrEqual(t, checked, 6, "the real Trino and S3 toolkits were assembled and their tools called")
 }

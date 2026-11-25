@@ -43,6 +43,19 @@ var floorToolPrefixes = []string{
 	"trino_",
 }
 
+// Retired maps each tool the platform removed by the production tool audit
+// (#2821) to what an agent or a persona uses in its place. A retired name is
+// reported exactly, whatever its prefix, so show_prompts is caught although
+// show_ reads as English and is not a prefix the floor recognizes. Every name
+// here is also in scripts/retired-tools.txt, which doc-check holds the docs to
+// (TestRetiredMapIsInTheRetirementList).
+var Retired = map[string]string{
+	"show_prompts":        "manage_prompt",
+	"show_scripts":        "manage_script",
+	"trino_explain":       "trino_query with EXPLAIN (TYPE ...)",
+	"platform_find_tools": "search",
+}
+
 // Unknown returns the tool-name-like tokens in text that this
 // deployment does not register, de-duplicated and in first-appearance order.
 //
@@ -115,6 +128,10 @@ func newToolInventory(registered []string) toolInventory {
 // isStaleToolName reports whether a token reads as one of this deployment's
 // tool names but is not one it registers.
 func (inv toolInventory) isStaleToolName(token string) bool {
+	if _, retired := Retired[token]; retired {
+		_, isKnown := inv.names[token]
+		return !isKnown
+	}
 	p, ok := toolPrefix(token)
 	if !ok {
 		return false

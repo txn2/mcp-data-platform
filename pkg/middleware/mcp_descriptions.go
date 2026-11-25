@@ -15,6 +15,9 @@ const (
 	toolNameTrinoQuery   = "trino_query"
 	toolNameTrinoExecute = "trino_execute"
 	toolNameSearch       = "search"
+	// toolNameTrinoDescribe is overridden until txn2/mcp-trino#122 accepts a
+	// dotted catalog.schema.table in table; remove the override then (#2814).
+	toolNameTrinoDescribe = "trino_describe_table"
 )
 
 // defaultDescriptionOverrides contains built-in description overrides that
@@ -26,6 +29,9 @@ var defaultDescriptionOverrides = map[string]string{
 		"understand its business context (descriptions, owners, tags, glossary terms, prior insights). " +
 		toolkit.SchemaFirst + " " +
 		"Only SELECT, SHOW, DESCRIBE, EXPLAIN, and WITH statements are allowed. " +
+		"To see how a query will run before running it, send EXPLAIN (TYPE LOGICAL), " +
+		"EXPLAIN (TYPE DISTRIBUTED), EXPLAIN (TYPE IO) or EXPLAIN (TYPE VALIDATE) followed by the query; " +
+		"the plan comes back as the result. " +
 		toolkit.CaptureRoute,
 	toolNameTrinoExecute: "Execute a SQL statement against Trino, including write operations. " +
 		"Before writing SQL, call search to discover the table and " +
@@ -34,6 +40,11 @@ var defaultDescriptionOverrides = map[string]string{
 		"Use trino_query for read-only SELECT queries. This tool should be used when " +
 		"you need to modify data or schema. " +
 		toolkit.CaptureRoute,
+	toolNameTrinoDescribe: "Get detailed table information with columns, types, and optional sample data. " +
+		"Set include_sample=true to see actual data values, which helps understand column " +
+		"meaning and data formats. This is the richest single-call way to understand a " +
+		"table's structure. Send catalog, schema and table as three separate arguments: table is the bare " +
+		"table name, never a dotted catalog.schema.table. Use trino_browse to discover available tables if needed.",
 }
 
 // MergedDescriptionOverrides merges the built-in default overrides with

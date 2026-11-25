@@ -64,6 +64,10 @@ func (*coverageToolkit) RegisterTools(s *mcp.Server) {
 		func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}}, nil
 		})
+	s.AddTool(&mcp.Tool{Name: "coverage_extra", Description: "answers too", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}}, nil
+		})
 	s.AddTool(&mcp.Tool{Name: "coverage_fail", Description: "fails", InputSchema: json.RawMessage(`{"type":"object"}`)},
 		func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			r := &mcp.CallToolResult{}
@@ -115,7 +119,7 @@ func newObservedPlatform(t *testing.T, rpm int) *observedPlatform {
 	// registry knows beside the platform's three, one that succeeds and one
 	// that fails in its handler.
 	reg := registry.NewRegistry()
-	require.NoError(t, reg.Register(&coverageToolkit{mockToolkit{kind: "coverage", name: "cov", connection: "c", tools: []string{"coverage_ok", "coverage_fail"}}}))
+	require.NoError(t, reg.Register(&coverageToolkit{mockToolkit{kind: "coverage", name: "cov", connection: "c", tools: []string{"coverage_ok", "coverage_extra", "coverage_fail"}}}))
 	audit := &countingAuditLogger{}
 	p, err := New(WithConfig(cfg), WithAuditLogger(audit), WithToolkitRegistry(reg))
 	require.NoError(t, err)
@@ -274,10 +278,10 @@ func TestEveryToolCallIsObservedOnce(t *testing.T) {
 
 	// No credential at all.
 	anon := o.session(t, "")
-	res = call(t, anon, "platform_find_tools", nil)
+	res = call(t, anon, "coverage_extra", nil)
 	require.NotNil(t, res)
 	require.True(t, res.IsError)
-	o.assertObservedOnce(t, "platform_find_tools", observability.StatusAuthErr, middleware.ErrCategoryAuth)
+	o.assertObservedOnce(t, "coverage_extra", observability.StatusAuthErr, middleware.ErrCategoryAuth)
 
 	// A credential no persona admits.
 	nobody := o.session(t, coverageNobodyKey)
@@ -313,7 +317,7 @@ func TestEveryToolCallIsObservedOnce(t *testing.T) {
 	listed, err := admin.ListTools(context.Background(), &mcp.ListToolsParams{})
 	require.NoError(t, err)
 	require.NotEmpty(t, listed.Tools)
-	already := map[string]bool{"list_connections": true, "platform_find_tools": true, "platform_info": true, "trino_query": true}
+	already := map[string]bool{"list_connections": true, "coverage_extra": true, "platform_info": true, "trino_query": true}
 	called := 0
 	for _, tool := range listed.Tools {
 		if already[tool.Name] {
@@ -342,7 +346,7 @@ func TestEveryToolCallIsObservedOnce(t *testing.T) {
 // counted, traced and audited like every other refusal (#1892). A platform of
 // its own, with a limit of one call a minute. platform_info is exempt from the
 // limit (it opens the session gate), so list_connections spends the one token
-// and platform_find_tools is the call the limiter refuses.
+// and coverage_extra is the call the limiter refuses.
 func TestRateLimitedCallIsObserved(t *testing.T) {
 	o := newObservedPlatform(t, 1)
 	admin := o.session(t, coverageAdminKey)
@@ -352,10 +356,10 @@ func TestRateLimitedCallIsObserved(t *testing.T) {
 	res = call(t, admin, "list_connections", nil)
 	require.NotNil(t, res)
 	require.False(t, res.IsError, "the first metered call is admitted: %v", res.Content)
-	res = call(t, admin, "platform_find_tools", nil)
+	res = call(t, admin, "coverage_extra", nil)
 	require.NotNil(t, res)
 	require.True(t, res.IsError, "the second metered call within the minute is refused")
-	o.assertObservedOnce(t, "platform_find_tools", observability.StatusGateErr, observability.CategoryRateLimited)
+	o.assertObservedOnce(t, "coverage_extra", observability.StatusGateErr, observability.CategoryRateLimited)
 }
 
 func singleKey(m map[string]int) string {

@@ -420,6 +420,7 @@ func (s *Service) Publish(ctx context.Context, actor Actor, req PublishRequest) 
 	if err != nil {
 		return nil, err
 	}
+	s.AfterPublish.Call(ctx, rel, env.Name, actor.Email)
 	if s.Invalidate != nil {
 		s.Invalidate(st.Name)
 	}

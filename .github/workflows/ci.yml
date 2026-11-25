@@ -429,7 +429,7 @@ jobs:
       # production Go file the change touches, as make verify's security-diff.
       - name: Run Gosec Security Scanner
         run: |
-          go install github.com/securego/gosec/v2/cmd/gosec@v2.29.1-0.20261015133444-707f2271f665
+          scripts/go-install.sh github.com/securego/gosec/v2/cmd/gosec@v2.29.1-0.20261015133444-707f2271f665
           if [ -n "${DELTA_BASE:-}" ]; then
             pkgs=$(python3 scripts/verify-diff.py gosec-packages)
             if [ -z "$pkgs" ]; then echo "The change touches no production Go file."; exit 0; fi
@@ -445,7 +445,7 @@ jobs:
       # green local run and a green CI run mean the same thing.
       - name: Run govulncheck
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0  # GOVULNCHECK_VERSION in the Makefile
+          scripts/go-install.sh golang.org/x/vuln/cmd/govulncheck@v1.9.0  # GOVULNCHECK_VERSION in the Makefile
           set +e
           govulncheck -format json ./... > govulncheck-report.json
           status=$?
@@ -467,7 +467,7 @@ jobs:
         env:
           OSV_SCOPE: ${{ github.event_name == 'pull_request' && 'diff' || 'full' }}
         run: |
-          go install github.com/google/osv-scanner/v2/cmd/osv-scanner@v2.5.1  # OSV_SCANNER_VERSION in the Makefile
+          scripts/go-install.sh github.com/google/osv-scanner/v2/cmd/osv-scanner@v2.5.1  # OSV_SCANNER_VERSION in the Makefile
           if [ "$OSV_SCOPE" = "diff" ]; then
             git fetch --quiet --depth=2 origin "$GITHUB_SHA"
             OSV_BASE=$(git rev-parse HEAD^1)
@@ -542,7 +542,7 @@ jobs:
 
       - name: Install gremlins
         # GREMLINS_VERSION in the Makefile.
-        run: GOTOOLCHAIN=local go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
+        run: GOTOOLCHAIN=local scripts/go-install.sh github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
 
       - name: Mutate the changed lines
         run: make mutate-diff

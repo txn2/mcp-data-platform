@@ -578,8 +578,10 @@ for a system that routes on fields rather than a person reading a chat client:
   deduplicates on it. A test send has an id of its own each time.
 - `type` is what produced it: `script.finding` (a script's
   `platform.notify`), `script.published` (`platform.publish`),
-  `notify.sent` and `notify.published` (a person's `notify` call), or `test`
-  (**Send test**). A receiver routes on it.
+  `notify.sent` and `notify.published` (a person's `notify` call),
+  `platform.feedback` (an agent's [platform feedback](tools.md#platform-feedback)
+  post, whose `data` is the post's fields), or `test` (**Send test**). A receiver
+  routes on it.
 - `source` is a script's reference and run, or `{"kind": "user"}`.
 - `data` is the sender's structured payload, verbatim: `notify action=send
   data=...` or `platform.notify(..., data=...)`, JSON of at most 64 KiB. A

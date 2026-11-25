@@ -10,9 +10,9 @@ import (
 
 func TestClassify_ReadOnlyTools(t *testing.T) {
 	for _, tool := range []string{
-		"platform_info", "list_connections", "platform_find_tools",
-		"show_prompts", "show_scripts", "search", "fetch",
-		"trino_query", "trino_explain", "trino_browse", "trino_describe_table",
+		"platform_info", "list_connections",
+		"search", "fetch",
+		"trino_query", "trino_browse", "trino_describe_table",
 		"s3_list",
 		"api_discover", "graphql_discover",
 	} {

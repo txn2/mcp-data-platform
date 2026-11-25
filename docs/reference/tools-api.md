@@ -56,26 +56,50 @@ The contract is uniform by construction: a normalization layer guarantees every 
 
 ### Unknown arguments are refused, not ignored
 
-The platform's own tools publish input schemas that are closed to unknown top-level arguments (`"additionalProperties": false`). A misnamed argument fails at the tool boundary, before the handler runs, with `code: invalid_arguments`, `category: client_input`, and a message naming the offending property — for example, passing `parameters` to `api_invoke_endpoint` instead of `query_params`:
+The platform's own tools publish input schemas that are closed to unknown top-level arguments (`"additionalProperties": false`). A misnamed argument fails at the tool boundary, before the handler runs, with `code: invalid_arguments` and `category: client_input`.
 
-```json
-{
-  "error": {
-    "code": "invalid_arguments",
-    "category": "client_input",
-    "message": "validating \"arguments\": validating root: unexpected additional properties [\"parameters\"]",
-    "hint": "The arguments do not match the tool's input schema. Read the tool's schema, correct or drop the named property, and retry. This is a problem with the call's arguments, not a platform fault."
-  }
-}
-```
+The refusal says what the call got wrong and what the tool accepts (#2811). It is built from the input schema the server advertises in `tools/list` (`internal/toolschema`, read over an in-process session and cached for a minute), so the parameters the platform injects, `session_id` and `purpose`, are listed as accepted, and an upstream tool (mcp-trino's, a gateway connection's) is described from the schema a client is shown. The message carries, in this order:
+
+- for each property the schema does not declare, `<tool> does not take "<name>"; did you mean "<accepted>"?`. The accepted name is the declared property within a small edit distance of the one sent (a typo, a case difference). When none is that close and the call left out exactly one required property, that property is named, which is what a caller who used another tool's name for it was sending. Otherwise the sentence ends without a suggestion.
+- for each value outside a property's enum, `"<value>" is not one of <property>'s values; it takes one of: <values>.`, and for each value of the wrong JSON type, `<property> must be <type>; the call sent <type>.`
+- `<tool> accepts: <name> (<type>, required), ..., <name> (<type>), ...`: required parameters first, then the rest in name order, `any` for a property that declares no type.
+
+The hint says to resend the call with the accepted names and types, and that the tool does not accept other names for them. The code and category are unchanged, so the audit row's `error_category` is the same as before. No tool takes an alias for a parameter: `search` takes `intent`, and a call sending `query` is refused with this message rather than read as `intent`. A refusal whose tool schema cannot be read is returned as the validator wrote it.
 
 Nested maps stay open where they carry a foreign namespace: `query_params`, `headers`, and `body` on the `api_*` tools accept arbitrary keys, because those names belong to the upstream API rather than to the tool. Tools proxied from an upstream MCP server through a gateway connection keep the upstream's own schema, strict or not.
+
+### A connection sent to a tool of another kind
+
+Each kind refuses a connection name it does not serve in its own words. When the name belongs to a connection of another kind, the refusal gains a sentence naming that kind and the tools that take it (#2812, `internal/platform/connroute`): `"<connection>" is an application database connection, which this tool does not serve: use <its kind's tools>, or platform.query in a managed script.` (`a` or `an` follows the kind's name: Trino, S3, API, GraphQL, MCP gateway, application database). The tools listed are those the toolkits of that kind register, in name order; an application database also names `platform.query in a managed script`. The code and category of the refusal are kept. A tool whose toolkit kind has no connections of its own (`manage_table`, which takes a Trino connection from the portal toolkit), a call whose connection is served by the tool's own kind, and a name no connection has are left as they were.
+
+A statement that only reads, sent to `trino_execute`, runs as it always has and its result gains a note: `trino_query` is the tool for it, held to reading on every connection, and `trino_execute` is for statements that write (#2812). The statement and the result's data are unchanged.
+
+### Help on a multi-command tool
+
+Every tool that chooses its operation by a `command` or an `action` enum answers `command: "help"` (or `action: "help"`) from its advertised input schema (#2815, `internal/toolhelp`), so the answer cannot drift from what the tool accepts. The result, as text and as `structuredContent`, carries:
+
+- `tool` and `field` (`command` or `action`);
+- `commands`: each value of the enum with its `parameters` and an `example` call. A parameter is listed under the commands its description opens by naming (`publish: ...`, `grant, revoke: ...`, `create and update: ...`); each parameter has its `name`, `type`, `required` (set where the schema requires it, or where its description says "required") and the first sentence of its description, cut at 200 characters. The example holds the command and every required parameter as a placeholder naming its type (`"<string>"`).
+- `common_parameters`: the parameters no description assigns to a command, required ones first;
+- `note`: how to read the lists.
+
+A tool whose enum already lists `help` (`manage_script`) answers its own help, and a tool whose schema cannot be read or that chooses no command by an enum is passed through. Help runs inside authorization and the gates, so a persona that may not call the tool is refused as for any other command. A command that is not in the enum is refused with `invalid_arguments`, and the refusal lists the valid values (the enum sentence above).
+
+### A refusal met twice in a session
+
+The second time one session's call to a tool is refused with the same code, the refusal's message gains a sentence saying it was refused the same way before in this session, and that what the platform cannot do is reported with `manage_feedback action=create target_type=standalone topic=platform` with `trying_to` and `blocked_by` (#2820; see [Platform feedback](../server/tools.md#platform-feedback)). A refusal of a call with no session, and a refusal of `manage_feedback` itself, are left as they are. What has been refused is held per replica, up to 10,000 session, tool and code keys, the oldest forgotten first.
+
+### A panicking handler
+
+A handler that panics is recovered into an `internal_error` result rather than a dropped connection. The platform logs the tool's name, the request id the call's audit row is written under, the panic value and the stack, the tool name and panic value passed through the log sanitizer (#2817).
 
 ## Trino Tools
 
 ### trino_query
 
 Execute a read-only SQL query against the Trino cluster. Write operations (INSERT, UPDATE, DELETE, CREATE, DROP, etc.) are rejected before reaching Trino. Annotated with `ReadOnlyHint: true` for MCP client auto-approval.
+
+A query plan is read by sending `EXPLAIN (TYPE LOGICAL|DISTRIBUTED|IO|VALIDATE) <query>` as the `query`; the plan comes back as the result. `EXPLAIN ANALYZE` runs the statement it explains and is refused.
 
 **Parameters:**
 
@@ -146,28 +170,6 @@ Execute any SQL against the Trino cluster, including write operations (INSERT, U
 
 ---
 
-### trino_explain
-
-Get the execution plan for a SQL query.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `query` | string | Yes | - | SQL query to explain |
-| `connection` | string | No | the kind's `default:` | Trino connection name |
-
-**Response Schema:**
-
-```json
-{
-  "plan": "Query Plan\n- TableScan[table = ...]\n  ...",
-  "format": "text"
-}
-```
-
----
-
 ### trino_browse
 
 Browse the Trino catalog hierarchy. Omit all parameters to list catalogs. Provide `catalog` to list schemas. Provide `catalog` and `schema` to list tables.
@@ -217,12 +219,16 @@ Browse the Trino catalog hierarchy. Omit all parameters to list catalogs. Provid
 ### trino_describe_table
 
 Get table schema and metadata.
+The description the platform advertises for this tool (#2814) tells a caller to send `catalog`, `schema` and `table` as three separate arguments; it replaces the upstream description until txn2/mcp-trino#122 accepts a dotted name in `table`. Reading a table this way counts as reading its schema for the [schema gate](../server/configuration.md#schema-gate-configuration).
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `table` | string | Yes | - | Table name (can be `catalog.schema.table`) |
+| `catalog` | string | Yes | - | The catalog containing the table |
+| `schema` | string | Yes | - | The schema containing the table |
+| `table` | string | Yes | - | The bare table name, never a dotted `catalog.schema.table` |
+| `include_sample` | boolean | No | false | Include a 5-row sample of data |
 | `connection` | string | No | the kind's `default:` | Trino connection name |
 
 **Response Schema:**

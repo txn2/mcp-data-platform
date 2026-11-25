@@ -77,15 +77,14 @@ personas:
 
 There is no `semantic:` or `query:` block. Omitting them selects the noop providers, which is a supported configuration rather than an error, and enrichment stays enabled at no cost because it no-ops without a semantic provider.
 
-Starting with the configuration above and an empty database, `tools/list` returns twenty tools:
+Starting with the configuration above and an empty database, `tools/list` returns seventeen tools:
 
 ```
-api_discover              manage_asset       memory_capture        save_asset
-api_invoke_endpoint       manage_feedback    memory_manage         search
-apply_knowledge           manage_prompt      platform_find_tools   show_prompts
-fetch                     manage_resource    platform_info         show_scripts
+api_discover              manage_asset       manage_table          save_asset
+api_invoke_endpoint       manage_feedback    memory_capture        search
+apply_knowledge           manage_prompt      memory_manage
+fetch                     manage_resource    platform_info
 list_connections          manage_script      run_script
-manage_table
 ```
 
 `manage_table` and `manage_resource` are registered by the portal toolkit unconditionally, so both are listed here even though neither can act in this shape: `manage_table` reports that there is no Trino connection with a scratch target to register onto, and `manage_resource` that there is no managed-resource library to write to, since resource content needs blob storage and this configuration declares no S3 connection (see [Object storage is optional here too](#object-storage-is-optional-here-too) below). Both say so instead of reporting a write that did not happen.

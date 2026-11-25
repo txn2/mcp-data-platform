@@ -252,6 +252,9 @@ func (p *Platform) handleInfo(ctx context.Context, req *mcp.CallToolRequest) (*m
 	if gated, kinds := toolargs.GatedPurposeTools(p.config.Purpose, p.toolkitRegistry, accessibleTools); len(gated)+len(kinds) > 0 {
 		notes = append(notes, instructions.PurposeNote(p.config.Purpose.IsRequired(), gated, kinds))
 	}
+	if note := instructions.ConnectionKindsNote(p.connectionKinds(accessibleTools)); note != "" {
+		notes = append(notes, note)
+	}
 	digest := p.portalStore.Notices().Build(ctx, middleware.GetPlatformContext(ctx))
 	feedbackCount, shareCount, automationCount := digest.Counts()
 	notes = append(notes, instructions.NoticesNote(accessibleTools, feedbackCount, shareCount, automationCount))

@@ -67,13 +67,13 @@ Memories are classified by LOCOMO dimension for structured retrieval:
 
 ### memory_capture
 
-The one way to create a memory record. Routed by `type` (sink-class): `personal_preference` and `episodic_event` are live for the capturer immediately; `business_knowledge`, `schema_entity`, and `operational_rule` are recorded as pending insights reviewed via `apply_knowledge`.
+The one way to create a memory record. Routed by `type` (sink-class): `personal_preference` and `episodic_event` are live for the capturer immediately; `business_knowledge`, `schema_entity`, and `operational_rule` are recorded as pending insights reviewed via `apply_knowledge`. Its description says what is worth capturing (a definition, a convention, an official figure's method, who owns a dataset, a trap that cost a retry) and what is not (a column name just corrected in one's own query, or anything the table's schema already says) (#2814).
 
 Capture is **recall-first**, and it never waits on the embedder. The record is stored and returned at once, and its embedding is queued as a background index job (#1987). A slow embedding provider used to hold `memory_capture` open for minutes after the write had committed, so the client timed out and retried a capture that had been stored. When the job writes the record's vector, the recall check runs against the caller's records. Superseded rows are excluded from matching (a dead predecessor must not absorb a new capture's supersede); stale rows remain matchable, since a restatement is exactly how a stale record gets corrected. Of two records at or above the supersede threshold (0.9), the **newer** supersedes the older, whichever of them is embedded first, so a newer capture supersedes every record it restates. When the capture names entities (`entity_urns`), only records sharing an entity can match, so knowledge about one table never supersedes knowledge about another. Records that are similar but below the supersede bar (0.75 to 0.9) are written to the new record's metadata as `similar_existing` (id and score), so the owner can decide whether to consolidate. The record's `recall_check` metadata reads `pending` until the check has run and `done` after. The capture response's `recall_check` field says `pending` when the check will run, or `unavailable` when there is no embedding provider, in which case captures simply append. `memory_manage update` works the same way: changed content is written at once and re-embedded in the background.
 
 ### memory_manage
 
-Lifecycle operations for existing memory records. Opt-in per persona (requires `memory_*` in `tools.allow`).
+Lifecycle operations for existing memory records. Opt-in per persona (requires `memory_*` in `tools.allow`). Its description, and a baseline instruction line when the caller may call it, say that a memory relied on that proved wrong or outdated is corrected with `update` or retired with `forget`, so the next session is not misled by it (#2814).
 
 | Command | Purpose |
 |---------|---------|

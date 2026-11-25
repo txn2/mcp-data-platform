@@ -9,10 +9,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/url"
 	"path"
 	"strings"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/site/sitetypecheck"
 
 	sgpostgres "github.com/txn2/mcp-data-platform/pkg/searchgate/postgres"
 
@@ -99,6 +103,9 @@ type Runtime struct {
 	TrafficStore *sitetraffic.Store
 	// Tiles is each environment's tile, drawn by the tile worker (#2658).
 	Tiles *sitetile.Store
+	// Typechecks runs the type checks releases ask for (#2793); nil where the
+	// deployment has no bucket to keep the compiler in, or turned checks off.
+	Typechecks *sitetypecheck.Queue
 	// Routing is the Site routing integration's statuses (#2659); its Service
 	// is set where the deployment has integrations.
 	Routing *siterouting.Lookup
@@ -196,6 +203,11 @@ func Register(server *mcp.Server, d Deps) (*Runtime, error) {
 	}
 	svc.Fetch = fetcher
 	svc.Stylesheets = (&tailwind.Loader{Fetch: fetcher.Fetch}).Factory(tailwind.Limits{})
+	typechecks := typecheckQueue(d, svc)
+	if typechecks != nil {
+		svc.AfterPublish = sitetypecheck.AfterPublish(typechecks, svc)
+	}
+	tool.Typechecks = typechecks
 	sitetool.UseGuideStore(sgpostgres.Shared(d.DB, 24*time.Hour))
 	tool.Register(server)
 	rt := &Runtime{
@@ -204,7 +216,7 @@ func Register(server *mcp.Server, d Deps) (*Runtime, error) {
 		Sources:  tool.Sources, Crawler: crawler, PortalURL: d.PortalURL, CookieDomain: d.CookieDomain,
 		Prune:   pruner(d, store, svc, live),
 		Traffic: sitetraffic.NewTally(), TrafficStore: &sitetraffic.Store{DB: d.DB}, Tiles: sitetile.NewStore(d.DB),
-		Routing: routing,
+		Routing: routing, Typechecks: typechecks,
 	}
 	tool.Traffic = rt.TrafficStore
 	if d.Sources != nil {
@@ -214,6 +226,24 @@ func Register(server *mcp.Server, d Deps) (*Runtime, error) {
 	err = rt.Refresh(ctx)
 	warnReservedLabels(ctx, store, live.Get().PagesDomain)
 	return rt, err
+}
+
+// typecheckQueue is the type check queue (#2793) over the deployment's
+// bucket, which keeps the compiler and the package types it fetched; nil
+// where there is no bucket, or checks are off.
+func typecheckQueue(d Deps, svc *sitesvc.Service) *sitetypecheck.Queue {
+	cfg := d.Config.Typecheck
+	if svc.Objects == nil || d.Bucket == "" || !cfg.IsEnabled() {
+		return nil
+	}
+	getter, err := sitetypecheck.NewGuardedGetter()
+	if err != nil {
+		slog.Warn("sites: type checks are off: the egress guard could not be built", "error", logsan.SanitizeForLog(err.Error()))
+		return nil
+	}
+	checker := sitetypecheck.NewChecker(sitetypecheck.Config{MemoryLimit: cfg.MemoryLimit, Timeout: cfg.Timeout, Registry: cfg.Registry, Dir: cfg.Dir},
+		getter, sitetypecheck.Cache{Objects: svc.Objects, Bucket: d.Bucket, Prefix: "sites/_typecheck"})
+	return sitetypecheck.NewQueue(d.DB, checker, sitetypecheck.ReleaseSource(svc))
 }
 
 // pruner is the release sweep over the store and the bucket sites are stored

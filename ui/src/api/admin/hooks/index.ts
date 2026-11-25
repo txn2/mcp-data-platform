@@ -30,4 +30,5 @@ export * from "./embedHosts";
 export * from "./appdb";
 export * from "./sites";
 export * from "./generalFeedback";
+export * from "./platformFeedback";
 export * from "./integrations";

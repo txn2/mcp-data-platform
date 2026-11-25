@@ -141,21 +141,21 @@ func TestSiteOrigins(t *testing.T) {
 	})
 	t.Run("each hostname as a browser origin", func(t *testing.T) {
 		rt, mock := newDB(t)
-		mock.ExpectQuery("SELECT d.hostname").WithArgs("app_1", pagesDomain).
-			WillReturnRows(sqlmock.NewRows([]string{"hostname"}).AddRow("www.client.example").AddRow("marketing--prod." + pagesDomain).AddRow("marketing." + pagesDomain))
+		mock.ExpectQuery("FROM application_parts p").WithArgs("app_1", pagesDomain).
+			WillReturnRows(sqlmock.NewRows([]string{"env", "hostname"}).AddRow("prod", "www.client.example").AddRow("prod", "marketing--prod."+pagesDomain).AddRow("prod", "marketing."+pagesDomain))
 		got := rt.SiteOrigins(context.Background(), "app_1")
 		assert.Equal(t, []string{"https://www.client.example", "https://marketing--prod." + pagesDomain, "https://marketing." + pagesDomain}, got, "an environment's own address and the main address are origins too")
 	})
 	t.Run("the pages domain in force is the one asked about", func(t *testing.T) {
 		rt, mock := newDB(t)
 		rt.Live.Set(siteconfig.Config{PagesDomain: "saved.example.net"})
-		mock.ExpectQuery("SELECT d.hostname").WithArgs("app_1", "saved.example.net").
-			WillReturnRows(sqlmock.NewRows([]string{"hostname"}).AddRow("marketing.saved.example.net"))
+		mock.ExpectQuery("FROM application_parts p").WithArgs("app_1", "saved.example.net").
+			WillReturnRows(sqlmock.NewRows([]string{"env", "hostname"}).AddRow("prod", "marketing.saved.example.net"))
 		assert.Equal(t, []string{"https://marketing.saved.example.net"}, rt.SiteOrigins(context.Background(), "app_1"))
 	})
 	t.Run("a store failure is none", func(t *testing.T) {
 		rt, mock := newDB(t)
-		mock.ExpectQuery("SELECT d.hostname").WillReturnError(errors.New("db down"))
+		mock.ExpectQuery("FROM application_parts p").WillReturnError(errors.New("db down"))
 		assert.Nil(t, rt.SiteOrigins(context.Background(), "app_1"))
 	})
 }

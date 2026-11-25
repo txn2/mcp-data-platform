@@ -73,6 +73,19 @@ func (s *Store) Get(ctx context.Context, id string) (*session.Session, error) {
 	return s.scanSession(row)
 }
 
+// GetAny retrieves a session by ID whether or not it has expired, until the
+// cleanup routine removes it; nil, nil when no row holds it. It tells a
+// refused handle that expired from one this deployment never issued (#2816).
+func (s *Store) GetAny(ctx context.Context, id string) (*session.Session, error) {
+	query := `
+		SELECT id, user_id, created_at, last_active_at, expires_at, state
+		FROM sessions
+		WHERE id = $1
+	`
+	row := s.db.QueryRowContext(ctx, query, id)
+	return s.scanSession(row)
+}
+
 // LatestHandleForUser returns userID's most-recently-active, non-expired
 // platform_info-minted handle, or nil, nil when they have none. The id prefix
 // filter excludes churning transport sessions, so only a durable handle an

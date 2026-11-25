@@ -467,3 +467,31 @@ func number(t *testing.T, out map[string]any, key string) float64 {
 	}
 	return v
 }
+
+// searchToolNames asks search which of the platform's tools fit an intent and
+// returns their names, best first: the tools source (#2809), which replaced
+// the separate tool-finding tool.
+func (c *client) searchToolNames(intent string) []string {
+	c.t.Helper()
+	out := c.call("search", map[string]any{
+		"intent":  intent,
+		"sources": []string{"tools"},
+		"purpose": "Acceptance: which tool fits this task.",
+	})
+	var names []string
+	groups, _ := out["groups"].([]any)
+	for _, g := range groups {
+		group, _ := g.(map[string]any)
+		if group["source"] != "tools" {
+			continue
+		}
+		hits, _ := group["hits"].([]any)
+		for _, h := range hits {
+			hit, _ := h.(map[string]any)
+			if ref, _ := hit["ref"].(string); ref != "" {
+				names = append(names, ref)
+			}
+		}
+	}
+	return names
+}

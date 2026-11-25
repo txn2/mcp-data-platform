@@ -419,3 +419,22 @@ func TestGet_EmptyState(t *testing.T) {
 	assert.NotNil(t, got.State, "State should be initialized even with empty JSON")
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
+
+// TestGetAny_ReadsAnExpiredRow is #2816: a refused handle that expired is told
+// apart from one never issued, so the read carries no expiry filter.
+func TestGetAny_ReadsAnExpiredRow(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	store := New(db, Config{TTL: testTTL})
+	sess := newTestSession()
+	stateJSON, err := json.Marshal(sess.State)
+	require.NoError(t, err)
+	rows := sqlmock.NewRows(selectColumns).AddRow(sess.ID, sess.UserID, sess.CreatedAt, sess.LastActiveAt, sess.ExpiresAt, stateJSON)
+	mock.ExpectQuery(`SELECT .+ FROM sessions\s+WHERE id = \$1\s*$`).WithArgs(pgTestSessID).WillReturnRows(rows)
+	got, err := store.GetAny(context.Background(), pgTestSessID)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "user-abc", got.UserID)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}

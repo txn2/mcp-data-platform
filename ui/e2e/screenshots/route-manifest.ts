@@ -12,6 +12,7 @@ import { sectionIntroRoutes } from "./route-section-intros";
 import { assetFeedbackRoutes } from "./route-feedback-sheet";
 import { adminCatalogRoutes, knowledgeCatalogRoutes } from "./route-catalog";
 import { adminWebhookRoutes } from "./route-webhooks";
+import { platformFeedbackRoutes } from "./route-platform-feedback";
 import { adminConnectionRoutes } from "./route-connections";
 import { adminPersonaRoutes } from "./route-personas";
 import { adminScriptRoutes, applicationRoutes, userScriptRoutes } from "./route-scripts";
@@ -522,6 +523,7 @@ export const routes: ScreenshotRoute[] = [
     category: "admin",
   },
   { slug: "admin-settings-embed-hosts", path: "/portal/admin/settings/embed-hosts", category: "admin" }, // #2069
+  ...platformFeedbackRoutes,
   {
     // The named bot checks a bot_check endpoint picks from (#2173, #2259):
     // each check's provider, the endpoints using it, and the proof of work's

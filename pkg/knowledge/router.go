@@ -224,6 +224,7 @@ var knownSourceNames = map[string]bool{
 	SourceSessions:       true,
 	SourceEndpoints:      true,
 	SourceConnections:    true,
+	SourceTools:          true,
 }
 
 // KnownSources returns the valid search-source names (the Source* provenance

@@ -177,6 +177,10 @@ type Config struct {
 	Registry *registry.Registry
 	// Embedding powers the router's intent embedding.
 	Embedding embedding.Provider
+
+	// Tools ranks the platform's own tools for the tools source (#2809); nil
+	// leaves tools out of search.
+	Tools knowledge.ToolRanker
 }
 
 // Handle owns the assembled search federation: the knowledge.Router and the
@@ -387,6 +391,12 @@ func appendFederationProviders(cfg Config, providers []knowledge.Provider) []kno
 			conns.SetCatalogBrowser(cfg.Catalog)
 		}
 		providers = append(providers, conns)
+	}
+	// The platform's own tools answer capability questions ("publish a static
+	// site") where agents already ask (#2809). Like connections, they do not
+	// register search on their own.
+	if cfg.Tools != nil && len(providers) > 0 {
+		providers = append(providers, knowledge.NewToolsProvider(cfg.Tools))
 	}
 	return providers
 }

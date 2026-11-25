@@ -513,7 +513,7 @@ func (h *Handle) glossaryTerms(ctx context.Context, value string) (found []strin
 // toolAllowed reports whether the caller may receive completions gated on the
 // named tool. With no authorizer configured there is no persona filtering and
 // everything is allowed; otherwise the authorizer decides. Unlike
-// platform_find_tools, an empty (non-nil) roles slice is NOT short-circuited to
+// search's tools source, an empty (non-nil) roles slice is NOT short-circuited to
 // allow-all: a deny-by-default deployment maps empty roles to a deny-all persona,
 // and completions must honor that just as tools/list does — otherwise a zero-role
 // caller could complete catalog names it cannot see (#928).

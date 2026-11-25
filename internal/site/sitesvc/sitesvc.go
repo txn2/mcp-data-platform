@@ -86,6 +86,7 @@ type Service struct {
 	// PublicScheme and PublicPort are what an address is written with.
 	PublicScheme, PublicPort string
 	Invalidate               Invalidate
+	AfterPublish             site.PublishHook // queues the release's type check (#2793)
 	// Fetch reads the URL modules a release bundles at publish (#2774); nil
 	// refuses such a release.
 	Fetch sitebuild.Fetcher

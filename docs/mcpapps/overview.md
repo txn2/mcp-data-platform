@@ -82,23 +82,7 @@ mcpapps:
 
 All branding fields are optional. When unset the app falls back to the server name and a default data-graph logo. The panels above are captured with a `brand_name` set, which is where the header's title comes from.
 
-## Built-in App: prompt-browser
-
-The platform also ships with `prompt-browser` embedded in the binary, bound to the presentation-only `show_prompts` tool. In an MCP Apps-capable host, calling `show_prompts` renders an interactive prompt library browser for the human. It is bound to `show_prompts` rather than a data tool so the agent's routine prompt work does not render a UI; the rendered app populates itself from its own `manage_prompt` calls:
-
-- Search-as-you-type over the ranked prompt query, with My Prompts / Library buckets, collection and tag filters, and usage-based sorting
-- Cards showing display name, description, version, and run count
-- A detail view with full prompt content, provenance, and a form generated from the prompt's argument specs
-- Run resolves the prompt through the `manage_prompt` `use` command with the filled arguments; when the host supports conversation insertion (`ui/message`), the rendered prompt is placed directly into the chat, otherwise the app offers the rendered content for copy
-
-![The prompt-browser app](../images/screenshots/light/app-prompt-browser-light.webp#only-light)![The prompt-browser app](../images/screenshots/dark/app-prompt-browser-dark.webp#only-dark)
-
-Each card carries the prompt's scope, its version, and, for an approved one,
-who approved it and when; a personal draft is badged as one.
-
-The app is presentation only: the same `manage_prompt` calls return complete structured JSON in clients that do not render apps, so nothing is lost outside app-capable hosts. It follows the same organization model as the portal library (collections, buckets, usage) with no app-local state.
-
-Like `platform-info`, an operator `mcpapps.apps.prompt-browser` entry can override the injected config or replace the embedded HTML entirely via `assets_path`.
+`platform-info` is the only app built into the binary. An operator `mcpapps.apps.prompt-browser` entry configures nothing: startup logs a `deprecated_key` configuration warning and skips it. The prompt library is browsed on the portal's Prompts page, and an agent reaches prompts through `manage_prompt` (`use`, `list`).
 
 ## Example App: query-results
 

@@ -20,6 +20,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/application/appbundle"
 	"github.com/txn2/mcp-data-platform/internal/application/appsvc"
 	"github.com/txn2/mcp-data-platform/internal/application/apptool"
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epaddr"
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/selfcall"
@@ -61,6 +62,10 @@ type Config struct {
 	// asset part's name is told only to (#2527); nil tells it to no one but
 	// administrators.
 	ViewAsset appsvc.AssetViewer
+	// Endpoints is, by environment, the endpoints each environment of an
+	// application serves and every URL each answers at (#2822); nil answers
+	// every environment with none.
+	Endpoints func(ctx context.Context, a *application.Application) map[string][]epaddr.Endpoint
 }
 
 // DatabasesPath is the route the New application dialog fills its
@@ -350,12 +355,16 @@ type detail struct {
 	// in the order application.parts lists them (#2527).
 	Parts    []appsvc.PartView     `json:"parts"`
 	Releases []application.Release `json:"releases"`
+	// Endpoints is, by environment name, the endpoints that environment
+	// serves and every URL each answers at (#2822): every environment is
+	// present, with an empty list when the application holds no endpoint.
+	Endpoints map[string][]epaddr.Endpoint `json:"endpoints"`
 }
 
 // get answers an application's page.
 //
 // @Summary      Read an application
-// @Description  An application by name or id: its parts (parts names each one, the facts its row is described with, its newest version and its state: ok, deleted, or not_visible for an asset the caller cannot open, whose name is not told), its current release, what a release now would change (pending), its schema part (schema: its migration version, the version the current release recorded, the pending migrations, and the role its scripts log in as), the parts a release would refuse (problems), and its releases newest first with what each changed.
+// @Description  An application by name or id: its parts (parts names each one, the facts its row is described with, its newest version and its state: ok, deleted, or not_visible for an asset the caller cannot open, whose name is not told), the endpoints each environment serves (endpoints, by environment name: each endpoint's name, script, methods, auth mode, path template and every URL it answers at there, the platform host, the application's page origin and domains for the last environment, and each site environment part of the environment's name; an empty list for an environment when the application holds no endpoint), its current release, what a release now would change (pending), its schema part (schema: its migration version, the version the current release recorded, the pending migrations, and the role its scripts log in as), the parts a release would refuse (problems), and its releases newest first with what each changed.
 // @Param        app  path  string  true  "Application name or id"
 // @Success      200  {object}  detail
 // @Tags         Applications
@@ -381,7 +390,16 @@ func (h *handler) get(w http.ResponseWriter, r *http.Request) {
 	}
 	parts := h.cfg.Service.Describe(r.Context(), actor, st.Application.Parts, h.cfg.ViewAsset)
 	rels, err := h.cfg.Service.Store.Releases(r.Context(), st.Application.ID)
-	h.answer(w, detail{Status: st, Parts: parts, Releases: rels}, err)
+	h.answer(w, detail{Status: st, Parts: parts, Releases: rels, Endpoints: h.endpoints(r.Context(), st.Application)}, err)
+}
+
+// endpoints is what an application's environments serve, every environment
+// present.
+func (h *handler) endpoints(ctx context.Context, a *application.Application) map[string][]epaddr.Endpoint {
+	if h.cfg.Endpoints != nil {
+		return h.cfg.Endpoints(ctx, a)
+	}
+	return epaddr.ForApplication(ctx, epaddr.Source{}, a)
 }
 
 // candidates answers the parts the caller may add to an application.

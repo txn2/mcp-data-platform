@@ -52,7 +52,7 @@ func TestHandleListConnections(t *testing.T) {
 			toolkitRegistry: registry.NewRegistry(),
 		}
 
-		result, extra, err := p.handleListConnections(context.Background(), &mcp.CallToolRequest{})
+		result, extra, err := p.handleListConnections(context.Background(), &mcp.CallToolRequest{}, listConnectionsInput{})
 		require.NoError(t, err)
 		assert.Nil(t, extra)
 		require.NotNil(t, result)
@@ -86,7 +86,7 @@ func TestHandleListConnections(t *testing.T) {
 			toolkitRegistry: reg,
 		}
 
-		result, extra, err := p.handleListConnections(context.Background(), &mcp.CallToolRequest{})
+		result, extra, err := p.handleListConnections(context.Background(), &mcp.CallToolRequest{}, listConnectionsInput{})
 		require.NoError(t, err)
 		assert.Nil(t, extra)
 		require.NotNil(t, result)
@@ -129,7 +129,7 @@ func TestHandleListConnections(t *testing.T) {
 			toolkitRegistry: reg,
 		}
 
-		result, _, err := p.handleListConnections(context.Background(), &mcp.CallToolRequest{})
+		result, _, err := p.handleListConnections(context.Background(), &mcp.CallToolRequest{}, listConnectionsInput{})
 		require.NoError(t, err)
 
 		var out listConnectionsOutput
@@ -157,7 +157,7 @@ func TestHandleListConnections_SurfacesHealth(t *testing.T) {
 	}))
 
 	p := &Platform{toolkitRegistry: reg}
-	result, _, err := p.handleListConnections(context.Background(), &mcp.CallToolRequest{})
+	result, _, err := p.handleListConnections(context.Background(), &mcp.CallToolRequest{}, listConnectionsInput{})
 	require.NoError(t, err)
 	require.False(t, result.IsError)
 
@@ -210,7 +210,7 @@ func TestHandleListConnections_WithConnectionLister(t *testing.T) {
 		}))
 
 		p := &Platform{toolkitRegistry: reg}
-		result, _, err := p.handleListConnections(context.Background(), &mcp.CallToolRequest{})
+		result, _, err := p.handleListConnections(context.Background(), &mcp.CallToolRequest{}, listConnectionsInput{})
 		require.NoError(t, err)
 		require.NotNil(t, result)
 		assert.False(t, result.IsError)
@@ -269,7 +269,7 @@ func TestHandleListConnections_WithConnectionLister(t *testing.T) {
 		}))
 
 		p := &Platform{toolkitRegistry: reg}
-		result, _, err := p.handleListConnections(context.Background(), &mcp.CallToolRequest{})
+		result, _, err := p.handleListConnections(context.Background(), &mcp.CallToolRequest{}, listConnectionsInput{})
 		require.NoError(t, err)
 
 		var out listConnectionsOutput
@@ -375,7 +375,7 @@ func TestHandleListConnections_PersonaBoundary(t *testing.T) {
 		ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
 			UserID: "u1", PersonaName: personaName,
 		})
-		result, _, err := p.handleListConnections(ctx, &mcp.CallToolRequest{})
+		result, _, err := p.handleListConnections(ctx, &mcp.CallToolRequest{}, listConnectionsInput{})
 		require.NoError(t, err)
 		require.False(t, result.IsError)
 
@@ -412,4 +412,49 @@ func TestHandleListConnections_PersonaBoundary(t *testing.T) {
 		assert.Contains(t, out.Notice, "3 connections are hidden",
 			"a persona that does not resolve is denied every connection, and told so")
 	})
+}
+
+// TestHandleListConnections_SummaryAndDetail is #2813: no arguments summarize
+// every connection with the tools of each kind; a name gives that connection
+// in full; an unknown name is refused naming the ones that exist; and this
+// deployment's own connections reach the per-caller kinds note (#2812).
+func TestHandleListConnections_SummaryAndDetail(t *testing.T) {
+	reg := registry.NewRegistry()
+	require.NoError(t, reg.Register(&mockConnectionListerToolkit{
+		kind: "mcp", name: "gw", tools: []string{"gw__echo"},
+		connections: []toolkit.ConnectionDetail{{Name: "up", Description: "First sentence. Then pages of rules."}},
+	}))
+	p := &Platform{toolkitRegistry: reg}
+	decode := func(res *mcp.CallToolResult) listConnectionsOutput {
+		var out listConnectionsOutput
+		text, ok := res.Content[0].(*mcp.TextContent)
+		require.True(t, ok)
+		require.NoError(t, json.Unmarshal([]byte(text.Text), &out))
+		return out
+	}
+
+	res, _, err := p.handleListConnections(context.Background(), &mcp.CallToolRequest{}, listConnectionsInput{})
+	require.NoError(t, err)
+	sum := decode(res)
+	assert.Equal(t, "summary", sum.Form)
+	assert.Equal(t, "First sentence.", sum.Connections[0].Description)
+	assert.Equal(t, []string{"gw__echo"}, sum.KindTools["mcp"])
+
+	res, _, err = p.handleListConnections(context.Background(), &mcp.CallToolRequest{}, listConnectionsInput{Connection: "up"})
+	require.NoError(t, err)
+	detail := decode(res)
+	assert.Equal(t, "detail", detail.Form)
+	assert.Equal(t, "First sentence. Then pages of rules.", detail.Connections[0].Description)
+
+	res, _, err = p.handleListConnections(context.Background(), &mcp.CallToolRequest{}, listConnectionsInput{Connection: "nope"})
+	require.NoError(t, err)
+	require.True(t, res.IsError)
+	text, ok := res.Content[0].(*mcp.TextContent)
+	require.True(t, ok)
+	assert.Contains(t, text.Text, "the connections are: up")
+
+	kinds := p.connectionKinds([]string{"gw__echo"})
+	require.Len(t, kinds, 1)
+	assert.Equal(t, "MCP gateway", kinds[0].Name)
+	assert.Equal(t, []string{"gw__echo"}, kinds[0].Tools)
 }

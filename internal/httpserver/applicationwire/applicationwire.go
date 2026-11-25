@@ -14,7 +14,9 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/application/appstore"
 	"github.com/txn2/mcp-data-platform/internal/application/appsvc"
 	"github.com/txn2/mcp-data-platform/internal/application/appwire"
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epaddr"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epcmd"
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epwire"
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
 	"github.com/txn2/mcp-data-platform/internal/platform/scripthandler"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
@@ -77,8 +79,53 @@ func Mount(mux *http.ServeMux, p *platform.Platform, wrap func(http.Handler) htt
 	d.Reach = apprunrole.ReachVia(lister, func(roles []string) string { return personaOf(p, roles) })
 	register(mux, wrap, d, routes{
 		isAdmin: isAdmin, audit: p.Audit().Logger(), databases: src.choices,
-		viewAsset: assetViewer(p.PortalShareStore()),
+		viewAsset: assetViewer(p.PortalShareStore()), endpoints: endpointsOf(p),
 	})
+}
+
+// endpointsOf is, by environment, the endpoints an application's environments
+// serve and every URL each answers at (#2822), read through epaddr, the one
+// computation manage_script handler_list's url reads; nil without endpoints.
+func endpointsOf(p *platform.Platform) func(context.Context, *application.Application) map[string][]epaddr.Endpoint {
+	e := p.Endpoints()
+	if e == nil {
+		return nil
+	}
+	scripts := scriptstore.New(p.DB())
+	return endpointSource(e, func(ctx context.Context, id string) string {
+		if sc, err := scripts.GetByID(ctx, id); err == nil {
+			return sc.Name
+		}
+		return ""
+	})
+}
+
+// endpointSource reads an application's endpoints from the platform's
+// bindings, on the platform host the endpoint commands report and the site
+// runtime's hosts; nil without bindings.
+func endpointSource(e *epwire.Endpoints, scriptName func(context.Context, string) string) func(context.Context, *application.Application) map[string][]epaddr.Endpoint {
+	if e.Bindings == nil {
+		return nil
+	}
+	baseURL := ""
+	if e.Commands != nil {
+		baseURL = e.Commands.BaseURL
+	}
+	src := epaddr.Source{
+		ByScript:   e.Bindings.ByScript,
+		ScriptName: scriptName,
+		Hosts: func(ctx context.Context, a *application.Application) epaddr.Hosts {
+			h := epaddr.Hosts{}
+			if e.Sites != nil {
+				h = e.Sites.EndpointHosts(ctx, a)
+			}
+			h.BaseURL = baseURL
+			return h
+		},
+	}
+	return func(ctx context.Context, a *application.Application) map[string][]epaddr.Endpoint {
+		return epaddr.ForApplication(ctx, src, a)
+	}
 }
 
 // routes is what the routes are mounted with besides the stores.
@@ -87,6 +134,7 @@ type routes struct {
 	audit     middleware.AuditLogger
 	databases func(*http.Request, application.Actor) []apphttp.DatabaseChoice
 	viewAsset appsvc.AssetViewer
+	endpoints func(context.Context, *application.Application) map[string][]epaddr.Endpoint
 }
 
 // assetViewer reports whether the portal caller on ctx opens an asset, by
@@ -124,7 +172,7 @@ func register(mux *http.ServeMux, wrap func(http.Handler) http.Handler, d appwir
 	}
 	apphttp.Register(mux, wrap, apphttp.Config{
 		Service: svc, Bundles: appwire.Bundler(svc, d), Actor: Actor(r.isAdmin), Audit: r.audit, Databases: r.databases,
-		ViewAsset: r.viewAsset,
+		ViewAsset: r.viewAsset, Endpoints: r.endpoints,
 	})
 }
 

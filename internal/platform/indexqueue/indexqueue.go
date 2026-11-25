@@ -514,7 +514,7 @@ func (h *Handle) AdminStore() catalogindex.Store {
 	return h.adminStore
 }
 
-// ToolsIndexStore returns the tools vector store the platform_find_tools
+// ToolsIndexStore returns the tools vector store search's tools source
 // semantic ranking reads, or nil when the tools consumer did not register or
 // the Handle is nil.
 func (h *Handle) ToolsIndexStore() *toolsindex.Store {

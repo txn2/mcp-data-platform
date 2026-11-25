@@ -351,3 +351,26 @@ func (objectsThatFail) DeleteObject(context.Context, string, string) error { ret
 func (objectsThatFail) GetObject(context.Context, string, string) (body []byte, contentType string, err error) {
 	return nil, "", errors.New("no")
 }
+
+// TestDryRun_BeforeTheFirstPublish is #2817: a publish dry run on an
+// environment that serves no release yet reported the call as "failed
+// unexpectedly" (it dereferenced the release it would replace). It answers
+// with the outputs the publish would write, a null release, and stores nothing,
+// for a plain file set and for one the platform renders.
+func TestDryRun_BeforeTheFirstPublish(t *testing.T) {
+	for name, files := range map[string][]InputFile{
+		"plain files": {{Path: "index.html", Body: []byte(homeBody)}, {Path: "logo.png", Body: []byte{0x89, 'P', 'N', 'G', 0}}},
+		"rendered":    renderedFiles(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			svc, store, objects, _ := fixture(t)
+			before := objects.keys()
+			pub, err := svc.Publish(context.Background(), owner, PublishRequest{Site: "marketing", Files: files, DryRun: true})
+			require.NoError(t, err)
+			assert.Nil(t, pub.Release, "no release is served before the first publish")
+			assert.Positive(t, pub.OutputsChanged)
+			assert.Equal(t, before, objects.keys())
+			assert.Empty(t, store.releases[siteID])
+		})
+	}
+}

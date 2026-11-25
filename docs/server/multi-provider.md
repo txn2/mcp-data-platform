@@ -146,6 +146,28 @@ the ones the caller's persona is granted. It replaces the per-toolkit
 `reference` is the citation a knowledge page uses, which keys on the
 `instances:` name.
 
+### Summary and detail
+
+With no arguments the answer is the summary form (#2813), `"form": "summary"`:
+each connection's `description` is cut to its first sentence (at the first
+`. ` or line break, then at 200 characters with `...`), and its sample of
+`knowledge_pages` is dropped while `knowledge_page_count` and `health` stay.
+`kind_tools` at the top level names, for each kind listed, the tools that take
+its connections, and `note` says how to read the rest. A deployment with dozens
+of connections whose descriptions carry usage rules otherwise answered with tens
+of kilobytes, which a client's result limit could cut off.
+
+`connection` set to a name (the `name` or the `connection` value) answers that
+connection in full, `"form": "detail"`: its whole description, the bounded
+sample of knowledge pages that document it, its health, its `call_limits` entry
+when it has one, and `kind_tools` for its kind. A name the caller has no
+connection of, hidden or absent, is refused with the names of the connections
+the caller can see:
+
+```
+no connection "warehous" is visible to you; the connections are: production, data_lake
+```
+
 ## Default Connection
 
 The Trino and S3 kinds name their default with a `default:` key beside their `instances:` block. One of them configuring more than one instance without it is refused at startup, listing the instances it found:
@@ -247,7 +269,7 @@ personas:
         - "trino_describe_*"    # Can describe tables
         - "list_connections"    # Can list connections
       deny:
-        - "trino_explain"       # Cannot see execution plans
+        - "trino_execute"       # Cannot write
     connections:
       allow: ["staging"]        # Only the staging Trino instance
 ```

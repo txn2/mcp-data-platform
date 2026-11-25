@@ -7,8 +7,3 @@ import "embed"
 //
 //go:embed platform-info/index.html
 var PlatformInfo embed.FS
-
-// PromptBrowser is the embedded filesystem for the prompt-browser app.
-//
-//go:embed prompt-browser/index.html
-var PromptBrowser embed.FS

@@ -131,7 +131,6 @@ func Wire(deps Deps) *scriptexec.Handle {
 	layer := scriptlayer.New(scriptlayer.Config{
 		DB:           deps.DB,
 		Runs:         scripts.Runs(),
-		PortalURL:    deps.PortalURL,
 		Destinations: deps.Destinations,
 		// The ceilings a platform run executes under, which the help reports
 		// beside the draft limits (#1843).

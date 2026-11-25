@@ -175,3 +175,24 @@ func TestSanitizeParametersRedactsPasswordsInDynamicSQL(t *testing.T) {
 		assert.Contains(t, got["up"], "[REDACTED]", up)
 	}
 }
+
+// TestSanitizeParameters_PlatformFeedbackText is #2820: a platform feedback
+// post's free text never reaches the audit row, refused or not; the same keys
+// on another call are left alone.
+func TestSanitizeParameters_PlatformFeedbackText(t *testing.T) {
+	got := SanitizeParameters(map[string]any{
+		"action": "create", "topic": "platform", "trying_to": "list shared assets",
+		"blocked_by": "it said hunter22", "suggestion": "x", "tool": "manage_asset",
+	})
+	for _, k := range []string{"trying_to", "blocked_by", "suggestion"} {
+		if got[k] != redactedSentinel {
+			t.Errorf("%s = %v, want redacted", k, got[k])
+		}
+	}
+	if got["tool"] != "manage_asset" || got["action"] != "create" {
+		t.Errorf("a non-text field was redacted: %v", got)
+	}
+	if other := SanitizeParameters(map[string]any{"suggestion": "keep"}); other["suggestion"] != "keep" {
+		t.Errorf("suggestion redacted outside a platform post: %v", other)
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
+	"runtime/debug"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -39,7 +40,7 @@ func MCPErrorContractMiddleware() mcp.Middleware {
 			}
 			defer func() {
 				if r := recover(); r != nil {
-					result, err = recoverToInternalError(ctx, r), nil
+					result, err = recoverToInternalError(ctx, req, r), nil
 				}
 			}()
 			result, err = next(ctx, method, req)
@@ -58,14 +59,22 @@ func MCPErrorContractMiddleware() mcp.Middleware {
 
 // recoverToInternalError logs a recovered panic and returns a categorized
 // internal-error result so a handler bug surfaces as an attributable failure
-// instead of a dropped connection.
-func recoverToInternalError(ctx context.Context, r any) *mcp.CallToolResult {
+// instead of a dropped connection. The log carries the tool, the request id the
+// call's audit row is written under, the panic sanitized, and the stack, so the
+// next one is diagnosable from the logs (#2817): five production dry runs
+// failed this way with nothing beside them to say where.
+func recoverToInternalError(ctx context.Context, req mcp.Request, r any) *mcp.CallToolResult {
 	reqID := ""
 	if pc := GetPlatformContext(ctx); pc != nil {
 		reqID = pc.RequestID
 	}
+	tool := ""
+	if params := toolCallParams(req); params != nil {
+		tool = params.Name
+	}
 	slog.ErrorContext(ctx, "tool call panicked; returning categorized internal error",
-		"panic", r, "request_id", reqID)
+		"tool", logsan.SanitizeForLog(tool), "request_id", reqID,
+		"panic", logsan.SanitizeForLog(fmt.Sprint(r)), "stack", string(debug.Stack()))
 	return BuildErrorResult(InternalError("the tool call failed unexpectedly"))
 }
 

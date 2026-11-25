@@ -490,3 +490,33 @@ func TestBuild_NamesApplicationsWhereReachable(t *testing.T) {
 		t.Error("the baseline names manage_application to a caller who cannot reach it")
 	}
 }
+
+// TestBuild_MemoryManageLineFollowsTheTool pins #2814: the baseline says when
+// to correct or retire a memory, naming memory_manage, only for a caller that
+// can call it.
+func TestBuild_MemoryManageLineFollowsTheTool(t *testing.T) {
+	with := Build([]string{"search", "memory_capture", "memory_manage"})
+	if !strings.Contains(with, "`memory_manage` command `update`") {
+		t.Errorf("baseline with memory_manage does not name it:\n%s", with)
+	}
+	without := Build([]string{"search", "memory_capture"})
+	if strings.Contains(without, "memory_manage") {
+		t.Errorf("baseline without memory_manage names it:\n%s", without)
+	}
+}
+
+// TestBuild_NamesBothSchemaReads pins #2810: while the schema gate refuses a
+// statement against an unread table, the baseline names both tools that
+// count as the read, so an agent reads first instead of learning the order
+// from a refusal.
+func TestBuild_NamesBothSchemaReads(t *testing.T) {
+	out := Build([]string{"search", "fetch", "trino_query", "trino_describe_table"})
+	for _, want := range []string{"`trino_describe_table`", "`fetch` of its `mcp:dataset` reference"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("baseline does not name %s:\n%s", want, out)
+		}
+	}
+	if strings.Contains(Build([]string{"search", "trino_query"}), "`fetch` of its") {
+		t.Error("baseline names fetch for a caller without it")
+	}
+}

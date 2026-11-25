@@ -39,7 +39,7 @@ The test harness provides:
 
 ### 2. Edit and Test
 
-1. Edit `./apps/platform-info/index.html` (or `./apps/prompt-browser/index.html` / `./apps/query-results/index.html` for those apps)
+1. Edit `./apps/platform-info/index.html` (or `./apps/query-results/index.html` for that app)
 2. Click **Reload App** in the test harness
 3. Click **Send Test Data**
 4. See changes immediately
@@ -116,8 +116,6 @@ An app that calls any tool other than `platform_info` must therefore handshake f
 
 Do not make the handshake fatal. A deployment may have handles off, and a persona may allow your app's tool while denying `platform_info`, so a failed handshake should still let the first data call run and report whatever the platform actually says. Blanking the app on a `platform_info` failure breaks cases that worked before the handshake existed.
 
-`apps/prompt-browser/index.html` implements this. Its `handshake`, `withSession`, and `callTool` functions are the smallest complete version.
-
 One correlation hazard: hosts that deliver results as `ui/notifications/tool-result` notifications send no request id, so an app that matches responses by payload shape must be able to tell the `platform_info` result from its own tool's result. `config_version` and `features` are unconditional on the `platform_info` payload and identify it.
 
 The test harness enforces this gate. It answers a `platform_info` call from any app other than `platform-info` with a handshake payload carrying a freshly minted `session_id`, and refuses any other tool call whose `session_id` is missing or stale with the same `SESSION_REQUIRED` / `SESSION_EXPIRED` text the platform returns. An app that skips the handshake therefore fails in development rather than only in a gated deployment. The **Expire Session** button revokes the live handle so the next call is refused, which is how you exercise the recovery path without waiting for a real expiry.
@@ -156,7 +154,6 @@ The test harness enforces this gate. It answers a `platform_info` call from any 
    ```
    apps/
    ├── platform-info/
-   ├── prompt-browser/
    ├── query-results/
    └── my-new-app/
        └── index.html

@@ -124,7 +124,7 @@ func MCPToolCallMiddleware(
 4. Looks up toolkit metadata (kind, name, connection) via `ToolkitLookup`
 5. Runs authenticator to identify user (populates UserID, Email, Roles)
 6. Runs authorizer to check tool access (populates PersonaName, Authorized)
-7. Resolves the explicit session handle (issue #792) via the optional `SessionResolver`: extracts the `session_id` argument, validates it against the session store (must exist, be unexpired, and belong to the same authenticated identity), adopts it onto `PlatformContext.SessionID`, and strips it before the handler runs. When handles are required, only a valid `platform_info`-minted handle satisfies the requirement; a transport-level `Mcp-Session-Id` (or the stdio sentinel) is not accepted as a fallback (issue #800), because it is the churning per-call value the handle exists to replace. A missing handle on a gated tool yields `SESSION_REQUIRED`; an unknown, expired, or cross-identity handle yields `SESSION_EXPIRED`. When handles are enabled but not required, a handle-less call falls back to the transport session.
+7. Resolves the explicit session handle (issue #792) via the optional `SessionResolver`: extracts the `session_id` argument, validates it against the session store (must exist, be unexpired, and belong to the same authenticated identity), adopts it onto `PlatformContext.SessionID`, and strips it before the handler runs. When handles are required, only a valid `platform_info`-minted handle satisfies the requirement; a transport-level `Mcp-Session-Id` (or the stdio sentinel) is not accepted as a fallback (issue #800), because it is the churning per-call value the handle exists to replace. A missing handle on a gated tool yields `SESSION_REQUIRED`; an unknown, expired, or cross-identity handle yields `SESSION_EXPIRED (reason: unknown|expired|other_identity)`, and on `expired` or `unknown` for an authenticated caller the refusal carries a freshly minted `session_id` for that caller, in its message and in `structuredContent` (#2816). When handles are enabled but not required, a handle-less call falls back to the transport session.
 8. Returns error result if auth or session resolution fails, otherwise proceeds
 
 The `toolkitLookup` parameter is optional; if `nil`, toolkit metadata fields remain empty. The session resolver is supplied via `ToolCallConfig.SessionResolver` and is a valid `nil` no-op when explicit handles are disabled.
@@ -183,8 +183,19 @@ Refuses a SQL statement (`trino_query`, `trino_execute`, `trino_export`) against
 2. The tables a statement names come from `internal/sqltables`, resolved against the call's connection defaults; `information_schema`, `system` and table functions are left out
 3. When any named table is unread, the schema of each is read from that Trino connection and the call is short-circuited with a `SCHEMA_REQUIRED` error carrying the columns; delivering them records the read. A table whose schema cannot be read does not hold the statement back
 4. A failed statement whose Trino `error_name` is a column or type error gets the columns appended to its error content
+5. A statement that names no column of the one table it reads (`sqltables.ColumnFree`: `SELECT *` or `SELECT count(*)` with at most an alias, `OFFSET`, `LIMIT` or `FETCH`) is never refused (#2810); a successful `SELECT *` records the read, `count(*)` does not
+6. A failed statement whose error is Trino's `Catalog '<x>' not found` (or `does not exist`), where `<x>` is a connection whose catalog has another name, gets a text block naming that connection's catalog (#2812, `catalog.go`)
 
 Reads are stored in the search gate's `searchgate.Store` (the Postgres store when a database exists) under `DiscoveryScopeKey` plus the connection and table, with the search gate's lifetime. Managed script runs and the portal and REST shims are exempt. A read failure of the store lets the statement run. `workflow.require_schema: false` turns off the refusal; the failure columns stay.
+
+### Refusal layers (internal/toolhelp, internal/platform/connroute)
+
+Four layers registered outer to the error contract, whose normalized refusal they read, and inner to audit and metrics, which record the same code and category either way (`pkg/platform/middleware_chain.go`):
+
+- **Argument refusal** (`toolhelp.RefusalMiddleware`, #2811): rewrites an `invalid_arguments` refusal to name each undeclared property with the accepted name it most likely meant, each enum or type mismatch, and every accepted parameter with its type, from the schema `internal/toolschema` reads off the server's own `tools/list`. See [Unknown arguments are refused, not ignored](tools-api.md#unknown-arguments-are-refused-not-ignored).
+- **Connection routing** (`connroute.Middleware`, #2812): a refused call whose `connection` argument names a connection of another kind than the tool's gains the sentence naming that kind and its tools. The connections, the tool's kind and each kind's tools are read per call, so a connection added at run time is known.
+- **Repeated refusal** (`toolhelp.RepeatMiddleware`, #2820): the second refusal with the same code of one session's call to one tool gains a sentence pointing at `manage_feedback` `topic=platform`.
+- **Help** (`toolhelp.HelpMiddleware`, #2815), registered inside authorization, the gates and the error contract: answers `command`/`action` `help` on every tool whose schema has that field as an enum not already listing `help`. See [Help on a multi-command tool](tools-api.md#help-on-a-multi-command-tool).
 
 ### MCPResultTypeMiddleware
 
@@ -218,7 +229,7 @@ A list decorator like `ToolMetadataMiddleware`: it replaces each `Tool` in the r
 
 ### MCPDescriptionOverrideMiddleware
 
-Replaces tool descriptions in `tools/list` responses to inject workflow guidance (e.g., "call search first"). Built-in overrides for `trino_query` and `trino_execute` are always active; config overrides take precedence.
+Replaces tool descriptions in `tools/list` responses to inject workflow guidance (e.g., "call search first"). Built-in overrides for `trino_query`, `trino_execute` and `trino_describe_table` are always active; config overrides take precedence. The `trino_describe_table` override (#2814) tells a caller to send `catalog`, `schema` and `table` as three separate arguments, `table` being the bare table name and never a dotted `catalog.schema.table`; it stays until txn2/mcp-trino#122 accepts a dotted name, and is then removed.
 
 ```go
 func MCPDescriptionOverrideMiddleware(overrides map[string]string) mcp.Middleware

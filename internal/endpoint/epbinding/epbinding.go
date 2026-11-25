@@ -56,6 +56,11 @@ var ResponseModes = []string{ResponseAPI, ResponsePage}
 // PathPrefix is where every endpoint is served: /endpoints/{name}/...
 const PathPrefix = "/endpoints/"
 
+// EnvironmentPrefix is where an application endpoint answers in an
+// environment other than its application's last (#2696):
+// /environments/{env}/endpoints/{name}/...
+const EnvironmentPrefix = "/environments/"
+
 // pathSep separates a path's segments.
 const pathSep = "/"
 

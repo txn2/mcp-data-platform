@@ -223,9 +223,9 @@ func TestToolsSource_LoadItems(t *testing.T) {
 	t.Parallel()
 	enum := fakeEnumerator{tools: []*mcp.Tool{
 		{Name: "alpha", Description: "do the alpha thing"},
-		{Name: "platform_find_tools", Description: "discovery"},
+		{Name: "search", Description: "discovery"},
 	}}
-	s := &toolsSource{enum: enum, discoveryToolName: "platform_find_tools"}
+	s := &toolsSource{enum: enum, discoveryToolName: "search"}
 
 	if s.Kind() != toolsindex.SourceKind {
 		t.Errorf("Kind() = %q; want %q", s.Kind(), toolsindex.SourceKind)
@@ -252,7 +252,7 @@ func TestToolsSource_LoadItems(t *testing.T) {
 // wrapped and surfaced (the worker retries on it).
 func TestToolsSource_LoadItems_EnumeratorError(t *testing.T) {
 	t.Parallel()
-	s := &toolsSource{enum: fakeEnumerator{err: errors.New("boom")}, discoveryToolName: "platform_find_tools"}
+	s := &toolsSource{enum: fakeEnumerator{err: errors.New("boom")}, discoveryToolName: "search"}
 	if _, err := s.LoadItems(context.Background(), toolsindex.SourceID); err == nil {
 		t.Fatal("expected enumerator error to surface")
 	}
@@ -262,7 +262,7 @@ func TestToolsSource_LoadItems_EnumeratorError(t *testing.T) {
 // without an enumerator: LoadItems errors rather than panicking.
 func TestToolsSource_LoadItems_NilEnumerator(t *testing.T) {
 	t.Parallel()
-	s := &toolsSource{discoveryToolName: "platform_find_tools"}
+	s := &toolsSource{discoveryToolName: "search"}
 	if _, err := s.LoadItems(context.Background(), toolsindex.SourceID); err == nil {
 		t.Fatal("expected error when no enumerator is injected")
 	}

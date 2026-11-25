@@ -340,6 +340,32 @@ var manageFeedbackSchema = json.RawMessage(`{
       "type": "string",
       "description": "Use 'standalone' to scope list to, or create a thread on, the general channel (feedback not tied to an asset, collection, prompt or knowledge page)"
     },
+    "topic": {
+      "type": "string",
+      "enum": ["platform"],
+      "description": "For create with target_type=standalone: platform reports to the platform's operator what the platform could not do for you, instead of opening a General thread. Post it after the same refusal twice, or when a parameter, tool or capability you need does not exist. Takes trying_to and blocked_by (required), tool, suggestion and calls, and no body. Never put data a tool returned, or a credential, in it: a post holding one is refused."
+    },
+    "trying_to": {
+      "type": "string",
+      "description": "For topic=platform: the task you were trying to do, in a sentence"
+    },
+    "blocked_by": {
+      "type": "string",
+      "description": "For topic=platform: what stopped you: the refusal, the missing parameter or tool"
+    },
+    "tool": {
+      "type": "string",
+      "description": "For topic=platform: the tool involved, if one was"
+    },
+    "suggestion": {
+      "type": "string",
+      "description": "For topic=platform: what would have let you finish"
+    },
+    "calls": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "For topic=platform: the calls involved, as mcp:call:<id> references (a result's call_id), never their results"
+    },
     "thread_id": {
       "type": "string",
       "description": "Feedback thread ID (required for get, reply, resolve, request_validation, respond_validation, edit, delete; to start a thread, use action=create)"

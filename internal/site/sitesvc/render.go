@@ -150,9 +150,10 @@ func (s *Service) buildTrees(ctx context.Context, p publication) (*builtTrees, e
 // preview answers a dry run: the same render, storing nothing.
 func (s *Service) preview(ctx context.Context, p publication) (*Published, error) {
 	whole := previewSource(p.built)
-	current := *p.base.release
-	current.Files = nil
-	out := &Published{Release: &current, Env: p.env.Name, Address: s.Address(ctx, p.st, p.env.Name)}
+	out := &Published{Env: p.env.Name, Address: s.Address(ctx, p.st, p.env.Name)}
+	if p.base.release != nil { // none before an environment's first publish (#2817)
+		out.Release = p.base.release.WithoutFiles()
+	}
 	fsys := s.treeFS(ctx, p.st.ID, whole, p.built.inputs)
 	if !siterender.Active(fsys) {
 		out.OutputsChanged = len(p.built.inputs) + len(p.built.removed)

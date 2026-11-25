@@ -270,3 +270,20 @@ func TestMemoryStore_ConcurrentAccess(_ *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestMemoryStore_GetAnyReadsExpired(t *testing.T) {
+	s := NewMemoryStore(time.Hour)
+	ctx := context.Background()
+	if err := s.Create(ctx, &Session{ID: "x", UserID: "u", ExpiresAt: time.Now().Add(-time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.Get(ctx, "x"); got != nil {
+		t.Fatal("Get returned an expired session")
+	}
+	if got, _ := s.GetAny(ctx, "x"); got == nil || got.UserID != "u" {
+		t.Fatalf("GetAny = %+v", got)
+	}
+	if got, _ := s.GetAny(ctx, "missing"); got != nil {
+		t.Fatal("GetAny found a missing session")
+	}
+}

@@ -20,6 +20,8 @@ import type { Resolution } from "@/api/admin/types";
 import { formatDuration } from "@/lib/formatDuration";
 import { TimeRangePicker } from "../TimeRangePicker";
 import { KPIRow } from "./overview/KPIRow";
+import { ToolBreakdownTable } from "./overview/ToolBreakdownTable";
+import { OtherEventsPanel } from "./overview/OtherEventsPanel";
 import { InsightStatsPanel, PendingReviewPanel } from "./overview/KnowledgePanels";
 
 // MCP_EVENT_KIND scopes the MCP dashboard and the events table to
@@ -37,7 +39,13 @@ function getResolution(preset: TimeRangePreset): Resolution {
   }
 }
 
-export function OverviewTab({ onNavigate }: { onNavigate?: (path: string) => void }) {
+export function OverviewTab({
+  onNavigate,
+  onOpenEvents,
+}: {
+  onNavigate?: (path: string) => void;
+  onOpenEvents?: () => void;
+}) {
   const titleMap = useToolTitleMap();
   const { preset, getStartTime, getEndTime } = useTimeRangeStore();
   const { startTime, endTime } = useMemo(
@@ -52,6 +60,9 @@ export function OverviewTab({ onNavigate }: { onNavigate?: (path: string) => voi
   const userBreakdown = useAuditBreakdown({ groupBy: "user_id", limit: 5, eventKind: MCP_EVENT_KIND, startTime, endTime });
   const personaBreakdown = useAuditBreakdown({ groupBy: "persona", limit: 6, eventKind: MCP_EVENT_KIND, startTime, endTime });
   const toolkitBreakdown = useAuditBreakdown({ groupBy: "toolkit_kind", limit: 6, eventKind: MCP_EVENT_KIND, startTime, endTime });
+  // Every event kind, so what is recorded beside tool calls is counted apart
+  // from them (#2819).
+  const kindBreakdown = useAuditBreakdown({ groupBy: "event_kind", limit: 20, startTime, endTime });
   const recentErrors = useAuditEvents({ perPage: 5, success: false, eventKind: MCP_EVENT_KIND });
   const performance = useAuditPerformance({ eventKind: MCP_EVENT_KIND, startTime, endTime });
 
@@ -119,11 +130,21 @@ export function OverviewTab({ onNavigate }: { onNavigate?: (path: string) => voi
 
       {/* Charts Grid */}
       <div className="grid gap-6 lg:grid-cols-2">
-        <SectionCard title="Top Tools">
-          <BreakdownBarChart
+        <SectionCard
+          title="Top Tools"
+          action={<span className="text-xs text-muted-foreground">tool calls only</span>}
+        >
+          <ToolBreakdownTable
             data={toolBreakdown.data}
             isLoading={toolBreakdown.isLoading}
             labelMap={titleMap}
+          />
+        </SectionCard>
+        <SectionCard title="Other events">
+          <OtherEventsPanel
+            data={kindBreakdown.data}
+            isLoading={kindBreakdown.isLoading}
+            onOpenEvents={onOpenEvents}
           />
         </SectionCard>
         <SectionCard title="Top Users">

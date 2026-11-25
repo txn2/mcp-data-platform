@@ -178,7 +178,15 @@ sites:
     enabled: true                # default on
     minute_retention: 24h        # minute rows: the last-hour and 24-hour views
     hour_retention: 2160h        # hour rows (90 days): the 7-day and 30-day views
+  typecheck:                     # type checks a site's _build.json asks for (#2793)
+    enabled: true                # default on; needs the portal bucket
+    memory_limit: 3221225472     # bytes; default 3 GiB
+    timeout: 5m
+    registry: ""                 # default the npm registry
+    dir: ""                      # writable directory a check works in; default the temp directory
 ```
+
+`sites.typecheck` bounds the [type checks](#type-checks) a release asks for.
 
 The file's values are the seed. Once an administrator saves **Admin > Settings >
 Sites** (`PUT /api/v1/admin/settings/sites`), the pages domain and the limits
@@ -735,6 +743,94 @@ The rest of `_build.json`:
 | `tailwind`, `tailwind_input` | Tailwind CSS 4 at an exact version (#2780). `tailwindcss@<version>` is fetched from the npm registry through the egress guard, held to the registry's sha512 integrity, its `dist/lib.js` rewritten for goja by esbuild and kept per version; the stylesheet importing `tailwindcss` is compiled with the release's files split into class candidates (`@source` and `@source not` widen and narrow them), and its output replaces the stylesheet in the entry. No module loader is given, so `@plugin` and `@config` refuse the publish naming the directive. A run is bounded by 30 seconds, 500,000 candidates, 64 MiB of files scanned and 8 MiB of output, and a refusal names the limit. |
 | `budgets` | Per entry `js`, `js_gzip`, `css`, `css_gzip`: a warning in the publish result past it, never a refusal (#2783). |
 
+### Type checks
+
+esbuild removes types and does not check them, so a type error publishes. A site
+can ask for each release to be type-checked after it publishes (#2793) by adding a
+`typecheck` block to `_build.json`:
+
+```json
+{
+  "entries": ["app.tsx"],
+  "typecheck": {"tsconfig": "tsconfig.json"}
+}
+```
+
+`tsconfig` is the project file checked, a `.json` path in the site; left out it is
+`tsconfig.json`, and a path outside the site or not ending `.json` refuses the
+publish. The check is a check, not a gate: the release publishes and the
+environment moves whether or not it passes, and a check that could not be queued
+is logged and never fails the publish.
+
+- **Queued at publish.** `manage_site publish` reports the queued check as `typecheck: {id,
+  status}` when the release's `_build.json` asks for one; the portal reads it
+  from the release's type check route. Checks run one at a
+  time on each replica, oldest first, from a queue in the database
+  (`site_typechecks`); a replica wakes on its own publishes and looks for checks
+  another replica queued every 30 seconds. A check whose replica stopped while
+  running it is claimed again once its claim lapses (the timeout plus five
+  minutes).
+- **The compiler.** TypeScript 7's `@typescript/typescript-wasip1-wasm`, pinned at
+  `7.1.0-dev.20261030.1` and verified against the sha512 integrity hash the
+  registry publishes for that version. It is fetched from the registry once, kept
+  in the portal bucket under `sites/_typecheck`, and laid out on the replica's
+  disk under `sites.typecheck.dir` (the temporary directory when unset). The
+  checks are the one part of the platform that writes files: an image with no
+  `/tmp` names a volume there, and a check that cannot write to it fails naming
+  the setting. It runs as WebAssembly under wazero in a worker process of its own (the
+  platform binary run again as `mcp-data-platform typecheck-worker`), with
+  `sites.typecheck.memory_limit` as its memory limit, so the replica's memory
+  never holds the compiler's.
+- **Dependency types.** Read from the release's lockfile: `package-lock.json`
+  (versions 2 and 3), `pnpm-lock.yaml`, or a Yarn 1 `yarn.lock`, the first found.
+  Each locked package is fetched at its locked version from its `https` tarball
+  URL, verified against the lockfile's integrity hash, and only its
+  `package.json` and declaration files (`.d.ts`, `.d.mts`, `.d.cts`) are kept. No
+  install script runs. Kept files are cached in the portal bucket by the hash they
+  were verified against, so a second check of the same packages fetches nothing.
+  Every fetch goes through the egress guard (no private, loopback, link-local or
+  metadata address) and follows no redirect. A package the lockfile names with no
+  SHA-256, SHA-384 or SHA-512 integrity hash (a SHA-1 hash alone does not count)
+  or no `https` tarball is not fetched and is listed as `unverifiable`. A Yarn 2+ lockfile carries no npm integrity hash and fails the
+  check, naming the lockfiles that work. A `node_modules` folder in the release is
+  ignored. A lockfile locking more than 3,000 packages, or over 32 MiB, fails the
+  check.
+- **Incremental.** Each site environment keeps the compiler's `.tsbuildinfo` after
+  its last check (`site_typecheck_state`), and the next check of that environment
+  starts from it.
+
+A finished check is one of:
+
+| Status | Meaning |
+|---|---|
+| `clean` | The compiler exited cleanly. |
+| `errors` | Each diagnostic with its `file`, `line`, `column`, `category`, `code` and `message` (at most 1,000), and `missing`: the packages the code imports whose types were not found (from TS2307 "Cannot find module", relative and `@/` specifiers left out), which the lockfile does not lock. |
+| `over_limit` | The compiler needed more than `sites.typecheck.memory_limit` and was stopped. The site is not affected. |
+| `unsupported` | The release has no file at the `tsconfig` path, or its tsconfig sets `compilerOptions.baseUrl`, which TypeScript 7 no longer reads; the message says to replace it with `paths` entries that start with `./`. |
+| `failed` | The check could not run: the compiler or a package could not be read, the lockfile could not be read, the check ran past `sites.typecheck.timeout`, or the compiler exited reporting nothing. The message says which. |
+
+A check also reports the `lockfile` read, how many `packages` it locks, how many
+were `fetched` rather than read from the cache, and `duration_ms`. `queued` and
+`running` are the statuses before it finishes; a queued check says how many run
+before it (`ahead`).
+
+`manage_site build_report` carries the release's newest check under `typecheck`.
+`manage_site typecheck` queues the check again (`site`, `environment` default
+`dev`, `release` default the one the environment serves) for someone who may
+publish to the environment; the release's `_build.json` must ask for one. A
+deployment with no portal bucket, or with `sites.typecheck.enabled: false`, runs no
+checks and refuses `typecheck`.
+
+```yaml
+sites:
+  typecheck:
+    enabled: true            # default on
+    memory_limit: 3221225472 # bytes one check's compiler may hold; default 3 GiB
+    timeout: 5m              # longest one check may run; default 5m
+    registry: ""             # where the compiler and package types are fetched; default https://registry.npmjs.org/
+    dir: ""                  # writable directory a check lays the compiler and release out in; default the temp directory
+```
+
 A JavaScript import of a stylesheet by URL in `external` mode becomes an `@import`
 of it in the entry's stylesheet (#2779), and `import.meta.site` is defined as the
 release's `{release, published_at, site}` (#2784): the release's number is fixed
@@ -748,6 +844,9 @@ the environment's previous release (a chunk compared by its name without the has
 the ten inputs contributing most bytes, the URLs the entry imports at start, and
 budget warnings. Reports are kept in the release's render index, which
 `manage_site build_report` reads.
+
+A dry run of an environment's first publish reports `release: null`, since the
+environment serves no release yet (#2817); before, it failed.
 
 `AGENTS.md` at a site's root is the site's guide (#2782): `manage_site get` returns it
 (up to 32 KiB, noting when it goes on), and the first `manage_asset` read or patch, or
@@ -927,6 +1026,7 @@ is left out.
 | `revoke` | `email` or `persona` |
 | `add_domain`, `set_domain`, `remove_domain`, `domains` | Domains. `add_domain` with `public` opens the domain to anyone; `set_domain` with `hostname` and `public` changes it later. `primary: true` makes a domain its environment's primary and `mode: redirect` answers it with a permanent redirect to the primary, on either command; `remove_domain` refuses a primary others redirect to. `after` places an environment `add_domain` creates, and `requires_approval` applies to the environment whether it creates it or it exists |
 | `crawl` | Copies an existing site into `dev` |
+| `typecheck` | Queues a release's [type check](#type-checks) again: `environment` (default `dev`) and `release` (default the one it serves); the release's `_build.json` must ask for one. `build_report` carries the newest check under `typecheck` |
 | `get`, `list`, `releases`, `deployments` | Read; `get` answers the environments in their order, each environment's `addresses` and `pages_addresses`, the site's `production_address` (the portal list's), the site's `domains` with each one's `public`, `primary`, `mode` and `redirects_to`, and `traffic`, the last 24 hours for the site and per environment. `list` takes `query` (a part of a name, description, owner or domain hostname), `limit` (at most 200) and `offset`, answering `total` and each site's `production_addresses` (#2658) |
 
 `default`, the old name of `dev`, is read as `dev` wherever an environment is named
@@ -953,6 +1053,9 @@ part `<site>/default` is added as `<site>/dev`.
 | `PUT /api/v1/portal/sites/{site}/access` | `{email? or persona?, level, environments?, notify?}` |
 | `DELETE /api/v1/portal/sites/{site}/access?email=` or `?persona=` | Removes the grant; applies on the next request |
 | `POST /api/v1/portal/sites/{site}/publish` | `environment` is `dev`, and may be left out |
+| `GET /api/v1/portal/sites/{site}/typechecks` | `{releases}`: the newest [type check](#type-checks) of each release by number, each `{status, errors}`; a release never checked is absent |
+| `GET /api/v1/portal/sites/{site}/releases/{number}/typecheck` | `{release, check}`: the release's newest check in full, `check` null when none has run. The type check routes answer the site's owner, the people they add and an administrator: a check's errors quote the release's source, which only they read |
+| `POST /api/v1/portal/sites/{site}/releases/{number}/typecheck` | `{environment?}`: queues the check again for someone who may publish to the site; `202` with `{release, check}`. Refused when the release's `_build.json` asks for none or the deployment runs no checks |
 
 A site's JSON carries `main_environment`, `address` (the production address: where
 the environment holding the main address is reached, its public domain first, then
@@ -1100,6 +1203,12 @@ manage_site command=promote site=cool-site to=prod                             #
 
 `cool-site.<pages_domain>` and `cool-site--prod.<pages_domain>` still ask for a
 sign-in; only `cool-site.example.com` answers anyone.
+
+## Upgrading to #2793 (migration 000268)
+
+Migration 000268 adds `site_typechecks`, one row per type check of a release, and
+`site_typecheck_state`, each environment's incremental state. Nothing is checked
+until a release's `_build.json` sets `typecheck`.
 
 ## Upgrading to v1.164.0 (migration 000258)
 

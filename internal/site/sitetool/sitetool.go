@@ -63,7 +63,7 @@ const (
 var Commands = []string{
 	CmdCreate, CmdGet, CmdList, CmdUpdate, CmdDelete, CmdEnvironment, CmdPublish, CmdPromote, CmdRollback,
 	CmdReleases, CmdDeployments, CmdAddDomain, CmdSetDomain, CmdRemoveDomain, CmdDomains, CmdCrawl, CmdGrant, CmdRevoke,
-	CmdRemoveEnvironment, CmdImports, CmdBuildReport, CmdSymbolicate,
+	CmdRemoveEnvironment, CmdImports, CmdBuildReport, CmdSymbolicate, CmdTypecheck,
 }
 
 // Reads is the commands that change nothing.
@@ -197,6 +197,9 @@ type Tool struct {
 	// Routing reads each hostname's Site routing status (#2659); nil shows
 	// none.
 	Routing *siterouting.Lookup
+	// Typechecks queues and reads releases' type checks (#2793); nil where
+	// the deployment runs none.
+	Typechecks TypecheckQueue
 }
 
 const description = "Static sites served by the platform. AGENTS WORK IN dev, PEOPLE USE WHAT WAS PROMOTED: every publish, " +
@@ -250,7 +253,10 @@ const description = "Static sites served by the platform. AGENTS WORK IN dev, PE
 	"environment that requires approval is reached only by promote: an administrator's promote records its own approval, " +
 	"anyone else's files a request in manage_approval and goes through when they promote again after it is approved. crawl " +
 	"copies an existing site into dev. \"default\" is the old name of dev and is read as dev for one release. Read fetch " +
-	"mcp:knowledge_page:platform-pages-and-sites first."
+	"mcp:knowledge_page:platform-pages-and-sites first. " +
+	"TYPE CHECKS: a site whose _build.json sets \"typecheck\": {\"tsconfig\": \"tsconfig.json\"} has each release type-checked " +
+	"with TypeScript after it publishes, a check and never a gate; build_report shows the release's result (each error's file, " +
+	"line, column, code and message), and typecheck runs it again."
 
 const (
 	keyType   = "type"
@@ -317,7 +323,7 @@ func schema() map[string]any {
 				"and the files only those releases held: a removed release cannot be rolled back to. Only the owner or an administrator changes it."},
 			"from":       str("promote: the environment whose release moves; it must be the one immediately before to, which is used when from is left out."),
 			"to":         str("promote: the environment that moves."),
-			fieldRelease: num("promote: the release, which must be the one the environment before to serves. rollback: the release to return to (default the one before). imports, build_report, symbolicate: the release to read (default the one environment serves, dev unless named)."),
+			fieldRelease: num("promote: the release, which must be the one the environment before to serves. rollback: the release to return to (default the one before). imports, build_report, symbolicate, typecheck: the release to read or check (default the one environment serves, dev unless named)."),
 			"dry_run":    map[string]any{keyType: typBool, keyDesc: "publish: render and compile, report the outputs that would change and each compiled entry's sizes (builds), and store nothing."},
 			"stack":      str("symbolicate: a stack trace from the site's minified JavaScript, as the browser printed it; each file:line:column is mapped to the original source through the release's source maps."),
 			"base":       num("publish: overlay this release instead of replacing the file set. It must be the release dev serves now, so read it first; files you do not send carry over."),
@@ -518,6 +524,7 @@ func (t *Tool) handlers() map[string]handler {
 		CmdPublish:     t.publish,
 		CmdImports:     t.imports,
 		CmdBuildReport: t.buildReport,
+		CmdTypecheck:   t.typecheck,
 		CmdSymbolicate: t.symbolicate,
 		CmdPromote: func(ctx context.Context, a sitesvc.Actor, in Input) (any, error) {
 			return t.ops().Promote(ctx, a, sitesvc.PromoteRequest{Site: in.Site, From: in.From, To: in.To, Release: in.Release, Reason: in.Reason})
@@ -756,7 +763,11 @@ func (t *Tool) publish(ctx context.Context, actor sitesvc.Actor, in Input) (any,
 	if err != nil {
 		return nil, err //nolint:wrapcheck // the caller's message
 	}
-	return withGuide(pub, shownGuide(ctx, t.Service, actor, in.Site)), nil
+	out := withGuide(pub, shownGuide(ctx, t.Service, actor, in.Site))
+	if in.DryRun {
+		return out, nil
+	}
+	return t.withTypecheck(ctx, out, pub.Release), nil
 }
 
 // fileSet is what a publish was handed.

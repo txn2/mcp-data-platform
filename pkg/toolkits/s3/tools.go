@@ -45,7 +45,9 @@ const (
 		"presign (get a download link or an upload link: a presigned URL for method GET or PUT that expires after expires_in seconds, default 3600, maximum 604800). " +
 		"put, copy, delete and presign with method PUT are refused on a read-only connection, and the refusal names the connection; " +
 		"presign with method GET is allowed on one. " +
-		"On a connection that sets bucket_prefix, every action is refused for a bucket (or a copy's dest_bucket) whose name does not start with it."
+		"On a connection that sets bucket_prefix, every action is refused for a bucket (or a copy's dest_bucket) whose name does not start with it. " +
+		"The buckets the platform keeps its own files in are not reached here: read an asset or an export's output with fetch or manage_asset, " +
+		"a managed resource with fetch or manage_resource, and a site with manage_site."
 
 	// The s3_object actions.
 	actionGet      = "get"

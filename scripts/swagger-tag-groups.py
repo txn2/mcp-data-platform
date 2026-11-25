@@ -207,6 +207,11 @@ TAG_DESCRIPTIONS = {
         "Deployment settings an administrator edits at runtime: the mail server and the "
         "review-queue alert thresholds."
     ),
+    "Platform feedback": (
+        "What agents reported the platform could not do for them, posted with manage_feedback "
+        "topic=platform: each post with its reports, its status and its deliveries to the "
+        "channels Admin > Settings > Platform feedback names."
+    ),
     "Users": (
         "The directory of known people, keyed by email. Administrative counterpart to the "
         "single-identity User tag."
@@ -268,6 +273,7 @@ TAG_GROUPS = [
             "Integrations",
             "Notifications",
             "Personas",
+            "Platform feedback",
             "Scripts",
             "Secrets",
             "Sessions",

@@ -65,7 +65,9 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"high-similarity active pairs), consolidate (supersede a duplicate by the record kept). " +
 			"To CREATE memory or knowledge, use memory_capture (call it proactively to record corrections, " +
 			"preferences, business context, and data-quality observations). " +
-			"To find memory back, use search.",
+			"To find memory back, use search. " +
+			"When a memory you relied on turns out wrong or outdated, correct it with update or retire it with forget, " +
+			"so the next session is not misled by it.",
 		InputSchema: memoryManageSchema,
 		// forget archives a record and consolidate supersedes one.
 		Annotations: toolkit.WriteAnnotations(true),
@@ -83,7 +85,10 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"-> schema_entity. The record is stored at once and embedded in the background; once it is, a " +
 			"restatement of something already known supersedes it instead of duplicating, and near-matches " +
 			"below the supersede bar are listed in the record's metadata as similar_existing so you can " +
-			"consolidate instead of keeping a duplicate.",
+			"consolidate instead of keeping a duplicate. " +
+			"Worth capturing: a definition, a convention, an official figure's method, who owns a dataset, a trap that " +
+			"cost you a retry. Not worth capturing: a column name you just corrected in your own query, or anything the " +
+			"table's schema already says.",
 		InputSchema: memoryCaptureSchema,
 		// Capture is recall-first: a restatement supersedes the record
 		// it restates rather than landing beside it, so a capture can

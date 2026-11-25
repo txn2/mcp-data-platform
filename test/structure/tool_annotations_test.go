@@ -165,7 +165,7 @@ func readToolLiteral(pkg *packages.Package, lit *ast.CompositeLit) toolLiteral {
 //
 // Two shapes are read. Most registrations call one of the shared constructors,
 // which names the classification outright. The platform's own three tools
-// (platform_info, list_connections, platform_find_tools) write the
+// (platform_info, list_connections) write the
 // mcp.ToolAnnotations literal inline instead, because pkg/platform sits within
 // three lines of its package-size budget and the helper's import would push it
 // over; those are read field by field. That is the only reason for the

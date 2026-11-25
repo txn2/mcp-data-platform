@@ -1,6 +1,10 @@
 package audit
 
-import "time"
+import (
+	"slices"
+	"strings"
+	"time"
+)
 
 // Resolution defines the time bucketing granularity for timeseries queries.
 type Resolution string
@@ -39,6 +43,9 @@ type TimeseriesBucket struct {
 	SuccessCount  int       `json:"success_count" example:"11"`
 	ErrorCount    int       `json:"error_count" example:"1"`
 	AvgDurationMS float64   `json:"avg_duration_ms" example:"245.5"`
+	// HoldCount is the calls in the bucket that waited for a person; they are
+	// not in ErrorCount (#2819).
+	HoldCount int `json:"hold_count" example:"0"`
 }
 
 // BreakdownDimension defines valid group-by dimensions.
@@ -59,6 +66,10 @@ const (
 
 	// BreakdownByConnection groups by connection.
 	BreakdownByConnection BreakdownDimension = "connection"
+
+	// BreakdownByEventKind groups by event kind: tool calls apart from
+	// resource reads, prompts served, script runs and the rest (#2819).
+	BreakdownByEventKind BreakdownDimension = "event_kind"
 )
 
 // ValidBreakdownDimensions is the set of allowed group-by values.
@@ -68,6 +79,18 @@ var ValidBreakdownDimensions = map[BreakdownDimension]bool{
 	BreakdownByPersona:     true,
 	BreakdownByToolkitKind: true,
 	BreakdownByConnection:  true,
+	BreakdownByEventKind:   true,
+}
+
+// BreakdownDimensionNames names every valid group-by, sorted and joined, for
+// the refusal of one that is not.
+func BreakdownDimensionNames() string {
+	names := make([]string, 0, len(ValidBreakdownDimensions))
+	for d := range ValidBreakdownDimensions {
+		names = append(names, string(d))
+	}
+	slices.Sort(names)
+	return strings.Join(names, ", ")
 }
 
 // BreakdownFilter controls breakdown query parameters.
@@ -104,6 +127,9 @@ type BreakdownEntry struct {
 	Count         int     `json:"count" example:"65"`
 	SuccessRate   float64 `json:"success_rate" example:"0.95"`
 	AvgDurationMS float64 `json:"avg_duration_ms" example:"320.0"`
+	// HoldCount is the calls that waited for an approval or an answer. They
+	// are left out of SuccessRate (#2819).
+	HoldCount int `json:"hold_count" example:"3"`
 }
 
 // Overview holds aggregate statistics for the audit log.
@@ -115,6 +141,9 @@ type Overview struct {
 	UniqueTools    int     `json:"unique_tools" example:"12"`
 	EnrichmentRate float64 `json:"enrichment_rate" example:"0.85"`
 	ErrorCount     int     `json:"error_count" example:"10"`
+	// HoldCount is the calls that waited for an approval or an answer: left
+	// out of SuccessRate and ErrorCount (#2819).
+	HoldCount int `json:"hold_count" example:"4"`
 }
 
 // EnrichmentStats holds aggregate enrichment statistics.

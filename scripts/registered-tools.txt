@@ -26,7 +26,6 @@ manage_feedback
 manage_prompt
 memory_capture
 memory_manage
-platform_find_tools
 platform_info
 s3_list
 s3_object

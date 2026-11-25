@@ -2850,9 +2850,8 @@ that have not ended are listed under **Running now** at the top.
 See the [portal guide](../portal/scripts.md).
 
 A run is the owner's and the administrator's to read, plus whoever requested
-that particular run. Asking an agent to show you your scripts opens the same
-pages through the presentation-only `show_scripts` tool; every script operation
-an agent performs for its own work uses `manage_script`, which renders nothing.
+that particular run. An agent reads the same scripts and runs as data through
+`manage_script` (`list`, `get`, `runs`, `get_run`), which renders nothing.
 
 ![A script's run history](../images/screenshots/light/user-script-runs-light.webp#only-light)![A script's run history](../images/screenshots/dark/user-script-runs-dark.webp#only-dark)
 

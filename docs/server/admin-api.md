@@ -1214,7 +1214,7 @@ Returns aggregate counts for total, successful, and failed events. Supports the 
 GET /api/v1/admin/audit/metrics/overview
 ```
 
-Returns aggregated audit metrics including tool, user, and toolkit breakdowns, timeseries data, and performance statistics.
+Returns the aggregate audit statistics for a time range: how many calls, how many succeeded, how long they took, how many people and tools they involved, and how often enrichment was applied.
 
 **Query Parameters:**
 
@@ -1222,48 +1222,26 @@ Returns aggregated audit metrics including tool, user, and toolkit breakdowns, t
 |-----------|------|-------------|
 | `start_time` | RFC 3339 | Start of time range |
 | `end_time` | RFC 3339 | End of time range |
+| `event_kind` | string | Only events of this kind (`mcp_tool_call`, `resource_read`, ...); `GET /api/v1/admin/audit/events/filters` lists the kinds present |
 
 **Response:**
 
 ```json
 {
   "total_calls": 196,
-  "success_count": 186,
-  "failure_count": 10,
   "success_rate": 0.949,
+  "avg_duration_ms": 522,
   "unique_users": 12,
   "unique_tools": 12,
   "enrichment_rate": 0.85,
-  "avg_duration_ms": 522,
-  "p50_duration_ms": 320,
-  "p95_duration_ms": 1450,
-  "p99_duration_ms": 2400,
-  "avg_response_chars": 1850,
-  "by_tool": [
-    {"name": "trino_query", "count": 65},
-    {"name": "search", "count": 48},
-    {"name": "trino_describe_table", "count": 32}
-  ],
-  "by_user": [
-    {"name": "marcus.johnson@example.com", "count": 45},
-    {"name": "lisa.chang@example.com", "count": 38}
-  ],
-  "timeseries": [
-    {"timestamp": "2026-04-15T08:00:00Z", "total": 12, "errors": 1},
-    {"timestamp": "2026-04-15T09:00:00Z", "total": 28, "errors": 2}
-  ],
-  "recent_errors": [
-    {
-      "id": "evt_err001",
-      "timestamp": "2026-04-15T10:41:18Z",
-      "user_email": "marcus.johnson@example.com",
-      "tool_name": "trino_query",
-      "error_message": "Query exceeded timeout of 30 seconds",
-      "duration_ms": 30012
-    }
-  ]
+  "error_count": 10,
+  "hold_count": 4
 }
 ```
+
+Per-tool, per-person and per-connection counts are `GET /api/v1/admin/audit/metrics/breakdown`, counts over time are `GET /api/v1/admin/audit/metrics/timeseries`, and durations by percentile are `GET /api/v1/admin/audit/metrics/performance`.
+
+A call held for a person (`error_category` `input_required`) is counted in `hold_count` on the overview, on each `GET /api/v1/admin/audit/metrics/breakdown` entry and on each `GET /api/v1/admin/audit/metrics/timeseries` bucket, and is left out of `success_rate` on both sides and out of `error_count` (#2819). The breakdown also takes `group_by=event_kind`. See [Calls held for a person](audit.md#calls-held-for-a-person).
 
 ### Audit Metrics: Enrichment
 

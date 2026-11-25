@@ -158,16 +158,12 @@ func (o queryObserver) Before(ctx context.Context, tc *trinotools.ToolContext) (
 
 // Intercept opens the span of the statement a statement tool is about to send.
 // It changes nothing about the statement.
-func (o queryObserver) Intercept(ctx context.Context, sql string, tool trinotools.ToolName) (string, error) {
+func (o queryObserver) Intercept(ctx context.Context, sql string, _ trinotools.ToolName) (string, error) {
 	p, ok := ctx.Value(pendingKey{}).(*pendingCall)
 	if !ok || p.c != nil {
 		return sql, nil
 	}
-	kind := sqltables.StatementKind(sql)
-	if tool == trinotools.ToolExplain {
-		kind = kindExplain
-	}
-	_, p.c = o.q.begin(ctx, kind, sqltables.Summary(sql), p.conn)
+	_, p.c = o.q.begin(ctx, sqltables.StatementKind(sql), sqltables.Summary(sql), p.conn)
 	return sql, nil
 }
 

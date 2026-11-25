@@ -86,6 +86,12 @@ type config struct {
 	resources bool
 	toCanon   *regexp.Regexp
 	toDisplay *regexp.Regexp
+	// prose is the platform's own wording about the reference form
+	// (#2818): mcp: before a placeholder (mcp:<type>:<key>), before a kind
+	// named as a word (an mcp:dataset reference), or standing alone (an mcp:
+	// reference). It is applied only to text the platform writes, never to a
+	// tool's data, where "mcp:" may mean something else.
+	prose *regexp.Regexp
 }
 
 var current atomic.Pointer[config]
@@ -120,6 +126,7 @@ func Configure(scheme, uriScheme string) error {
 		// A reference starts where no name or path continues before it.
 		toCanon:   regexp.MustCompile(`(^|[^A-Za-z0-9_.\-/])` + q + `:((?:` + kindAlternation + `):` + uri + `)`),
 		toDisplay: regexp.MustCompile(`(^|[^A-Za-z0-9_.\-/])` + Canonical + `:((?:` + kindAlternation + `):` + uri + `)`),
+		prose:     regexp.MustCompile(`(^|[^A-Za-z0-9_.\-/])` + Canonical + `:(<|(?:` + kindAlternation + `)(?:[^:A-Za-z0-9_]|$)|[\s` + "`" + `'"),.;\\]|$)`),
 	})
 	return nil
 }
@@ -150,6 +157,30 @@ func Display(s string) string {
 		return s
 	}
 	return c.toDisplay.ReplaceAllString(s, "${1}"+c.scheme+":${2}")
+}
+
+// Prose is Display for text the platform writes about references (#2818):
+// tool descriptions and schemas, instructions and refusals. Besides every
+// whole reference it rewrites the generic forms, mcp:<type>:<key>, "an
+// mcp:dataset reference" and "an mcp: reference", so what the platform teaches
+// is the form the deployment shows.
+func Prose(s string) string {
+	s = Display(s)
+	c := current.Load()
+	if c.prose == nil || !strings.Contains(s, Prefix) {
+		return s
+	}
+	return c.prose.ReplaceAllString(s, "${1}"+c.scheme+":${2}")
+}
+
+// ProseBytes is Prose over bytes.
+func ProseBytes(b []byte) []byte {
+	b = DisplayBytes(b)
+	c := current.Load()
+	if c.prose == nil || !strings.Contains(string(b), Prefix) {
+		return b
+	}
+	return c.prose.ReplaceAll(b, []byte("${1}"+c.scheme+":${2}"))
 }
 
 // CanonBytes is Canon over bytes.

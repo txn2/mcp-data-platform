@@ -569,3 +569,11 @@ func TestUnclean(t *testing.T) {
 		assert.Equal(t, want, unclean(p), p)
 	}
 }
+
+// TestEnvironmentPrefixMatchesTheURLsWritten holds the route this package
+// serves to the prefix epaddr writes an environment's URLs with (#2822).
+func TestEnvironmentPrefixMatchesTheURLsWritten(t *testing.T) {
+	if EnvironmentPrefix != epbinding.EnvironmentPrefix {
+		t.Errorf("ephttp serves %q and epbinding writes %q", EnvironmentPrefix, epbinding.EnvironmentPrefix)
+	}
+}

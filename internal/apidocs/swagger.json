@@ -2792,7 +2792,7 @@
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Dimension: tool_name, user_id, persona, toolkit_kind, connection",
+                        "description": "Dimension: tool_name, user_id, persona, toolkit_kind, connection, event_kind",
                         "name": "group_by",
                         "in": "query",
                         "required": true
@@ -8965,6 +8965,219 @@
                 }
             }
         },
+        "/admin/platform-feedback": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Lists what agents reported the platform could not do for them (#2820), newest report first, with how many reports each post has and the counts the page opens on: open posts, reports and refusals this week, and failed deliveries.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Platform feedback"
+                ],
+                "summary": "List platform feedback",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "open, planned, done or declined",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "The tool a post names",
+                        "name": "tool",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Text in what it was trying to do, what blocked it, or its suggestion",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "At most 200 (default 50)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Posts to skip",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/platformfeedback.ListResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/platform-feedback/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns one post with its reports (the persona, the calls named, when) and each channel's delivery as the notification queue holds it.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Platform feedback"
+                ],
+                "summary": "Get one platform feedback post",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Post id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/platformfeedback.Detail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/platform-feedback/{id}/resend": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Queues the post again for one of the channels platform feedback is sent to, as a failed delivery is retried by hand.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Platform feedback"
+                ],
+                "summary": "Send a platform feedback post again",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Post id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The channel",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/platformfeedback.ResendRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/platform-feedback/{id}/status": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Moves a post to open, planned, done or declined. A status change is not sent to the channels.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Platform feedback"
+                ],
+                "summary": "Set a platform feedback post's status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Post id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The status",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/platformfeedback.StatusRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/prompt-collections": {
             "get": {
                 "security": [
@@ -11960,6 +12173,80 @@
                     },
                     "409": {
                         "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/settings/platform-feedback": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns whether agents may post platform feedback (#2820), the notification channels a new post is sent to, the personas that may post (empty is every persona except service accounts), and the per-session and per-persona daily limits. Off by default.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Get the platform feedback settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/platformfeedback.SettingsView"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Saves the settings. channels must name configured notification channels and personas existing personas; session_limit is 1 to 100 and persona_daily_limit 1 to 10000 (0 keeps the default of 5 and 50). Answers the saved settings as GET does.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Set the platform feedback settings",
+                "parameters": [
+                    {
+                        "description": "The settings",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/platformfeedback.Settings"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/platformfeedback.SettingsView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -15307,7 +15594,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "An application by name or id: its parts (parts names each one, the facts its row is described with, its newest version and its state: ok, deleted, or not_visible for an asset the caller cannot open, whose name is not told), its current release, what a release now would change (pending), its schema part (schema: its migration version, the version the current release recorded, the pending migrations, and the role its scripts log in as), the parts a release would refuse (problems), and its releases newest first with what each changed.",
+                "description": "An application by name or id: its parts (parts names each one, the facts its row is described with, its newest version and its state: ok, deleted, or not_visible for an asset the caller cannot open, whose name is not told), the endpoints each environment serves (endpoints, by environment name: each endpoint's name, script, methods, auth mode, path template and every URL it answers at there, the platform host, the application's page origin and domains for the last environment, and each site environment part of the environment's name; an empty list for an environment when the application holds no endpoint), its current release, what a release now would change (pending), its schema part (schema: its migration version, the version the current release recorded, the pending migrations, and the role its scripts log in as), the parts a release would refuse (problems), and its releases newest first with what each changed.",
                 "produces": [
                     "application/json"
                 ],
@@ -32611,6 +32898,115 @@
                 }
             }
         },
+        "/portal/sites/{site}/releases/{number}/typecheck": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The newest type check of a release (#2793): its status, each error's file, line, column, code and message, the packages the code imports that the lockfile does not lock, and how long it took; a queued check says how many run before it. check is null when none has run.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "A release's type check",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Release number",
+                        "name": "number",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/typecheckhttp.TypecheckView"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Queues the release's type check again, for someone who may publish to the site (#2793). The release's _build.json must ask for one; a deployment that runs no checks refuses.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "Check a release's types again",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Release number",
+                        "name": "number",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The environment whose incremental state the check uses",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/typecheckhttp.TypecheckBody"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/typecheckhttp.TypecheckView"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/sites/{site}/rollback": {
             "post": {
                 "security": [
@@ -32801,6 +33197,49 @@
                         "description": "Forbidden",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/sites/{site}/typechecks": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "For a site whose _build.json asks for type checks (#2793): the newest check of each release, by release number, with its status (queued, running, clean, errors, over_limit, unsupported or failed) and how many errors it found. A release never checked is absent.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sites"
+                ],
+                "summary": "The newest type check of each release",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Site name or id",
+                        "name": "site",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/typecheckhttp.TypecheckSummaries"
                         }
                     },
                     "404": {
@@ -36829,6 +37268,10 @@
                     "type": "number"
                 },
                 "call_count": {
+                    "type": "integer"
+                },
+                "hold_count": {
+                    "description": "HoldCount is the calls that waited for an approval or an answer, left\nout of SuccessRate (#2819).",
                     "type": "integer"
                 },
                 "success_rate": {
@@ -41346,6 +41789,16 @@
                 "current_release": {
                     "$ref": "#/definitions/application.Release"
                 },
+                "endpoints": {
+                    "description": "Endpoints is, by environment name, the endpoints that environment\nserves and every URL each answers at (#2822): every environment is\npresent, with an empty list when the application holds no endpoint.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/definitions/epaddr.Endpoint"
+                        }
+                    }
+                },
                 "findings": {
                     "description": "Findings are the diagram's findings, each saying whether a release\nrefuses it.",
                     "type": "array",
@@ -43090,6 +43543,11 @@
                     "type": "string",
                     "example": "trino_query"
                 },
+                "hold_count": {
+                    "description": "HoldCount is the calls that waited for an approval or an answer. They\nare left out of SuccessRate (#2819).",
+                    "type": "integer",
+                    "example": 3
+                },
                 "success_rate": {
                     "type": "number",
                     "example": 0.95
@@ -43389,6 +43847,11 @@
                     "type": "integer",
                     "example": 10
                 },
+                "hold_count": {
+                    "description": "HoldCount is the calls that waited for an approval or an answer: left\nout of SuccessRate and ErrorCount (#2819).",
+                    "type": "integer",
+                    "example": 4
+                },
                 "success_rate": {
                     "type": "number",
                     "example": 0.949
@@ -43458,6 +43921,11 @@
                 "error_count": {
                     "type": "integer",
                     "example": 1
+                },
+                "hold_count": {
+                    "description": "HoldCount is the calls in the bucket that waited for a person; they are\nnot in ErrorCount (#2819).",
+                    "type": "integer",
+                    "example": 0
                 },
                 "success_count": {
                     "type": "integer",
@@ -46345,6 +46813,42 @@
                 },
                 "when_predicate": {
                     "$ref": "#/definitions/enrichment.Predicate"
+                }
+            }
+        },
+        "epaddr.Endpoint": {
+            "type": "object",
+            "properties": {
+                "auth_mode": {
+                    "type": "string",
+                    "example": "public"
+                },
+                "methods": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "GET"
+                    ]
+                },
+                "name": {
+                    "type": "string",
+                    "example": "research"
+                },
+                "path": {
+                    "type": "string",
+                    "example": "/{route...}"
+                },
+                "script": {
+                    "type": "string",
+                    "example": "research-api"
+                },
+                "urls": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -50536,6 +51040,239 @@
                 "updated_at": {
                     "type": "string",
                     "example": "2026-01-15T14:30:00Z"
+                }
+            }
+        },
+        "platformfeedback.Delivery": {
+            "type": "object",
+            "properties": {
+                "attempts": {
+                    "type": "integer"
+                },
+                "channel": {
+                    "type": "string"
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "sent_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "platformfeedback.Detail": {
+            "type": "object",
+            "properties": {
+                "blocked_by": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "deliveries": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/platformfeedback.Delivery"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_reported_at": {
+                    "type": "string"
+                },
+                "report_count": {
+                    "type": "integer"
+                },
+                "reports": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/platformfeedback.Report"
+                    }
+                },
+                "status": {
+                    "type": "string"
+                },
+                "suggestion": {
+                    "type": "string"
+                },
+                "tool": {
+                    "type": "string"
+                },
+                "trying_to": {
+                    "type": "string"
+                }
+            }
+        },
+        "platformfeedback.Item": {
+            "type": "object",
+            "properties": {
+                "blocked_by": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_reported_at": {
+                    "type": "string"
+                },
+                "report_count": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "suggestion": {
+                    "type": "string"
+                },
+                "tool": {
+                    "type": "string"
+                },
+                "trying_to": {
+                    "type": "string"
+                }
+            }
+        },
+        "platformfeedback.ListResponse": {
+            "type": "object",
+            "properties": {
+                "posts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/platformfeedback.Item"
+                    }
+                },
+                "stats": {
+                    "$ref": "#/definitions/platformfeedback.Stats"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "platformfeedback.Report": {
+            "type": "object",
+            "properties": {
+                "calls": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "persona": {
+                    "type": "string"
+                },
+                "reported_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "platformfeedback.ResendRequest": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "type": "string",
+                    "example": "ops-webhook"
+                }
+            }
+        },
+        "platformfeedback.Settings": {
+            "type": "object",
+            "properties": {
+                "channels": {
+                    "description": "Channels are the notification channels a new post is sent to.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "enabled": {
+                    "description": "Enabled lets agents post. Off by default.",
+                    "type": "boolean"
+                },
+                "persona_daily_limit": {
+                    "description": "PersonaDailyLimit is the most posts one persona may make in a day.",
+                    "type": "integer"
+                },
+                "personas": {
+                    "description": "Personas may post; empty is every persona except service accounts.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "session_limit": {
+                    "description": "SessionLimit is the most posts one session may make.",
+                    "type": "integer"
+                }
+            }
+        },
+        "platformfeedback.SettingsView": {
+            "type": "object",
+            "properties": {
+                "channels": {
+                    "description": "Channels are the notification channels a new post is sent to.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "enabled": {
+                    "description": "Enabled lets agents post. Off by default.",
+                    "type": "boolean"
+                },
+                "persona_daily_limit": {
+                    "description": "PersonaDailyLimit is the most posts one persona may make in a day.",
+                    "type": "integer"
+                },
+                "personas": {
+                    "description": "Personas may post; empty is every persona except service accounts.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "session_limit": {
+                    "description": "SessionLimit is the most posts one session may make.",
+                    "type": "integer"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "string"
+                }
+            }
+        },
+        "platformfeedback.Stats": {
+            "type": "object",
+            "properties": {
+                "delivery_failures": {
+                    "type": "integer"
+                },
+                "open": {
+                    "type": "integer"
+                },
+                "refused_this_week": {
+                    "type": "integer"
+                },
+                "reports_this_week": {
+                    "type": "integer"
+                }
+            }
+        },
+        "platformfeedback.StatusRequest": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "example": "planned"
                 }
             }
         },
@@ -60499,6 +61236,122 @@
                 }
             }
         },
+        "sitetypecheck.Check": {
+            "type": "object",
+            "properties": {
+                "ahead": {
+                    "description": "Ahead is how many queued checks run before this one, for a queued\ncheck.",
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "environment": {
+                    "type": "string"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "release": {
+                    "type": "integer"
+                },
+                "requested_by": {
+                    "type": "string"
+                },
+                "result": {
+                    "$ref": "#/definitions/sitetypecheck.Result"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "tsconfig": {
+                    "type": "string"
+                }
+            }
+        },
+        "sitetypecheck.Diagnostic": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string"
+                },
+                "code": {
+                    "type": "string"
+                },
+                "column": {
+                    "type": "integer"
+                },
+                "file": {
+                    "type": "string"
+                },
+                "line": {
+                    "type": "integer"
+                },
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "sitetypecheck.Result": {
+            "type": "object",
+            "properties": {
+                "diagnostics": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sitetypecheck.Diagnostic"
+                    }
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "fetched": {
+                    "type": "integer"
+                },
+                "lockfile": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "missing": {
+                    "description": "Missing are packages the code imports that the lockfile does not lock,\nwhose types were therefore not read.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "packages": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "unverifiable": {
+                    "description": "Unverifiable are packages the lockfile names with no integrity hash,\nwhich a check does not fetch.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "sitetypecheck.Summary": {
+            "type": "object",
+            "properties": {
+                "errors": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
         "smtp.SettingsInput": {
             "type": "object",
             "properties": {
@@ -61737,6 +62590,37 @@
                 "period": {
                     "type": "integer",
                     "example": 30
+                }
+            }
+        },
+        "typecheckhttp.TypecheckBody": {
+            "type": "object",
+            "properties": {
+                "environment": {
+                    "type": "string",
+                    "example": "dev"
+                }
+            }
+        },
+        "typecheckhttp.TypecheckSummaries": {
+            "type": "object",
+            "properties": {
+                "releases": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/sitetypecheck.Summary"
+                    }
+                }
+            }
+        },
+        "typecheckhttp.TypecheckView": {
+            "type": "object",
+            "properties": {
+                "check": {
+                    "$ref": "#/definitions/sitetypecheck.Check"
+                },
+                "release": {
+                    "type": "integer"
                 }
             }
         },
@@ -63333,6 +64217,10 @@
             "description": "Deployment settings an administrator edits at runtime: the mail server and the review-queue alert thresholds."
         },
         {
+            "name": "Platform feedback",
+            "description": "What agents reported the platform could not do for them, posted with manage_feedback topic=platform: each post with its reports, its status and its deliveries to the channels Admin > Settings > Platform feedback names."
+        },
+        {
             "name": "Users",
             "description": "The directory of known people, keyed by email. Administrative counterpart to the single-identity User tag."
         },
@@ -63392,6 +64280,7 @@
                 "Integrations",
                 "Notifications",
                 "Personas",
+                "Platform feedback",
                 "Scripts",
                 "Secrets",
                 "Sessions",

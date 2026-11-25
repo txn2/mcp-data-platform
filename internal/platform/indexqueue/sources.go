@@ -158,7 +158,7 @@ func (s *toolsSource) LoadItems(ctx context.Context, _ string) ([]indexjobs.Item
 	return items, nil
 }
 
-// OnSucceeded is a no-op: platform_find_tools reads vectors from the shared
+// OnSucceeded is a no-op: search's tools source reads vectors from the shared
 // table at query time, so there is no in-process cache to refresh after a
 // successful embed.
 func (*toolsSource) OnSucceeded(_ string) {}

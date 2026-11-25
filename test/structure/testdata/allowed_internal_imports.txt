@@ -5,6 +5,7 @@ cmd/mcp-data-platform -> internal/buildinfo
 cmd/mcp-data-platform -> internal/httpserver
 cmd/mcp-data-platform -> internal/procload
 cmd/mcp-data-platform -> internal/server
+cmd/mcp-data-platform -> internal/site/sitetypecheck
 cmd/mcp-data-platform -> internal/tracelog
 cmd/mcp-data-platform -> pkg/observability
 cmd/mcp-data-platform -> pkg/platform
@@ -195,6 +196,7 @@ internal/application/apphttp -> internal/application/appdiagram
 internal/application/apphttp -> internal/application/appprepare
 internal/application/apphttp -> internal/application/appsvc
 internal/application/apphttp -> internal/application/apptool
+internal/application/apphttp -> internal/endpoint/epaddr
 internal/application/apphttp -> internal/httpjson
 internal/application/apphttp -> internal/logsan
 internal/application/apphttp -> internal/selfcall
@@ -304,10 +306,13 @@ internal/d2render -> pkg/contenttype
 internal/dbobs -> internal/sqltables
 internal/dbobs -> pkg/observability
 internal/docread -> pkg/contenttype
+internal/endpoint/epaddr -> internal/application
+internal/endpoint/epaddr -> internal/endpoint/epbinding
 internal/endpoint/epbinding -> internal/endpoint/epform
 internal/endpoint/epbinding -> internal/platform/scriptdialect
 internal/endpoint/epbinding -> pkg/script
 internal/endpoint/epcmd -> internal/approval
+internal/endpoint/epcmd -> internal/endpoint/epaddr
 internal/endpoint/epcmd -> internal/endpoint/epbinding
 internal/endpoint/epcmd -> internal/endpoint/epform
 internal/endpoint/epcmd -> internal/endpoint/eppreview
@@ -454,6 +459,7 @@ internal/httpserver -> internal/httpserver/mapwire
 internal/httpserver -> internal/httpserver/mentionhttp
 internal/httpserver -> internal/httpserver/notifywire
 internal/httpserver -> internal/httpserver/personashare
+internal/httpserver -> internal/httpserver/platformfeedbackwire
 internal/httpserver -> internal/httpserver/resourcelevel
 internal/httpserver -> internal/httpserver/resourcesharewire
 internal/httpserver -> internal/httpserver/savegatewire
@@ -464,6 +470,7 @@ internal/httpserver -> internal/httpserver/scripthttp/flowhttp
 internal/httpserver -> internal/httpserver/scripthttp/postshttp
 internal/httpserver -> internal/httpserver/scripthttp/submissionshttp
 internal/httpserver -> internal/httpserver/sitehttp
+internal/httpserver -> internal/httpserver/siteportalwire
 internal/httpserver -> internal/httpserver/sources
 internal/httpserver -> internal/httpserver/storagewire
 internal/httpserver -> internal/httpserver/tablehttp
@@ -612,7 +619,9 @@ internal/httpserver/applicationwire -> internal/application/apprunrole
 internal/httpserver/applicationwire -> internal/application/appstore
 internal/httpserver/applicationwire -> internal/application/appsvc
 internal/httpserver/applicationwire -> internal/application/appwire
+internal/httpserver/applicationwire -> internal/endpoint/epaddr
 internal/httpserver/applicationwire -> internal/endpoint/epcmd
+internal/httpserver/applicationwire -> internal/endpoint/epwire
 internal/httpserver/applicationwire -> internal/logsan
 internal/httpserver/applicationwire -> internal/platform/connreach
 internal/httpserver/applicationwire -> internal/platform/scripthandler
@@ -782,6 +791,7 @@ internal/httpserver/mapwire -> pkg/platform
 internal/httpserver/mapwire -> pkg/portal/knowledgepage
 internal/httpserver/mapwire -> pkg/portal/s3adapter
 internal/httpserver/mentionhttp -> internal/wirejson
+internal/httpserver/mentionhttp -> pkg/portal
 internal/httpserver/mentionhttp -> pkg/portal/mention
 internal/httpserver/mentionhttp -> pkg/portal/threads
 internal/httpserver/mentionhttp -> pkg/user
@@ -828,6 +838,15 @@ internal/httpserver/personaaccesswire -> pkg/toolkits/apigateway
 internal/httpserver/personashare -> pkg/persona
 internal/httpserver/personashare -> pkg/portal
 internal/httpserver/personashare -> pkg/user
+internal/httpserver/platformfeedbackwire -> internal/platform/notifydelivery
+internal/httpserver/platformfeedbackwire -> internal/platform/settingsjson
+internal/httpserver/platformfeedbackwire -> internal/platformfeedback
+internal/httpserver/platformfeedbackwire -> internal/secretscan
+internal/httpserver/platformfeedbackwire -> internal/secretstore
+internal/httpserver/platformfeedbackwire -> pkg/embedding
+internal/httpserver/platformfeedbackwire -> pkg/platform
+internal/httpserver/platformfeedbackwire -> pkg/platform/fieldcrypt
+internal/httpserver/platformfeedbackwire -> pkg/toolkits/portal
 internal/httpserver/resourcelevel -> pkg/persona
 internal/httpserver/resourcelevel -> pkg/resource
 internal/httpserver/resourcesharewire -> internal/httpjson
@@ -946,14 +965,11 @@ internal/httpserver/scripthttp/transferwords -> internal/producedview
 internal/httpserver/sitehttp -> internal/application
 internal/httpserver/sitehttp -> internal/bgloop
 internal/httpserver/sitehttp -> internal/bucketsource
-internal/httpserver/sitehttp -> internal/endpoint/epbinding
-internal/httpserver/sitehttp -> internal/endpoint/epform
 internal/httpserver/sitehttp -> internal/httpjson
+internal/httpserver/sitehttp -> internal/httpserver/sitehttp/typecheckhttp
 internal/httpserver/sitehttp -> internal/httpserver/sitepages
 internal/httpserver/sitehttp -> internal/logsan
 internal/httpserver/sitehttp -> internal/objectobs
-internal/httpserver/sitehttp -> internal/platform/notifydelivery
-internal/httpserver/sitehttp -> internal/platform/scriptstore
 internal/httpserver/sitehttp -> internal/platform/settingsjson
 internal/httpserver/sitehttp -> internal/portal/portalperm
 internal/httpserver/sitehttp -> internal/reqlog
@@ -982,6 +998,10 @@ internal/httpserver/sitehttp -> pkg/observability
 internal/httpserver/sitehttp -> pkg/platform
 internal/httpserver/sitehttp -> pkg/portal
 internal/httpserver/sitehttp -> pkg/textpatch
+internal/httpserver/sitehttp/typecheckhttp -> internal/httpjson
+internal/httpserver/sitehttp/typecheckhttp -> internal/site/sitesvc
+internal/httpserver/sitehttp/typecheckhttp -> internal/site/sitetypecheck
+internal/httpserver/sitehttp/typecheckhttp -> internal/wirejson
 internal/httpserver/sitepages -> internal/endpoint/epform
 internal/httpserver/sitepages -> internal/site/sitegw
 internal/httpserver/sitepages -> internal/site/sitetile/tilepage
@@ -989,6 +1009,13 @@ internal/httpserver/sitepages -> internal/site/sitewire
 internal/httpserver/sitepages -> pkg/auth
 internal/httpserver/sitepages -> pkg/persona
 internal/httpserver/sitepages -> pkg/platform
+internal/httpserver/siteportalwire -> internal/endpoint/epbinding
+internal/httpserver/siteportalwire -> internal/endpoint/epform
+internal/httpserver/siteportalwire -> internal/httpserver/sitehttp
+internal/httpserver/siteportalwire -> internal/platform/notifydelivery
+internal/httpserver/siteportalwire -> internal/platform/scriptstore
+internal/httpserver/siteportalwire -> pkg/platform
+internal/httpserver/siteportalwire -> pkg/portal
 internal/httpserver/sources -> pkg/catalog
 internal/httpserver/sources -> pkg/toolkits/gateway/enrichment
 internal/httpserver/standalonehttp -> internal/egressguard
@@ -1285,6 +1312,8 @@ internal/platform/connreach -> internal/platform/connscope
 internal/platform/connreach -> pkg/connview
 internal/platform/connreach -> pkg/persona
 internal/platform/connreach -> pkg/registry
+internal/platform/connroute -> pkg/knowledge
+internal/platform/connroute -> pkg/middleware
 internal/platform/connscope -> pkg/catalog
 internal/platform/connscope -> pkg/connid
 internal/platform/connscope -> pkg/knowledge
@@ -1521,6 +1550,7 @@ internal/platform/promptlayer -> internal/wirejson
 internal/platform/promptlayer -> pkg/audit
 internal/platform/promptlayer -> pkg/embedding
 internal/platform/promptlayer -> pkg/indexjobs
+internal/platform/promptlayer -> pkg/mcpcontext
 internal/platform/promptlayer -> pkg/middleware
 internal/platform/promptlayer -> pkg/portal
 internal/platform/promptlayer -> pkg/prompt
@@ -1779,7 +1809,6 @@ internal/platform/scriptlayer -> internal/platform/scriptres
 internal/platform/scriptlayer -> internal/platform/scriptrun
 internal/platform/scriptlayer -> internal/platform/scriptsave
 internal/platform/scriptlayer -> internal/platform/scriptshare
-internal/platform/scriptlayer -> internal/platform/scriptshow
 internal/platform/scriptlayer -> internal/platform/scriptsrc
 internal/platform/scriptlayer -> internal/platform/scriptstmt
 internal/platform/scriptlayer -> internal/platform/scriptstore
@@ -1905,8 +1934,6 @@ internal/platform/scriptsession -> internal/scriptcallsite
 internal/platform/scriptsession -> pkg/middleware
 internal/platform/scriptsession -> pkg/toolkits/postgres
 internal/platform/scriptshare -> internal/platform/scriptdialect
-internal/platform/scriptshow -> internal/wirejson
-internal/platform/scriptshow -> pkg/toolkit
 internal/platform/scriptsql -> internal/platform/starlarkconv
 internal/platform/scriptsrc -> internal/refscheme
 internal/platform/scriptsrc -> pkg/resource
@@ -2058,6 +2085,7 @@ internal/platform/tableregister -> internal/tableparquet
 internal/platform/tableregister -> internal/tabletype
 internal/platform/tableregister -> pkg/audit
 internal/platform/tableregister -> pkg/contenttype
+internal/platform/tableregister -> pkg/mcpcontext
 internal/platform/tableregister -> pkg/middleware
 internal/platform/tableregister -> pkg/portal/knowledgepage
 internal/platform/tableregister -> pkg/toolkits/portal
@@ -2122,6 +2150,10 @@ internal/platform/toolratelimit -> internal/logsan
 internal/platform/toolratelimit -> pkg/middleware
 internal/platform/toolratelimit -> pkg/observability
 internal/platform/toolratelimit -> pkg/ratelimit
+internal/platform/toolsearch -> internal/toolhelp
+internal/platform/toolsearch -> pkg/embedding
+internal/platform/toolsearch -> pkg/knowledge
+internal/platform/toolsearch -> pkg/toolkits/tools/toolsindex
 internal/platform/trinowiring -> pkg/registry
 internal/platform/trinowiring -> pkg/toolkits/trino
 internal/platform/userdir -> internal/platform/subjects
@@ -2137,6 +2169,15 @@ internal/platform/utilconn -> pkg/toolkits/apigateway/catalogindex
 internal/platform/utilhandler -> internal/egressguard
 internal/platform/utilhandler -> internal/outbound
 internal/platform/utilhandler -> internal/wirejson
+internal/platformfeedback -> internal/httpjson
+internal/platformfeedback -> internal/logsan
+internal/platformfeedback -> internal/opranking
+internal/platformfeedback -> internal/platform/settingsjson
+internal/platformfeedback -> internal/portal/assetsimilar
+internal/platformfeedback -> internal/refscheme
+internal/platformfeedback -> internal/reqlog
+internal/platformfeedback -> internal/secretscan
+internal/platformfeedback -> pkg/notification
 internal/portal/access -> internal/portal/portaldomain
 internal/portal/access -> pkg/persona
 internal/portal/access -> pkg/portal/threads
@@ -2411,6 +2452,7 @@ internal/site/sitetool -> internal/site/siteenv
 internal/site/sitetool -> internal/site/siterouting
 internal/site/sitetool -> internal/site/sitesvc
 internal/site/sitetool -> internal/site/sitetraffic
+internal/site/sitetool -> internal/site/sitetypecheck
 internal/site/sitetool -> internal/wirejson
 internal/site/sitetool -> pkg/audit
 internal/site/sitetool -> pkg/browsersession
@@ -2421,10 +2463,18 @@ internal/site/sitetool -> pkg/textpatch/patchmcp
 internal/site/sitetool -> pkg/toolkit
 internal/site/sitetool -> pkg/toolkits/portal
 internal/site/sitetraffic -> internal/logsan
+internal/site/sitetypecheck -> internal/bgloop
+internal/site/sitetypecheck -> internal/egressguard
+internal/site/sitetypecheck -> internal/logsan
+internal/site/sitetypecheck -> internal/outbound
+internal/site/sitetypecheck -> internal/site
+internal/site/sitetypecheck -> internal/site/sitebuild
+internal/site/sitetypecheck -> internal/site/sitesvc
 internal/site/sitewire -> internal/application
 internal/site/sitewire -> internal/application/appstore
 internal/site/sitewire -> internal/approval
 internal/site/sitewire -> internal/bucketsource
+internal/site/sitewire -> internal/endpoint/epaddr
 internal/site/sitewire -> internal/endpoint/epbinding
 internal/site/sitewire -> internal/logsan
 internal/site/sitewire -> internal/platform/configwarn
@@ -2445,6 +2495,7 @@ internal/site/sitewire -> internal/site/sitesvc
 internal/site/sitewire -> internal/site/sitetile
 internal/site/sitewire -> internal/site/sitetool
 internal/site/sitewire -> internal/site/sitetraffic
+internal/site/sitewire -> internal/site/sitetypecheck
 internal/site/sitewire -> internal/unarchive
 internal/site/sitewire -> pkg/blobserve
 internal/site/sitewire -> pkg/portal/s3adapter
@@ -2463,6 +2514,9 @@ internal/thumbdue -> internal/advisorylock
 internal/thumbtypes -> pkg/contenttype
 internal/toolanswer -> pkg/registry
 internal/toolanswer -> pkg/toolkit
+internal/toolhelp -> internal/wirejson
+internal/toolhelp -> pkg/middleware
+internal/toolschema -> internal/inprocess
 internal/toolwrite -> internal/gqlschema
 internal/ui -> internal/buildinfo
 internal/ui -> internal/contentenc
@@ -2802,6 +2856,7 @@ pkg/platform -> internal/platform/configwarn
 pkg/platform -> internal/platform/connauth
 pkg/platform -> internal/platform/connbackfill
 pkg/platform -> internal/platform/connrecords
+pkg/platform -> internal/platform/connroute
 pkg/platform -> internal/platform/connscope
 pkg/platform -> internal/platform/connstored
 pkg/platform -> internal/platform/datasetindex
@@ -2859,6 +2914,7 @@ pkg/platform -> internal/platform/toolinventory
 pkg/platform -> internal/platform/toolkitcfg
 pkg/platform -> internal/platform/toolkitwire
 pkg/platform -> internal/platform/toolratelimit
+pkg/platform -> internal/platform/toolsearch
 pkg/platform -> internal/platform/trinowiring
 pkg/platform -> internal/platform/userdir
 pkg/platform -> internal/platform/utilconn
@@ -2869,6 +2925,8 @@ pkg/platform -> internal/producedby
 pkg/platform -> internal/refscheme
 pkg/platform -> internal/shutdown
 pkg/platform -> internal/swagger2
+pkg/platform -> internal/toolhelp
+pkg/platform -> internal/toolschema
 pkg/platform -> internal/unarchive
 pkg/platform -> internal/webhook/whconfig
 pkg/platform -> internal/wirejson
@@ -2885,6 +2943,7 @@ pkg/platform -> pkg/database/migrate
 pkg/platform -> pkg/embedding
 pkg/platform -> pkg/indexjobs
 pkg/platform -> pkg/knowledge
+pkg/platform -> pkg/knowledge/federation
 pkg/platform -> pkg/mcpcontext
 pkg/platform -> pkg/memory
 pkg/platform -> pkg/middleware
@@ -3155,6 +3214,7 @@ pkg/toolkits/portal -> internal/httpjson
 pkg/toolkits/portal -> internal/indexpolicy
 pkg/toolkits/portal -> internal/logsan
 pkg/toolkits/portal -> internal/platform/resourceupload
+pkg/toolkits/portal -> internal/platformfeedback
 pkg/toolkits/portal -> internal/portal/access
 pkg/toolkits/portal -> internal/portal/assetbulk
 pkg/toolkits/portal -> internal/portal/assetrefs

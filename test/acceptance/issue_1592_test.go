@@ -20,6 +20,12 @@ import (
 // operation's schema, and every response names the argument that goes one
 // level deeper. The three names are retired, not aliased.
 //
+// Wire forms: api_discover's connection, spec, query, operation_id and ranking
+// are strings and limit a number; search's intent and purpose are strings and
+// sources a list of strings; api_invoke_endpoint's connection, operation_id
+// and path are strings; the admin catalog routes take a JSON object. Each is
+// sent in that one form; no parameter touched admits a second form.
+//
 // Every criterion runs through the real surface against the dev stack (make
 // dev). The api-test fixture (api-test-fixture, one spec, 17 operations) and
 // the built-in platform-admin connection (one spec) are the single-spec
@@ -409,17 +415,15 @@ func TestIssue1592_NoCatalogAnswersWithTheInvokeNote(t *testing.T) {
 	}
 }
 
-// platform_find_tools returns api_discover for a discovery task.
+// search's tools source returns api_discover for a discovery task.
 func TestIssue1592_FindToolsReturnsDiscover(t *testing.T) {
 	c := connect(t)
 	requireAPIDiscover(t, c)
-	out := c.call("platform_find_tools", map[string]any{"query": "discover the operations of an API connection", "limit": 5})
-	tools, _ := out["tools"].([]any)
-	for _, tool := range tools {
-		m, _ := tool.(map[string]any)
-		if m["name"] == issue1592Tool {
+	names := c.searchToolNames("discover the operations of an API connection")
+	for _, name := range names {
+		if name == issue1592Tool {
 			return
 		}
 	}
-	t.Fatalf("platform_find_tools did not return %s: %v", issue1592Tool, out)
+	t.Fatalf("search's tools do not include %s: %v", issue1592Tool, names)
 }

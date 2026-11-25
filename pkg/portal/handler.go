@@ -2317,8 +2317,7 @@ func (h *Handler) getActivityBreakdown(w http.ResponseWriter, r *http.Request) {
 		groupBy = audit.BreakdownByToolName
 	}
 	if !audit.ValidBreakdownDimensions[groupBy] {
-		writeError(w, http.StatusBadRequest,
-			"invalid group_by: must be tool_name, user_id, persona, toolkit_kind, or connection")
+		writeError(w, http.StatusBadRequest, "invalid group_by: must be one of "+audit.BreakdownDimensionNames())
 		return
 	}
 

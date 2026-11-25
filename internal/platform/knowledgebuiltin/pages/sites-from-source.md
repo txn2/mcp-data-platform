@@ -158,7 +158,15 @@ does not needs a decision:
    and `.nvmrc` are kept as source and never served; leave `.npmrc` out (it is refused,
    since it often holds a token). Name anything else to keep unserved in `exclude`:
    `["e2e/**", "docs/**"]`.
-8. **Version and errors.** `import.meta.site.release` is the release number; show it as
+8. **Type checking.** The compile removes types and does not check them. To keep the
+   check the team's editor and CI gave, add `"typecheck": {"tsconfig": "tsconfig.json"}`
+   to `_build.json` and keep the lockfile in the site: each release is then
+   type-checked after it publishes, and `manage_site build_report` shows the errors
+   with file, line and code. It never holds a publish back. A `tsconfig` that sets
+   `baseUrl` is reported `unsupported` (TypeScript 7 no longer reads it): turn it into
+   `paths` entries starting `./`. A Yarn 2+ lockfile cannot be verified; use
+   `package-lock.json`, `pnpm-lock.yaml` or a Yarn 1 lockfile.
+9. **Version and errors.** `import.meta.site.release` is the release number; show it as
    the build number. With `"sourcemap": "private"`, maps are served only to the people
    who manage the site, and `manage_site symbolicate site=<site> stack=<trace>` maps a
    minified stack trace to source.

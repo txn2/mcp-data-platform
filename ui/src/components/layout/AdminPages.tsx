@@ -101,6 +101,11 @@ const AdminScriptRoutes = lazy(() =>
     default: m.AdminScriptRoutes,
   })),
 );
+const AdminPlatformFeedbackRoutes = lazy(() =>
+  import("@/pages/platform-feedback/AdminPlatformFeedbackRoutes").then((m) => ({
+    default: m.AdminPlatformFeedbackRoutes,
+  })),
+);
 const AdminSecretRoutes = lazy(() =>
   import("@/pages/secrets/AdminSecretRoutes").then((m) => ({
     default: m.AdminSecretRoutes,
@@ -331,6 +336,9 @@ function SubtreeSections({
       )}
       {isInSection(route, "/admin/automations") && (
         <AdminScriptRoutes route={route} onNavigate={navigate} />
+      )}
+      {isInSection(route, "/admin/platform-feedback") && (
+        <AdminPlatformFeedbackRoutes route={route} onNavigate={navigate} onBack={onBack} />
       )}
       {isInSection(route, "/admin/secrets") && (
         <AdminSecretRoutes

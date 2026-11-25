@@ -236,7 +236,7 @@ func TestWireAPIGatewayEmbedJobsFromDB_WithCatalogStore(t *testing.T) {
 // integration test for the tool-enumeration seam (CLAUDE.md rule 5): it drives
 // the real WireAPIGatewayEmbedJobsFromDB wiring against a live MCP server, then
 // reaches the tools source the assembled queue registered and enumerates it.
-// This proves platformToolEnumerator and platformFindToolsName actually reach
+// This proves platformToolEnumerator and the excluded search tool actually reach
 // the queue through indexqueue.New — a future edit that passed the wrong Config
 // field or dropped DiscoveryToolName would fail here rather than silently
 // indexing zero (or the discovery) tools.
@@ -248,8 +248,8 @@ func TestWireAPIGatewayEmbedJobsFromDB_ToolEnumeratorSeam(t *testing.T) {
 	}
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	// A live in-memory MCP server carrying two real tools plus the discovery tool.
-	srv := findToolsTestServer("alpha", "beta")
+	// A live in-memory MCP server carrying two real tools plus search.
+	srv := toolSearchTestServer("alpha", "beta")
 	p := &Platform{
 		db:              db,
 		mcpServer:       srv,
@@ -280,7 +280,7 @@ func TestWireAPIGatewayEmbedJobsFromDB_ToolEnumeratorSeam(t *testing.T) {
 	if !got["alpha"] || !got["beta"] {
 		t.Errorf("live tool corpus not enumerated through the queue: got %v; want alpha+beta", got)
 	}
-	if got[platformFindToolsName] {
+	if got[searchToolName] {
 		t.Error("discovery tool must be excluded via the wired DiscoveryToolName")
 	}
 }

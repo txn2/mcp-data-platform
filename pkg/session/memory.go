@@ -52,6 +52,18 @@ func (s *MemoryStore) Get(_ context.Context, id string) (*Session, error) {
 	return snapshot(sess), nil
 }
 
+// GetAny retrieves a session by ID whether or not it has expired; nil, nil
+// when none is held (#2816).
+func (s *MemoryStore) GetAny(_ context.Context, id string) (*Session, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	sess, ok := s.sessions[id]
+	if !ok {
+		return nil, nil //nolint:nilnil // nil,nil for not-found, as Get
+	}
+	return snapshot(sess), nil
+}
+
 // snapshot is a copy of a stored session, its State map included, so a caller
 // reading it cannot race a later UpdateState, as a caller of the database
 // store, which decodes a fresh value per read, cannot.

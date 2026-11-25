@@ -352,3 +352,19 @@ func TestNew_SessionsProvider(t *testing.T) {
 	})
 	assert.NotContains(t, providerNames(t, h), knowledge.SourceSessions)
 }
+
+// stubToolRanker ranks no tools; its presence is what the test reads.
+type stubToolRanker struct{}
+
+func (stubToolRanker) RankTools(context.Context, string, []string, int) []knowledge.ToolMatch {
+	return nil
+}
+
+// TestNew_ToolsProvider is #2809: the platform's tools join search beside the
+// other sources, and never register search on their own.
+func TestNew_ToolsProvider(t *testing.T) {
+	h := New(Config{ToolkitName: "default", KnowledgePageStore: stubPageStore{}, Tools: stubToolRanker{}, Registry: registry.NewRegistry()})
+	assert.Contains(t, providerNames(t, h), knowledge.SourceTools)
+	assert.Nil(t, New(Config{ToolkitName: "default", Tools: stubToolRanker{}, Registry: registry.NewRegistry()}),
+		"tools alone register no search")
+}

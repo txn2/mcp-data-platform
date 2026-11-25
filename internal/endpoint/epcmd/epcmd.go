@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/approval"
+	"github.com/txn2/mcp-data-platform/internal/endpoint/epaddr"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epbinding"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/epform"
 	"github.com/txn2/mcp-data-platform/internal/endpoint/eppreview"
@@ -496,7 +497,7 @@ func (h *Handler) List(ctx context.Context, req Request) (map[string]any, error)
 // fields is a binding as manage_script reports it.
 func (h *Handler) fields(scriptName string, b *epbinding.Binding) map[string]any {
 	return map[string]any{
-		"handler": b.ID, "kind": keyEndpoint, fieldName: scriptName, keyEndpoint: b.Name, "url": h.BaseURL + b.URLPath(), "methods": b.Methods,
+		"handler": b.ID, "kind": keyEndpoint, fieldName: scriptName, keyEndpoint: b.Name, "url": epaddr.PlatformURL(h.BaseURL, b, ""), "methods": b.Methods,
 		"path": b.Path, "auth_mode": b.AuthMode, "callers": b.Callers, "bot_check": b.BotCheck,
 		"checked_methods": b.CheckedMethods, "enabled": b.Enabled,
 		"timeout_seconds": b.TimeoutSeconds, "max_memory_bytes": b.MaxMemoryBytes,

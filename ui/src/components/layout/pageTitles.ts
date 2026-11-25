@@ -47,6 +47,7 @@ export const pageTitles: Record<string, string> = {
   "/admin/calls": "Calls",
   "/admin/keys": "Keys",
   "/admin/users": "Users",
+  "/admin/platform-feedback": "Platform feedback",
   "/admin/secrets": "Secrets",
   "/admin/webhooks": "Webhooks",
   "/admin/catalog": "Catalog",

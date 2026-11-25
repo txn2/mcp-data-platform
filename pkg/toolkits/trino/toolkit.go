@@ -55,7 +55,6 @@ const (
 	// since the package path already provides it.
 	toolQuery         = "trino_query"
 	toolExecute       = "trino_execute"
-	toolExplain       = "trino_explain"
 	toolBrowse        = "trino_browse"
 	toolDescribeTable = "trino_describe_table"
 )
@@ -421,10 +420,12 @@ func buildToolkitOptions(
 	// Always scrub internal topology (connector transport envelopes) from
 	// upstream engine errors before they reach tool callers.
 	opts = append(opts, trinotools.WithMiddleware(&ErrorSanitizerMiddleware{}))
+	// A read sent through trino_execute runs and is told trino_query is the read tool (#2812).
+	opts = append(opts, trinotools.WithMiddleware(ExecuteReadNote{}))
 	// No statement a person sends points a table, a schema or a partition at
 	// one of the platform's own buckets, on any connection (#2616).
 	opts = append(opts, trinotools.WithQueryInterceptor(LocationInterceptor{}))
-	// trino_query and trino_explain run only what reads, on every connection.
+	// trino_query runs only what reads, on every connection.
 	opts = append(opts, trinotools.WithQueryInterceptor(ReadToolInterceptor{}))
 
 	if readOnly != nil {
@@ -550,7 +551,6 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		t.trinoToolkit.Register(s,
 			trinotools.ToolQuery,
 			trinotools.ToolExecute,
-			trinotools.ToolExplain,
 			trinotools.ToolBrowse,
 			trinotools.ToolDescribeTable,
 		)
@@ -571,7 +571,6 @@ func (t *Toolkit) Tools() []string {
 	tools := []string{
 		toolQuery,
 		toolExecute,
-		toolExplain,
 		toolBrowse,
 		toolDescribeTable,
 	}

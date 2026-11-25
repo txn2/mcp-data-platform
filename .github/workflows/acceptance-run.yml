@@ -86,7 +86,7 @@ jobs:
 
       # dev/start.sh runs each replica under air.
       - name: Install air
-        run: go install github.com/air-verse/air@v1.64.5
+        run: scripts/go-install.sh github.com/air-verse/air@v1.64.5
 
       # The criteria that hold the .semgrep/ rules to their fixtures run the
       # tool make verify runs (#2275).

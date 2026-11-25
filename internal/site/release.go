@@ -1,6 +1,7 @@
 package site
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -484,4 +485,62 @@ func ServedType(name string) string {
 		return ct
 	}
 	return "application/octet-stream"
+}
+
+// PublishHook is told of each release a publish stores, once it is recorded:
+// the environment it was published to and who published it (#2793).
+type PublishHook func(ctx context.Context, rel *Release, environment, by string)
+
+// Call runs the hook; a nil hook does nothing.
+func (h PublishHook) Call(ctx context.Context, rel *Release, environment, by string) {
+	if h != nil {
+		h(ctx, rel, environment, by)
+	}
+}
+
+// WithoutFiles is a copy of the release without its file list, as a reply
+// reports it.
+func (r *Release) WithoutFiles() *Release {
+	c := *r
+	c.Files = nil
+	return &c
+}
+
+// DiffFiles is what serving target in place of base changes, read from each
+// file's digest: the paths changed, added and removed, each sorted.
+func DiffFiles(base, target []File) (changed, added, removed []string) {
+	changed, added = []string{}, []string{}
+	before := make(map[string]string, len(base))
+	for _, f := range base {
+		before[f.Path] = f.SHA256
+	}
+	for _, f := range target {
+		digest, ok := before[f.Path]
+		switch {
+		case !ok:
+			added = append(added, f.Path)
+		case digest != f.SHA256:
+			changed = append(changed, f.Path)
+		}
+		delete(before, f.Path)
+	}
+	removed = make([]string, 0, len(before))
+	for p := range before {
+		removed = append(removed, p)
+	}
+	slices.Sort(changed)
+	slices.Sort(added)
+	slices.Sort(removed)
+	return changed, added, removed
+}
+
+// MissingRedirects is the rules of a that b does not hold.
+func MissingRedirects(a, b []Redirect) []Redirect {
+	out := []Redirect{}
+	for _, r := range a {
+		if !slices.Contains(b, r) {
+			out = append(out, r)
+		}
+	}
+	return out
 }

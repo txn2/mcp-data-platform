@@ -37,7 +37,7 @@ func TestBuild_NoPlatformIsNoLayer(t *testing.T) {
 	layer, err := Build(http.NewServeMux(), nil, nil, nil)
 	require.NoError(t, err)
 	assert.Nil(t, layer)
-	assert.False(t, serving(nil))
+	assert.False(t, Serving(nil))
 }
 
 func TestLayer_WrapRoutesAServedHostToTheGateway(t *testing.T) {

@@ -155,7 +155,7 @@ func TestAdminAPI_Standalone(t *testing.T) {
 	t.Run("list_tools_platform_level", func(t *testing.T) {
 		// A standalone server has no toolkits, so its tool listing is exactly the
 		// platform's own unconditional tools. The store-conditional ones
-		// (manage_prompt, show_prompts, manage_script, run_script, show_scripts)
+		// (manage_prompt, manage_script, run_script)
 		// need a database this fixture does not have.
 		//
 		// The set is asserted rather than a count so that a toolkit tool leaking
@@ -173,7 +173,7 @@ func TestAdminAPI_Standalone(t *testing.T) {
 		for _, tool := range tools.Tools {
 			names = append(names, tool.Name)
 		}
-		helpers.AssertToolSet(t, names, "platform_info", "list_connections", "platform_find_tools")
+		helpers.AssertToolSet(t, names, "platform_info", "list_connections")
 		if tools.Total != len(tools.Tools) {
 			t.Errorf("total %d disagrees with the %d tools listed: %v", tools.Total, len(tools.Tools), names)
 		}

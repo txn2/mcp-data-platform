@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 
+	"github.com/txn2/mcp-data-platform/internal/httpserver/sitehttp/typecheckhttp"
 	"github.com/txn2/mcp-data-platform/internal/portal/portalperm"
 	"github.com/txn2/mcp-data-platform/internal/reqlog"
 
@@ -90,6 +91,7 @@ func (a *portalAPI) register(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE "+pathSite, a.remove)
 	mux.HandleFunc("GET "+pathSite+"/releases", a.releases)
 	mux.HandleFunc("GET "+pathSite+"/releases/{number}", a.release)
+	typecheckhttp.Register(mux, typecheckhttp.Deps{Site: a.typecheckSite, Queue: a.d.Runtime.Typechecks, Releases: a.svc(), Fail: fail})
 	mux.HandleFunc("GET "+pathSite+"/compare", a.compare)
 	mux.HandleFunc("GET "+pathSite+"/deployments", a.deployments)
 	mux.HandleFunc("GET "+pathSite+"/traffic", a.traffic)
@@ -341,6 +343,21 @@ func (s envScope) releaseView(st *site.Site, rel site.Release, kept []string) Re
 type scopedSite struct {
 	*site.Site
 	scope envScope
+}
+
+// typecheckSite is the site a type check route names and who asks (#2793),
+// for someone who manages it: a check's errors quote the release's source,
+// which only its managers read.
+func (a *portalAPI) typecheckSite(w http.ResponseWriter, r *http.Request) (typecheckhttp.Caller, *http.Request, bool) {
+	ss, r, ok := a.siteAndScope(w, r)
+	if ok && !ss.scope.manage {
+		fail(w, r, fmt.Errorf("a site's type checks are read by its owner, the people they add, or an administrator: %w", site.ErrNotAllowed))
+	}
+	if !ok || !ss.scope.manage {
+		return typecheckhttp.Caller{}, r, false
+	}
+	c, r, _ := a.who(w, r)
+	return typecheckhttp.Caller{SiteID: ss.ID, Actor: c.actor}, r, true
 }
 
 // siteAndScope resolves the site a request names and what the caller may know

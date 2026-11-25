@@ -37,6 +37,13 @@ var notSecretSuffixes = []string{
 // connection's static_headers and session_login_headers (#2359).
 var secretMapKeys = map[string]bool{"static_headers": true, "session_login_headers": true}
 
+// platformFeedbackTextKeys are the free-text fields of a platform feedback
+// post (#2820): text an agent wrote for the platform's operator, which may
+// hold what it read. A post is kept in its own table once it passes the
+// content secret check, and a refused one must leave nothing behind, so the
+// audit row keeps none of it.
+var platformFeedbackTextKeys = map[string]bool{"trying_to": true, "blocked_by": true, "suggestion": true}
+
 // secretValuePaths are the admin routes whose request body carries a stored
 // secret's value under "value" (#2356).
 var secretValuePaths = []string{"/admin/secrets"}
@@ -54,7 +61,8 @@ func SanitizeParameters(params map[string]any) map[string]any {
 	if params == nil {
 		return nil
 	}
-	s := sanitizer{secretValue: callSetsSecret(params)}
+	topic, _ := params["topic"].(string)
+	s := sanitizer{secretValue: callSetsSecret(params), platformFeedback: topic == "platform"}
 	out, _ := s.value(params).(map[string]any)
 	return withoutCopiedURLSecrets(out)
 }
@@ -81,6 +89,9 @@ type sanitizer struct {
 	// secretValue is set when the call's path is an admin route that takes
 	// a stored secret's value under "value".
 	secretValue bool
+	// platformFeedback is set for a platform feedback post, whose free-text
+	// fields are never kept (#2820).
+	platformFeedback bool
 }
 
 // value returns v with every sensitive value replaced.
@@ -181,6 +192,9 @@ func (s sanitizer) queryText(text string) string {
 func (s sanitizer) sensitive(key string) bool {
 	k := strings.ReplaceAll(strings.ToLower(strings.TrimSpace(key)), "-", "_")
 	if s.secretValue && k == "value" {
+		return true
+	}
+	if s.platformFeedback && platformFeedbackTextKeys[k] {
 		return true
 	}
 	for _, suffix := range notSecretSuffixes {

@@ -11,7 +11,7 @@ import (
 // exact set a standalone server lists, a toolkit tool leaking into it, and a
 // platform tool going missing from it (#1644).
 func TestDiffToolNames(t *testing.T) {
-	standalone := []string{"platform_info", "list_connections", "platform_find_tools"}
+	standalone := []string{"platform_info", "list_connections", "platform_mock_tool"}
 
 	tests := []struct {
 		name           string
@@ -22,17 +22,17 @@ func TestDiffToolNames(t *testing.T) {
 	}{
 		{
 			name: "exact set passes",
-			got:  []string{"platform_info", "list_connections", "platform_find_tools"},
+			got:  []string{"platform_info", "list_connections", "platform_mock_tool"},
 			want: standalone,
 		},
 		{
 			name: "order does not matter",
-			got:  []string{"platform_find_tools", "platform_info", "list_connections"},
+			got:  []string{"platform_mock_tool", "platform_info", "list_connections"},
 			want: standalone,
 		},
 		{
 			name:           "leaked toolkit tool is named",
-			got:            []string{"platform_info", "list_connections", "platform_find_tools", "trino_execute"},
+			got:            []string{"platform_info", "list_connections", "platform_mock_tool", "trino_execute"},
 			want:           standalone,
 			wantUnexpected: []string{"trino_execute"},
 		},
@@ -40,11 +40,11 @@ func TestDiffToolNames(t *testing.T) {
 			name:        "missing platform tool is named",
 			got:         []string{"platform_info", "list_connections"},
 			want:        standalone,
-			wantMissing: []string{"platform_find_tools"},
+			wantMissing: []string{"platform_mock_tool"},
 		},
 		{
 			name:           "leaks are reported sorted",
-			got:            []string{"platform_info", "s3_list", "list_connections", "platform_find_tools", "trino_query"},
+			got:            []string{"platform_info", "s3_list", "list_connections", "platform_mock_tool", "trino_query"},
 			want:           standalone,
 			wantUnexpected: []string{"s3_list", "trino_query"},
 		},
@@ -52,7 +52,7 @@ func TestDiffToolNames(t *testing.T) {
 			name:        "empty listing is all missing",
 			got:         nil,
 			want:        standalone,
-			wantMissing: []string{"list_connections", "platform_find_tools", "platform_info"},
+			wantMissing: []string{"list_connections", "platform_info", "platform_mock_tool"},
 		},
 	}
 

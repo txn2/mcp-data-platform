@@ -926,7 +926,6 @@ func TestHostsAndApplicationHosts(t *testing.T) {
 		errMsg string
 	}{
 		{"hosts", "SELECT hostname FROM site_domains", func(s *Store) ([]string, error) { return s.Hosts(ctx) }, "list hostnames"},
-		{"application hosts", "FROM application_parts p", func(s *Store) ([]string, error) { return s.ApplicationHosts(ctx, "app_1", "pages.example.net") }, "list application hosts"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -958,9 +957,48 @@ func TestHostsAndApplicationHosts(t *testing.T) {
 
 func TestApplicationHosts_PassesTheApplicationAndPagesDomain(t *testing.T) {
 	s, mock := newMock(t)
-	mock.ExpectQuery(q("p.kind = 'site'")).WithArgs("app_1", "pages.example.net").WillReturnRows(sqlmock.NewRows([]string{"hostname"}))
+	mock.ExpectQuery(q("p.kind = 'site'")).WithArgs("app_1", "pages.example.net").WillReturnRows(sqlmock.NewRows([]string{"env", "hostname"}))
 	_, err := s.ApplicationHosts(context.Background(), "app_1", "pages.example.net")
 	require.NoError(t, err)
+}
+
+// TestApplicationHostsByEnvironment groups each site part's hosts under its
+// environment's name (#2822); ApplicationHosts flattens them, environments in
+// name order, none as [].
+func TestApplicationHostsByEnvironment(t *testing.T) {
+	ctx := context.Background()
+	s, mock := newMock(t)
+	rows := func() *sqlmock.Rows {
+		return sqlmock.NewRows([]string{"env", "hostname"}).
+			AddRow("prod", "www.example.com").AddRow("dev", "web--dev.pages.example.net").AddRow("prod", "web.pages.example.net")
+	}
+	mock.ExpectQuery(q("FROM application_parts p")).WillReturnRows(rows())
+	got, err := s.ApplicationHostsByEnvironment(ctx, "app_1", "pages.example.net")
+	require.NoError(t, err)
+	assert.Equal(t, map[string][]string{"prod": {"www.example.com", "web.pages.example.net"}, "dev": {"web--dev.pages.example.net"}}, got)
+
+	mock.ExpectQuery(q("FROM application_parts p")).WillReturnRows(rows())
+	flat, err := s.ApplicationHosts(ctx, "app_1", "pages.example.net")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"web--dev.pages.example.net", "www.example.com", "web.pages.example.net"}, flat)
+
+	mock.ExpectQuery(q("FROM application_parts p")).WillReturnRows(sqlmock.NewRows([]string{"env", "hostname"}))
+	flat, err = s.ApplicationHosts(ctx, "app_1", "")
+	require.NoError(t, err)
+	assert.Equal(t, []string{}, flat, "none is [], never null")
+
+	mock.ExpectQuery(q("FROM application_parts p")).WillReturnError(errDown)
+	_, err = s.ApplicationHosts(ctx, "app_1", "")
+	require.ErrorContains(t, err, "list application hosts")
+
+	mock.ExpectQuery(q("FROM application_parts p")).WillReturnRows(sqlmock.NewRows([]string{"env"}).AddRow("x"))
+	_, err = s.ApplicationHostsByEnvironment(ctx, "app_1", "")
+	require.ErrorContains(t, err, "read hostname")
+
+	mock.ExpectQuery(q("FROM application_parts p")).WillReturnRows(sqlmock.NewRows([]string{"env", "hostname"}).AddRow("a", "x").RowError(0, errDown))
+	_, err = s.ApplicationHostsByEnvironment(ctx, "app_1", "")
+	require.ErrorContains(t, err, "list application hosts")
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestHandoffs(t *testing.T) {

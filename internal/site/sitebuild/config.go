@@ -104,6 +104,9 @@ type Config struct {
 	Singletons []string `json:"singletons"`
 	// Exclude are globs of files kept as source and never served.
 	Exclude []string `json:"exclude"`
+	// Typecheck type-checks each release with TypeScript after it publishes
+	// (#2793): a check, not a gate, reported on the release.
+	Typecheck *Typecheck `json:"typecheck"`
 
 	// localPrefixes are the Imports keys that map to a folder of the site.
 	localPrefixes map[string]string
@@ -119,6 +122,36 @@ var pinnedURL = regexp.MustCompile(`^https://[^/?#@]+/.*@v?[0-9]+\.[0-9]+\.[0-9]
 // that what it loads cannot change under a release.
 func Pinned(u string) bool {
 	return len(u) <= maxURLLen && pinnedURL.MatchString(u)
+}
+
+// Typecheck is a site's type check (#2793).
+type Typecheck struct {
+	// Tsconfig is the project file checked, a path in the site; empty is
+	// tsconfig.json.
+	Tsconfig string `json:"tsconfig"`
+}
+
+// DefaultTsconfig is the project file a type check reads when none is named.
+const DefaultTsconfig = "tsconfig.json"
+
+// TsconfigPath is the project file the check reads.
+func (t *Typecheck) TsconfigPath() string {
+	if t == nil || t.Tsconfig == "" {
+		return DefaultTsconfig
+	}
+	return t.Tsconfig
+}
+
+// checkTypecheck refuses a typecheck block naming no path in the site.
+func (c *Config) checkTypecheck() error {
+	if c.Typecheck == nil {
+		return nil
+	}
+	p := c.Typecheck.TsconfigPath()
+	if !fs.ValidPath(p) || p == "." || !strings.HasSuffix(strings.ToLower(p), ".json") {
+		return fmt.Errorf("typecheck.tsconfig %q is not a .json file in the site", p)
+	}
+	return nil
 }
 
 // Parse reads a control file, refusing anything it cannot honor.
@@ -145,6 +178,9 @@ func Parse(data []byte) (*Config, error) {
 		return nil, err
 	}
 	if err := cfg.checkOptions(); err != nil {
+		return nil, err
+	}
+	if err := cfg.checkTypecheck(); err != nil {
 		return nil, err
 	}
 	return cfg, nil

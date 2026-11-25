@@ -42,10 +42,16 @@ export function KPIRow({
   const callsSpark = buckets.map((b) => b.count);
   const errorSpark = buckets.map((b) => b.error_count);
   const durationSpark = buckets.map((b) => b.avg_duration_ms);
-  const successSpark = buckets.map((b) => (b.count > 0 ? (b.success_count / b.count) * 100 : 0));
+  const holdSpark = buckets.map((b) => b.hold_count ?? 0);
+  // A hold is neither a success nor a failure, so it is left out of both
+  // sides of the rate, as the server's success_rate does (#2819).
+  const successSpark = buckets.map((b) => {
+    const finished = b.count - (b.hold_count ?? 0);
+    return finished > 0 ? (b.success_count / finished) * 100 : 0;
+  });
 
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-7">
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-8">
       <MetricTile
         label="Total Calls"
         value={stat(overview, (o) => o.total_calls.toLocaleString())}
@@ -61,6 +67,16 @@ export function KPIRow({
         delta={halfDelta(successSpark, "avg")}
         goodDirection="up"
         accent="hsl(142, 71%, 45%)"
+        detail="holds left out of both sides"
+      />
+      <MetricTile
+        label="Holds"
+        value={stat(overview, (o) => (o.hold_count ?? 0).toLocaleString())}
+        spark={holdSpark}
+        delta={halfDelta(holdSpark, "sum")}
+        goodDirection="neutral"
+        accent="hsl(221, 83%, 53%)"
+        detail="waiting on approval or an answer"
       />
       <MetricTile
         label="Avg Duration"
@@ -83,6 +99,7 @@ export function KPIRow({
         delta={halfDelta(errorSpark, "sum")}
         goodDirection="down"
         accent="hsl(0, 72%, 51%)"
+        detail="holds are not counted here"
       />
     </div>
   );

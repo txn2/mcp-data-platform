@@ -25,9 +25,9 @@ func TestTimeseries_Success(t *testing.T) {
 	start := time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC)
 	end := time.Date(2025, 6, 15, 14, 0, 0, 0, time.UTC) // 4h range → 5 buckets
 
-	rows := sqlmock.NewRows([]string{"bucket", "count", "success_count", "error_count", "avg_duration_ms"}).
-		AddRow(time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC), 10, 8, 2, 42.5).
-		AddRow(time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC), 5, 5, 0, 30.0)
+	rows := sqlmock.NewRows([]string{"bucket", "count", "success_count", "error_count", "avg_duration_ms", "hold_count"}).
+		AddRow(time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC), 10, 8, 2, 42.5, 0).
+		AddRow(time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC), 5, 5, 0, 30.0, 0)
 
 	mock.ExpectQuery("SELECT").
 		WithArgs(start, end).
@@ -83,7 +83,7 @@ func TestTimeseries_EmptyResult(t *testing.T) {
 	start := time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC)
 	end := time.Date(2025, 6, 15, 11, 0, 0, 0, time.UTC)
 
-	rows := sqlmock.NewRows([]string{"bucket", "count", "success_count", "error_count", "avg_duration_ms"})
+	rows := sqlmock.NewRows([]string{"bucket", "count", "success_count", "error_count", "avg_duration_ms", "hold_count"})
 	mock.ExpectQuery("SELECT").
 		WithArgs(start, end).
 		WillReturnRows(rows)
@@ -123,8 +123,8 @@ func TestTimeseries_ScanError(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	store := New(db, Config{})
-	rows := sqlmock.NewRows([]string{"bucket", "count", "success_count", "error_count", "avg_duration_ms"}).
-		AddRow("not-a-time", "bad", "bad", "bad", "bad")
+	rows := sqlmock.NewRows([]string{"bucket", "count", "success_count", "error_count", "avg_duration_ms", "hold_count"}).
+		AddRow("not-a-time", "bad", "bad", "bad", "bad", "bad")
 	mock.ExpectQuery("SELECT").WillReturnRows(rows)
 
 	_, err = store.Timeseries(context.Background(), audit.TimeseriesFilter{
@@ -141,7 +141,7 @@ func TestTimeseries_AllResolutions(t *testing.T) {
 			defer func() { _ = db.Close() }()
 
 			store := New(db, Config{})
-			rows := sqlmock.NewRows([]string{"bucket", "count", "success_count", "error_count", "avg_duration_ms"})
+			rows := sqlmock.NewRows([]string{"bucket", "count", "success_count", "error_count", "avg_duration_ms", "hold_count"})
 			mock.ExpectQuery("SELECT").WillReturnRows(rows)
 
 			result, err := store.Timeseries(context.Background(), audit.TimeseriesFilter{
@@ -159,7 +159,7 @@ func TestTimeseries_DefaultTimeRange(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	store := New(db, Config{})
-	rows := sqlmock.NewRows([]string{"bucket", "count", "success_count", "error_count", "avg_duration_ms"})
+	rows := sqlmock.NewRows([]string{"bucket", "count", "success_count", "error_count", "avg_duration_ms", "hold_count"})
 	mock.ExpectQuery("SELECT").WillReturnRows(rows)
 
 	// No start/end time -- should use defaults (last 24h)
@@ -182,9 +182,9 @@ func TestBreakdown_Success(t *testing.T) {
 	now := time.Now()
 	start := now.Add(-24 * time.Hour)
 
-	rows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"}).
-		AddRow("trino_query", 50, 0.96, 45.2).
-		AddRow("search", 30, 1.0, 20.1)
+	rows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms", "hold_count"}).
+		AddRow("trino_query", 50, 0.96, 45.2, 0).
+		AddRow("search", 30, 1.0, 20.1, 0)
 
 	mock.ExpectQuery("SELECT").
 		WithArgs(start, now).
@@ -231,7 +231,7 @@ func TestBreakdown_AllDimensions(t *testing.T) {
 			defer func() { _ = db.Close() }()
 
 			store := New(db, Config{})
-			rows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"})
+			rows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms", "hold_count"})
 			mock.ExpectQuery("SELECT").WillReturnRows(rows)
 
 			result, err := store.Breakdown(context.Background(), audit.BreakdownFilter{
@@ -249,7 +249,7 @@ func TestBreakdown_CustomLimit(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	store := New(db, Config{})
-	rows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"})
+	rows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms", "hold_count"})
 	mock.ExpectQuery("SELECT").WillReturnRows(rows)
 
 	_, err = store.Breakdown(context.Background(), audit.BreakdownFilter{
@@ -265,7 +265,7 @@ func TestBreakdown_LimitCapped(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	store := New(db, Config{})
-	rows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"})
+	rows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms", "hold_count"})
 	mock.ExpectQuery("SELECT").WillReturnRows(rows)
 
 	// Limit exceeds max -- should be capped to maxBreakdownLimit
@@ -282,7 +282,7 @@ func TestBreakdown_EmptyResult(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	store := New(db, Config{})
-	rows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"})
+	rows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms", "hold_count"})
 	mock.ExpectQuery("SELECT").WillReturnRows(rows)
 
 	result, err := store.Breakdown(context.Background(), audit.BreakdownFilter{
@@ -313,8 +313,8 @@ func TestBreakdown_ScanError(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	store := New(db, Config{})
-	rows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"}).
-		AddRow("tool", "bad", "bad", "bad")
+	rows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms", "hold_count"}).
+		AddRow("tool", "bad", "bad", "bad", "bad")
 	mock.ExpectQuery("SELECT").WillReturnRows(rows)
 
 	_, err = store.Breakdown(context.Background(), audit.BreakdownFilter{
@@ -336,8 +336,8 @@ func TestOverview_Success(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{
 		"total_calls", "success_rate", "avg_duration_ms",
-		"unique_users", "unique_tools", "enrichment_rate", "error_count",
-	}).AddRow(100, 0.95, 35.5, 5, 8, 0.80, 5)
+		"unique_users", "unique_tools", "enrichment_rate", "error_count", "hold_count",
+	}).AddRow(100, 0.95, 35.5, 5, 8, 0.80, 5, 3)
 
 	mock.ExpectQuery("SELECT").
 		WithArgs(start, now).
@@ -366,7 +366,7 @@ func TestMetrics_EventKindFilter(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = db.Close() }()
 
-		rows := sqlmock.NewRows([]string{"bucket", "count", "success_count", "error_count", "avg_duration_ms"})
+		rows := sqlmock.NewRows([]string{"bucket", "count", "success_count", "error_count", "avg_duration_ms", "hold_count"})
 		mock.ExpectQuery("SELECT").
 			WithArgs(start, now, "apigateway_invoke").
 			WillReturnRows(rows)
@@ -386,7 +386,7 @@ func TestMetrics_EventKindFilter(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = db.Close() }()
 
-		rows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"})
+		rows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms", "hold_count"})
 		mock.ExpectQuery("SELECT").
 			WithArgs(start, now, "apigateway_invoke").
 			WillReturnRows(rows)
@@ -408,8 +408,8 @@ func TestMetrics_EventKindFilter(t *testing.T) {
 
 		rows := sqlmock.NewRows([]string{
 			"total_calls", "success_rate", "avg_duration_ms",
-			"unique_users", "unique_tools", "enrichment_rate", "error_count",
-		}).AddRow(0, 0, 0, 0, 0, 0, 0)
+			"unique_users", "unique_tools", "enrichment_rate", "error_count", "hold_count",
+		}).AddRow(0, 0, 0, 0, 0, 0, 0, 0)
 		mock.ExpectQuery("SELECT").
 			WithArgs(start, now, "apigateway_invoke").
 			WillReturnRows(rows)
@@ -478,8 +478,8 @@ func TestOverview_DefaultTimeRange(t *testing.T) {
 	store := New(db, Config{})
 	rows := sqlmock.NewRows([]string{
 		"total_calls", "success_rate", "avg_duration_ms",
-		"unique_users", "unique_tools", "enrichment_rate", "error_count",
-	}).AddRow(0, 0, 0, 0, 0, 0, 0)
+		"unique_users", "unique_tools", "enrichment_rate", "error_count", "hold_count",
+	}).AddRow(0, 0, 0, 0, 0, 0, 0, 0)
 
 	mock.ExpectQuery("SELECT").WillReturnRows(rows)
 
@@ -577,8 +577,8 @@ func TestTimeseries_WithUserID(t *testing.T) {
 	start := time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC)
 	end := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
 
-	rows := sqlmock.NewRows([]string{"bucket", "count", "success_count", "error_count", "avg_duration_ms"}).
-		AddRow(time.Date(2025, 6, 15, 11, 0, 0, 0, time.UTC), 3, 3, 0, 15.0)
+	rows := sqlmock.NewRows([]string{"bucket", "count", "success_count", "error_count", "avg_duration_ms", "hold_count"}).
+		AddRow(time.Date(2025, 6, 15, 11, 0, 0, 0, time.UTC), 3, 3, 0, 15.0, 0)
 	mock.ExpectQuery("SELECT").
 		WithArgs(start, end, "user-42").
 		WillReturnRows(rows)
@@ -609,8 +609,8 @@ func TestBreakdown_WithUserID(t *testing.T) {
 	now := time.Now()
 	start := now.Add(-24 * time.Hour)
 
-	rows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"}).
-		AddRow("trino_query", 10, 1.0, 20.0)
+	rows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms", "hold_count"}).
+		AddRow("trino_query", 10, 1.0, 20.0, 0)
 	mock.ExpectQuery("SELECT").
 		WithArgs(start, now, "user-42").
 		WillReturnRows(rows)
@@ -642,8 +642,8 @@ func TestBreakdown_WithToolName(t *testing.T) {
 	now := time.Now()
 	start := now.Add(-24 * time.Hour)
 
-	rows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"}).
-		AddRow("low_frequency_tool", 3, 1.0, 12.0)
+	rows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms", "hold_count"}).
+		AddRow("low_frequency_tool", 3, 1.0, 12.0, 0)
 	// The tool_name argument must appear in the args list — proves
 	// the filter actually made it into the WHERE clause.
 	mock.ExpectQuery("SELECT").
@@ -676,8 +676,8 @@ func TestBreakdown_WithToolNameAndUserID(t *testing.T) {
 	now := time.Now()
 	start := now.Add(-24 * time.Hour)
 
-	rows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"}).
-		AddRow("trino_query", 7, 0.85, 145.0)
+	rows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms", "hold_count"}).
+		AddRow("trino_query", 7, 0.85, 145.0, 0)
 	mock.ExpectQuery("SELECT").
 		WithArgs(start, now, "user-42", "trino_query").
 		WillReturnRows(rows)
@@ -706,8 +706,8 @@ func TestOverview_WithUserID(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{
 		"total_calls", "success_rate", "avg_duration_ms",
-		"unique_users", "unique_tools", "enrichment_rate", "error_count",
-	}).AddRow(5, 1.0, 30.0, 1, 2, 0.8, 0)
+		"unique_users", "unique_tools", "enrichment_rate", "error_count", "hold_count",
+	}).AddRow(5, 1.0, 30.0, 1, 2, 0.8, 0, 0)
 	mock.ExpectQuery("SELECT").
 		WithArgs(start, now, "user-42").
 		WillReturnRows(rows)
@@ -799,8 +799,8 @@ func TestTimeseries_RowsErr(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	store := New(db, Config{})
-	rows := sqlmock.NewRows([]string{"bucket", "count", "success_count", "error_count", "avg_duration_ms"}).
-		AddRow(time.Now(), 1, 1, 0, 10.0).
+	rows := sqlmock.NewRows([]string{"bucket", "count", "success_count", "error_count", "avg_duration_ms", "hold_count"}).
+		AddRow(time.Now(), 1, 1, 0, 10.0, 0).
 		RowError(0, fmt.Errorf("row iteration error"))
 	mock.ExpectQuery("SELECT").WillReturnRows(rows)
 
@@ -816,8 +816,8 @@ func TestBreakdown_RowsErr(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	store := New(db, Config{})
-	rows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"}).
-		AddRow("tool", 1, 1.0, 10.0).
+	rows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms", "hold_count"}).
+		AddRow("tool", 1, 1.0, 10.0, 0).
 		RowError(0, fmt.Errorf("row iteration error"))
 	mock.ExpectQuery("SELECT").WillReturnRows(rows)
 
@@ -965,7 +965,7 @@ func TestDiscovery_EventKindFilter(t *testing.T) {
 		WithArgs(start, now, "apigateway_invoke").
 		WillReturnRows(patternRows)
 
-	toolRows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"})
+	toolRows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms", "hold_count"})
 	mock.ExpectQuery("SELECT tool_name").
 		WithArgs(start, now, "apigateway_invoke").
 		WillReturnRows(toolRows)
@@ -992,7 +992,7 @@ func TestDiscovery_DefaultTimeRange(t *testing.T) {
 	}).AddRow(0, 0, 0, 0, 0, 0)
 	mock.ExpectQuery("WITH session_tools").WillReturnRows(patternRows)
 
-	toolRows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"})
+	toolRows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms", "hold_count"})
 	mock.ExpectQuery("SELECT tool_name").WillReturnRows(toolRows)
 
 	result, err := store.Discovery(context.Background(), audit.MetricsFilter{})
@@ -1046,8 +1046,8 @@ func TestDiscovery_TopToolsScanError(t *testing.T) {
 	}).AddRow(10, 5, 8, 4, 0.50, 3)
 	mock.ExpectQuery("WITH session_tools").WillReturnRows(patternRows)
 
-	toolRows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"}).
-		AddRow("tool", "bad", "bad", "bad")
+	toolRows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms", "hold_count"}).
+		AddRow("tool", "bad", "bad", "bad", "bad")
 	mock.ExpectQuery("SELECT tool_name").WillReturnRows(toolRows)
 
 	_, err = store.Discovery(context.Background(), audit.MetricsFilter{})
@@ -1067,8 +1067,8 @@ func TestDiscovery_TopToolsRowsErr(t *testing.T) {
 	}).AddRow(10, 5, 8, 4, 0.50, 3)
 	mock.ExpectQuery("WITH session_tools").WillReturnRows(patternRows)
 
-	toolRows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"}).
-		AddRow("search", 10, 1.0, 15.0).
+	toolRows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms", "hold_count"}).
+		AddRow("search", 10, 1.0, 15.0, 0).
 		RowError(0, fmt.Errorf("row iteration error"))
 	mock.ExpectQuery("SELECT tool_name").WillReturnRows(toolRows)
 
@@ -1089,7 +1089,7 @@ func TestDiscovery_EmptyTopTools(t *testing.T) {
 	}).AddRow(10, 0, 10, 0, 0, 10)
 	mock.ExpectQuery("WITH session_tools").WillReturnRows(patternRows)
 
-	toolRows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"})
+	toolRows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms", "hold_count"})
 	mock.ExpectQuery("SELECT tool_name").WillReturnRows(toolRows)
 
 	result, err := store.Discovery(context.Background(), audit.MetricsFilter{})

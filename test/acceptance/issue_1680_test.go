@@ -86,7 +86,7 @@ func TestIssue1680_EveryToolThePlatformNamesCanBeCalled(t *testing.T) {
 
 // TestIssue1680_EveryToolAClientCanCallIsNamedByThePlatform is the other
 // direction. A handler on the server that the platform does not name is
-// invisible to the admin surface, to platform_find_tools and to the persona
+// invisible to the admin surface, to search's tools source and to the persona
 // gates, so nobody can grant it or take it away.
 func TestIssue1680_EveryToolAClientCanCallIsNamedByThePlatform(t *testing.T) {
 	c := connect(t)
