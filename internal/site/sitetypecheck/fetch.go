@@ -191,7 +191,9 @@ func typesOf(tgz []byte) (map[string][]byte, error) {
 // keptEntry is a tarball entry's path inside the package when a check keeps
 // it: a regular file that is the package.json or a declaration file.
 func keptEntry(hdr *tar.Header) (string, bool) {
-	if hdr.Typeflag != tar.TypeReg {
+	// An entry naming a parent directory is refused outright, whatever the
+	// cleaning below would make of it.
+	if hdr.Typeflag != tar.TypeReg || strings.Contains(hdr.Name, "..") {
 		return "", false
 	}
 	name, ok := packagePath(hdr.Name)

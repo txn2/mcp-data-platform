@@ -138,6 +138,11 @@ func compilerFrom(tgz []byte) (map[string][]byte, error) {
 // compilerEntry is the name a compiler package entry is kept under: the
 // module as tsc.wasm, each lib/*.d.ts as itself; false for anything else.
 func compilerEntry(hdr *tar.Header) (string, bool) {
+	// An entry naming a parent directory is refused outright, whatever the
+	// cleaning would make of it.
+	if strings.Contains(hdr.Name, "..") {
+		return "", false
+	}
 	name, ok := packagePath(hdr.Name)
 	if !ok || hdr.Typeflag != tar.TypeReg {
 		return "", false
@@ -156,6 +161,9 @@ func compilerEntry(hdr *tar.Header) (string, bool) {
 // that leaves it.
 func writeTree(root string, files map[string][]byte) error {
 	for name, data := range files {
+		if strings.Contains(name, "..") {
+			return fmt.Errorf("refusing to write %q outside the check", name)
+		}
 		clean := filepath.Clean(filepath.FromSlash(name))
 		if clean == "." || strings.HasPrefix(clean, "..") || filepath.IsAbs(clean) {
 			return fmt.Errorf("refusing to write %q outside the check", name)
