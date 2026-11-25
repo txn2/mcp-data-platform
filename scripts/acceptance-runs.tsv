@@ -13,7 +13,6 @@
 # plus the newest run exceeds the budget. acceptance-check estimates a
 # change's recording time from these rows' minutes per ticket.
 budget	45
-run	2026-11-25T11:03:52Z	1	0.0
 run	2026-11-25T11:03:57Z	1	0.1
 run	2026-11-25T11:04:11Z	1	0.2
 run	2026-11-25T11:04:15Z	1	0.0
@@ -33,3 +32,4 @@ run	2026-11-25T21:45:13Z	1	4.9
 run	2026-11-25T21:47:17Z	1	0.0
 run	2026-11-25T21:49:30Z	1	0.0
 run	2026-11-25T21:49:49Z	1	0.2
+run	2026-11-25T23:31:45Z	1	1.8
