@@ -36,6 +36,9 @@ func (c *compile) resolve(args api.OnResolveArgs) (api.OnResolveResult, error) {
 		return api.OnResolveResult{}, fmt.Errorf("imports %q: a build imports a file of the site by a path starting ./, or a module by its https URL", args.Path)
 	}
 	target, local, ok := c.cfg.mapped(args.Path)
+	if c.bare != nil && c.cfg.tailwindSpecifier(args.Path) {
+		return api.OnResolveResult{Path: args.Path, External: true}, nil
+	}
 	if c.bare != nil && !local {
 		c.mu.Lock()
 		c.bare[args.Path] = true

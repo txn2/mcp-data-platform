@@ -11,6 +11,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/cachescope"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/upstreamretry"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
@@ -234,6 +235,8 @@ func MCPResultTypeMiddleware() mcp.Middleware {
 			if method == methodToolsCall {
 				encodeStructured(result)
 			}
+			// Every cacheable result carries its method's cache scope (#2794).
+			cachescope.Stamp(method, result)
 			if !clientRequiresResultType(req) {
 				return result, nil
 			}

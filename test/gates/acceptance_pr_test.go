@@ -104,3 +104,30 @@ func TestThePullRequestGroupAndTheNightlyShareOneDefinition(t *testing.T) {
 		t.Errorf("CI's acceptance group runs %q, which the nightly does not run (%s)", m[1], strings.TrimSpace(out))
 	}
 }
+
+// TestEveryPullRequestRunsTheNightlyBeforeMerge: the E2E Nightly runs on every
+// pull request, a push cancels the run it replaced, and one job reports every
+// other job's result as the check a merge waits on (#2824). The changed
+// criteria job runs a ticket alone on a fresh stack; #2823 merged green and
+// failed that night on state the suite's other criteria leave behind.
+func TestEveryPullRequestRunsTheNightlyBeforeMerge(t *testing.T) {
+	repo, err := filepath.Abs(filepath.Join("..", ".."))
+	require(t, err)
+	raw, err := os.ReadFile(filepath.Join(repo, ".github", "workflows", "e2e-nightly.yml")) // #nosec G304 -- the repository's own workflow
+	require(t, err)
+	body := string(raw)
+	for _, want := range []string{
+		"  pull_request:\n",
+		"cancel-in-progress: ${{ github.event_name == 'pull_request' }}",
+		"name: E2E Nightly (pre-merge)",
+		"needs: [e2e, acceptance]",
+		"if: always() && github.event_name == 'pull_request'",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("e2e-nightly.yml lacks %q", want)
+		}
+	}
+	if !strings.Contains(body, "github.ref == 'refs/heads/main'") {
+		t.Error("the tracking-issue report no longer runs on main alone; a pull request's run would open or close it")
+	}
+}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/notification/notifychannel"
 	"github.com/txn2/mcp-data-platform/internal/notification/notifypost"
+	"github.com/txn2/mcp-data-platform/internal/refscheme"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 	"github.com/txn2/mcp-data-platform/pkg/notification/smtp"
 )
@@ -304,5 +305,23 @@ func TestWorker_RetryAfterIsHonoredWithinTheLongestBackoff(t *testing.T) {
 		if len(queue.backoff) != 1 || queue.backoff[0] != tc.want {
 			t.Errorf("asked %s: backoff = %v, want %s", tc.asked, queue.backoff, tc.want)
 		}
+	}
+}
+
+// A document leaves under the deployment's reference scheme: what was queued
+// is canonical, and the message is for a person (#2788).
+func TestDeliveredDocumentsDisplayTheScheme(t *testing.T) {
+	if err := refscheme.Configure("acme", ""); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = refscheme.Configure("", "") })
+	batch := []notification.Notification{
+		{Payload: notification.Payload{Document: &notification.Document{Title: "run mcp:script:s1 failed", Body: "see mcp:resource:r1"}}},
+		{Payload: notification.Payload{}},
+	}
+	displayReferences(batch)
+	doc := batch[0].Payload.Document
+	if doc.Title != "run acme:script:s1 failed" || doc.Body != "see acme:resource:r1" {
+		t.Errorf("the document was sent canonical: %q / %q", doc.Title, doc.Body)
 	}
 }

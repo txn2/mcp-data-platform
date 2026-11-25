@@ -82,6 +82,16 @@ func (p *Platform) reloadConnectionLocal(kind, name, op string) {
 		return
 	case ReloadUpsert:
 	}
+	read := p.readStoredConnection(kind, name)
+	storeresync.Upserted(p.toolkitRegistry, p.config, kind, name, read)
+	if read.Found {
+		storeresync.Confirmed(p.toolkitRegistry, p.config, kind, name, p.readStoredConnection(kind, name))
+	}
+}
+
+// readStoredConnection is what the store holds for one connection, for the
+// reload handlers.
+func (p *Platform) readStoredConnection(kind, name string) storeresync.Read {
 	inst, err := p.connectionStore.Get(context.Background(), kind, name)
 	if errors.Is(err, ErrConnectionNotFound) {
 		inst, err = nil, nil
@@ -90,7 +100,7 @@ func (p *Platform) reloadConnectionLocal(kind, name, op string) {
 	if inst != nil {
 		read.Config = inst.Config
 	}
-	storeresync.Upserted(p.toolkitRegistry, p.config, kind, name, read)
+	return read
 }
 
 // reloadCatalogLocal rebuilds every connection mounting the catalog here.

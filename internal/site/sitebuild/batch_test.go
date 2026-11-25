@@ -233,3 +233,94 @@ func TestOptions_Validation(t *testing.T) {
 		}
 	}
 }
+
+// With tailwind set, the stylesheet's @import "tailwindcss" is the stylesheet
+// compiler's, so the specifiers an import map is proposed for leave it out;
+// without tailwind it is a package like any other, and a specifier imports
+// resolves is not unmapped (#2790).
+func TestSpecifiers_TailwindAndUnmapped(t *testing.T) {
+	files := map[string]string{
+		"app.tsx":    `import "./app.css"; import x from "left-pad"; import { h } from "preact"; export const v = [x, h];`,
+		"app.css":    `@import "tailwindcss";`,
+		"index.html": `<div></div>`,
+	}
+	with := mustParse(t, `{"entries":["app.tsx"],"tailwind":"4.1.8","imports":{"left-pad":"https://esm.sh/left-pad@1.3.0"}}`)
+	specs, err := Specifiers(context.Background(), tree(files), with)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(specs, "tailwindcss") {
+		t.Errorf("with tailwind set, the specifiers name tailwindcss: %v", specs)
+	}
+	if got := with.Unmapped(specs); !slices.Equal(got, []string{"preact"}) {
+		t.Errorf("unmapped: %v, want [preact] (left-pad is mapped in imports)", got)
+	}
+	without := mustParse(t, `{"entries":["app.tsx"]}`)
+	if specs, err = Specifiers(context.Background(), tree(files), without); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(specs, "tailwindcss") {
+		t.Errorf("without tailwind, tailwindcss is a package import and is missing: %v", specs)
+	}
+}
+
+// What loads at start is the entry and the chunks it imports statically: a URL
+// only a lazily loaded page imports is not a start import, a URL only a shared
+// chunk the entry imports statically imports is, start_bytes is the entry plus
+// that chunk, a js budget is judged against it, and a module reached only by
+// import() is not among the start set's largest inputs (#2791).
+func TestReport_StartSetIsTheEntryAndItsStaticChunks(t *testing.T) {
+	files := map[string]string{
+		"app.tsx":     `import { shared } from "./shared"; const A = () => import("./pages/A"); const B = () => import("./pages/B"); export const v = [shared, A, B];`,
+		"shared.ts":   `import y from "https://esm.sh/y@1.0.0"; export const shared = ["shared body", y];`,
+		"pages/A.tsx": `import x from "https://esm.sh/x@1.0.0"; import { shared } from "../shared"; export default ["` + strings.Repeat("lazy page A body ", 200) + `", x, shared];`,
+		"pages/B.tsx": `import { shared } from "../shared"; export default ["page B", shared];`,
+	}
+	res, err := compileOne(t, `{"entries":["app.tsx"],"budgets":{"app.tsx":{"js":"10"}}}`, files, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep := res.Report
+	if slices.Contains(rep.StartImports, "https://esm.sh/x@1.0.0") {
+		t.Errorf("a URL only a lazy page imports is a start import: %v", rep.StartImports)
+	}
+	if !slices.Contains(rep.StartImports, "https://esm.sh/y@1.0.0") {
+		t.Errorf("a URL the statically imported shared code imports is not a start import: %v", rep.StartImports)
+	}
+	var want int64
+	sharedChunk := false
+	for _, o := range res.Outputs {
+		body := string(o.Body)
+		switch {
+		case o.Path == "app.js":
+			want += int64(len(body))
+		case strings.HasPrefix(o.Path, ChunkDir+"/") && strings.HasSuffix(o.Path, ".js") && strings.Contains(body, "shared body"):
+			want += int64(len(body))
+			sharedChunk = true
+		}
+	}
+	if !sharedChunk {
+		t.Skip("esbuild inlined the shared code into app.js; the shape this test reads did not occur")
+	}
+	if rep.StartBytes != want {
+		t.Errorf("start_bytes %d, want %d (app.js and the shared chunk)", rep.StartBytes, want)
+	}
+	if rep.StartGzipBytes == 0 {
+		t.Error("start_gzip_bytes is 0")
+	}
+	if len(rep.Warnings) != 1 || !strings.Contains(rep.Warnings[0], "chunk(s) it imports at start") || !strings.Contains(rep.Warnings[0], FormatBytes(want)) {
+		t.Errorf("the js budget is not judged against the start set: %v", rep.Warnings)
+	}
+	for _, in := range rep.LargestInputs {
+		if strings.Contains(in.Path, "pages/") {
+			t.Errorf("a lazily loaded page is among the start set's largest inputs: %v", rep.LargestInputs)
+		}
+	}
+	lazyA := false
+	for _, in := range rep.LargestInputsLazy {
+		lazyA = lazyA || in.Path == "pages/A.tsx"
+	}
+	if !lazyA {
+		t.Errorf("the lazy page is not among largest_inputs_lazy: %v", rep.LargestInputsLazy)
+	}
+}

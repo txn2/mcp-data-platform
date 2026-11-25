@@ -172,7 +172,7 @@ func (t *Tool) imports(ctx context.Context, actor sitesvc.Actor, in Input) (any,
 		return nil, &sitesvc.RefusedError{Msg: err.Error()}
 	}
 	return map[string]any{
-		fieldRelease: b.Release.Number, "imports": gen.Imports, "lockfile": gen.Lockfile, "missing": gen.Missing,
+		fieldRelease: b.Release.Number, "imports": gen.Imports, "lockfile": gen.Lockfile, "missing": cfg.Unmapped(gen.Missing),
 		"message": "A proposal: review it and write it into " + sitebuild.ControlFile + "'s imports (entries you already map are proposed too; " +
 			"yours win if you keep both), or set \"imports_from\": \"package.json\" to generate it at every publish.",
 	}, nil

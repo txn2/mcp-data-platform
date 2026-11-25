@@ -40,6 +40,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/httpobs"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/refscheme"
 	"github.com/txn2/mcp-data-platform/pkg/ratelimit"
 )
 
@@ -273,6 +274,9 @@ func (h *Handler) serveIn(w http.ResponseWriter, r *http.Request, env, name, res
 	if status != 0 {
 		return
 	}
+	// A reference a response handed to a browser comes back under the
+	// deployment's scheme and reaches the script canonical (#2788).
+	body = refscheme.CanonJSONBody(r.Header.Get("Content-Type"), body)
 	req := eprun.Request{
 		Method: r.Method, Path: r.URL.Path, Params: params, Query: handlerQuery(r),
 		Header: r.Header.Clone(), Body: body, Caller: caller, ClientIP: h.clientIP(r), Cookies: requestCookies(r, page),

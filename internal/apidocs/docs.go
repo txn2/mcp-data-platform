@@ -59419,7 +59419,14 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "largest_inputs": {
-                    "description": "LargestInputs are the modules contributing most bytes, at most ten:\npaths of the site, and URLs fetched in bundle mode.",
+                    "description": "LargestInputs are the modules contributing most bytes to what loads at\nstart, at most ten: paths of the site, and URLs fetched in bundle mode.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sitebuild.InputSize"
+                    }
+                },
+                "largest_inputs_lazy": {
+                    "description": "LargestInputsLazy are the modules contributing most bytes to the chunks\nloaded when first used, at most ten.",
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/sitebuild.InputSize"
@@ -59431,8 +59438,15 @@ const docTemplate = `{
                         "$ref": "#/definitions/sitebuild.OutputSize"
                     }
                 },
+                "start_bytes": {
+                    "description": "StartBytes and StartGzipBytes are the size of the scripts that load at\nstart: the entry's script and the chunks it imports statically. The js\nand js_gzip budgets are judged against them.",
+                    "type": "integer"
+                },
+                "start_gzip_bytes": {
+                    "type": "integer"
+                },
                 "start_imports": {
-                    "description": "StartImports are the URLs the entry imports when it is loaded, not the\nones a chunk imports when it is first used.",
+                    "description": "StartImports are the URLs the entry and the chunks it imports statically\nimport when the page loads, not the ones a chunk loaded when first used\nimports.",
                     "type": "array",
                     "items": {
                         "type": "string"

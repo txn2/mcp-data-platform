@@ -94,7 +94,7 @@ func (p *Platform) receivingMiddlewareChain() []mwSpec {
 		// Reference scheme: every reference in a request reaches the layers
 		// below canonical, and every one in a result leaves under the
 		// deployment's scheme (#2776). Outer to everything that writes one.
-		{Name: mwReferenceScheme, Register: func() { p.mcpServer.AddReceivingMiddleware(refscheme.Middleware(defaultInitTool)) }},
+		{Name: mwReferenceScheme, Register: func() { p.mcpServer.AddReceivingMiddleware(refscheme.Middleware(referenceSchemeOptions())) }},
 
 		// Result type: types every result the layers below hand back, theirs included (#1382, #1383).
 		{Name: mwResultType, Register: func() { p.mcpServer.AddReceivingMiddleware(middleware.MCPResultTypeMiddleware()) }},

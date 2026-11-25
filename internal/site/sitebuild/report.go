@@ -12,17 +12,33 @@ import (
 // Report is what one entry's compile produced, from what (#2783): each output
 // with its size before and after gzip, the inputs that contribute most to it,
 // and the URLs it loads when the page starts.
+//
+// What loads at start is the entry's script and the shared chunks it imports
+// statically, transitively (#2791). A chunk reached only through import() is
+// loaded when first used, and is left out of the start figures.
 type Report struct {
 	Entry   string       `json:"entry"`
 	Outputs []OutputSize `json:"outputs"`
-	// LargestInputs are the modules contributing most bytes, at most ten:
-	// paths of the site, and URLs fetched in bundle mode.
+	// LargestInputs are the modules contributing most bytes to what loads at
+	// start, at most ten: paths of the site, and URLs fetched in bundle mode.
 	LargestInputs []InputSize `json:"largest_inputs"`
-	// StartImports are the URLs the entry imports when it is loaded, not the
-	// ones a chunk imports when it is first used.
+	// LargestInputsLazy are the modules contributing most bytes to the chunks
+	// loaded when first used, at most ten.
+	LargestInputsLazy []InputSize `json:"largest_inputs_lazy,omitempty"`
+	// StartImports are the URLs the entry and the chunks it imports statically
+	// import when the page loads, not the ones a chunk loaded when first used
+	// imports.
 	StartImports []string `json:"start_imports"`
+	// StartBytes and StartGzipBytes are the size of the scripts that load at
+	// start: the entry's script and the chunks it imports statically. The js
+	// and js_gzip budgets are judged against them.
+	StartBytes     int64 `json:"start_bytes"`
+	StartGzipBytes int64 `json:"start_gzip_bytes"`
 	// Warnings are the budgets the entry's first load exceeds.
 	Warnings []string `json:"warnings,omitempty"`
+
+	// startChunks is how many scripts besides the entry's load at start.
+	startChunks int
 }
 
 // OutputSize is one output's size.
@@ -73,38 +89,89 @@ func condense(entry, raw string, outputs []Output, cfg *Config) (*Report, error)
 		return nil, fmt.Errorf("reading what the compiler produced: %w", err)
 	}
 	rep := &Report{Entry: entry, Outputs: []OutputSize{}, LargestInputs: []InputSize{}, StartImports: []string{}}
+	start := meta.startSet(metaKey(OutputOf(entry)))
 	for _, o := range outputs {
 		if strings.HasSuffix(o.Path, ".map") {
 			continue
 		}
-		rep.Outputs = append(rep.Outputs, OutputSize{Path: o.Path, Bytes: int64(len(o.Body)), GzipBytes: gzipSize(o.Body), Chunk: strings.HasPrefix(o.Path, ChunkDir+sep)})
+		size := OutputSize{Path: o.Path, Bytes: int64(len(o.Body)), GzipBytes: gzipSize(o.Body), Chunk: strings.HasPrefix(o.Path, ChunkDir+sep)}
+		rep.Outputs = append(rep.Outputs, size)
+		if start[metaKey(o.Path)] && !strings.HasSuffix(o.Path, extCSS) {
+			rep.StartBytes += size.Bytes
+			rep.StartGzipBytes += size.GzipBytes
+			if o.Path != OutputOf(entry) {
+				rep.startChunks++
+			}
+		}
 	}
-	contrib := map[string]int64{}
+	atStart, lazy := map[string]int64{}, map[string]int64{}
 	for name, out := range meta.Outputs {
+		into := lazy
+		if start[name] {
+			into = atStart
+			if !strings.HasSuffix(name, extCSS) {
+				rep.StartImports = append(rep.StartImports, startImports(out.Imports)...)
+			}
+		}
 		for in, v := range out.Inputs {
-			contrib[inputName(in)] += v.BytesInOutput
-		}
-		if out.EntryPoint != "" && !strings.HasSuffix(name, extCSS) {
-			rep.StartImports = append(rep.StartImports, startImports(out.Imports)...)
+			into[inputName(in)] += v.BytesInOutput
 		}
 	}
-	for in, n := range contrib {
-		rep.LargestInputs = append(rep.LargestInputs, InputSize{Path: in, Bytes: n})
+	rep.LargestInputs = largest(atStart)
+	if l := largest(lazy); len(l) > 0 {
+		rep.LargestInputsLazy = l
 	}
-	slices.SortFunc(rep.LargestInputs, func(a, b InputSize) int {
-		if a.Bytes != b.Bytes {
-			return int(b.Bytes - a.Bytes)
-		}
-		return strings.Compare(a.Path, b.Path)
-	})
-	rep.LargestInputs = rep.LargestInputs[:min(len(rep.LargestInputs), maxLargest)]
 	slices.Sort(rep.StartImports)
 	rep.StartImports = slices.Compact(rep.StartImports)
 	rep.Warnings = budgetWarnings(entry, rep, cfg.Budgets[entry])
 	return rep, nil
 }
 
-// startImports are the URLs an entry's script imports when it loads.
+// metaKey is an output's path as the metafile names it.
+func metaKey(outputPath string) string {
+	return strings.TrimPrefix(outDir, sep) + outputPath
+}
+
+// startSet is the outputs that load when the page starts: the entry's output
+// and every output it imports statically, transitively. An output reached only
+// through import() is not in it, though esbuild gives it an entryPoint of its
+// own (#2791).
+func (m metafile) startSet(entry string) map[string]bool {
+	set := map[string]bool{}
+	queue := []string{entry}
+	for len(queue) > 0 {
+		name := queue[0]
+		queue = queue[1:]
+		out, ok := m.Outputs[name]
+		if !ok || set[name] {
+			continue
+		}
+		set[name] = true
+		for _, imp := range out.Imports {
+			if !imp.External && imp.Kind == "import-statement" {
+				queue = append(queue, imp.Path)
+			}
+		}
+	}
+	return set
+}
+
+// largest is the inputs contributing most bytes, at most maxLargest.
+func largest(contrib map[string]int64) []InputSize {
+	out := make([]InputSize, 0, len(contrib))
+	for in, n := range contrib {
+		out = append(out, InputSize{Path: in, Bytes: n})
+	}
+	slices.SortFunc(out, func(a, b InputSize) int {
+		if a.Bytes != b.Bytes {
+			return int(b.Bytes - a.Bytes)
+		}
+		return strings.Compare(a.Path, b.Path)
+	})
+	return out[:min(len(out), maxLargest)]
+}
+
+// startImports are the URLs an output imports when it loads.
 func startImports(imports []metaImport) []string {
 	var out []string
 	for _, imp := range imports {
@@ -136,24 +203,27 @@ func gzipSize(body []byte) int64 {
 	return int64(buf.Len())
 }
 
-// budgetWarnings are the sizes of an entry's first load past its budget: its
-// script and its stylesheet, not the chunks it loads later.
+// budgetWarnings are the sizes of an entry's first load past its budget: the
+// scripts that load at start (its own and the chunks it imports statically,
+// #2791) and its stylesheet, not the chunks it loads when first used.
 func budgetWarnings(entry string, rep *Report, b Budget) []string {
 	js, css := OutputOf(entry), strings.TrimSuffix(OutputOf(entry), extJS)+extCSS
+	scripts := js
+	if rep.startChunks > 0 {
+		scripts = fmt.Sprintf("%s with the %d chunk(s) it imports at start", js, rep.startChunks)
+	}
 	var out []string
-	for _, o := range rep.Outputs {
-		limits := map[string][2]Size{}
-		switch o.Path {
-		case js:
-			limits["js"], limits["js_gzip"] = [2]Size{b.JS, Size(o.Bytes)}, [2]Size{b.JSGzip, Size(o.GzipBytes)}
-		case css:
-			limits["css"], limits["css_gzip"] = [2]Size{b.CSS, Size(o.Bytes)}, [2]Size{b.CSSGzip, Size(o.GzipBytes)}
+	warn := func(what string, budget Size, size int64, name string) {
+		if budget > 0 && Size(size) > budget {
+			out = append(out, fmt.Sprintf("%s: %s is %s, over its %s budget of %s", entry, what, FormatBytes(size), name, FormatBytes(int64(budget))))
 		}
-		for _, name := range []string{"js", "js_gzip", "css", "css_gzip"} {
-			l, ok := limits[name]
-			if ok && l[0] > 0 && l[1] > l[0] {
-				out = append(out, fmt.Sprintf("%s: %s is %s, over its %s budget of %s", entry, o.Path, FormatBytes(int64(l[1])), name, FormatBytes(int64(l[0]))))
-			}
+	}
+	warn(scripts, b.JS, rep.StartBytes, "js")
+	warn(scripts, b.JSGzip, rep.StartGzipBytes, "js_gzip")
+	for _, o := range rep.Outputs {
+		if o.Path == css {
+			warn(css, b.CSS, o.Bytes, "css")
+			warn(css, b.CSSGzip, o.GzipBytes, "css_gzip")
 		}
 	}
 	return out
