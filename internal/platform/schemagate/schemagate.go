@@ -19,8 +19,10 @@
 //     the columns of each table it names (#2387).
 //
 // A read is trino_describe_table of the table, fetch of its mcp:dataset
-// reference, a DESCRIBE or SHOW COLUMNS statement, or either of the deliveries
-// above. Reads are kept in the search gate's shared store, under the same
+// reference, a DESCRIBE or SHOW COLUMNS statement, a successful SELECT * of it,
+// or either of the deliveries above. A statement that names no column of the
+// one table it reads (SELECT * or SELECT count(*), with at most a LIMIT) is
+// never refused, since there is nothing in it to guess (#2810). Reads are kept in the search gate's shared store, under the same
 // discovery scope, for as long as a search is remembered.
 package schemagate
 
@@ -185,6 +187,20 @@ func (g *Gate) handleSQL(ctx context.Context, scope string, c call, run func() (
 	if len(tables) == 0 || sqltables.StatementKind(stmt) == "show" {
 		return run()
 	}
+	// A statement that names no column of the one table it reads has nothing
+	// to guess (#2810): SELECT * and SELECT count(*) run unread. A successful
+	// SELECT * is the read, since its result names every column; count(*)
+	// names none, so the next statement naming a column is refused as before.
+	if shape, free := sqltables.ColumnFree(stmt); free && len(tables) == 1 {
+		res, err := run()
+		if shape == sqltables.ShapeStar && succeeded(res, err) {
+			g.markRead(ctx, scope, tables[0])
+		}
+		if err == nil {
+			g.catalogHint(res)
+		}
+		return res, err
+	}
 	if g.cfg.Require {
 		if refusal := g.refuseUnread(ctx, scope, c.name, tables); refusal != nil {
 			return refusal, nil
@@ -193,6 +209,9 @@ func (g *Gate) handleSQL(ctx context.Context, scope string, c call, run func() (
 	res, err := run()
 	if err == nil && isSchemaError(res) {
 		g.addColumns(ctx, scope, res, tables)
+	}
+	if err == nil {
+		g.catalogHint(res)
 	}
 	return res, err
 }

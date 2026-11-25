@@ -479,7 +479,11 @@ migrations it recorded to prod's schema first, and `rollback` with
 (`shop_dev` for dev unless `schema` names another), built from the last
 environment's structure with no rows, and its runs reach no other: dev's runs
 read and write dev's rows only. `/endpoints/<name>` serves the last
-environment; another answers at `/environments/<env>/endpoints/<name>`. Keep
+environment; another answers at `/environments/<env>/endpoints/<name>`. The
+application's page lists, on each environment's card, every URL each endpoint
+answers at there (the platform's host, the application's own address for the
+last environment, each site environment of the environment's name), and
+`GET /api/v1/portal/applications/<name>` carries them as `endpoints`. Keep
 what differs between environments in variables, not in code: `set_variable`
 with `variable`, `value` and `environment` (none sets the default), read in a
 script with `platform.env("PAYMENTS_CONNECTION")`. A secret is never a

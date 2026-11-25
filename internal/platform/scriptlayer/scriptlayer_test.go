@@ -1120,7 +1120,7 @@ func TestList_NarrowsByCategoryAndTag(t *testing.T) {
 }
 
 // TestHasStore covers the condition PlatformTools reads to decide whether this
-// deployment registers manage_script, run_script and show_scripts: the same
+// deployment registers manage_script and run_script: the same
 // condition RegisterTool applies, so the two cannot disagree about whether the
 // tools exist.
 func TestHasStore(t *testing.T) {

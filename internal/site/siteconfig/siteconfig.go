@@ -69,7 +69,32 @@ type Config struct {
 	// Traffic is the platform's own record of each site's traffic and
 	// latency (#2647).
 	Traffic TrafficConfig `yaml:"traffic"`
+	// Typecheck bounds the type check of a release whose site asks for one
+	// (#2793).
+	Typecheck TypecheckConfig `yaml:"typecheck"`
 }
+
+// TypecheckConfig is the sites.typecheck section (#2793).
+type TypecheckConfig struct {
+	// Enabled runs the checks sites ask for; unset is on.
+	Enabled *bool `yaml:"enabled"`
+	// MemoryLimit is the most one check's compiler may hold, in bytes; unset
+	// is 3 GiB. A check over it is stopped and reported, and the replica is
+	// unaffected: the compiler runs in a worker process of its own.
+	MemoryLimit int64 `yaml:"memory_limit"`
+	// Timeout is the longest one check may run; unset is 5 minutes.
+	Timeout time.Duration `yaml:"timeout"`
+	// Registry is where the compiler and package types are fetched; unset is
+	// the npm registry.
+	Registry string `yaml:"registry"`
+	// Dir is the writable directory a check lays the compiler and the release
+	// out in; unset is the temporary directory. An image with no /tmp names
+	// a volume here.
+	Dir string `yaml:"dir"`
+}
+
+// IsEnabled reports whether checks run; unset is on.
+func (t TypecheckConfig) IsEnabled() bool { return t.Enabled == nil || *t.Enabled }
 
 // Traffic retention's defaults (#2647).
 const (

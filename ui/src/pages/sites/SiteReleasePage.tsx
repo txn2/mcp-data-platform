@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ChangesFrom } from "./SiteReleaseChanges";
+import { SiteTypecheckCard } from "./SiteTypecheck";
 import { day, envOpenUrl, formatBytes, when } from "./siteFormat";
 
 const PAGE = 50;
@@ -60,6 +61,7 @@ export function SiteReleasePage({ site, number, onNavigate }: { site: string; nu
         }
       />
       <ReleaseFacts site={site} release={data} has404={has404} onNavigate={onNavigate} />
+      <ReleaseTypecheck site={site} number={number} owner={owner} onNavigate={onNavigate} />
       {data.base ? <ChangesFrom site={site} from={data.base} to={number} manage={!!owner?.permissions.manage} /> : null}
       <SectionCard
         title="Files"
@@ -142,6 +144,15 @@ export function SiteReleasePage({ site, number, onNavigate }: { site: string; nu
       </SectionCard>
     </div>
   );
+}
+
+// ReleaseTypecheck is the release's type check card (#2793), shown to someone
+// who manages the site: a check's errors quote the release's source, which only
+// its managers read. An error's file opens its page.
+function ReleaseTypecheck({ site, number, owner, onNavigate }: { site: string; number: number; owner?: Site; onNavigate: (path: string) => void }) {
+  if (!owner?.permissions.manage) return null;
+  const file = (path: string) => onNavigate(`/sites/${encodeURIComponent(site)}/releases/${number}/file/${encodeURIComponent(path)}`);
+  return <SiteTypecheckCard site={site} release={number} canCheck onOpenFile={file} />;
 }
 
 // RemovedRelease is a release the daily cleanup removed (#2602): its record

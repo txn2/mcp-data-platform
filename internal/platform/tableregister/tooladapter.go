@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	portaltoolkit "github.com/txn2/mcp-data-platform/pkg/toolkits/portal"
@@ -70,7 +71,7 @@ func (a *ToolAdapter) Register(
 	res, err := a.reg.Register(ctx, a.callerFrom(ctx), src, Request{
 		Connection: connection,
 		TableName:  tableName,
-		Source:     "mcp",
+		Source:     mcpcontext.CallSource(ctx),
 		Repair:     opts.Repair,
 		Follow:     opts.Follow,
 	})

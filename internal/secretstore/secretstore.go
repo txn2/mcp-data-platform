@@ -434,6 +434,37 @@ func (s *Store) storedAsWritten(ctx context.Context) ([]plainSecret, error) {
 	return found, nil
 }
 
+// Values is every stored secret's value, decrypted, for a content check that
+// refuses text holding one (#2820): an agent's platform feedback post. The
+// values are compared in process and never returned to a caller, stored or
+// logged; a value that does not decrypt is skipped rather than failing the
+// check, since it cannot be one a caller holds in clear either.
+func (s *Store) Values(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT value FROM gateway_secrets WHERE value IS NOT NULL`)
+	if err != nil {
+		return nil, fmt.Errorf("reading secret values: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []string
+	for rows.Next() {
+		var stored string
+		if err := rows.Scan(&stored); err != nil {
+			return nil, fmt.Errorf("scanning a secret value: %w", err)
+		}
+		value := stored
+		if s.enc != nil {
+			if value, err = s.enc.Decrypt(stored); err != nil {
+				continue
+			}
+		}
+		out = append(out, value)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("reading secret values: %w", err)
+	}
+	return out, nil
+}
+
 // withValue reads a secret and its decrypted value.
 func (s *Store) withValue(ctx context.Context, name string) (Secret, string, error) {
 	var stored string

@@ -15,5 +15,4 @@ import (
 var (
 	infoOutputSchema        *jsonschema.Schema = middleware.MustOutputSchema[Info]()
 	connectionsOutputSchema *jsonschema.Schema = middleware.MustOutputSchema[listConnectionsOutput]()
-	findToolsOutputSchema   *jsonschema.Schema = middleware.MustOutputSchema[findToolsOutput]()
 )

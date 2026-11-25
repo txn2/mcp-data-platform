@@ -83,6 +83,7 @@ const KNOWN_ROUTES: readonly string[] = [
   "/admin/keys",
   "/admin/users",
   "/admin/secrets",
+  "/admin/platform-feedback",
   "/admin/webhooks",
   "/admin/catalog",
   "/admin/changelog",
@@ -141,6 +142,8 @@ const KNOWN_PATTERNS: readonly RegExp[] = [
   // One endpoint under the Endpoints tab (#2208); the tab itself is the
   // one-segment shape above.
   /^\/admin\/automations\/endpoints\/[^/]+$/,
+  // One platform feedback post (#2820).
+  /^\/admin\/platform-feedback\/[^/]+$/,
   // One secret's editor; /admin/secrets/new is the same shape (#2051).
   /^\/admin\/secrets\/[^/]+$/,
   // One webhook source, and its editor; /admin/webhooks/new is the first
@@ -172,7 +175,7 @@ const ALIASES: ReadonlyMap<string, string> = new Map([
 
 // MOVED_PREFIXES are sections that moved to a new prefix with every path under
 // them intact. The scripts section became Automations (#1912), and a run link
-// mailed with a failed run, a show_scripts URL, and a bookmark were all built
+// mailed with a failed run and a bookmark were both built
 // under the old prefix, so each has to land on the same script or run it named.
 const MOVED_PREFIXES: readonly (readonly [string, string])[] = [
   ["/scripts", "/automations"],

@@ -8,6 +8,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/audit"
+	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 )
@@ -64,7 +65,7 @@ func (h *Handle) auditPromptServe(ctx context.Context, pr *prompt.Prompt, surfac
 		// The serve already passed the visibility checks; without this the
 		// row would persist authorized=false and read as a denial.
 		Authorized: true,
-		Source:     "mcp",
+		Source:     mcpcontext.CallSource(ctx),
 		EventKind:  string(audit.EventTypePromptServe),
 		Parameters: map[string]any{
 			"prompt_id":   pr.ID,

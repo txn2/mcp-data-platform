@@ -44,7 +44,7 @@ const (
 
 	// sourceMCP identifies tool calls that arrived over a real MCP transport
 	// (stdio or HTTP/SSE), i.e. agents.
-	sourceMCP = "mcp"
+	sourceMCP = mcpcontext.SourceMCP
 )
 
 // Exported source constants for callers that need to tag their context with

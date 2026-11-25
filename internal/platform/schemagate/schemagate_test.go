@@ -186,7 +186,7 @@ func TestFailedReadsDoNotOpenTheTable(t *testing.T) {
 	h.call(toolFetch, map[string]any{"reference": "mcp:dataset:(trino,warehouse,hive.sales.orders)"})
 	h.call(toolFetch, map[string]any{"reference": "mcp:dataset:(api,crm,contacts)"})
 	h.reply = func(string) mcp.Result { return &mcp.CallToolResult{} }
-	res := h.call(toolQuery, map[string]any{"sql": "SELECT * FROM orders"})
+	res := h.call(toolQuery, map[string]any{"sql": "SELECT p_id FROM orders"})
 	assert.True(t, res.IsError)
 }
 
@@ -195,7 +195,7 @@ func TestStatementsTheGateLeavesAlone(t *testing.T) {
 		"no tables":            {"sql": "SELECT 1"},
 		"metadata tables":      {"sql": "SELECT * FROM hive.information_schema.columns JOIN system.runtime.nodes ON true"},
 		"unknown table":        {"sql": "SELECT * FROM missing_table"},
-		"unknown connection":   {"sql": "SELECT * FROM orders", "connection": "elsewhere"},
+		"unknown connection":   {"sql": "SELECT p_id FROM orders", "connection": "elsewhere"},
 		"empty statement":      {"sql": ""},
 		"cte only":             {"sql": "WITH x AS (SELECT 1 AS a) SELECT a FROM x"},
 		"show tables":          {"sql": "SHOW TABLES FROM orders"},
@@ -215,12 +215,12 @@ func TestStatementsTheGateLeavesAlone(t *testing.T) {
 func TestOtherToolsAndSourcesAreNeverRefused(t *testing.T) {
 	h := newHarness(t, true)
 	for _, tool := range []string{"api_invoke_endpoint", "graphql_query", "s3_list", "search"} {
-		res := h.call(tool, map[string]any{"sql": "SELECT * FROM orders"})
+		res := h.call(tool, map[string]any{"sql": "SELECT p_id FROM orders"})
 		assert.False(t, res.IsError, tool)
 	}
 	for _, src := range []string{middleware.SourceScript, middleware.SourceAdmin, middleware.SourceREST} {
 		h.pc.Source = src
-		res := h.call(toolQuery, map[string]any{"sql": "SELECT * FROM orders"})
+		res := h.call(toolQuery, map[string]any{"sql": "SELECT p_id FROM orders"})
 		assert.False(t, res.IsError, src)
 	}
 	assert.Equal(t, 7, h.ran)
@@ -228,7 +228,7 @@ func TestOtherToolsAndSourcesAreNeverRefused(t *testing.T) {
 
 func TestRequireOffRefusesNothing(t *testing.T) {
 	h := newHarness(t, false)
-	res := h.call(toolExport, map[string]any{"sql": "SELECT * FROM orders"})
+	res := h.call(toolExport, map[string]any{"sql": "SELECT p_id FROM orders"})
 	assert.False(t, res.IsError)
 	assert.Equal(t, 1, h.ran)
 }
@@ -289,7 +289,7 @@ func TestScriptFailuresAreNotEnriched(t *testing.T) {
 func TestStoreReadErrorLetsTheStatementRun(t *testing.T) {
 	h := newHarness(t, true)
 	h.gate.cfg.Store = failingStore{}
-	res := h.call(toolQuery, map[string]any{"sql": "SELECT * FROM orders"})
+	res := h.call(toolQuery, map[string]any{"sql": "SELECT p_id FROM orders"})
 	assert.False(t, res.IsError)
 }
 
@@ -313,7 +313,7 @@ func TestReadsAreScopedPerCaller(t *testing.T) {
 	h := newHarness(t, true)
 	h.call(toolDescribe, map[string]any{"table": "orders"})
 	h.pc.UserID = "u2"
-	res := h.call(toolQuery, map[string]any{"sql": "SELECT * FROM orders"})
+	res := h.call(toolQuery, map[string]any{"sql": "SELECT p_id FROM orders"})
 	assert.True(t, res.IsError, "another caller's read does not open the table")
 }
 
@@ -335,7 +335,7 @@ func (failingMarkStore) MarkDiscovered(context.Context, string) error {
 func TestFailedReadWriteStillRefusesWithTheSchema(t *testing.T) {
 	h := newHarness(t, true)
 	h.gate.cfg.Store = failingMarkStore{}
-	res := h.call(toolQuery, map[string]any{"sql": "SELECT * FROM orders"})
+	res := h.call(toolQuery, map[string]any{"sql": "SELECT p_id FROM orders"})
 	assert.True(t, res.IsError)
 	assert.Contains(t, text(res), "- p_id bigint")
 }
@@ -357,7 +357,7 @@ func TestMiddlewarePassesThroughOtherMethodsAndCallers(t *testing.T) {
 	_, err := mw(context.Background(), "tools/list", &mcp.ListToolsRequest{})
 	require.NoError(t, err)
 	// No PlatformContext, and a context whose caller has no scope.
-	raw, _ := json.Marshal(map[string]any{"sql": "SELECT * FROM orders"})
+	raw, _ := json.Marshal(map[string]any{"sql": "SELECT p_id FROM orders"})
 	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Name: toolQuery, Arguments: raw}}
 	_, err = mw(context.Background(), "tools/call", req)
 	require.NoError(t, err)
@@ -386,4 +386,65 @@ func TestDatasetTableReadsOnlyTrinoTables(t *testing.T) {
 	got, ok := datasetTable("mcp:dataset:(trino,warehouse,hive.sales.orders)")
 	require.True(t, ok)
 	assert.Equal(t, "hive.sales.orders", got.fullName())
+}
+
+// TestStatementsNamingNoColumnRun is #2810: SELECT * and SELECT count(*) of an
+// unread table name no column, so there is nothing to guess and they run. A
+// successful SELECT * is the read; count(*) is not, so a statement naming a
+// column after it is refused as before. A SELECT * with a WHERE names a column
+// and is refused.
+func TestStatementsNamingNoColumnRun(t *testing.T) {
+	h := newHarness(t, true)
+	res := h.call(toolQuery, map[string]any{"sql": "SELECT count(*) FROM orders"})
+	assert.False(t, res.IsError, text(res))
+	res = h.call(toolQuery, map[string]any{"sql": "SELECT p_id FROM orders"})
+	assert.True(t, res.IsError, "count(*) is not the read")
+	assert.Contains(t, text(res), "trino_describe_table")
+
+	h = newHarness(t, true)
+	res = h.call(toolQuery, map[string]any{"sql": "SELECT * FROM orders WHERE p_id = 1"})
+	assert.True(t, res.IsError, "SELECT * with a WHERE names a column")
+
+	h = newHarness(t, true)
+	res = h.call(toolQuery, map[string]any{"sql": "SELECT * FROM orders LIMIT 5"})
+	assert.False(t, res.IsError, text(res))
+	res = h.call(toolQuery, map[string]any{"sql": "SELECT p_id FROM orders WHERE p_id = 1"})
+	assert.False(t, res.IsError, "a successful SELECT * is the read: %s", text(res))
+
+	// A failed SELECT * is not the read.
+	h = newHarness(t, true)
+	h.reply = func(string) mcp.Result { return &mcp.CallToolResult{IsError: true} }
+	h.call(toolQuery, map[string]any{"sql": "SELECT * FROM orders"})
+	h.reply = func(string) mcp.Result { return &mcp.CallToolResult{} }
+	res = h.call(toolQuery, map[string]any{"sql": "SELECT p_id FROM orders"})
+	assert.True(t, res.IsError, "a failed SELECT * opened the table")
+}
+
+// TestCatalogNamedByItsConnectionIsExplained is #2812: SQL naming a connection
+// where its catalog goes fails with Trino's error plus the catalog the
+// connection reads. A catalog that is no connection's name adds nothing.
+func TestCatalogNamedByItsConnectionIsExplained(t *testing.T) {
+	h := newHarness(t, true)
+	h.call(toolDescribe, map[string]any{"table": "orders"})
+	fail := func(msg string) func(string) mcp.Result {
+		return func(string) mcp.Result {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: msg}}}
+		}
+	}
+	h.reply = fail("line 1:15: Catalog '" + testConn + "' not found")
+	res := h.call(toolQuery, map[string]any{"sql": "SELECT p_id FROM orders"})
+	assert.Contains(t, text(res), `the connection `+testConn+` reads catalog "hive"`)
+
+	// A statement naming no column runs unread, and is explained the same way.
+	res = h.call(toolQuery, map[string]any{"sql": "SELECT count(*) FROM customers"})
+	assert.Contains(t, text(res), `the connection `+testConn+` reads catalog "hive"`)
+
+	h.reply = fail("line 1:15: Catalog 'nope' does not exist")
+	res = h.call(toolQuery, map[string]any{"sql": "SELECT p_id FROM orders"})
+	assert.NotContains(t, text(res), "is a connection, not a catalog")
+
+	h.reply = func(string) mcp.Result { return &mcp.CallToolResult{} }
+	res = h.call(toolQuery, map[string]any{"sql": "SELECT p_id FROM orders"})
+	assert.False(t, res.IsError)
+	h.gate.catalogHint(nil)
 }

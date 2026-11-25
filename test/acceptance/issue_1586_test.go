@@ -17,14 +17,14 @@ import (
 // bodies; the client refused it and spilled it to a file, so the session's first
 // act was a failed tool call and a recovery round trip.
 //
-// The listing predates show_prompts and manage_prompt's use command. A prompt is
-// now resolved from whatever handle the user says, and the human-facing library
-// is an app, so orientation has no reason to carry the library at all.
+// The listing predates manage_prompt's use command. A prompt is now resolved
+// from whatever handle the user says, and the human-facing library is the
+// portal's Prompts page, so orientation has no reason to carry the library at
+// all.
 //
 // What these hold: platform_info returns no prompt listing and no prompt body;
 // the response is a fraction of what was refused; every way a prompt is actually
-// reached still works (resolve by handle, browse, open the library, dereference
-// a reference); and the agent is still told how to reach one, so removing the
+// reached still works (resolve by handle, browse, dereference a reference); and the agent is still told how to reach one, so removing the
 // listing does not leave it guessing.
 //
 // Wire forms: platform_info is registered through the typed mcp.AddTool form
@@ -32,7 +32,7 @@ import (
 // object and nothing else; both are sent below as literal tools/call params.
 // Every other parameter these calls touch is `{"type":"string"}` in its tool's
 // schema -- manage_prompt's `command`, `name`, `content`, `description`,
-// `display_name` and `scope`, show_prompts' `search`, and fetch's `reference`
+// `display_name` and `scope`, and fetch's `reference`
 // and `purpose` -- so each admits exactly one JSON form and is sent as a JSON
 // string. The typed registration validates arguments against those schemas, so
 // no second form reaches a handler.
@@ -127,17 +127,6 @@ func TestIssue1586_PromptsStillReachable(t *testing.T) {
 	listed := c.call("manage_prompt", map[string]any{"command": "list"})
 	if !strings.Contains(fmt.Sprint(listed), p.name) {
 		t.Fatalf("manage_prompt list did not carry the prompt: %v", listed)
-	}
-
-	// Open the library, which is how the human sees their prompts. The result
-	// is a confirmation and carries no prompt data of its own -- that is the
-	// reason it can replace the listing without moving the cost.
-	shown := c.call("show_prompts", map[string]any{})
-	if shown["shown"] != true {
-		t.Fatalf("show_prompts did not open the library: %v", shown)
-	}
-	if strings.Contains(fmt.Sprint(shown), body) {
-		t.Fatalf("show_prompts carried a prompt body: %v", shown)
 	}
 
 	// Dereference a reference, which is how a prompt named elsewhere is read.

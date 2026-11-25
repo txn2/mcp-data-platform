@@ -8,6 +8,7 @@ import type {
   ApplicationRelease,
   ApplicationSchemaView,
 } from "@/api/portal/hooks/applications";
+import type { ApplicationEndpoint } from "@/api/portal/hooks/applicationEndpoints";
 import { warehouseApplication, warehouseCatalog, warehouseFindings } from "./applicationWarehouse";
 
 // Three applications (#2411): "shop", released twice with a rollback between,
@@ -213,6 +214,35 @@ export function schemaViewOf(connection: string, schema: string): ApplicationSch
  */
 export const SHOP_UNWRITTEN = "table shop.refunds is read by the application's scripts and written by no part";
 
+/**
+ * Where shop's endpoints answer in each environment (#2822): the platform's
+ * host, the application's own address for prod, and each site environment of
+ * the environment's name, one with two domains.
+ */
+const shopEndpoints: Record<string, ApplicationEndpoint[]> = {
+  dev: [
+    {
+      name: "orders", script: "Daily Sales Report", methods: ["GET"], auth_mode: "authenticated", path: "/{id}",
+      urls: ["https://platform.acme.example/environments/dev/endpoints/orders/{id}", "https://shop-web--dev.pages.acme.example/endpoints/orders/{id}"],
+    },
+  ],
+  prod: [
+    {
+      name: "orders", script: "Daily Sales Report", methods: ["GET"], auth_mode: "authenticated", path: "/{id}",
+      urls: [
+        "https://platform.acme.example/endpoints/orders/{id}",
+        "https://shop.pages.acme.example/endpoints/orders/{id}",
+        "https://www.shop.example/endpoints/orders/{id}",
+        "https://shop.example/endpoints/orders/{id}",
+      ],
+    },
+    {
+      name: "shop", script: "Storefront", methods: ["GET", "POST"], auth_mode: "public", path: "/{route...}",
+      urls: ["https://platform.acme.example/endpoints/shop/{route...}", "https://shop.pages.acme.example", "https://shop.pages.acme.example/endpoints/shop/{route...}"],
+    },
+  ],
+};
+
 export const mockApplicationDetails: Record<string, ApplicationDetail> = {
   "app-shop": {
     application: mockApplications[0]!,
@@ -237,6 +267,7 @@ export const mockApplicationDetails: Record<string, ApplicationDetail> = {
       { part_id: "shop-web/staging", release_mode: "linked", serves: 30, step: 31, contract: "", compatible: true },
     ],
     prepare: { scripts: 0, libraries: 0, migrations: 0 },
+    endpoints: shopEndpoints,
   },
   "app-intake": {
     application: mockApplications[1]!,
@@ -246,6 +277,7 @@ export const mockApplicationDetails: Record<string, ApplicationDetail> = {
     problems: ["script-004 has no saved version that passed its tests"],
     findings: [],
     releases: [],
+    endpoints: { prod: [] },
   },
   "app-warehouse": {
     application: warehouseApplication,
@@ -263,6 +295,10 @@ export const mockApplicationDetails: Record<string, ApplicationDetail> = {
     problems: warehouseFindings.map((f) => f.message),
     findings: warehouseFindings,
     releases: [],
+    // A deployment with no pages domain: the platform's host alone.
+    endpoints: {
+      prod: [{ name: "wh-load", script: "wh-loader", methods: ["POST"], auth_mode: "authenticated", path: "", urls: ["https://platform.acme.example/endpoints/wh-load"] }],
+    },
   },
 };
 

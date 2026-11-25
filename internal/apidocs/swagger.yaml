@@ -92,6 +92,11 @@ definitions:
         type: number
       call_count:
         type: integer
+      hold_count:
+        description: |-
+          HoldCount is the calls that waited for an approval or an answer, left
+          out of SuccessRate (#2819).
+        type: integer
       success_rate:
         type: number
       window_seconds:
@@ -3496,6 +3501,16 @@ definitions:
         $ref: '#/definitions/application.Application'
       current_release:
         $ref: '#/definitions/application.Release'
+      endpoints:
+        additionalProperties:
+          items:
+            $ref: '#/definitions/epaddr.Endpoint'
+          type: array
+        description: |-
+          Endpoints is, by environment name, the endpoints that environment
+          serves and every URL each answers at (#2822): every environment is
+          present, with an empty list when the application holds no endpoint.
+        type: object
       findings:
         description: |-
           Findings are the diagram's findings, each saying whether a release
@@ -4902,6 +4917,12 @@ definitions:
       dimension:
         example: trino_query
         type: string
+      hold_count:
+        description: |-
+          HoldCount is the calls that waited for an approval or an answer. They
+          are left out of SuccessRate (#2819).
+        example: 3
+        type: integer
       success_rate:
         example: 0.95
         type: number
@@ -5157,6 +5178,12 @@ definitions:
       error_count:
         example: 10
         type: integer
+      hold_count:
+        description: |-
+          HoldCount is the calls that waited for an approval or an answer: left
+          out of SuccessRate and ErrorCount (#2819).
+        example: 4
+        type: integer
       success_rate:
         example: 0.949
         type: number
@@ -5207,6 +5234,12 @@ definitions:
         type: integer
       error_count:
         example: 1
+        type: integer
+      hold_count:
+        description: |-
+          HoldCount is the calls in the bucket that waited for a person; they are
+          not in ErrorCount (#2819).
+        example: 0
         type: integer
       success_count:
         example: 11
@@ -7488,6 +7521,31 @@ definitions:
         type: string
       when_predicate:
         $ref: '#/definitions/enrichment.Predicate'
+    type: object
+  epaddr.Endpoint:
+    properties:
+      auth_mode:
+        example: public
+        type: string
+      methods:
+        example:
+        - GET
+        items:
+          type: string
+        type: array
+      name:
+        example: research
+        type: string
+      path:
+        example: /{route...}
+        type: string
+      script:
+        example: research-api
+        type: string
+      urls:
+        items:
+          type: string
+        type: array
     type: object
   epbinding.Failure:
     properties:
@@ -10662,6 +10720,164 @@ definitions:
         type: string
       updated_at:
         example: "2026-01-15T14:30:00Z"
+        type: string
+    type: object
+  platformfeedback.Delivery:
+    properties:
+      attempts:
+        type: integer
+      channel:
+        type: string
+      last_error:
+        type: string
+      sent_at:
+        type: string
+      status:
+        type: string
+    type: object
+  platformfeedback.Detail:
+    properties:
+      blocked_by:
+        type: string
+      created_at:
+        type: string
+      deliveries:
+        items:
+          $ref: '#/definitions/platformfeedback.Delivery'
+        type: array
+      id:
+        type: string
+      last_reported_at:
+        type: string
+      report_count:
+        type: integer
+      reports:
+        items:
+          $ref: '#/definitions/platformfeedback.Report'
+        type: array
+      status:
+        type: string
+      suggestion:
+        type: string
+      tool:
+        type: string
+      trying_to:
+        type: string
+    type: object
+  platformfeedback.Item:
+    properties:
+      blocked_by:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: string
+      last_reported_at:
+        type: string
+      report_count:
+        type: integer
+      status:
+        type: string
+      suggestion:
+        type: string
+      tool:
+        type: string
+      trying_to:
+        type: string
+    type: object
+  platformfeedback.ListResponse:
+    properties:
+      posts:
+        items:
+          $ref: '#/definitions/platformfeedback.Item'
+        type: array
+      stats:
+        $ref: '#/definitions/platformfeedback.Stats'
+      total:
+        type: integer
+    type: object
+  platformfeedback.Report:
+    properties:
+      calls:
+        items:
+          type: string
+        type: array
+      persona:
+        type: string
+      reported_at:
+        type: string
+    type: object
+  platformfeedback.ResendRequest:
+    properties:
+      channel:
+        example: ops-webhook
+        type: string
+    type: object
+  platformfeedback.Settings:
+    properties:
+      channels:
+        description: Channels are the notification channels a new post is sent to.
+        items:
+          type: string
+        type: array
+      enabled:
+        description: Enabled lets agents post. Off by default.
+        type: boolean
+      persona_daily_limit:
+        description: PersonaDailyLimit is the most posts one persona may make in a
+          day.
+        type: integer
+      personas:
+        description: Personas may post; empty is every persona except service accounts.
+        items:
+          type: string
+        type: array
+      session_limit:
+        description: SessionLimit is the most posts one session may make.
+        type: integer
+    type: object
+  platformfeedback.SettingsView:
+    properties:
+      channels:
+        description: Channels are the notification channels a new post is sent to.
+        items:
+          type: string
+        type: array
+      enabled:
+        description: Enabled lets agents post. Off by default.
+        type: boolean
+      persona_daily_limit:
+        description: PersonaDailyLimit is the most posts one persona may make in a
+          day.
+        type: integer
+      personas:
+        description: Personas may post; empty is every persona except service accounts.
+        items:
+          type: string
+        type: array
+      session_limit:
+        description: SessionLimit is the most posts one session may make.
+        type: integer
+      updated_at:
+        type: string
+      updated_by:
+        type: string
+    type: object
+  platformfeedback.Stats:
+    properties:
+      delivery_failures:
+        type: integer
+      open:
+        type: integer
+      refused_this_week:
+        type: integer
+      reports_this_week:
+        type: integer
+    type: object
+  platformfeedback.StatusRequest:
+    properties:
+      status:
+        example: planned
         type: string
     type: object
   pmtiles.Bounds:
@@ -18951,6 +19167,89 @@ definitions:
         example: 1200
         type: integer
     type: object
+  sitetypecheck.Check:
+    properties:
+      ahead:
+        description: |-
+          Ahead is how many queued checks run before this one, for a queued
+          check.
+        type: integer
+      created_at:
+        type: string
+      environment:
+        type: string
+      finished_at:
+        type: string
+      id:
+        type: integer
+      release:
+        type: integer
+      requested_by:
+        type: string
+      result:
+        $ref: '#/definitions/sitetypecheck.Result'
+      started_at:
+        type: string
+      status:
+        type: string
+      tsconfig:
+        type: string
+    type: object
+  sitetypecheck.Diagnostic:
+    properties:
+      category:
+        type: string
+      code:
+        type: string
+      column:
+        type: integer
+      file:
+        type: string
+      line:
+        type: integer
+      message:
+        type: string
+    type: object
+  sitetypecheck.Result:
+    properties:
+      diagnostics:
+        items:
+          $ref: '#/definitions/sitetypecheck.Diagnostic'
+        type: array
+      duration_ms:
+        type: integer
+      fetched:
+        type: integer
+      lockfile:
+        type: string
+      message:
+        type: string
+      missing:
+        description: |-
+          Missing are packages the code imports that the lockfile does not lock,
+          whose types were therefore not read.
+        items:
+          type: string
+        type: array
+      packages:
+        type: integer
+      status:
+        type: string
+      unverifiable:
+        description: |-
+          Unverifiable are packages the lockfile names with no integrity hash,
+          which a check does not fetch.
+        items:
+          type: string
+        type: array
+    type: object
+  sitetypecheck.Summary:
+    properties:
+      errors:
+        type: integer
+      status:
+        type: string
+    type: object
   smtp.SettingsInput:
     properties:
       enabled:
@@ -19972,6 +20271,26 @@ definitions:
         type: integer
       period:
         example: 30
+        type: integer
+    type: object
+  typecheckhttp.TypecheckBody:
+    properties:
+      environment:
+        example: dev
+        type: string
+    type: object
+  typecheckhttp.TypecheckSummaries:
+    properties:
+      releases:
+        additionalProperties:
+          $ref: '#/definitions/sitetypecheck.Summary'
+        type: object
+    type: object
+  typecheckhttp.TypecheckView:
+    properties:
+      check:
+        $ref: '#/definitions/sitetypecheck.Check'
+      release:
         type: integer
     type: object
   userkeyhttp.createRequest:
@@ -23106,7 +23425,8 @@ paths:
     get:
       description: Returns audit event counts grouped by a dimension.
       parameters:
-      - description: 'Dimension: tool_name, user_id, persona, toolkit_kind, connection'
+      - description: 'Dimension: tool_name, user_id, persona, toolkit_kind, connection,
+          event_kind'
         in: query
         name: group_by
         required: true
@@ -27250,6 +27570,143 @@ paths:
       summary: What a persona reaches
       tags:
       - Personas
+  /admin/platform-feedback:
+    get:
+      description: 'Lists what agents reported the platform could not do for them
+        (#2820), newest report first, with how many reports each post has and the
+        counts the page opens on: open posts, reports and refusals this week, and
+        failed deliveries.'
+      parameters:
+      - description: open, planned, done or declined
+        in: query
+        name: status
+        type: string
+      - description: The tool a post names
+        in: query
+        name: tool
+        type: string
+      - description: Text in what it was trying to do, what blocked it, or its suggestion
+        in: query
+        name: q
+        type: string
+      - description: At most 200 (default 50)
+        in: query
+        name: limit
+        type: integer
+      - description: Posts to skip
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/platformfeedback.ListResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List platform feedback
+      tags:
+      - Platform feedback
+  /admin/platform-feedback/{id}:
+    get:
+      description: Returns one post with its reports (the persona, the calls named,
+        when) and each channel's delivery as the notification queue holds it.
+      parameters:
+      - description: Post id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/platformfeedback.Detail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get one platform feedback post
+      tags:
+      - Platform feedback
+  /admin/platform-feedback/{id}/resend:
+    post:
+      consumes:
+      - application/json
+      description: Queues the post again for one of the channels platform feedback
+        is sent to, as a failed delivery is retried by hand.
+      parameters:
+      - description: Post id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: The channel
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/platformfeedback.ResendRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Send a platform feedback post again
+      tags:
+      - Platform feedback
+  /admin/platform-feedback/{id}/status:
+    put:
+      consumes:
+      - application/json
+      description: Moves a post to open, planned, done or declined. A status change
+        is not sent to the channels.
+      parameters:
+      - description: Post id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: The status
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/platformfeedback.StatusRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Set a platform feedback post's status
+      tags:
+      - Platform feedback
   /admin/prompt-collections:
     get:
       description: Returns every prompt collection with its member prompt count, ordered
@@ -29236,6 +29693,56 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Refresh a basemap region
+      tags:
+      - Settings
+  /admin/settings/platform-feedback:
+    get:
+      description: Returns whether agents may post platform feedback (#2820), the
+        notification channels a new post is sent to, the personas that may post (empty
+        is every persona except service accounts), and the per-session and per-persona
+        daily limits. Off by default.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/platformfeedback.SettingsView'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get the platform feedback settings
+      tags:
+      - Settings
+    put:
+      consumes:
+      - application/json
+      description: Saves the settings. channels must name configured notification
+        channels and personas existing personas; session_limit is 1 to 100 and persona_daily_limit
+        1 to 10000 (0 keeps the default of 5 and 50). Answers the saved settings as
+        GET does.
+      parameters:
+      - description: The settings
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/platformfeedback.Settings'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/platformfeedback.SettingsView'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Set the platform feedback settings
       tags:
       - Settings
   /admin/settings/review-queue-alert:
@@ -31475,7 +31982,12 @@ paths:
       description: 'An application by name or id: its parts (parts names each one,
         the facts its row is described with, its newest version and its state: ok,
         deleted, or not_visible for an asset the caller cannot open, whose name is
-        not told), its current release, what a release now would change (pending),
+        not told), the endpoints each environment serves (endpoints, by environment
+        name: each endpoint''s name, script, methods, auth mode, path template and
+        every URL it answers at there, the platform host, the application''s page
+        origin and domains for the last environment, and each site environment part
+        of the environment''s name; an empty list for an environment when the application
+        holds no endpoint), its current release, what a release now would change (pending),
         its schema part (schema: its migration version, the version the current release
         recorded, the pending migrations, and the role its scripts log in as), the
         parts a release would refuse (problems), and its releases newest first with
@@ -43162,6 +43674,79 @@ paths:
       summary: Read a release
       tags:
       - Sites
+  /portal/sites/{site}/releases/{number}/typecheck:
+    get:
+      description: 'The newest type check of a release (#2793): its status, each error''s
+        file, line, column, code and message, the packages the code imports that the
+        lockfile does not lock, and how long it took; a queued check says how many
+        run before it. check is null when none has run.'
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: Release number
+        in: path
+        name: number
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/typecheckhttp.TypecheckView'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: A release's type check
+      tags:
+      - Sites
+    post:
+      consumes:
+      - application/json
+      description: Queues the release's type check again, for someone who may publish
+        to the site (#2793). The release's _build.json must ask for one; a deployment
+        that runs no checks refuses.
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      - description: Release number
+        in: path
+        name: number
+        required: true
+        type: integer
+      - description: The environment whose incremental state the check uses
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/typecheckhttp.TypecheckBody'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/typecheckhttp.TypecheckView'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Check a release's types again
+      tags:
+      - Sites
   /portal/sites/{site}/rollback:
     post:
       consumes:
@@ -43297,6 +43882,35 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Read a site's traffic
+      tags:
+      - Sites
+  /portal/sites/{site}/typechecks:
+    get:
+      description: 'For a site whose _build.json asks for type checks (#2793): the
+        newest check of each release, by release number, with its status (queued,
+        running, clean, errors, over_limit, unsupported or failed) and how many errors
+        it found. A release never checked is absent.'
+      parameters:
+      - description: Site name or id
+        in: path
+        name: site
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/typecheckhttp.TypecheckSummaries'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: The newest type check of each release
       tags:
       - Sites
   /portal/sites/check-name:
@@ -46043,6 +46657,8 @@ tags:
     description: "Email notification preferences, delivery history, and per-user unsubscribe. Mail-server settings live under Settings."
   - name: "Settings"
     description: "Deployment settings an administrator edits at runtime: the mail server and the review-queue alert thresholds."
+  - name: "Platform feedback"
+    description: "What agents reported the platform could not do for them, posted with manage_feedback topic=platform: each post with its reports, its status and its deliveries to the channels Admin > Settings > Platform feedback names."
   - name: "Users"
     description: "The directory of known people, keyed by email. Administrative counterpart to the single-identity User tag."
   - name: "Access requests"
@@ -46091,6 +46707,7 @@ x-tagGroups:
       - "Integrations"
       - "Notifications"
       - "Personas"
+      - "Platform feedback"
       - "Scripts"
       - "Secrets"
       - "Sessions"

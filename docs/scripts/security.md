@@ -655,12 +655,6 @@ source cannot carry a credential (a save that does is refused), and a script
 names a connection rather than holding its secret, which is what makes the
 source safe to index for every reader.
 
-**`show_scripts` performs no data work.** It is presentation-only, following
-the `show_prompts` split. It returns a confirmation and, where the deployment
-has been configured with its public address, a link to the pages; it carries no
-script data, which is also what keeps it useless to an agent as a source of one
-(`internal/platform/scriptlayer/show.go`).
-
 ### Checking an edit: validate, and a draft run as yourself
 
 **Validate** (`POST /api/v1/portal/scripts/{id}/validate`, or `manage_script

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"slices"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -13,9 +14,12 @@ import (
 // carries under the deployment's scheme reaches the platform in the canonical
 // form, and every reference a result carries leaves under the deployment's
 // scheme: tool results, tool descriptions and schemas, prompts, resources and
-// the server's instructions. With no scheme set it passes everything through
-// untouched.
-func Middleware() mcp.Middleware {
+// the server's instructions. The platform's own wording about the reference
+// form is rewritten too (Prose, #2818) wherever the text is the platform's:
+// tools/list, the server's instructions, a refusal, and the result of each
+// tool named in platformText (platform_info, whose agent instructions are the
+// platform's). With no scheme set it passes everything through untouched.
+func Middleware(platformText ...string) mcp.Middleware {
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			if !Rewrites() {
@@ -26,7 +30,7 @@ func Middleware() mcp.Middleware {
 			if err != nil || res == nil {
 				return res, err
 			}
-			return displayResult(res), nil
+			return displayResult(res, platformTextTool(req, platformText)), nil
 		}
 	}
 }
@@ -67,20 +71,43 @@ func canonValue(v any) any {
 	return out
 }
 
+// platformTextTool reports whether a request calls a tool whose whole result
+// is the platform's own text.
+func platformTextTool(req mcp.Request, tools []string) bool {
+	if req == nil || len(tools) == 0 {
+		return false
+	}
+	p, ok := req.GetParams().(*mcp.CallToolParamsRaw)
+	if !ok || p == nil {
+		return false
+	}
+	return slices.Contains(tools, p.Name)
+}
+
 // displayResult is a result with its references under the deployment's
 // scheme. A tool result is rewritten in place, its parts one by one; any other
 // result is rewritten through its JSON, into a new value of its type, so
 // nothing the server holds (a registered tool's description) is changed.
-func displayResult(res mcp.Result) mcp.Result {
+//
+// The platform's wording about the reference form is rewritten too (Prose) in
+// tools/list and the initialize result, in a refusal, and in the result of a
+// tool whose result is the platform's text (platformText); a prompt's or a
+// tool's data keeps the rule for whole references alone.
+func displayResult(res mcp.Result, platformText bool) mcp.Result {
 	if r, ok := res.(*mcp.CallToolResult); ok {
-		displayToolResult(r)
+		displayToolResult(r, platformText || r.IsError)
 		return r
 	}
 	raw, err := json.Marshal(res)
 	if err != nil || !bytes.Contains(raw, []byte(Prefix)) {
 		return res
 	}
-	fixed := DisplayBytes(raw)
+	rewrite := DisplayBytes
+	switch res.(type) {
+	case *mcp.ListToolsResult, *mcp.InitializeResult:
+		rewrite = ProseBytes
+	}
+	fixed := rewrite(raw)
 	if bytes.Equal(fixed, raw) {
 		return res
 	}
@@ -95,18 +122,28 @@ func displayResult(res mcp.Result) mcp.Result {
 	return out
 }
 
-func displayToolResult(r *mcp.CallToolResult) {
-	for _, c := range r.Content {
-		switch v := c.(type) {
-		case *mcp.TextContent:
-			v.Text = Display(v.Text)
-		case *mcp.EmbeddedResource:
-			if v.Resource != nil {
-				v.Resource.URI, v.Resource.Text = Display(v.Resource.URI), Display(v.Resource.Text)
-			}
-		case *mcp.ResourceLink:
-			v.URI, v.Description = Display(v.URI), Display(v.Description)
+// displayContent rewrites one content block: text with the rewrite the
+// result's kind takes, a resource's address and text as references.
+func displayContent(c mcp.Content, text func(string) string) {
+	switch v := c.(type) {
+	case *mcp.TextContent:
+		v.Text = text(v.Text)
+	case *mcp.EmbeddedResource:
+		if v.Resource != nil {
+			v.Resource.URI, v.Resource.Text = Display(v.Resource.URI), Display(v.Resource.Text)
 		}
+	case *mcp.ResourceLink:
+		v.URI, v.Description = Display(v.URI), Display(v.Description)
+	}
+}
+
+func displayToolResult(r *mcp.CallToolResult, platformText bool) {
+	text, textBytes := Display, DisplayBytes
+	if platformText {
+		text, textBytes = Prose, ProseBytes
+	}
+	for _, c := range r.Content {
+		displayContent(c, text)
 	}
 	if r.StructuredContent == nil {
 		return
@@ -116,7 +153,7 @@ func displayToolResult(r *mcp.CallToolResult) {
 		return
 	}
 	var out any
-	if json.Unmarshal(DisplayBytes(raw), &out) == nil {
+	if json.Unmarshal(textBytes(raw), &out) == nil {
 		r.StructuredContent = out
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
 	// The IANA timezone database, compiled into the binary. The release image
 	// is built FROM scratch and carries no /usr/share/zoneinfo, so without this
 	// every named zone a managed script's schedule can be written in
@@ -24,6 +25,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver"
 	"github.com/txn2/mcp-data-platform/internal/procload"
 	mcpserver "github.com/txn2/mcp-data-platform/internal/server"
+	"github.com/txn2/mcp-data-platform/internal/site/sitetypecheck"
 	"github.com/txn2/mcp-data-platform/internal/tracelog"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -47,6 +49,15 @@ const logShutdownTimeout = 5 * time.Second
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "migrate-config" {
 		if err := runMigrateConfig(os.Args[2:]); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == sitetypecheck.WorkerCommand {
+		// A site type check's worker process (#2793): one job on stdin, its
+		// outcome on stdout, the compiler's memory outside the server's.
+		if err := sitetypecheck.RunWorker(context.Background(), os.Stdin, os.Stdout); err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}

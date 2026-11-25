@@ -45,16 +45,13 @@ type Expectation struct {
 var Annotations = map[string]Expectation{
 	// Reads. Nothing here modifies state, so a conforming client can call
 	// them without asking anyone.
-	"platform_info":       {ReadOnly: true},
-	"platform_find_tools": {ReadOnly: true},
-	"list_connections":    {ReadOnly: true},
-	"search":              {ReadOnly: true},
-	"fetch":               {ReadOnly: true},
-	"show_prompts":        {ReadOnly: true},
-	"show_scripts":        {ReadOnly: true},
-	"api_discover":        {ReadOnly: true},
-	"graphql_discover":    {ReadOnly: true},
-	"s3_list":             {ReadOnly: true},
+	"platform_info":    {ReadOnly: true},
+	"list_connections": {ReadOnly: true},
+	"search":           {ReadOnly: true},
+	"fetch":            {ReadOnly: true},
+	"api_discover":     {ReadOnly: true},
+	"graphql_discover": {ReadOnly: true},
+	"s3_list":          {ReadOnly: true},
 
 	// Writes that can remove or overwrite. apply_knowledge carries
 	// bulk_untag and delete_tag; memory_manage carries forget and
@@ -102,7 +99,6 @@ var Annotations = map[string]Expectation{
 	// that claim is asserted rather than assumed, and so an upstream upgrade
 	// that drops one is caught where a user would feel it.
 	"trino_query":            {ReadOnly: true},
-	"trino_explain":          {ReadOnly: true},
 	"trino_browse":           {ReadOnly: true},
 	"trino_describe_table":   {ReadOnly: true},
 	"trino_list_connections": {ReadOnly: true},

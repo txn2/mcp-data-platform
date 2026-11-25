@@ -770,7 +770,7 @@ func TestHandle_EveryCommandDispatches(t *testing.T) {
 	assert.Empty(t, f.store.sites)
 
 	// The build reads are exercised on a compiled site by TestBuildCommands.
-	covered[CmdImports], covered[CmdBuildReport], covered[CmdSymbolicate] = true, true, true
+	covered[CmdImports], covered[CmdBuildReport], covered[CmdSymbolicate], covered[CmdTypecheck] = true, true, true, true
 	for _, cmd := range Commands {
 		assert.True(t, covered[cmd], "command %s was not exercised", cmd)
 	}

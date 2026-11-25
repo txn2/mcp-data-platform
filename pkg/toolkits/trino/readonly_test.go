@@ -69,7 +69,7 @@ func TestReadOnlyInterceptor_AllowsExplainQueries(t *testing.T) {
 	assertQueriesAllowed(t, interceptor, []string{
 		"EXPLAIN SELECT * FROM users",
 		"EXPLAIN (TYPE IO) SELECT * FROM users",
-	}, trinotools.ToolExplain, "EXPLAIN")
+	}, trinotools.ToolQuery, "EXPLAIN")
 }
 
 // TestReadOnlyInterceptor_BlocksStatementsNotOnTheReadList: a read-only
@@ -101,14 +101,11 @@ func TestReadToolInterceptor(t *testing.T) {
 			t.Errorf("trino_query ran %q: %v", sql, err)
 		}
 	}
-	for _, sql := range []string{"INSERT INTO t VALUES (1)", "SELECT 1"} {
-		if _, err := ic.Intercept(context.Background(), sql, trinotools.ToolExplain); err != nil {
-			t.Errorf("trino_explain refused to explain %q: %v", sql, err)
-		}
-	}
-	for _, sql := range []string{"ANALYZE t", "EXPLAIN ANALYZE INSERT INTO t VALUES (1)"} {
-		if _, err := ic.Intercept(context.Background(), sql, trinotools.ToolExplain); !errors.Is(err, errExplainRuns) {
-			t.Errorf("trino_explain ran %q: %v", sql, err)
+	// A plan is read through trino_query since trino_explain was retired
+	// (#2808): EXPLAIN of a write does not run it, so it is a read.
+	for _, sql := range []string{"EXPLAIN (TYPE DISTRIBUTED) INSERT INTO t VALUES (1)", "EXPLAIN (TYPE VALIDATE) SELECT 1"} {
+		if _, err := ic.Intercept(context.Background(), sql, trinotools.ToolQuery); err != nil {
+			t.Errorf("trino_query refused to explain %q: %v", sql, err)
 		}
 	}
 	if got, err := ic.Intercept(context.Background(), "DROP TABLE t", trinotools.ToolExecute); err != nil || got != "DROP TABLE t" {

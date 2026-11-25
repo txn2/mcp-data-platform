@@ -188,6 +188,8 @@ Tools on this platform are reachable through several entry points, all of which 
 | `script` | A managed-script run's host bindings (`middleware.SourceScript`) | `run_script`, a schedule, a draft run |
 | `portal` | A portal action the platform audits directly rather than through a tool call | A script owner transfer, a catalog edit from the portal |
 
+An audit row a tool or a layer writes itself, rather than the tool-call middleware, takes its `source` from the call (`mcpcontext.CallSource`: the source the middleware recorded, `mcp` when none). A table registration's `table_register` row is one (#2819): a registration a managed script makes is `script`, where before it was always `mcp`. Rows written before keep `mcp`, so a filter or breakdown by `source` still counts a script's earlier registrations under `mcp`.
+
 Both the gateway REST shim (`internal/httpserver/gatewayhttp/handler.go`) and the admin tool runner (`pkg/admin/tools.go`) open an in-memory MCP session against the assembled server and call the same `api_invoke_endpoint` (or other) tool that an agent would call. The handlers tag the context with `middleware.WithSource` before opening that session so the audit middleware records the originating caller class, not just "mcp".
 
 For an admin-source run the tool-call middleware additionally mints a distinct **portal session ID** (`dpp_` prefix) per request. A portal run drives a fresh in-memory session with no transport session ID, so without this it would record an empty `session_id` and its search-first gate, provenance, and dedup state would key on the operating admin's own user scope, letting a portal "test this tool" run pollute that operator's live agent session. The portal ID keeps portal runs attributable and isolated, and (like the gateway REST shim) they are exempt from the search-first and `SESSION_REQUIRED` gates, so a portal run of a query tool always executes.
@@ -256,6 +258,29 @@ Both sides are on the row because two different questions are asked of it. "Who 
 
 With `audit.enabled: false` no rows are written and moves are performed exactly as before.
 
+## Calls held for a person
+
+A call answered with input requests (a confirmation the client puts to a person
+before the call runs, `error_category` `input_required`) is recorded with
+`success: false`, since it ran nothing, and it is not a failure either. The
+metrics endpoints count such holds apart (#2819):
+
+- `hold_count` is reported on the overview, on each breakdown entry and on each
+  timeseries bucket.
+- `success_rate` (overview and breakdown) leaves holds out of both sides: the
+  successes over the calls that were not holds.
+- `error_count` (overview and timeseries) leaves holds out.
+- `GET /api/v1/admin/audit/metrics/breakdown?group_by=event_kind` groups by event
+  kind, so tool calls are seen apart from resource reads, prompts served, script
+  runs and the rest.
+- The admin tool detail (`GET /api/v1/admin/tools/{name}`) counts only
+  `mcp_tool_call` rows in its `activity`, since a resource read or a prompt served
+  is recorded under a tool's name too and is not a call of it, and reports
+  `hold_count` beside `success_rate`.
+
+These are computed when the metrics are read, from `error_category` and
+`event_kind`, so they apply to rows written before #2819 as well.
+
 ## Parameter Sanitization
 
 Tool call arguments are logged for debugging and compliance. The `parameters` field stores those arguments verbatim (including complete SQL text and anything embedded in it), so treat it as sensitive.
@@ -263,6 +288,8 @@ Tool call arguments are logged for debugging and compliance. The `parameters` fi
 One bound applies before anything else: an argument value larger than 16KB is stored as `[TRUNCATED: <n> bytes]` rather than its content. An audit row records what was called, not what was carried — some tools take a payload as an argument (an object body written to storage, a file uploaded, a report a [managed script](../scripts/running.md) delivers on every scheduled fire), and storing those verbatim would put a second copy of that data in the audit table. A query, a prompt, or a path is far inside the bound and is recorded whole.
 
 A built-in baseline replaces with `[REDACTED]`, before storage and at any depth of the arguments (#2356), the value of every key that names a secret: one containing `password`, `secret`, `token`, `api_key`, `apikey`, `credential`, `private_key`, `authorization`, `cookie`, `_pem`, `service_account_json` or `dsn`, or ending in `_key`, compared case-insensitively with `-` read as `_`, so `X-API-Key`, `previous_secret`, `session_token`, `client_secret`, `mtls_client_key_pem` and `Ocp-Apim-Subscription-Key` are all caught. Every value under `static_headers` and `session_login_headers` is replaced with its header name kept, and a test holds the baseline to every key the platform encrypts at rest. A key ending in `_path`, `_header`, `_name`, `_names`, `_set`, `_url`, `_encoding`, `_until`, `_at`, `_count`, `_type`, `_placement`, `_id` or `_ids` names or describes a secret rather than holding one (`token_path`, `secret_name`) and is kept. A string argument that holds a JSON object or array, such as an `api_invoke_endpoint` body sent as text, is read and redacted the same way, and so is one written as a query: a form-encoded body (`user=ann&password=...`) or a path or URL carrying one (`/v1/items?api_key=...`). A string holding whitespace (a sentence, a SQL statement) is never read as a query. A call whose `path` is an admin route that sets a stored secret (`/admin/secrets`) has the `value` in its body replaced too, so a secret created through the `platform-admin` connection never reaches `audit_logs`. A string holding SQL that gives a role, user or group a password (`manage_schema`'s `up` and `down`, a statement a script executes) has each literal after the `PASSWORD` replaced by `'[REDACTED]'`, by the rule the migration review refuses the statement by (#2475); SQL that sets no password is stored as sent.
+
+A call whose `topic` argument is `platform` (a `manage_feedback` platform feedback post) has the values of `trying_to`, `blocked_by` and `suggestion` replaced with `[REDACTED]` (#2820): an agent wrote that text for the platform's operator and it may hold what the agent read. A post is kept in its own table once it passes the content secret check, and a refused one leaves nothing in the audit row. See [Platform feedback](tools.md#platform-feedback).
 
 For your own keys, set `audit.redact_keys`, a case-insensitive list of top-level argument keys whose values are masked in the middleware, before the event ever leaves the request path. These are matched at the top level only; the baseline above already covers nested secrets. For tools whose inputs cannot be made safe to retain even with redaction, set `audit.log_parameters: false` to drop the arguments entirely. A `result` key a tool reports about the call's outcome is not an argument value and is recorded either way; with arguments dropped it is all `parameters` holds.
 

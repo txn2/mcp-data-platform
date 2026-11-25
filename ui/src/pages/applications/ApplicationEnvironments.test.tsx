@@ -57,10 +57,11 @@ describe("ApplicationEnvironments", () => {
     render(<ApplicationEnvironments detail={detail()} isAdmin />);
     const dev = screen.getByTestId("environment-dev");
     expect(dev.textContent).toContain("Release 8");
-    expect(dev.textContent).toContain("/environments/dev/endpoints/");
     const prod = screen.getByTestId("environment-prod");
     expect(prod.textContent).toContain("Requires approval");
-    expect(prod.textContent).toContain("/endpoints/");
+    // No endpoint in the application: each Address says None, never a placeholder (#2822).
+    expect(screen.getByTestId("environment-endpoints-dev").textContent).toBe("None");
+    expect(document.body.textContent).not.toContain("/endpoints/…");
     expect(within(prod).queryByRole("button", { name: /Promote/ })).toBeNull();
     fireEvent.click(within(dev).getByRole("button", { name: "Promote dev to stage" }));
     expect(calls.promote).not.toHaveBeenCalled();
@@ -226,5 +227,37 @@ describe("ApplicationVariables", () => {
   it("is not shown to someone who may not edit the application", () => {
     render(<ApplicationVariables detail={detail()} canEdit={false} />);
     expect(screen.queryByTestId("application-variables")).toBeNull();
+  });
+});
+
+// Where each environment's endpoints answer (#2822).
+describe("ApplicationEnvironments addresses", () => {
+  function withEndpoints(): ApplicationDetail {
+    const d = detail();
+    d.endpoints = {
+      dev: [{ name: "research", script: "research-api", methods: ["GET"], auth_mode: "public", path: "/{route...}", urls: ["https://p.example.com/environments/dev/endpoints/research/{route...}"] }],
+      stage: [],
+      prod: [
+        {
+          name: "research", script: "research-api", methods: ["GET"], auth_mode: "public", path: "/{route...}",
+          urls: ["https://p.example.com/endpoints/research/{route...}", "https://shop.pages.example.net", "https://www.example.com/endpoints/research/{route...}"],
+        },
+        { name: "orders", script: "orders-api", methods: ["GET", "POST"], auth_mode: "authenticated", path: "", urls: ["https://p.example.com/endpoints/orders"] },
+      ],
+    };
+    return d;
+  }
+
+  it("lists every URL each endpoint answers at, each copyable", () => {
+    render(<ApplicationEnvironments detail={withEndpoints()} isAdmin={false} />);
+    const prod = screen.getByTestId("environment-endpoints-prod");
+    expect(prod.textContent).toContain("https://p.example.com/endpoints/research/{route...}");
+    expect(prod.textContent).toContain("https://shop.pages.example.net");
+    expect(prod.textContent).toContain("https://www.example.com/endpoints/research/{route...}");
+    expect(prod.textContent).toContain("orders · GET, POST · orders-api");
+    expect(within(prod).getAllByRole("button", { name: /^Copy https:/ })).toHaveLength(4);
+    expect(screen.getByTestId("environment-endpoints-dev").textContent).toContain("/environments/dev/endpoints/research/");
+    expect(screen.getByTestId("environment-endpoints-stage").textContent).toBe("None");
+    expect(document.body.textContent).not.toContain("/endpoints/…");
   });
 });

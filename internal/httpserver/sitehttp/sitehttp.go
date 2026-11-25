@@ -43,7 +43,7 @@ type Layer struct {
 
 // Build assembles the layer, nil where the deployment has no sites.
 func Build(mux *http.ServeMux, p *platform.Platform, adminAuth func() func(http.Handler) http.Handler, author func(*http.Request) string) (*Layer, error) {
-	if !serving(p) {
+	if !Serving(p) {
 		return nil, nil //nolint:nilnil // a deployment with no sites
 	}
 	rt := p.Endpoints().Sites
@@ -68,8 +68,8 @@ func Build(mux *http.ServeMux, p *platform.Platform, adminAuth func() func(http.
 // schemeHTTPS is the scheme an origin that answers over TLS is written with.
 const schemeHTTPS = "https"
 
-// serving reports whether the deployment serves sites at all.
-func serving(p *platform.Platform) bool {
+// Serving reports whether the deployment serves sites at all.
+func Serving(p *platform.Platform) bool {
 	return p != nil && p.Endpoints() != nil && p.Endpoints().Sites != nil && p.Endpoints().Sites.Serving()
 }
 
@@ -170,6 +170,9 @@ func (l *Layer) Start(ctx context.Context, instance string) (stop func()) {
 	})
 	if l.runtime.Prune != nil {
 		loops.Go(func() { l.runtime.Prune.Loop(ctx, l.stop) })
+	}
+	if l.runtime.Typechecks != nil {
+		loops.Go(func() { l.runtime.Typechecks.Loop(ctx, l.stop) })
 	}
 	if f := l.trafficFlusher(); f != nil {
 		loops.Go(func() {

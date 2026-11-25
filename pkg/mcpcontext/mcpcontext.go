@@ -76,6 +76,21 @@ func WithSource(ctx context.Context, source string) context.Context {
 	return context.WithValue(ctx, sourceKey, source)
 }
 
+// SourceMCP labels a call from an agent session over MCP. pkg/middleware's
+// SourceMCP is this constant.
+const SourceMCP = "mcp"
+
+// CallSource is how the call on ctx arrived, for an audit event a tool or a
+// layer writes itself (#2819): the source the tool-call middleware recorded,
+// and SourceMCP when nothing recorded one. A literal source on such an event
+// tagged a managed script's table registrations as agent calls.
+func CallSource(ctx context.Context) string {
+	if s := GetSource(ctx); s != "" {
+		return s
+	}
+	return SourceMCP
+}
+
 // GetSource returns how the call arrived, or "" when nothing recorded it.
 func GetSource(ctx context.Context) string {
 	source, _ := ctx.Value(sourceKey).(string)

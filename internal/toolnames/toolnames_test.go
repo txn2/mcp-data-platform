@@ -98,10 +98,10 @@ func TestRetiredToolNamesAreReported(t *testing.T) {
 	// The inventory a current deployment registers. Deliberately does not
 	// include any retired name.
 	registered := []string{
-		"platform_info", "list_connections", "platform_find_tools", "search", "fetch",
+		"platform_info", "list_connections", "search", "fetch",
 		"api_discover", "api_invoke_endpoint", "api_export", "s3_list", "s3_object",
 		"manage_asset", "save_asset", "manage_resource", "manage_script", "run_script",
-		"show_scripts", "manage_prompt", "show_prompts", "manage_feedback", "manage_table",
+		"manage_prompt", "manage_feedback", "manage_table",
 		"memory_capture", "memory_manage", "apply_knowledge", "trino_query", "trino_execute",
 	}
 	for _, name := range names {
@@ -136,4 +136,34 @@ func readRetiredTools(t *testing.T) []string {
 		t.Fatalf("reading the retirement list: %v", err)
 	}
 	return names
+}
+
+// TestRetiredMapIsInTheRetirementList binds Retired to scripts/retired-tools.txt:
+// a tool the platform tells operators it removed is also one doc-check holds
+// the docs to.
+func TestRetiredMapIsInTheRetirementList(t *testing.T) {
+	listed := make(map[string]bool)
+	for _, name := range readRetiredTools(t) {
+		listed[name] = true
+	}
+	for name, replacement := range Retired {
+		if !listed[name] {
+			t.Errorf("Retired names %s but scripts/retired-tools.txt does not", name)
+		}
+		if replacement == "" {
+			t.Errorf("Retired names no replacement for %s", name)
+		}
+	}
+}
+
+// TestRetiredNameIsReportedWhateverItsPrefix: show_ is not a prefix the floor
+// recognizes, and a retired show_prompts is reported anyway; a registered one
+// is not.
+func TestRetiredNameIsReportedWhateverItsPrefix(t *testing.T) {
+	if got := Unknown("Call show_prompts to list them.", []string{"manage_prompt"}); len(got) != 1 || got[0] != "show_prompts" {
+		t.Errorf("Unknown() = %v, want [show_prompts]", got)
+	}
+	if got := Unknown("Call show_prompts to list them.", []string{"show_prompts"}); len(got) != 0 {
+		t.Errorf("Unknown() = %v for a registered name, want none", got)
+	}
 }

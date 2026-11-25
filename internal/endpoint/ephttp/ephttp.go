@@ -51,6 +51,8 @@ const (
 	// EnvironmentPrefix is where an application endpoint answers in an
 	// environment other than its last (#2696):
 	// /environments/{env}/endpoints/{name}/...
+	// epbinding.EnvironmentPrefix is the same, for the URLs epaddr writes;
+	// a literal here so the route table can be read from the source.
 	EnvironmentPrefix = "/environments/"
 	// BotCheckPrefix is the bot check's routes.
 	BotCheckPrefix = "/botcheck/"

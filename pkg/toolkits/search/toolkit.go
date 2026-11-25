@@ -103,7 +103,7 @@ var searchSchema = json.RawMessage(`{
   "properties": {
     "intent": {
       "type": "string",
-      "description": "Natural-language description of what you are looking for, across every source you can access: the technical catalog, the governance vocabulary (glossary terms, tags, domains), context documents, canonical knowledge pages (business/domain ontology), your memory, captured insights, your feedback, saved assets, uploaded reference material (resources), prompts, managed scripts, the queries and API calls you have already run (calls), the sessions you ran them in (sessions), API endpoints, and connections. Ranked by relevance and grouped by source. Provide intent, entity_urns, or both."
+      "description": "Your query: a natural-language description of what you are looking for, across every source you can access: the technical catalog, the governance vocabulary (glossary terms, tags, domains), context documents, canonical knowledge pages (business/domain ontology), your memory, captured insights, your feedback, saved assets, uploaded reference material (resources), prompts, managed scripts, the queries and API calls you have already run (calls), the sessions you ran them in (sessions), API endpoints, connections, and the platform's own tools (tools: the tool for an action you name). Ranked by relevance and grouped by source. Provide intent, entity_urns, or both."
     },
     "context": {
       "type": "string",
@@ -121,7 +121,7 @@ var searchSchema = json.RawMessage(`{
     "sources": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Optional: narrow the search to specific sources (e.g. [\"catalog\"], [\"memory\",\"endpoints\"]). Omit to search every source you can access. This only narrows results; it never opts you into a source your access would otherwise exclude. Known sources: catalog, governance, knowledge_pages, memory, insights, feedback, assets, resources, prompts, scripts, calls, sessions, endpoints, connections. An unrecognized name is reported back in unknown_sources rather than silently ignored. To BROWSE (enumerate) a source instead of searching it, pass exactly one source here with no intent and no entity_urns (browsable sources: knowledge_pages)."
+      "description": "Optional: narrow the search to specific sources (e.g. [\"catalog\"], [\"memory\",\"endpoints\"]). Omit to search every source you can access. This only narrows results; it never opts you into a source your access would otherwise exclude. Known sources: catalog, governance, knowledge_pages, memory, insights, feedback, assets, resources, prompts, scripts, calls, sessions, endpoints, connections, tools. An unrecognized name is reported back in unknown_sources rather than silently ignored. To BROWSE (enumerate) a source instead of searching it, pass exactly one source here with no intent and no entity_urns (browsable sources: knowledge_pages)."
     },
     "limit": {
       "type": "integer",
@@ -284,10 +284,12 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"already known and to learn where the answer to a question lives. One query fans across every " +
 			"source you can access (the technical catalog, the governance vocabulary, context documents, canonical " +
 			"knowledge pages, your memory, " +
-			"captured insights, your feedback, saved assets, uploaded reference material, prompts, API endpoints, and " +
-			"connections) and returns results grouped by source with a coverage " +
+			"captured insights, your feedback, saved assets, uploaded reference material, prompts, API endpoints, " +
+			"connections, and the platform's own tools) and returns results grouped by source with a coverage " +
 			"summary, so you see the full shape of the answer space instead of tunneling into the first tool " +
-			"that comes to mind. For example 'how do we calculate churn' or 'customer retention'. A question " +
+			"that comes to mind. For example 'how do we calculate churn' or 'customer retention'. When the intent is " +
+			"an action ('publish a static site', 'share an asset', 'register a table'), the tools source names the " +
+			"tool that does it, with an example call. A question " +
 			"about what a business term MEANS answers itself here: the governance source returns the glossary " +
 			"term, tag, or domain with its definition in the hit, not just the datasets that carry it. Results are " +
 			"navigational pointers (title, reference, source); read one in full with fetch (pass its reference) " +

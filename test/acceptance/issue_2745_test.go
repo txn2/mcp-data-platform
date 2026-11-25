@@ -36,7 +36,7 @@ import (
 // list of strings, sent as one; /oauth/token and /oauth/consent take form
 // bodies; the portal sections route takes a JSON object; manage_asset's
 // action, collection_id and name are strings and sections a list of objects;
-// trino_query's sql and connection are strings; trino_explain's sql a string;
+// trino_query's sql and connection are strings;
 // manage_script's command, name and source strings; run_script's name a string
 // and wait_seconds an integer; memory_manage's command a string; manage_schema's
 // command, connection, schema, name and up strings and version an integer;
@@ -573,8 +573,8 @@ func issue2745UserID(t *testing.T, c *client) string {
 const acc2745TrinoPurpose = "Acceptance #2745: checking that the read-only query tool refuses statements that write."
 
 // TestIssue2745_TrinoQueryRunsOnlyStatementsThatRead: trino_query refuses a
-// statement that writes whatever its first word, EXPLAIN ANALYZE included,
-// and trino_explain refuses to explain one it would run; a read still runs.
+// statement that writes whatever its first word, EXPLAIN ANALYZE included; a
+// read still runs.
 func TestIssue2745_TrinoQueryRunsOnlyStatementsThatRead(t *testing.T) {
 	c := connect(t)
 	for _, sql := range []string{
@@ -588,10 +588,6 @@ func TestIssue2745_TrinoQueryRunsOnlyStatementsThatRead(t *testing.T) {
 		if !strings.Contains(text, "runs only statements that read") {
 			t.Errorf("trino_query ran %q: %.300s", sql, text)
 		}
-	}
-	_, text, _ := c.callRaw("trino_explain", map[string]any{"connection": scratchResourceConnection, "sql": "EXPLAIN ANALYZE SELECT 1", "purpose": acc2745TrinoPurpose})
-	if !strings.Contains(text, "explains a statement without running it") {
-		t.Errorf("trino_explain explained an EXPLAIN ANALYZE: %.300s", text)
 	}
 	out := c.call("trino_query", map[string]any{"connection": scratchResourceConnection, "sql": "SELECT 1 AS one", "purpose": acc2745TrinoPurpose})
 	if !strings.Contains(asJSON(out), "one") {

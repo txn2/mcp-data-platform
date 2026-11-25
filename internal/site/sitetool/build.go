@@ -10,6 +10,9 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/txn2/mcp-data-platform/internal/site"
+	"github.com/txn2/mcp-data-platform/internal/site/sitetypecheck"
+
 	"github.com/txn2/mcp-data-platform/internal/site/sitebuild"
 	"github.com/txn2/mcp-data-platform/internal/site/sitebuild/pkgmap"
 	"github.com/txn2/mcp-data-platform/internal/site/sitebuild/sourcemap"
@@ -22,6 +25,8 @@ import (
 const (
 	CmdImports     = "imports"
 	CmdBuildReport = "build_report"
+	// CmdTypecheck queues a release's type check again (#2793).
+	CmdTypecheck   = "typecheck"
 	CmdSymbolicate = "symbolicate"
 )
 
@@ -187,7 +192,61 @@ func (t *Tool) buildReport(ctx context.Context, actor sitesvc.Actor, in Input) (
 	if len(builds) == 0 {
 		out["message"] = "This release recorded no compile: it has no " + sitebuild.ControlFile + ", or was published before reports were kept."
 	}
+	if t.Typechecks != nil {
+		if check, err := t.Typechecks.Latest(ctx, b.Release.SiteID, b.Release.Number); err == nil && check != nil {
+			out[fieldTypecheck] = check
+		}
+	}
 	return out, nil
+}
+
+// fieldTypecheck is the key a release's type check is reported under.
+const fieldTypecheck = "typecheck"
+
+// TypecheckQueue is how the tool queues and reads a release's type check
+// (#2793).
+type TypecheckQueue interface {
+	Enqueue(ctx context.Context, req sitetypecheck.Request) (int64, error)
+	Latest(ctx context.Context, siteID string, release int) (*sitetypecheck.Check, error)
+}
+
+// withTypecheck adds to a publish's answer the type check it queued (#2793),
+// when the site's _build.json asks for one.
+func (t *Tool) withTypecheck(ctx context.Context, v any, rel *site.Release) any {
+	if t.Typechecks == nil || rel == nil {
+		return v
+	}
+	check, err := t.Typechecks.Latest(ctx, rel.SiteID, rel.Number)
+	if err != nil || check == nil {
+		return v
+	}
+	out, ok := v.(map[string]any)
+	if !ok {
+		raw, err := json.Marshal(v)
+		if err != nil || json.Unmarshal(raw, &out) != nil {
+			return v
+		}
+	}
+	out[fieldTypecheck] = sitetypecheck.Queued{ID: check.ID, Status: check.Status}
+	return out
+}
+
+// typecheck queues a release's type check again (#2793).
+func (t *Tool) typecheck(ctx context.Context, actor sitesvc.Actor, in Input) (any, error) {
+	if t.Typechecks == nil {
+		return nil, &sitesvc.RefusedError{Msg: "this deployment runs no type checks: it has no bucket to keep the compiler in, or sites.typecheck.enabled is false"}
+	}
+	number, queued, err := sitetypecheck.Recheck(ctx, t.Typechecks, t.Service, sitetypecheck.RecheckRequest{
+		Actor: actor, Site: in.Site, Environment: in.Environment, Release: in.Release,
+	})
+	if err != nil {
+		return nil, err //nolint:wrapcheck // the caller's message
+	}
+	return map[string]any{
+		fieldRelease:   number,
+		fieldTypecheck: queued,
+		"message":      "Queued. Checks run one at a time; read the result with build_report or on the release's page.",
+	}, nil
 }
 
 // symbolicate maps a stack trace from a release's minified output to the

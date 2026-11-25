@@ -129,3 +129,55 @@ func TestFilterValues_RealDB_LooseScanMatchesDistinct(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 2, n)
 }
+
+// TestMetrics_RealDB_HoldsAreNeitherSuccessNorFailure is #2819: a call held
+// for an approval or an answer is counted apart. The success rate leaves it
+// out of both sides, the error count leaves it out, and a tool whose only
+// non-successes are holds reads 100%. A resource read under the tool's name
+// is not one of its calls when the breakdown asks for tool calls, and is
+// counted under its own event kind.
+func TestMetrics_RealDB_HoldsAreNeitherSuccessNorFailure(t *testing.T) {
+	store := New(testdb.New(t), Config{RetentionDays: 30})
+	ctx := context.Background()
+	const tool = "realdb_holds_tool"
+	logCall := func(success bool, category string) {
+		t.Helper()
+		ev := audit.NewEvent(tool).WithEventKind(audit.EventTypeMCPToolCall).
+			WithUser("u@example.com", "u@example.com").WithResult(success, "", 5)
+		if category != "" {
+			ev = ev.WithErrorCategory(category)
+		}
+		require.NoError(t, store.Log(ctx, *ev))
+	}
+	logCall(true, "")
+	logCall(true, "")
+	logCall(false, audit.CategoryInputRequired)
+	logCall(false, audit.CategoryInputRequired)
+	read := audit.NewEvent(tool).WithEventKind(audit.EventTypeResourceRead).WithResult(true, "", 1)
+	require.NoError(t, store.Log(ctx, *read))
+
+	rows, err := store.Breakdown(ctx, audit.BreakdownFilter{
+		GroupBy: audit.BreakdownByToolName, ToolName: tool, EventKind: string(audit.EventTypeMCPToolCall),
+	})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, 4, rows[0].Count, "the resource read is not a call of the tool")
+	assert.InDelta(t, 1.0, rows[0].SuccessRate, 1e-9, "holds are not failures")
+	assert.Equal(t, 2, rows[0].HoldCount)
+
+	logCall(false, "tool_error")
+	o, err := store.Overview(ctx, audit.MetricsFilter{EventKind: string(audit.EventTypeMCPToolCall)})
+	require.NoError(t, err)
+	assert.Equal(t, 1, o.ErrorCount, "a hold is not an error")
+	assert.Equal(t, 2, o.HoldCount)
+	assert.InDelta(t, 2.0/3.0, o.SuccessRate, 1e-9, "two successes of three calls that finished")
+
+	kinds, err := store.Breakdown(ctx, audit.BreakdownFilter{GroupBy: audit.BreakdownByEventKind})
+	require.NoError(t, err)
+	byKind := map[string]int{}
+	for _, k := range kinds {
+		byKind[k.Dimension] = k.Count
+	}
+	assert.Equal(t, 1, byKind[string(audit.EventTypeResourceRead)])
+	assert.Equal(t, 5, byKind[string(audit.EventTypeMCPToolCall)])
+}

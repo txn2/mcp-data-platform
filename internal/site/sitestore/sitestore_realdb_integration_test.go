@@ -271,6 +271,11 @@ func TestRealDB_ApplicationHosts(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"www.example.com"}, noPages, "no pages domain, no own address")
 
+	byEnv, err := s.ApplicationHostsByEnvironment(ctx, app.ID, "pages.example.net")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"www.example.com", "marketing--prod.pages.example.net"}, byEnv[realProd], "prod's hosts run prod (#2822)")
+	assert.ElementsMatch(t, []string{"blog--dev.pages.example.net", "blog.pages.example.net"}, byEnv[site.EnvDev])
+
 	none, err := s.ApplicationHosts(ctx, "app_none", "pages.example.net")
 	require.NoError(t, err)
 	assert.Equal(t, []string{}, none)

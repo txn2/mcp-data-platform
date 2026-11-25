@@ -230,8 +230,11 @@ export interface ToolPersonaAccess {
 export interface ToolActivityAggregate {
   window_seconds: number;
   call_count: number;
+  /** Holds are left out of both sides (#2819). */
   success_rate: number;
   avg_duration_ms: number;
+  /** Calls that waited for an approval or an answer (#2819). */
+  hold_count?: number;
 }
 
 export interface ToolDetail {

@@ -148,9 +148,9 @@ const logKeyCount = "count"
 // builtinPlatformInfoName is the canonical name for the built-in platform-info MCP app.
 const builtinPlatformInfoName = "platform-info"
 
-// builtinPromptBrowserName is the registry name of the embedded prompt-browser
-// MCP app (#1011), bound to the manage_prompt tool.
-const builtinPromptBrowserName = "prompt-browser"
+// retiredPromptBrowserName is the name the prompt-browser MCP app was
+// registered under until #2807 retired show_prompts, the one tool it opened on.
+const retiredPromptBrowserName = "prompt-browser"
 
 // logKeyError is the slog key for error values in log messages.
 const logKeyError = "error"
@@ -1681,6 +1681,7 @@ func (p *Platform) initSearch() error {
 		ConnectionScope:    connscope.ForRegistry(p.personaRegistry, p.toolkitRegistry),
 		Registry:           p.toolkitRegistry,
 		Embedding:          p.embeddingProv,
+		Tools:              p.toolRanker(),
 	})
 
 	if p.searchFed == nil {
@@ -1998,34 +1999,18 @@ func (p *Platform) initMCPApps() error {
 		return err
 	}
 
-	// Built-in prompt-browser app (#1011): a browse/search/preview/run UI. It is
-	// bound to the presentation-only show_prompts tool, not to manage_prompt
-	// (#1040): the host renders an app on every call to the tool it is bound to,
-	// and an agent calls manage_prompt constantly for its own work, so binding
-	// the app there rendered the UI uninvited on every prompt operation.
-	// show_prompts exists only to open this browser for the human; the app then
-	// hydrates itself with its own manage_prompt calls.
-	promptBrowser, err := builtinAppDefinition(p.config.MCPApps.Apps, builtinPromptBrowserName, promptlayer.ToolNameShowPrompts, apps.PromptBrowser)
-	if err != nil {
-		return err
-	}
-	// The prompt browser presents the same brand as platform-info: its logo and
-	// name. When the operator has not configured the prompt-browser app itself,
-	// it inherits platform-info's already-resolved brand config (registered just
-	// above), and the portal logo is injected into whichever config it ends up
-	// with, so both built-in apps show one logo rather than the browser rendering
-	// bare.
-	if promptBrowser.Config == nil {
-		promptBrowser.Config = p.config.MCPApps.Apps[builtinPlatformInfoName].Config
-	}
-	promptBrowser.Config = p.branding.InjectPortalLogo(promptBrowser.Config)
-	if err := registerBuiltinApp(p.mcpAppsRegistry, promptBrowser); err != nil {
-		return err
-	}
-
 	for appName, appCfg := range p.config.MCPApps.Apps {
-		if appName == builtinPlatformInfoName || appName == builtinPromptBrowserName {
+		if appName == builtinPlatformInfoName {
 			// Already registered as built-in (possibly with operator config applied).
+			continue
+		}
+		if appName == retiredPromptBrowserName {
+			// The prompt browser opened only on show_prompts, retired by #2807. An
+			// entry an operator wrote for it configures nothing now; it is
+			// reported, never read as a custom app with no assets.
+			configwarn.Warn(context.Background(), configwarn.CodeDeprecatedKey,
+				"mcpapps.apps.prompt-browser configures an app the platform no longer ships",
+				"hint", "remove the entry; manage_prompt and the portal's Prompts page replace the prompt browser")
 			continue
 		}
 		if !appCfg.Enabled {
@@ -2453,7 +2438,7 @@ func (p *Platform) addToolVisibilityMiddleware() {
 	}
 
 	// Wire persona-based filtering via the authorizer. The same
-	// predicate backs platform_find_tools' read-time filter so the two
+	// predicate backs search's tools source so the two
 	// cannot diverge (see personaAllowsTool).
 	if p.authorizer != nil {
 		cfg.IsToolAllowedForPersona = p.personaAllowsTool
@@ -2794,9 +2779,7 @@ func (p *Platform) Start(ctx context.Context) error {
 	// Register platform-level tools
 	p.registerInfoTool()
 	p.registerConnectionsTool()
-	p.registerFindToolsTool()
 	p.prompts.RegisterTool(p.mcpServer)
-	p.prompts.RegisterShowPromptsTool(p.mcpServer)
 	// Managed scripts (#1283, #1284). The execution side owns the run queue and
 	// the worker that drains it; the tool layer owns manage_script and
 	// run_script and enqueues onto that same queue. The lifecycle holds the
@@ -3196,18 +3179,15 @@ func (p *Platform) PlatformTools() []ToolInfo {
 	tools := []ToolInfo{
 		{Name: defaultInitTool, Kind: kindPlatform},
 		{Name: toolListConns, Kind: kindPlatform},
-		{Name: platformFindToolsName, Kind: kindPlatform},
 	}
 	if p.prompts.Store() != nil {
 		tools = append(tools,
-			ToolInfo{Name: promptlayer.ToolNameManagePrompt, Kind: kindPlatform},
-			ToolInfo{Name: promptlayer.ToolNameShowPrompts, Kind: kindPlatform})
+			ToolInfo{Name: promptlayer.ToolNameManagePrompt, Kind: kindPlatform})
 	}
 	if p.scripts.HasStore() {
 		tools = append(tools,
 			ToolInfo{Name: scriptlayer.ToolNameManageScript, Kind: kindPlatform},
 			ToolInfo{Name: scriptlayer.ToolNameRunScript, Kind: kindPlatform},
-			ToolInfo{Name: scriptlayer.ToolNameShowScripts, Kind: kindPlatform},
 			ToolInfo{Name: apptool.ToolName, Kind: kindPlatform}, ToolInfo{Name: apprtool.ToolName, Kind: kindPlatform}, ToolInfo{Name: scriptwiring.ToolManageSite, Kind: kindPlatform})
 	}
 	// notify is registered under wireNotify's condition, with no channels too: its

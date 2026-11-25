@@ -97,3 +97,10 @@ more, and `fetch` dereferences any result. Capture what you learned when a
 query failed and a later one worked — the platform also mints some of those
 corrections automatically, but only for a narrow class of errors, and a stated
 correction with its reasoning is better evidence than a mined one.
+
+What is worth capturing: a definition, a convention, how an official figure is
+computed, who owns a dataset, a trap that cost a retry. What is not: a column
+name you just corrected in your own query, or anything the table's schema
+already says. When a memory you relied on turns out wrong or outdated, correct
+it with `memory_manage` command `update`, or retire it with `forget`, so the
+next session is not misled by it.

@@ -125,3 +125,22 @@ func TestNoticesNoteNamesFailingAutomations(t *testing.T) {
 	noticesOnly := NoticesNote(allNoticeTools, 1, 0, 0)
 	assert.Contains(t, noticesOnly, "This response carries a `notices` block.")
 }
+
+func TestConnectionKindsNote(t *testing.T) {
+	note := ConnectionKindsNote([]ConnectionKind{
+		{Name: "Trino", Tools: []string{"trino_query", "trino_execute"}},
+		{Name: "application database", Tools: []string{"manage_schema"}, Script: "platform.query in a managed script"},
+		{Name: "S3"},
+	})
+	for _, want := range []string{"- Trino: trino_query, trino_execute", "- application database: manage_schema, or platform.query in a managed script"} {
+		if !strings.Contains(note, want) {
+			t.Errorf("note lacks %q:\n%s", want, note)
+		}
+	}
+	if strings.Contains(note, "S3") {
+		t.Errorf("a kind with no route was listed:\n%s", note)
+	}
+	if ConnectionKindsNote(nil) != "" || ConnectionKindsNote([]ConnectionKind{{Name: "S3"}}) != "" {
+		t.Error("no routable kind gave a note")
+	}
+}

@@ -5,6 +5,7 @@ import { SitesSettingsCard } from "./SitesSettingsCard";
 import { NotificationChannelsCard } from "./NotificationChannelsCard";
 import { ReviewAlertCard } from "./ReviewAlertCard";
 import { GeneralFeedbackCard } from "./GeneralFeedbackCard";
+import { PlatformFeedbackCard } from "./PlatformFeedbackCard";
 import { ScriptRunAlertCard } from "./ScriptRunAlertCard";
 import { BotChecksSettingsCard } from "./BotChecksSettingsCard";
 import { AccessRequestsSettingsCard } from "./AccessRequestsSettingsCard";
@@ -22,6 +23,7 @@ import type { SettingsSectionId } from "./settingsSections";
 export const OTHER_SECTION_CARDS: Record<Exclude<SettingsSectionId, "email">, (isReadOnly: boolean) => React.ReactNode> = {
   channels: (ro) => <NotificationChannelsCard isReadOnly={ro} />,
   "general-feedback": (ro) => <GeneralFeedbackCard isReadOnly={ro} />,
+  "platform-feedback": (ro) => <PlatformFeedbackCard isReadOnly={ro} />,
   "knowledge-review": (ro) => (
     <ReviewAlertCard
       queue="review-queue-alert"

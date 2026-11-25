@@ -1,7 +1,9 @@
 package sitetool
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -10,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/site/sitebuild"
+	"github.com/txn2/mcp-data-platform/internal/site/sitetypecheck"
 	"github.com/txn2/mcp-data-platform/pkg/searchgate"
 )
 
@@ -84,4 +87,58 @@ func TestBuildCommandRefusals(t *testing.T) {
 	}})
 	assert.Contains(t, refusal(t, f, ctx, Input{Command: CmdImports, Site: siteName}), "no package-lock.json")
 	assert.Contains(t, refusal(t, f, ctx, Input{Command: CmdPublish, Site: siteName, Base: 2, Files: []File{content(sitebuild.ControlFile, `{"entries":[]}`)}}), "entries is empty")
+}
+
+// fakeTypechecks records queued checks and answers the latest.
+type fakeTypechecks struct {
+	queued []string
+	latest *sitetypecheck.Check
+}
+
+func (f *fakeTypechecks) Enqueue(_ context.Context, r sitetypecheck.Request) (int64, error) {
+	f.queued = append(f.queued, fmt.Sprintf("%s#%d@%s:%s by %s", r.SiteID, r.Release, r.Environment, r.Tsconfig, r.By))
+	return int64(len(f.queued)), nil
+}
+
+func (f *fakeTypechecks) Latest(context.Context, string, int) (*sitetypecheck.Check, error) {
+	return f.latest, nil
+}
+
+// TestTypecheckCommand is #2793 through manage_site: typecheck queues a
+// release's check when its _build.json asks for one, refuses one that asks for
+// none or a deployment that runs none, and build_report carries the result.
+func TestTypecheckCommand(t *testing.T) {
+	f := newFixture()
+	createSite(t, f)
+	ctx := admin()
+	assert.Contains(t, refusal(t, f, ctx, Input{Command: CmdTypecheck, Site: siteName}), "runs no type checks")
+
+	queue := &fakeTypechecks{latest: &sitetypecheck.Check{
+		ID: 7, Status: sitetypecheck.StatusErrors,
+		Result: &sitetypecheck.Result{Status: sitetypecheck.StatusErrors, Diagnostics: []sitetypecheck.Diagnostic{{File: "src/a.ts", Line: 1, Column: 14, Code: "TS2322", Message: "bad"}}},
+	}}
+	f.tool.Typechecks = queue
+	f.tool.Service.AfterPublish = sitetypecheck.AfterPublish(queue, f.tool.Service)
+	call(t, f, ctx, Input{Command: CmdPublish, Site: siteName, Files: []File{
+		content(sitebuild.ControlFile, `{"entries":["app.tsx"]}`), content("app.tsx", "export const a = 1;\n"),
+	}})
+	assert.Contains(t, refusal(t, f, ctx, Input{Command: CmdTypecheck, Site: siteName}), "asks for no type check")
+
+	published := call(t, f, ctx, Input{Command: CmdPublish, Site: siteName, Files: []File{
+		content(sitebuild.ControlFile, `{"entries":["app.tsx"],"typecheck":{"tsconfig":"tsconfig.app.json"}}`), content("app.tsx", "export const a = 1;\n"),
+	}})
+	require.Len(t, queue.queued, 1, "a publish of a site asking for a check queues one")
+	// The publish reports the release's newest check, as the queue holds it.
+	queuedByPublish, _ := published[fieldTypecheck].(map[string]any)
+	assert.InDelta(t, 7, queuedByPublish["id"], 0)
+	assert.Equal(t, "errors", queuedByPublish["status"])
+	got := call(t, f, ctx, Input{Command: CmdTypecheck, Site: siteName})
+	require.Len(t, queue.queued, 2)
+	assert.Contains(t, queue.queued[1], "#2@dev:tsconfig.app.json by "+adminEmail)
+	tc, _ := got[fieldTypecheck].(map[string]any)
+	assert.Equal(t, "queued", tc["status"])
+
+	report := call(t, f, ctx, Input{Command: CmdBuildReport, Site: siteName})
+	check, _ := report[fieldTypecheck].(map[string]any)
+	assert.Equal(t, "errors", check["status"])
 }

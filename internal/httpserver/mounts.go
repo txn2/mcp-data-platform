@@ -12,6 +12,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/alertwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/catalogwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/changesethttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/mentionhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/connchoicehttp"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -364,7 +365,7 @@ func wirePortalOptionalDeps(deps *portal.Deps, p *platform.Platform) {
 	if ep := p.EmbeddingProvider(); ep != nil {
 		deps.EmbeddingProvider = ep
 	}
-	if aud := mentionAudience(p); aud != nil {
+	if aud := mentionhttp.Audience(p.DB()); aud != nil {
 		deps.MentionResolver = mention.NewService(aud)
 	}
 	if pr := p.PersonaRegistry(); pr != nil {

@@ -618,7 +618,7 @@ func TestIssue2111_ThePolicyIsVisibleAndChangeable(t *testing.T) {
 		"action": "create", "filename": "bad.csv", "display_name": "Bad " + stamp, "path": folder,
 		"content": "a\n1\n", "content_type": "text/csv", "description": "Acceptance #2111.", "index": "everything",
 	})
-	if err != nil || !res.IsError || !strings.Contains(text, "[full metadata none]") {
+	if err != nil || !res.IsError || !strings.Contains(text, "it takes one of: full, metadata, none") {
 		t.Errorf("manage_resource create with index=everything answered %v %s; want a refusal naming the values", err, text)
 	}
 

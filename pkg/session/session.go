@@ -30,6 +30,13 @@ type Session struct {
 	State map[string]any
 }
 
+// AnyGetter is a store that can read a session whatever its expiry, so a
+// refused handle is told apart as expired or never issued (#2816). The
+// database and memory stores implement it.
+type AnyGetter interface {
+	GetAny(ctx context.Context, id string) (*Session, error)
+}
+
 // Store defines the interface for session persistence.
 type Store interface {
 	// Create persists a new session.

@@ -37,7 +37,7 @@ func TestEnumerateGlobalTools_ListsTools(t *testing.T) {
 		return &mcp.CallToolResult{}, nil, nil
 	}
 	mcp.AddTool(srv, &mcp.Tool{Name: "alpha", Description: "do the alpha thing"}, noop)
-	mcp.AddTool(srv, &mcp.Tool{Name: platformFindToolsName, Description: "discovery"}, noop)
+	mcp.AddTool(srv, &mcp.Tool{Name: searchToolName, Description: "discovery"}, noop)
 
 	p := &Platform{mcpServer: srv}
 	tools, err := p.enumerateGlobalTools(context.Background())

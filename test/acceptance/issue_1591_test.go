@@ -315,11 +315,7 @@ func TestIssue1591_FindToolsReturnsTheConsolidatedTools(t *testing.T) {
 		"get a download link":       issue1591ObjectTool,
 		"browse a data lake":        issue1591ListTool,
 	} {
-		out := c.call("platform_find_tools", map[string]any{"query": intent})
-		var names []string
-		for _, tool := range out["tools"].([]any) {
-			names = append(names, tool.(map[string]any)["name"].(string))
-		}
+		names := c.searchToolNames(intent)
 		found := false
 		for _, name := range names {
 			if name == want {
@@ -327,7 +323,7 @@ func TestIssue1591_FindToolsReturnsTheConsolidatedTools(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Errorf("platform_find_tools %q returned %v; want %s among them (note: %v)", intent, names, want, out["note"])
+			t.Errorf("search's tools for %q are %v; want %s among them", intent, names, want)
 		}
 	}
 }

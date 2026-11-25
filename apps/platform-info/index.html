@@ -471,8 +471,7 @@ if(__exports != exports)module.exports = exports;return module.exports}));
     // last ui/notifications/size-changed the view sends; without one the app
     // renders in the host's default cramped window. The view declares a fixed
     // 500px viewport (its shell height) and re-reports on any reflow via a
-    // ResizeObserver, mirroring the SDK's useAutoResize pattern. Kept
-    // byte-identical to the prompt-browser app so both speak one contract.
+    // ResizeObserver, mirroring the SDK's useAutoResize pattern.
     // ---------------------------------------------------------------------
     var APP_HEIGHT = 500;
     function sendSize() {

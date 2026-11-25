@@ -180,3 +180,70 @@ func as[T any](t *testing.T, v any) T {
 	require.True(t, ok, "%T is not the type expected", v)
 	return got
 }
+
+// TestProse is #2818: the platform's wording about the reference form is
+// written under the deployment's scheme, generic forms included, while a word
+// that merely follows "mcp:" with a colon of its own (a URL, an id) is left to
+// Display's rule.
+func TestProse(t *testing.T) {
+	if err := Configure("acme", ""); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = Configure("", "") }()
+	for in, want := range map[string]string{
+		"A reference is an mcp:<type>:<key> string": "A reference is an acme:<type>:<key> string",
+		"fetch the table's mcp:dataset reference":   "fetch the table's acme:dataset reference",
+		"an mcp: reference":                         "an acme: reference",
+		"`mcp:call:` references":                    "`acme:call:` references",
+		"mcp:asset:abc and mcp:dataset:(trino,w,t)": "acme:asset:abc and acme:dataset:(trino,w,t)",
+		"ends with mcp:":                            "ends with acme:",
+		`{"d":"an mcp:<type> and \"mcp:\""}`:        `{"d":"an acme:<type> and \"acme:\""}`,
+		"see https://x/mcp:asset":                   "see https://x/mcp:asset",
+	} {
+		if got := Prose(in); got != want {
+			t.Errorf("Prose(%q) = %q, want %q", in, got, want)
+		}
+		if got := string(ProseBytes([]byte(in))); got != want {
+			t.Errorf("ProseBytes(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if got := Display("an mcp:dataset reference"); got != "an mcp:dataset reference" {
+		t.Errorf("Display rewrote prose: %q", got)
+	}
+	_ = Configure("", "")
+	if got := Prose("an mcp: reference"); got != "an mcp: reference" {
+		t.Errorf("with no scheme Prose rewrote: %q", got)
+	}
+}
+
+// TestMiddleware_PlatformText is #2818: a tool named as the platform's own
+// text has its generic mcp: wording rewritten as well as its references; any
+// other tool's text keeps generic wording, which may be data.
+func TestMiddleware_PlatformText(t *testing.T) {
+	useScheme(t, "acme", "")
+	answer := func(context.Context, string, mcp.Request) (mcp.Result, error) {
+		return &mcp.CallToolResult{
+			Content:           []mcp.Content{&mcp.TextContent{Text: "cite an mcp: reference"}, &mcp.ResourceLink{URI: "mcp://global/x", Description: "mcp:asset:a"}},
+			StructuredContent: map[string]any{"text": "an mcp:<type>:<key> string"},
+		}, nil
+	}
+	call := func(name string) *mcp.CallToolResult {
+		t.Helper()
+		req := &mcp.ServerRequest[*mcp.CallToolParamsRaw]{Params: &mcp.CallToolParamsRaw{Name: name, Arguments: json.RawMessage(`{}`)}}
+		res, err := Middleware("platform_info")(answer)(context.Background(), "tools/call", req)
+		require.NoError(t, err)
+		return as[*mcp.CallToolResult](t, res)
+	}
+	own := call("platform_info")
+	assert.Equal(t, "cite an acme: reference", as[*mcp.TextContent](t, own.Content[0]).Text)
+	link := as[*mcp.ResourceLink](t, own.Content[1])
+	assert.Equal(t, "acme://global/x", link.URI)
+	assert.Equal(t, "acme:asset:a", link.Description)
+	assert.Equal(t, "an acme:<type>:<key> string", as[map[string]any](t, own.StructuredContent)["text"])
+
+	other := call("trino_query")
+	assert.Equal(t, "cite an mcp: reference", as[*mcp.TextContent](t, other.Content[0]).Text)
+
+	assert.False(t, platformTextTool(nil, []string{"platform_info"}))
+	assert.False(t, platformTextTool(&mcp.ServerRequest[*mcp.ListToolsParams]{Params: &mcp.ListToolsParams{}}, []string{"platform_info"}))
+}

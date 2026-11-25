@@ -40,7 +40,7 @@ graph TD
 | Pattern | Matches |
 |---------|---------|
 | `*` | Everything |
-| `trino_*` | trino_query, trino_execute, trino_explain, trino_browse, trino_export, etc. |
+| `trino_*` | trino_query, trino_execute, trino_browse, trino_describe_table, trino_export, etc. |
 | `*_list_*` | trino_list_connections (does **not** match `s3_list`, which has nothing after `list`, nor `trino_browse`) |
 | `s3_*` | Both S3 tools, `s3_list` and `s3_object` |
 | `trino_query` | Exact match only |
@@ -63,7 +63,6 @@ tools:
 tools:
   allow:
     - "trino_query"
-    - "trino_explain"
     - "trino_browse"
     - "trino_describe_*"
     - "trino_list_connections"
@@ -93,7 +92,6 @@ tools:
   deny:
     - "trino_query"
     - "trino_execute"
-    - "trino_explain"
 ```
 
 ### Data Exploration
@@ -131,7 +129,6 @@ Use these exact names in your patterns:
 **Trino Tools:**
 - `trino_query` (read-only)
 - `trino_execute` (read-write)
-- `trino_explain`
 - `trino_browse`
 - `trino_describe_table`
 - `trino_export` (requires portal; exports query results to asset)
@@ -213,7 +210,6 @@ data_steward:
     deny:
       - "trino_query"
       - "trino_execute"
-      - "trino_explain"
 ```
 
 ### ETL Service Persona
@@ -242,7 +238,6 @@ viewer:
     deny:
       - "trino_query"
       - "trino_execute"
-      - "trino_explain"
       - "trino_describe_*"
       - "s3_*"
 ```

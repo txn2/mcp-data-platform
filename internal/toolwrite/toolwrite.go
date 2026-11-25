@@ -137,18 +137,14 @@ const (
 // tool, and a pattern would extend that promise to names nobody has read.
 var readOnlyTools = map[string]bool{
 	// The platform's own orientation surface.
-	"platform_info":       true,
-	"list_connections":    true,
-	"platform_find_tools": true,
-	"show_prompts":        true,
-	"show_scripts":        true,
+	"platform_info":    true,
+	"list_connections": true,
 	// Discovery.
 	"search": true,
 	"fetch":  true,
 	// Trino. trino_execute and trino_export are absent: the first is the DDL
 	// and DML tool, the second lands an asset.
 	"trino_query":          true,
-	"trino_explain":        true,
 	"trino_browse":         true,
 	"trino_describe_table": true,
 	// Object storage. s3_object is action-based and ruled on below.
@@ -323,11 +319,12 @@ var actionTools = map[string]actionRule{
 		"prepare")},
 	// manage_site (#2518): publish writes a release, promote and rollback
 	// move what an environment serves, crawl publishes a copied site, and
-	// set_domain changes who a domain answers (#2619).
+	// set_domain changes who a domain answers (#2619). typecheck queues a
+	// stored check of a release (#2793).
 	"manage_site": {arg: "command", reads: set(
 		"get", "list", "releases", "deployments", "domains", "imports", "build_report", "symbolicate",
 	), writes: set("create", "update", "delete", "set_environment", "publish", "promote", "rollback",
-		"add_domain", "set_domain", "remove_domain", "crawl", "grant", "revoke", "remove_environment")},
+		"add_domain", "set_domain", "remove_domain", "crawl", "grant", "revoke", "remove_environment", "typecheck")},
 	// manage_approval (#2437, #2494): submit files a request and decide
 	// decides one; list and get read.
 	"manage_approval": {arg: "command", reads: set("list", "get"), writes: set("submit", "decide")},

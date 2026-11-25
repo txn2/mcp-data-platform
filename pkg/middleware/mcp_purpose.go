@@ -67,7 +67,7 @@ const proxiedToolkitKind = "mcp"
 // the explanation, while an asset is the output and not the reason for it.
 //
 // The rest of the orientation and platform-management surface (platform_info,
-// list_connections, platform_find_tools, memory_*, the other manage_* tools) is
+// list_connections, memory_*, the other manage_* tools) is
 // deliberately absent: their purpose is their name, and gating them would tax
 // every call the agent makes to set itself up.
 var defaultPurposeTools = []string{

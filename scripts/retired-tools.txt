@@ -53,3 +53,12 @@ datahub_get_schema
 datahub_list_connections
 datahub_search
 datahub_update
+
+# Removed by the production tool audit (#2821). show_prompts and show_scripts
+# only opened a UI an agent never asked for (#2807): manage_prompt and
+# manage_script do the work. trino_query runs EXPLAIN (TYPE ...) (#2808).
+# search returns tools as a result kind (#2809).
+show_prompts
+show_scripts
+trino_explain
+platform_find_tools

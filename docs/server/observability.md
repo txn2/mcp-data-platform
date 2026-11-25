@@ -343,11 +343,11 @@ further query waits on, which `db_pool_wait_count_total` then counts.
 
 **Trino** rows are recorded for every statement and metadata call the
 platform sends to Trino (#1896): the `trino_*` tools (`trino_query`,
-`trino_execute`, `trino_explain`, `trino_browse`, `trino_describe_table`,
+`trino_execute`, `trino_browse`, `trino_describe_table`,
 `trino_export`), the platform's own statements (table registration DDL and
 its existence lookup, the connection test, the prompt sources' queries) and the query provider's cross-enrichment reads.
 `query_kind` is the statement's leading keyword (`select`, `show`, `insert`,
-`create`, ...), `explain` for `trino_explain`, or the
+`create`, ...; an EXPLAIN sent through `trino_query` is `explain`), or the
 metadata call (`list_catalogs`, `list_schemas`, `list_tables`,
 `describe_table`); a keyword the platform does not know maps to `other`. The
 label is never the SQL text. A statement the read-only check refuses never

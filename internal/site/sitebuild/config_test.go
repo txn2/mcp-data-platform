@@ -85,3 +85,22 @@ func TestPinnedAndSource(t *testing.T) {
 		t.Error(OutputOf("admin/a.tsx"))
 	}
 }
+
+func TestParse_Typecheck(t *testing.T) {
+	cfg, err := Parse([]byte(`{"entries":["app.tsx"],"typecheck":{}}`))
+	if err != nil || cfg.Typecheck == nil || cfg.Typecheck.TsconfigPath() != DefaultTsconfig {
+		t.Fatalf("cfg = %+v, err %v", cfg, err)
+	}
+	cfg, err = Parse([]byte(`{"entries":["app.tsx"],"typecheck":{"tsconfig":"tsconfig.app.json"}}`))
+	if err != nil || cfg.Typecheck.TsconfigPath() != "tsconfig.app.json" {
+		t.Fatalf("named tsconfig: %+v %v", cfg, err)
+	}
+	for _, bad := range []string{`"../x.json"`, `"tsconfig.yaml"`} {
+		if _, err := Parse([]byte(`{"entries":["app.tsx"],"typecheck":{"tsconfig":` + bad + `}}`)); err == nil {
+			t.Errorf("tsconfig %s accepted", bad)
+		}
+	}
+	if (*Typecheck)(nil).TsconfigPath() != DefaultTsconfig {
+		t.Error("nil typecheck has no default")
+	}
+}

@@ -314,7 +314,6 @@ func TestToolkit_Tools(t *testing.T) {
 	expectedTools := []string{
 		"trino_query",
 		"trino_execute",
-		"trino_explain",
 		"trino_browse",
 		"trino_describe_table",
 	}
@@ -633,8 +632,8 @@ func TestNewMulti(t *testing.T) {
 		}
 
 		tools := tk.Tools()
-		if len(tools) != 5 { //nolint:mnd // 5 trino tools
-			t.Errorf("expected 5 tools, got %d", len(tools))
+		if len(tools) != 4 { //nolint:mnd // 4 trino tools
+			t.Errorf("expected 4 tools, got %d", len(tools))
 		}
 	})
 
@@ -842,10 +841,10 @@ func TestBuildMultiserverConfig(t *testing.T) {
 }
 
 func TestBuildToolkitOptions(t *testing.T) {
-	// The error sanitizer middleware, the location interceptor (#2616) and
-	// the read-tool interceptor are always present, so every case carries a
-	// baseline of three options.
-	const baseline = 3
+	// The error sanitizer middleware, the read note on trino_execute (#2812),
+	// the location interceptor (#2616) and the read-tool interceptor are
+	// always present, so every case carries a baseline of four options.
+	const baseline = 4
 
 	t.Run("empty config produces only the error sanitizer and the location check", func(t *testing.T) {
 		opts := buildToolkitOptions(Config{}, nil, nil)

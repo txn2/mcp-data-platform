@@ -546,7 +546,7 @@ linters:
       - path: pkg/toolkits/
         linters:
           - nilerr
-      - path: pkg/platform/(find_tools|info|connections)_tool\.go
+      - path: pkg/platform/(tool_search|info_tool|connections_tool)\.go
         linters:
           - nilerr
       - path: internal/platform/notifylayer/

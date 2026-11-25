@@ -47,8 +47,10 @@ var dataKinds = map[string]bool{"trino": true, "s3": true}
 // ToolDescription is what list_connections tells a caller it answers. It lives
 // with the view it describes rather than with the tool registration, so the
 // sentence about a field and the field itself are added in one place.
-const ToolDescription = "List all configured data connections across toolkits (Trino, S3, API, GraphQL, MCP). " +
-	"Each connection includes a count and a bounded sample of the canonical knowledge pages that document it. " +
+const ToolDescription = "List all configured data connections across toolkits (Trino, S3, API, GraphQL, MCP, application databases). " +
+	"With no arguments it summarizes every connection: its name, kind, the first sentence of its description and whether it is " +
+	"read-only, with the tools that take each kind under kind_tools. Pass connection with a name for that connection in full: " +
+	"its whole description and a bounded sample of the canonical knowledge pages that document it. " +
 	"Where the kind has the notion, a connection also reports read_only: true means write-class calls are refused " +
 	"on it, an S3 upload link (s3_object presign with method PUT) among them, so plan the write path BEFORE staging data rather than meeting the refusal partway through. " +
 	"read_only: false is not scoped to whatever catalog, schema or bucket the connection declares: those are the " +
@@ -112,6 +114,14 @@ type Output struct {
 	// before fanning out calls that would queue behind each other. Omitted
 	// when none is limited.
 	CallLimits []CallLimit `json:"call_limits,omitempty"`
+	// Form is FormSummary for every connection in a few fields, or FormDetail
+	// for one connection in full (#2813); Note says how to get the detail.
+	Form string `json:"form,omitempty"`
+	Note string `json:"note,omitempty"`
+	// KindTools names, for each kind listed, the tools that take its
+	// connections (#2812, #2813). It is at the top level because releases up
+	// to v1.137.1 advertised each connection entry closed (#1971).
+	KindTools map[string][]string `json:"kind_tools,omitempty"`
 }
 
 // CallLimit is one connection's max_concurrent_calls: a call over it waits

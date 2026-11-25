@@ -568,10 +568,9 @@ answers with the same account of what went and what stayed.
 
 ## Asking for the pages
 
-Ask your agent to show you your automations — "show me my automations", "what scripts do
-I have", "did the daily report run" — and it opens this page with the `show_scripts` tool.
-Ask it to "automate this" or "run this every Monday" and it builds a script with
-`manage_script`.
-That tool only opens the pages; every script operation an agent performs for its own
-work uses `manage_script`, which renders nothing.
+These pages are the portal's Automations section. Ask your agent "what scripts do I
+have" or "did the daily report run" and it answers from `manage_script` (`list`, `runs`,
+`get_run`), or from `search` and `fetch` on a script's reference; ask it to "automate this"
+or "run this every Monday" and it builds a script with `manage_script`. None of those
+calls renders anything.
 

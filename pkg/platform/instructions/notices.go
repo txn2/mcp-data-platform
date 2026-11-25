@@ -131,3 +131,37 @@ func pluralize(n int, singular, plural string) string {
 	}
 	return fmt.Sprintf("%d %s", n, plural)
 }
+
+// ConnectionKind is one connection kind the deployment has, with the tools of
+// it the caller may call and the way it is reached outside a tool.
+type ConnectionKind struct {
+	Name   string
+	Tools  []string
+	Script string
+}
+
+// ConnectionKindsNote maps each connection kind the deployment has to the
+// tools that take it, one line each (#2812): agents sent an application
+// database to trino_query and a connection name to SQL as a catalog. A kind
+// with neither a tool the caller may call nor a script route is left out, and
+// no kinds give no note.
+func ConnectionKindsNote(kinds []ConnectionKind) string {
+	var lines []string
+	for _, k := range kinds {
+		var via []string
+		if len(k.Tools) > 0 {
+			via = append(via, strings.Join(k.Tools, ", "))
+		}
+		if k.Script != "" {
+			via = append(via, k.Script)
+		}
+		if len(via) == 0 {
+			continue
+		}
+		lines = append(lines, "- "+k.Name+": "+strings.Join(via, ", or "))
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "Each connection is served by the tools of its kind; send a connection only to them:\n" + strings.Join(lines, "\n")
+}

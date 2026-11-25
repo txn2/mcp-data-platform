@@ -15,6 +15,13 @@ func TestIsEnabled(t *testing.T) {
 	assert.False(t, Config{Enabled: &off}.IsEnabled())
 }
 
+func TestTypecheckIsEnabled(t *testing.T) {
+	on, off := true, false
+	assert.True(t, TypecheckConfig{}.IsEnabled(), "unset is on")
+	assert.True(t, TypecheckConfig{Enabled: &on}.IsEnabled())
+	assert.False(t, TypecheckConfig{Enabled: &off}.IsEnabled())
+}
+
 func TestLimits_FillsEveryUnsetBound(t *testing.T) {
 	for name, c := range map[string]Config{
 		"zero": {},

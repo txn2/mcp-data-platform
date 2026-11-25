@@ -83,7 +83,7 @@ func (h *handler) getAuditTimeseries(w http.ResponseWriter, r *http.Request) {
 // @Description  Returns audit event counts grouped by a dimension.
 // @Tags         Audit
 // @Produce      json
-// @Param        group_by    query  string  true   "Dimension: tool_name, user_id, persona, toolkit_kind, connection"
+// @Param        group_by    query  string  true   "Dimension: tool_name, user_id, persona, toolkit_kind, connection, event_kind"
 // @Param        limit       query  integer false  "Max entries (default: 10, max: 100)"
 // @Param        start_time  query  string  false  "Start time (RFC 3339)"
 // @Param        end_time    query  string  false  "End time (RFC 3339)"
@@ -99,8 +99,7 @@ func (h *handler) getAuditBreakdown(w http.ResponseWriter, r *http.Request) {
 
 	groupBy := audit.BreakdownDimension(q.Get("group_by"))
 	if !audit.ValidBreakdownDimensions[groupBy] {
-		httpjson.WriteError(w, http.StatusBadRequest,
-			"invalid group_by: must be tool_name, user_id, persona, toolkit_kind, or connection")
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid group_by: must be one of "+audit.BreakdownDimensionNames())
 		return
 	}
 

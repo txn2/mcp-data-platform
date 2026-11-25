@@ -1272,39 +1272,27 @@ func TestInitMCPApps_EnabledByDefault(t *testing.T) {
 	if app == nil {
 		t.Error("built-in platform-info should be registered by default")
 	}
-	pb := p.mcpAppsRegistry.Get("prompt-browser")
-	if pb == nil {
-		t.Fatal("built-in prompt-browser should be registered by default")
-	}
-	// #1040: the app binds to the presentation-only show_prompts tool, not to
-	// manage_prompt, so an agent's own prompt work never renders a UI uninvited.
-	if len(pb.ToolNames) != 1 || pb.ToolNames[0] != "show_prompts" {
-		t.Errorf("prompt-browser ToolNames = %v, want [show_prompts]", pb.ToolNames)
-	}
-	if pb.ResourceURI != "ui://prompt-browser" {
-		t.Errorf("prompt-browser ResourceURI = %q, want ui://prompt-browser", pb.ResourceURI)
-	}
-	if got := p.mcpAppsRegistry.GetForTool("show_prompts"); got != pb {
-		t.Error("show_prompts should resolve to the prompt-browser app")
+	// #2807 retired show_prompts, the one tool the prompt browser opened on, and
+	// the app with it.
+	if got := p.mcpAppsRegistry.Get("prompt-browser"); got != nil {
+		t.Error("the retired prompt-browser app is still registered")
 	}
 	if got := p.mcpAppsRegistry.GetForTool("manage_prompt"); got != nil {
 		t.Error("manage_prompt must NOT be bound to an app; it renders no UI (#1040)")
 	}
 }
 
-// TestInitMCPApps_BuiltinPromptBrowserOperatorMerge proves an operator config
-// entry for the built-in prompt-browser merges (config override) without
-// double-registering the app.
-func TestInitMCPApps_BuiltinPromptBrowserOperatorMerge(t *testing.T) {
+// TestInitMCPApps_RetiredPromptBrowserEntryIsSkipped: an operator entry for the
+// retired prompt-browser app starts the platform and registers nothing, rather
+// than being read as a custom app with no assets (#2807).
+func TestInitMCPApps_RetiredPromptBrowserEntryIsSkipped(t *testing.T) {
 	cfg := &Config{
 		Server:   ServerConfig{Name: testServerName},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
 		MCPApps: MCPAppsConfig{
 			Apps: map[string]AppConfig{
-				"prompt-browser": {
-					Config: map[string]any{"accent": "blue"},
-				},
+				"prompt-browser": {Enabled: true, Config: map[string]any{"accent": "blue"}},
 			},
 		},
 	}
@@ -1312,13 +1300,8 @@ func TestInitMCPApps_BuiltinPromptBrowserOperatorMerge(t *testing.T) {
 	if err != nil {
 		t.Fatalf(testNewErrFmt, err)
 	}
-	app := p.mcpAppsRegistry.Get("prompt-browser")
-	if app == nil {
-		t.Fatal("prompt-browser should be registered")
-	}
-	m, ok := app.Config.(map[string]any)
-	if !ok || m["accent"] != "blue" {
-		t.Errorf("operator config not merged into built-in prompt-browser, got %v", app.Config)
+	if app := p.mcpAppsRegistry.Get("prompt-browser"); app != nil {
+		t.Errorf("a retired app was registered from operator config: %+v", app)
 	}
 }
 
@@ -2682,11 +2665,11 @@ func TestPlatformTools(t *testing.T) {
 		return out
 	}
 
-	t.Run("a deployment with no database registers only the unconditional three", func(t *testing.T) {
+	t.Run("a deployment with no database registers only the unconditional two", func(t *testing.T) {
 		p := newTestPlatform(t)
 		defer func() { _ = p.Close() }()
 
-		assert.Equal(t, []string{"platform_info", "list_connections", "platform_find_tools"}, names(p.PlatformTools()))
+		assert.Equal(t, []string{"platform_info", "list_connections"}, names(p.PlatformTools()))
 	})
 
 	// The prompt and script tools are registered only where their store is, so
@@ -2705,9 +2688,9 @@ func TestPlatformTools(t *testing.T) {
 			scripts: scriptlayer.New(scriptlayer.Config{DB: db}),
 		}
 		assert.Equal(t, []string{
-			"platform_info", "list_connections", "platform_find_tools",
-			"manage_prompt", "show_prompts",
-			"manage_script", "run_script", "show_scripts", "manage_application", "manage_approval", "manage_site",
+			"platform_info", "list_connections",
+			"manage_prompt",
+			"manage_script", "run_script", "manage_application", "manage_approval", "manage_site",
 		}, names(p.PlatformTools()))
 	})
 }

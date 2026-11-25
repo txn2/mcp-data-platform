@@ -43,6 +43,7 @@ import { callHandlers } from "./handlers/calls";
 import { assetRefHandlers, rewriteRefs } from "./handlers/assetRefs";
 import { producerHandlers } from "./handlers/producers";
 import { secretHandlers } from "./handlers/secrets";
+import { platformFeedbackHandlers } from "./handlers/platformFeedback";
 import { personaAccessHandlers } from "./handlers/personaAccess";
 import { libraryHandlers } from "./handlers/library";
 import { bulkHandlers } from "./handlers/bulk";
@@ -280,18 +281,41 @@ function percentile(sorted: number[], p: number): number {
   return sorted[Math.max(0, idx)]!;
 }
 
+// isHold is a call that waited for an approval or an answer (#2819): neither
+// a success nor a failure, left out of both sides of a success rate.
+function isHold(e: AuditEvent): boolean {
+  return e.error_category === "input_required";
+}
+
+// successRate leaves holds out of both sides, as the server does (#2819).
+function successRate(events: AuditEvent[]): number {
+  const finished = events.filter((e) => !isHold(e));
+  return finished.length > 0 ? finished.filter((e) => e.success).length / finished.length : 0;
+}
+
+// The events recorded beside tool calls, for an event_kind breakdown: the
+// mock's audit rows are all tool calls.
+const mockOtherEventKinds: BreakdownEntry[] = [
+  { dimension: "script_run", count: 81394, success_rate: 0.97, avg_duration_ms: 2140, hold_count: 0 },
+  { dimension: "endpoint_request", count: 1022, success_rate: 0.99, avg_duration_ms: 64, hold_count: 0 },
+  { dimension: "resource_read", count: 2140, success_rate: 1, avg_duration_ms: 31, hold_count: 0 },
+  { dimension: "prompt_serve", count: 316, success_rate: 1, avg_duration_ms: 12, hold_count: 0 },
+];
+
 function computeOverview(events: AuditEvent[]): Overview {
   const total = events.length;
+  const holds = events.filter(isHold).length;
   const successes = events.filter((e) => e.success).length;
   const enriched = events.filter((e) => e.enrichment_applied).length;
   return {
     total_calls: total,
-    success_rate: total > 0 ? successes / total : 0,
+    success_rate: successRate(events),
+    hold_count: holds,
     avg_duration_ms: avg(events.map((e) => e.duration_ms)),
     unique_users: new Set(events.map((e) => e.user_id)).size,
     unique_tools: new Set(events.map((e) => e.tool_name)).size,
     enrichment_rate: total > 0 ? enriched / total : 0,
-    error_count: total - successes,
+    error_count: total - successes - holds,
   };
 }
 
@@ -300,6 +324,16 @@ function computeBreakdown(
   groupBy: string,
   limit: number,
 ): BreakdownEntry[] {
+  if (groupBy === "event_kind") {
+    const calls: BreakdownEntry = {
+      dimension: "mcp_tool_call",
+      count: events.length,
+      success_rate: successRate(events),
+      avg_duration_ms: avg(events.map((e) => e.duration_ms)),
+      hold_count: events.filter(isHold).length,
+    };
+    return [calls, ...mockOtherEventKinds].sort((a, b) => b.count - a.count).slice(0, limit);
+  }
   const groups = new Map<string, AuditEvent[]>();
   for (const e of events) {
     const key = (e[groupBy as keyof AuditEvent] as string) ?? "unknown";
@@ -310,8 +344,9 @@ function computeBreakdown(
     .map(([dim, evts]) => ({
       dimension: dim,
       count: evts.length,
-      success_rate: evts.filter((e) => e.success).length / evts.length,
+      success_rate: successRate(evts),
       avg_duration_ms: avg(evts.map((e) => e.duration_ms)),
+      hold_count: evts.filter(isHold).length,
     }))
     .sort((a, b) => b.count - a.count)
     .slice(0, limit);
@@ -365,11 +400,13 @@ function computeTimeseries(
   for (let i = 0; i < totalBuckets; i++) {
     const inBucket = bucketMap.get(i) ?? [];
     const successes = inBucket.filter((e) => e.success).length;
+    const holds = inBucket.filter(isHold).length;
     buckets.push({
       bucket: new Date(start + i * bucketMs).toISOString(),
       count: inBucket.length,
       success_count: successes,
-      error_count: inBucket.length - successes,
+      error_count: inBucket.length - successes - holds,
+      hold_count: holds,
       avg_duration_ms: avg(inBucket.map((e) => e.duration_ms)),
     });
   }
@@ -4905,6 +4942,7 @@ export const handlers = [
   ...assetRefHandlers,
   ...producerHandlers,
   ...secretHandlers,
+  ...platformFeedbackHandlers,
   ...webhookHandlers,
   ...endpointHandlers,
   ...storageHandlers,

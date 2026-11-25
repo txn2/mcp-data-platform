@@ -397,6 +397,7 @@ A release without `_build.json` is published exactly as before.
 | `budgets` | `{"app.tsx": {"js_gzip": "300KB"}}`: a publish whose entry is larger than its budget (`js`, `js_gzip`, `css`, `css_gzip`, a size such as `"300KB"` at 1024 bytes to the KB, or a number of bytes) warns in its result; it is not refused. |
 | `singletons` | Packages only one copy of which may load, beside `react` and `react-dom`. |
 | `exclude` | Globs of files kept as source and never served: `["e2e/**", "docs/**"]`. |
+| `typecheck` | `{"tsconfig": "tsconfig.json"}` type-checks each release after it publishes, with that project file (a `.json` path in the site; `tsconfig.json` when left out). See Type checks below. |
 
 Local imports start `./`, `../` or `/` and resolve inside the site, trying the path,
 then `.tsx`, `.ts`, `.jsx`, `.js`, `.mjs`, `.json` and `.css`, then the folder's `index`
@@ -452,12 +453,39 @@ A compile error refuses the release, naming every file, line and column, and the
 environment does not move. A patch compiles again only the entries that read the file
 you changed (an entry that reads `import.meta.site` compiles at every publish), and
 `dry_run` reports `outputs_changed`, `builds` and any compile error without writing a
-release. The render limits cover the compile: the modules and bytes one entry may read,
+release; before an environment's first release it reports `release: null`. The render limits cover the compile: the modules and bytes one entry may read,
 the bytes it may write, and the time; a Tailwind run has limits on time, candidates and
 output of its own, and a refusal names the one it hit.
 
-Types are not checked: TypeScript's types are removed, not verified, so a type error
-publishes. PostCSS, Sass, Vue and Svelte single-file components need a JavaScript
+Types are removed at publish, not verified, so a type error publishes. A site that
+sets `typecheck` in `_build.json` has each release type-checked after it publishes,
+by TypeScript 7 in the platform:
+
+- It is a check, not a gate. The release publishes and the environment moves
+  whatever the check finds. `manage_site publish` reports the queued check as
+  `typecheck: {id, status}`; checks run one at a time, so a result can take minutes on a busy
+  deployment.
+- Dependency types come from the lockfile in the site (`package-lock.json`,
+  `pnpm-lock.yaml` or a Yarn 1 `yarn.lock`): each package at its locked version,
+  verified against the lockfile's SHA-256 or stronger integrity hash (a package
+  locked with a SHA-1 hash alone is listed as `unverifiable` and not read), with only its `package.json` and
+  declaration (`.d.ts`, `.d.mts`, `.d.cts`) files read. No install script runs. A Yarn 2+ lockfile cannot be verified
+  and fails the check; use one of the others. A package the code imports that the
+  lockfile does not lock is listed as `missing`; add it to `package.json` and the
+  lockfile.
+- `manage_site build_report` shows the release's newest check under `typecheck`:
+  `clean`, `errors` with each error's file, line, column, code and message,
+  `over_limit` (the compiler needed more memory than the deployment allows),
+  `unsupported` or `failed` with the reason. `queued` or `running` means it has not
+  finished; read it again later.
+- `unsupported` is a tsconfig that is not in the release at the path `_build.json`
+  names, or one that sets `compilerOptions.baseUrl`, which TypeScript 7 no longer
+  reads: replace it with `paths` entries that start with `./`.
+- `manage_site typecheck site=<site>` runs the check again (`release` defaults to the
+  one `environment` serves, `dev` unless named). Fix the errors in the source, publish
+  again, and read the new release's report.
+
+PostCSS, Sass, Vue and Svelte single-file components need a JavaScript
 toolchain and are not compiled; write the CSS, or import CSS files from an entry.
 
 ### A site's guide

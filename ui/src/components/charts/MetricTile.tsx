@@ -16,6 +16,8 @@ export interface MetricTileProps {
   // Accent for the sparkline/value (status color for error tiles, etc.).
   accent?: string;
   emphasize?: boolean;
+  // One line under the value saying what it counts.
+  detail?: string;
 }
 
 function formatDelta(delta: number): string {
@@ -32,6 +34,7 @@ export function MetricTile({
   goodDirection = "neutral",
   accent = "hsl(var(--primary))",
   emphasize = false,
+  detail,
 }: MetricTileProps) {
   const hasDelta = delta !== undefined && Number.isFinite(delta);
   const rising = hasDelta && delta! > 0.005;
@@ -82,6 +85,7 @@ export function MetricTile({
           </span>
         </div>
       )}
+      {detail && <span className="text-[11px] text-muted-foreground">{detail}</span>}
       {flat && <span className="sr-only">no change</span>}
     </div>
   );

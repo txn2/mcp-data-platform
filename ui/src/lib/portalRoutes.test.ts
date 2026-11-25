@@ -86,7 +86,7 @@ describe("canonicalRoute", () => {
   });
 
   // #1912: the section moved, and a link built under the old prefix (a mailed
-  // failed-run link, a show_scripts URL, a bookmark) lands on the same page.
+  // failed-run link, a bookmark) lands on the same page.
   it("sends every path under the old scripts section to the same path under automations", () => {
     expect(canonicalRoute("/scripts")).toBe("/automations");
     expect(canonicalRoute("/scripts/script-001")).toBe("/automations/script-001");

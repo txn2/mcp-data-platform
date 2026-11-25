@@ -2,6 +2,8 @@ package platform
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -21,8 +23,11 @@ type connectionEntry = connview.Entry
 
 type listConnectionsOutput = connview.Output
 
-// listConnectionsInput is empty since this tool has no parameters.
-type listConnectionsInput struct{}
+// listConnectionsInput names the one connection to describe in full; without
+// it every connection is summarized (#2813).
+type listConnectionsInput struct {
+	Connection string `json:"connection,omitempty" jsonschema:"A connection's name: that connection in full (its whole description, the knowledge pages that document it, its health). Omit for every connection, summarized."`
+}
 
 // registerConnectionsTool registers the list_connections tool with the MCP server.
 func (p *Platform) registerConnectionsTool() {
@@ -32,8 +37,8 @@ func (p *Platform) registerConnectionsTool() {
 		Description:  connview.ToolDescription,
 		Annotations:  &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
 		OutputSchema: connectionsOutputSchema,
-	}, func(ctx context.Context, req *mcp.CallToolRequest, _ listConnectionsInput) (*mcp.CallToolResult, any, error) {
-		return p.handleListConnections(ctx, req)
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in listConnectionsInput) (*mcp.CallToolResult, any, error) {
+		return p.handleListConnections(ctx, req, in)
 	})
 }
 
@@ -44,7 +49,7 @@ func (p *Platform) registerConnectionsTool() {
 // (#1108) by the same predicate search and fetch apply, and reports how many it
 // withheld: an operator who grants one connection should not have the tool hand
 // back the inventory of the rest.
-func (p *Platform) handleListConnections(ctx context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, any, error) {
+func (p *Platform) handleListConnections(ctx context.Context, _ *mcp.CallToolRequest, in listConnectionsInput) (*mcp.CallToolResult, any, error) {
 	var pages connview.PageLookup
 	if kp := p.portalStore.KnowledgePageStore(); kp != nil {
 		pages = kp
@@ -64,7 +69,16 @@ func (p *Platform) handleListConnections(ctx context.Context, _ *mcp.CallToolReq
 	})
 	out.Notice = knowledge.ConnectionsWithheldNotice(out.Withheld, personaName)
 
-	return marshalToolResult(out)
+	toolsForKind := p.connectionRoutes().KindTools
+	if name := strings.TrimSpace(in.Connection); name != "" {
+		detail, found := connview.Detail(out, name, toolsForKind)
+		if !found {
+			return toolErrorResult(fmt.Sprintf("no connection %q is visible to you; the connections are: %s",
+				name, strings.Join(connview.Names(out), ", "))), nil, nil
+		}
+		return marshalToolResult(detail)
+	}
+	return marshalToolResult(connview.Summarize(out, toolsForKind))
 }
 
 // StoredConnections is the deployment's connection inventory: the rows that

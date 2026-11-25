@@ -21,6 +21,19 @@ const defaultBreakdownLimit = 10
 // maxBreakdownLimit caps the number of breakdown entries to prevent abuse.
 const maxBreakdownLimit = 100
 
+// A hold is a call that waits for a person: an approval or an answer
+// (audit.CategoryInputRequired). It is recorded with success false by design,
+// and it is not a failure either, so the success rate leaves it out of both
+// sides and the error count leaves it out (#2819). These are the SQL every
+// metric shares, so no two disagree about what a hold is.
+const (
+	sqlIsHold      = "error_category = '" + audit.CategoryInputRequired + "'"
+	sqlHoldCount   = "COUNT(*) FILTER (WHERE " + sqlIsHold + ") AS hold_count"
+	sqlErrorCount  = "COUNT(*) FILTER (WHERE success = false AND " + sqlIsNotHold + ") AS error_count"
+	sqlIsNotHold   = "error_category IS DISTINCT FROM '" + audit.CategoryInputRequired + "'"
+	sqlSuccessRate = "CASE WHEN COUNT(*) FILTER (WHERE " + sqlIsNotHold + ") > 0 THEN CAST(COUNT(*) FILTER (WHERE success = true) AS FLOAT) / COUNT(*) FILTER (WHERE " + sqlIsNotHold + ") ELSE 0 END AS success_rate"
+)
+
 // buildTimeseriesQuery renders the per-bucket call counts the metrics dashboard plots, with the arguments its filter binds.
 // The statement is composed through the query builder, so no string in
 // this file is it; the function is what lets a test hand a representative
@@ -35,8 +48,9 @@ func buildTimeseriesQuery(filter audit.TimeseriesFilter) (query string, args []a
 		truncExpr,
 		"COUNT(*) AS count",
 		"COUNT(*) FILTER (WHERE success = true) AS success_count",
-		"COUNT(*) FILTER (WHERE success = false) AS error_count",
+		sqlErrorCount,
 		"COALESCE(AVG(duration_ms), 0) AS avg_duration_ms",
+		sqlHoldCount,
 	).From("audit_logs").
 		Where(sq.GtOrEq{colTimestamp: start}).
 		Where(sq.LtOrEq{colTimestamp: end})
@@ -63,12 +77,13 @@ func buildOverviewQuery(filter audit.MetricsFilter) (query string, args []any, e
 
 	qb := psq.Select(
 		"COUNT(*) AS total_calls",
-		"CASE WHEN COUNT(*) > 0 THEN CAST(COUNT(*) FILTER (WHERE success = true) AS FLOAT) / COUNT(*) ELSE 0 END AS success_rate",
+		sqlSuccessRate,
 		"COALESCE(AVG(duration_ms), 0) AS avg_duration_ms",
 		"COUNT(DISTINCT user_id) AS unique_users",
 		"COUNT(DISTINCT tool_name) AS unique_tools",
 		"CASE WHEN COUNT(*) > 0 THEN CAST(COUNT(*) FILTER (WHERE enrichment_applied = true) AS FLOAT) / COUNT(*) ELSE 0 END AS enrichment_rate",
-		"COUNT(*) FILTER (WHERE success = false) AS error_count",
+		sqlErrorCount,
+		sqlHoldCount,
 	).From("audit_logs").
 		Where(sq.GtOrEq{colTimestamp: start}).
 		Where(sq.LtOrEq{colTimestamp: end})
@@ -177,6 +192,7 @@ func (s *Store) Timeseries(ctx context.Context, filter audit.TimeseriesFilter) (
 			&bucket.SuccessCount,
 			&bucket.ErrorCount,
 			&bucket.AvgDurationMS,
+			&bucket.HoldCount,
 		); err != nil {
 			return nil, fmt.Errorf("scanning timeseries row: %w", err)
 		}
@@ -226,8 +242,9 @@ func buildBreakdownQuery(filter audit.BreakdownFilter) (query string, args []any
 	qb := psq.Select(
 		dimensionExpr,
 		"COUNT(*) AS count",
-		"CASE WHEN COUNT(*) > 0 THEN CAST(COUNT(*) FILTER (WHERE success = true) AS FLOAT) / COUNT(*) ELSE 0 END AS success_rate",
+		sqlSuccessRate,
 		"COALESCE(AVG(duration_ms), 0) AS avg_duration_ms",
+		sqlHoldCount,
 	).From("audit_logs").
 		Where(sq.GtOrEq{colTimestamp: start}).
 		Where(sq.LtOrEq{colTimestamp: end})
@@ -280,6 +297,7 @@ func (s *Store) Breakdown(ctx context.Context, filter audit.BreakdownFilter) ([]
 			&entry.Count,
 			&entry.SuccessRate,
 			&entry.AvgDurationMS,
+			&entry.HoldCount,
 		); err != nil {
 			return nil, fmt.Errorf("scanning breakdown row: %w", err)
 		}
@@ -311,6 +329,7 @@ func (s *Store) Overview(ctx context.Context, filter audit.MetricsFilter) (*audi
 		&o.UniqueTools,
 		&o.EnrichmentRate,
 		&o.ErrorCount,
+		&o.HoldCount,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("querying overview: %w", err)

@@ -61,13 +61,18 @@ export interface TimeseriesBucket {
   success_count: number;
   error_count: number;
   avg_duration_ms: number;
+  /** Calls that waited for an approval or an answer (#2819). */
+  hold_count?: number;
 }
 
 export interface BreakdownEntry {
   dimension: string;
   count: number;
+  /** Holds are left out of both sides (#2819). */
   success_rate: number;
   avg_duration_ms: number;
+  /** Calls that waited for an approval or an answer (#2819). */
+  hold_count?: number;
 }
 
 export interface Overview {
@@ -77,7 +82,10 @@ export interface Overview {
   unique_users: number;
   unique_tools: number;
   enrichment_rate: number;
+  /** Failures; holds are not counted here (#2819). */
   error_count: number;
+  /** Calls that waited for an approval or an answer (#2819). */
+  hold_count?: number;
 }
 
 export interface PerformanceStats {
@@ -96,7 +104,8 @@ export type BreakdownDimension =
   | "user_id"
   | "persona"
   | "toolkit_kind"
-  | "connection";
+  | "connection"
+  | "event_kind";
 
 export interface AuditStatsResponse {
   total: number;

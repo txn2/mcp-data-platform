@@ -122,6 +122,7 @@ const detailTitles: readonly { prefix: string; title: string }[] = [
   { prefix: "/resources/", title: "Resource" },
   { prefix: "/admin/resources/", title: "Resource" },
   { prefix: "/scratch-tables/", title: "Registered Table" },
+  { prefix: "/admin/platform-feedback/", title: "Platform feedback" },
   { prefix: "/admin/secrets/", title: "Secret" },
   { prefix: "/admin/webhooks/", title: "Webhook Source" },
   // A settings section is the settings page, on one section (#2093).

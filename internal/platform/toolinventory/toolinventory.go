@@ -2,7 +2,7 @@
 // with the tools its MCP server actually holds.
 //
 // The two are written in different places and were never compared. A
-// toolkit's Tools() list feeds the admin tool listing, platform_find_tools,
+// toolkit's Tools() list feeds the admin tool listing, search's tools source,
 // the instruction baseline and the persona gates, while what a client can
 // call is whatever reached mcp.AddTool. 1.131.0 shipped graphql_export named
 // by the first and absent from the second, because the tool registers only
@@ -94,7 +94,7 @@ func Verify(ctx context.Context, d Deps) error {
 	for _, name := range unclaimed(d, listed) {
 		slog.WarnContext(ctx, "tool inventory: the MCP server holds a tool no toolkit and no platform tool claims",
 			"tool", logsan.SanitizeForLog(name),
-			"hint", "the admin tool listing, platform_find_tools and the persona gates will not see it")
+			"hint", "the admin tool listing, search's tools source and the persona gates will not see it")
 	}
 	return nil
 }

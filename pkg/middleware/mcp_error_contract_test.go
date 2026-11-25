@@ -1,7 +1,9 @@
 package middleware
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
@@ -165,5 +167,27 @@ func TestErrorContract_AnUnreachableUpstreamIsCategorized(t *testing.T) {
 				assert.Equal(t, upstreamretry.CategoryUnavailable, p.Category)
 			}
 		})
+	}
+}
+
+// TestErrorContract_PanicLogNamesToolRequestAndCause is #2817: the log line
+// beside "failed unexpectedly" names the tool, the request id its audit row is
+// written under, the cause and where it happened.
+func TestErrorContract_PanicLogNamesToolRequestAndCause(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	defer slog.SetDefault(prev)
+
+	leaf := func(context.Context, string, mcp.Request) (mcp.Result, error) {
+		panic("assignment to entry in nil map") // the shape of a handler bug
+	}
+	pc := NewPlatformContext("req-2817")
+	ctx := WithPlatformContext(context.Background(), pc)
+	_, err := wrapErrorContract(t, leaf)(ctx, methodToolsCall, createAuditTestRequest(t, "manage_site", nil))
+	require.NoError(t, err)
+	logged := buf.String()
+	for _, want := range []string{`"tool":"manage_site"`, `"request_id":"req-2817"`, "assignment to entry in nil map", `"stack":`} {
+		assert.Contains(t, logged, want)
 	}
 }

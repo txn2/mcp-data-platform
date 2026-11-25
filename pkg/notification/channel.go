@@ -70,6 +70,9 @@ const (
 	DocumentNotifyPublished = "notify.published"
 	// DocumentTest is an administrator's test send.
 	DocumentTest = "test"
+	// DocumentPlatformFeedback is an agent's report of what the platform
+	// could not do for it (#2820).
+	DocumentPlatformFeedback = "platform.feedback"
 )
 
 // Document source kinds.

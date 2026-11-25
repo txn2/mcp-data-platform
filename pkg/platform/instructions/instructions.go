@@ -23,10 +23,12 @@ const (
 	toolSearch         = "search"
 	toolFetch          = "fetch"
 	toolMemoryCapture  = "memory_capture"
+	toolMemoryManage   = "memory_manage"
 	toolApplyKnowledge = "apply_knowledge"
 	toolManagePrompt   = "manage_prompt"
 	toolManageFeedback = "manage_feedback"
 	toolTrinoQuery     = "trino_query"
+	toolTrinoDescribe  = "trino_describe_table"
 	toolManageScript   = "manage_script"
 	toolManageApp      = "manage_application"
 	toolSaveAsset      = "save_asset"
@@ -101,8 +103,7 @@ var capabilities = []capability{
 	{tool: toolManagePrompt, line: func(map[string]bool) string {
 		return "Named procedures are prompts. Resolve what the user names -- a report, a " +
 			"procedure, a recurring task -- with `manage_prompt` command `use`, which takes the " +
-			"name as given (stored name, display name, `mcp:prompt:<id>`, or free text). Resolve " +
-			"rather than enumerate."
+			"name as given. Resolve rather than enumerate."
 	}},
 	{tool: toolManageScript, line: func(map[string]bool) string {
 		return "Automations are scripts. Explore with the query tools; once the logic is " +
@@ -124,6 +125,9 @@ var capabilities = []capability{
 			"only went into the conversation; never record totals, counts, shares, rankings or " +
 			"row values (a stable divisor, code or threshold is fine)."
 	}},
+	{tool: toolMemoryManage, line: func(map[string]bool) string {
+		return "A memory you relied on that proved wrong or outdated: fix it with `memory_manage` command `update`, or retire it with `forget`."
+	}},
 	{tool: toolApplyKnowledge, line: func(map[string]bool) string {
 		return "Promote what holds. `apply_knowledge` drives the review queue captures enter: " +
 			"action `bulk_review` with `itemize:true` lists it, a dataset-specific fact promotes " +
@@ -140,11 +144,20 @@ var capabilities = []capability{
 			"a data table already in the platform, write its reference where the content loads it " +
 			"and declare it in `references` on `save_asset`. A reference is not a link."
 	}},
-	{tool: toolTrinoQuery, line: func(map[string]bool) string {
-		return "A short list of outside keys needs no table: join it inline through " +
-			"`trino_query` (`JOIN (VALUES ('a'),('b')) AS t(id)` or `WHERE id IN (...)`). Above a " +
-			"few thousand rows, upload the file, register it as a table, and join it by name."
-	}},
+	{tool: toolTrinoQuery, line: readBeforeQuery},
+}
+
+// readBeforeQuery is the SQL line: the schema gate's order taught before the
+// first query (#2810), since a table's columns are read before SQL names one
+// with either tool that counts as the read and SELECT * or count(*) needs
+// none, and a short list of outside keys joined inline rather than registered.
+func readBeforeQuery(has map[string]bool) string {
+	reads := "`" + toolTrinoDescribe + "`"
+	if has[toolFetch] {
+		reads += " or `" + toolFetch + "` of its `mcp:dataset` reference"
+	}
+	return "Read a table's columns before SQL names one: " + reads + "; `SELECT *` and `count(*)` need none. " +
+		"Join a short key list inline (`VALUES ('a'),('b')` or `IN (...)`); past a few thousand rows, register it as a table."
 }
 
 // Built-in knowledge page slugs the baseline indexes. A built-in page's row id

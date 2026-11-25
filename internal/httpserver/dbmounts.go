@@ -21,6 +21,7 @@ import (
 	"net/http"
 
 	"github.com/txn2/mcp-data-platform/internal/httpserver/collectionsweepwire"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/siteportalwire"
 
 	"github.com/txn2/mcp-data-platform/internal/httpserver/accessreqwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/apiwire"
@@ -37,6 +38,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/mentionhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/personashare"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/platformfeedbackwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/resourcelevel"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/resourcesharewire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/savegatewire"
@@ -45,7 +47,6 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/flowhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/postshttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/submissionshttp"
-	"github.com/txn2/mcp-data-platform/internal/httpserver/sitehttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/thumbwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/userkeywire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/versionhttp"
@@ -188,7 +189,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	reach := feedbackwire.Wire(&deps, feedbackwire.Sources{
 		Directory: p.UserStore(), Audit: p.Audit().Logger(), HasDatabase: p.DB() != nil,
 	})
-	general := notifywire.WirePortalNotifications(&deps, p, notify, mentionAudience(p), reach)
+	general := notifywire.WirePortalNotifications(&deps, p, notify, mentionhttp.Audience(p.DB()), reach)
 	collectionsweepwire.Wire(p, reach, deps.ShareStore) // items owners cannot open, swept (#2752)
 
 	// Guest access path for email shares (#1001): branded denial pages plus
@@ -206,7 +207,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	// one there instead of rendering the public page (#1473).
 	deps.PortalAppAdmits = portalAppAdmitter(p, uiAvailable)
 
-	deps.SitesRegistrar = sitehttp.Registrar(p, deps.PersonaResolver, notify) // #2559
+	deps.SitesRegistrar = siteportalwire.Registrar(p, deps.PersonaResolver, notify) // #2559
 	wrap := portalAuthChain(portalAuth, portalAccessGate(p, deps.PersonaResolver))
 
 	handler := portal.NewHandler(deps, wrap)
@@ -238,6 +239,11 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 		Wrap: wrap, IsAdmin: isAdmin, Notify: notify, AdminWrap: adminAuthIfEnabled(p), Author: adminEmail,
 	})
 	generalfeedbackwire.Mount(mux, general, wrap, adminAuthIfEnabled(p), adminEmail)
+	// What agents report the platform could not do for them (#2820): bound to
+	// manage_feedback topic=platform, its settings and posts in the admin API.
+	platformFeedback := platformfeedbackwire.Service(p, notify)
+	platformfeedbackwire.Bind(p, platformFeedback)
+	platformfeedbackwire.Mount(mux, platformFeedback, adminAuthIfEnabled(p), adminEmail)
 	// A form's preview and the Approvals queue its public use is approved
 	// through (#2494, #2437).
 	formpublishwire.Mount(mux, p, formpublishwire.Deps{Wrap: wrap, IsAdmin: isAdmin, Notify: notify})
@@ -556,13 +562,13 @@ func resourceClaimsExtractor(p *platform.Platform) func(*http.Request) (*resourc
 func mountMentionAPI(mux *http.ServeMux, p *platform.Platform, wrap func(http.Handler) http.Handler, isAdmin func([]string) bool, reach mentionhttp.Reach) {
 	deps := mentionhttp.Deps{
 		Threads:  p.PortalThreadStore(),
-		Caller:   mentionIdentityResolver(isAdmin),
+		Caller:   mentionhttp.IdentityResolver(isAdmin),
 		External: p.PersonaRegistry().IsExternalRoles,
 		Reach:    reach,
 	}
 	// Assign only a live audience: a typed nil in the interface field would
 	// read as wired and panic on the first lookup.
-	if aud := mentionAudience(p); aud != nil {
+	if aud := mentionhttp.Audience(p.DB()); aud != nil {
 		deps.Audience = aud
 	}
 	if us := p.UserStore(); us != nil {

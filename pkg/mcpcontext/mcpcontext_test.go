@@ -102,3 +102,14 @@ func TestCaller(t *testing.T) {
 		t.Errorf("GetCaller = %+v, %v", c, ok)
 	}
 }
+
+// TestCallSource is #2819: a call with no recorded source is an agent's, and a
+// recorded one is reported as recorded.
+func TestCallSource(t *testing.T) {
+	if got := CallSource(context.Background()); got != SourceMCP {
+		t.Errorf("CallSource() with none recorded = %q, want %q", got, SourceMCP)
+	}
+	if got := CallSource(WithSource(context.Background(), "script")); got != "script" {
+		t.Errorf("CallSource() = %q, want script", got)
+	}
+}

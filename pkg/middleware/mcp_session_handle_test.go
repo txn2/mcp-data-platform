@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -671,4 +672,108 @@ func assertHasSessionProp(t *testing.T, schema any) {
 		// sql only present in the non-idempotent cases; guard optional.
 		_ = stillHasSQL
 	}
+}
+
+// refusalOf is a SESSION_EXPIRED refusal's text and the session_id it carries.
+func refusalOf(t *testing.T, result mcp.Result) (text, fresh string) {
+	t.Helper()
+	ctr, ok := result.(*mcp.CallToolResult)
+	if !ok {
+		t.Fatalf("a refusal is a tool result, got %T", result)
+	}
+	if tc, ok := ctr.Content[0].(*mcp.TextContent); ok {
+		text = tc.Text
+	}
+	if sc, ok := ctr.StructuredContent.(map[string]any); ok {
+		fresh, _ = sc[sessionHandleArg].(string)
+	}
+	return text, fresh
+}
+
+// TestSessionResolver_RejectionReasonsAndRemint is #2816: each refusal names
+// why, an expired or unknown handle is answered with a fresh one minted for
+// the caller's own identity (and resending with it succeeds), and a handle of
+// another identity is refused with no new handle.
+func TestSessionResolver_RejectionReasonsAndRemint(t *testing.T) {
+	store := pkgsession.NewMemoryStore(time.Hour)
+	r := newResolver(store, true)
+	call := func(user, handle string) (mcp.Result, *PlatformContext) {
+		pc := NewPlatformContext("req")
+		pc.UserID, pc.PersonaName = user, "analyst"
+		return r.resolve(context.Background(), makeCallReq("memory_capture", map[string]any{sessionHandleArg: handle}), pc, "memory_capture"), pc
+	}
+
+	// Expired: a row this deployment issued, past its lifetime.
+	h := mintHandle(t, store, "user-A")
+	stale, _ := store.GetAny(context.Background(), h)
+	stale.ExpiresAt = time.Now().Add(-time.Minute)
+	if err := store.Create(context.Background(), stale); err != nil {
+		t.Fatal(err)
+	}
+	res, _ := call("user-A", h)
+	text, fresh := refusalOf(t, res)
+	if !strings.Contains(text, "SESSION_EXPIRED (reason: expired)") || fresh == "" || !strings.Contains(text, fresh) {
+		t.Fatalf("expired refusal = %q, fresh %q", text, fresh)
+	}
+	if res, pc := call("user-A", fresh); res != nil || pc.SessionID != fresh {
+		t.Fatalf("resending with the new handle was refused: %v", res)
+	}
+	if res, _ := call("user-B", fresh); res == nil {
+		t.Fatal("the new handle was honored for another identity")
+	}
+
+	// Unknown: never issued here.
+	res, _ = call("user-A", "dps_neverissued")
+	text, fresh = refusalOf(t, res)
+	if !strings.Contains(text, "reason: unknown") || !strings.Contains(text, "earlier conversation") || fresh == "" {
+		t.Fatalf("unknown refusal = %q, fresh %q", text, fresh)
+	}
+
+	// Another identity's live handle: no new handle, in text or structure.
+	other := mintHandle(t, store, "user-C")
+	res, _ = call("user-A", other)
+	text, fresh = refusalOf(t, res)
+	if !strings.Contains(text, "reason: other_identity") || fresh != "" || strings.Contains(text, "new session_id") {
+		t.Fatalf("other-identity refusal = %q, fresh %q", text, fresh)
+	}
+
+	// Another identity's expired handle is still another identity's.
+	if got := r.rejectReason(context.Background(), &PlatformContext{UserID: "user-A"}, other, nil); got != rejectOtherIdentity {
+		t.Errorf("an expired handle of another identity read as %q", got)
+	}
+}
+
+// TestSessionResolver_RemintEdges: no handle for an anonymous caller, a store
+// that cannot read expired rows reads every refused handle as unknown, and a
+// failed write gives a refusal with no handle.
+func TestSessionResolver_RemintEdges(t *testing.T) {
+	r := newResolver(pkgsession.NewMemoryStore(time.Hour), true)
+	if got := r.remint(context.Background(), &PlatformContext{}, rejectUnknown); got != "" {
+		t.Errorf("an anonymous caller was minted %q", got)
+	}
+	if got := r.remint(context.Background(), &PlatformContext{UserID: "u"}, rejectOtherIdentity); got != "" {
+		t.Errorf("another identity's handle was answered with %q", got)
+	}
+	plain := NewSessionResolver(plainStore{pkgsession.NewMemoryStore(time.Hour)}, SessionResolverConfig{Enabled: true, TTL: time.Hour, InitTool: testInitTool})
+	if got := plain.rejectReason(context.Background(), &PlatformContext{UserID: "u"}, "dps_x", nil); got != rejectUnknown {
+		t.Errorf("reason = %q, want unknown", got)
+	}
+	failing := NewSessionResolver(failingCreateStore{pkgsession.NewMemoryStore(time.Hour)}, SessionResolverConfig{Enabled: true, TTL: time.Hour, InitTool: testInitTool})
+	if got := failing.remint(context.Background(), &PlatformContext{UserID: "u"}, rejectExpired); got != "" {
+		t.Errorf("a failed write minted %q", got)
+	}
+	text, fresh := refusalOf(t, createSessionExpiredError(testInitTool, rejectExpired, ""))
+	if fresh != "" || !strings.Contains(text, "reason: expired") {
+		t.Errorf("refusal with no handle = %q %q", text, fresh)
+	}
+}
+
+// plainStore is a store that cannot read expired rows.
+type plainStore struct{ pkgsession.Store }
+
+// failingCreateStore refuses every write.
+type failingCreateStore struct{ *pkgsession.MemoryStore }
+
+func (failingCreateStore) Create(context.Context, *pkgsession.Session) error {
+	return errors.New("read-only")
 }

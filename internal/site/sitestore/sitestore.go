@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -947,18 +949,32 @@ func (s *Store) Hosts(ctx context.Context) ([]string, error) {
 // application holds as parts: each added domain, and the site's own address
 // under pagesDomain where the part is its default environment.
 func (s *Store) ApplicationHosts(ctx context.Context, applicationID, pagesDomain string) ([]string, error) {
+	byEnv, err := s.ApplicationHostsByEnvironment(ctx, applicationID, pagesDomain)
+	if err != nil {
+		return nil, err
+	}
+	out := []string{}
+	for _, env := range slices.Sorted(maps.Keys(byEnv)) {
+		out = append(out, byEnv[env]...)
+	}
+	return out, nil
+}
+
+// ApplicationHostsByEnvironment is ApplicationHosts by the site environment's
+// name, which is the application environment each host runs (#2709, #2822).
+func (s *Store) ApplicationHostsByEnvironment(ctx context.Context, applicationID, pagesDomain string) (map[string][]string, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT d.hostname
+		SELECT split_part(p.part_id, '/', 2), d.hostname
 		  FROM application_parts p
 		  JOIN sites st ON st.name = split_part(p.part_id, '/', 1)
 		  JOIN site_domains d ON d.site_id = st.id AND d.environment = split_part(p.part_id, '/', 2)
 		 WHERE p.application_id = $1 AND p.kind = 'site'
 		UNION ALL
-		SELECT split_part(p.part_id, '/', 1) || '--' || split_part(p.part_id, '/', 2) || '.' || $2
+		SELECT split_part(p.part_id, '/', 2), split_part(p.part_id, '/', 1) || '--' || split_part(p.part_id, '/', 2) || '.' || $2
 		  FROM application_parts p
 		 WHERE p.application_id = $1 AND p.kind = 'site' AND $2 <> ''
 		UNION ALL
-		SELECT st.name || '.' || $2
+		SELECT split_part(p.part_id, '/', 2), st.name || '.' || $2
 		  FROM application_parts p
 		  JOIN sites st ON st.name = split_part(p.part_id, '/', 1) AND st.main_environment = split_part(p.part_id, '/', 2)
 		 WHERE p.application_id = $1 AND p.kind = 'site' AND $2 <> ''`, applicationID, pagesDomain)
@@ -966,13 +982,13 @@ func (s *Store) ApplicationHosts(ctx context.Context, applicationID, pagesDomain
 		return nil, fmt.Errorf("list application hosts: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
-	out := []string{}
+	out := map[string][]string{}
 	for rows.Next() {
-		var h string
-		if err := rows.Scan(&h); err != nil {
+		var env, h string
+		if err := rows.Scan(&env, &h); err != nil {
 			return nil, fmt.Errorf("read hostname: %w", err)
 		}
-		out = append(out, h)
+		out[env] = append(out[env], h)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("list application hosts: %w", err)

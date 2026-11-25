@@ -2,6 +2,7 @@ import { http, HttpResponse } from "msw";
 import type { DomainMode, Site, SiteEnvironment, SiteGrant, SiteJob, SiteRelease } from "@/api/portal/hooks/sites";
 import { siteFileHandlers, resetSiteFiles } from "./siteFiles";
 import { siteOpsHandlers } from "./siteOps";
+import { siteTypecheckHandlers } from "./siteTypecheck";
 
 // Sites (#2559, #2604): the routes the portal's Sites section reads and writes,
 // over module state so a write in one mock session is what the page reads back.
@@ -538,6 +539,7 @@ export const siteHandlers = [
     return HttpResponse.json({ keep_default: retention.keep_default, mode: retention.mode, orphan_grace: "24h0m0s", every: "24h0m0s", sweeps: page() === "no-cleanup" ? [] : [sweep] });
   }),
   ...siteFileHandlers,
+  ...siteTypecheckHandlers,
   ...siteOpsHandlers(find, () => sites.map((s) => s.name)),
   // A file a site serves from a mounted media folder goes only with force (#2591).
   http.delete("/api/v1/resources/:id", ({ params, request }) => {

@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"maps"
 	"strings"
+	"sync/atomic"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -300,6 +301,15 @@ type manageFeedbackInput struct {
 
 	Limit  int `json:"limit,omitempty"`
 	Offset int `json:"offset,omitempty"`
+
+	// create with topic=platform (#2820): a report to the platform's
+	// operator, in structured fields rather than a body.
+	Topic      string   `json:"topic,omitempty"`
+	TryingTo   string   `json:"trying_to,omitempty"`
+	BlockedBy  string   `json:"blocked_by,omitempty"`
+	Tool       string   `json:"tool,omitempty"`
+	Suggestion string   `json:"suggestion,omitempty"`
+	Calls      []string `json:"calls,omitempty"`
 }
 
 // sectionInput defines a collection section in MCP tool input.
@@ -411,9 +421,12 @@ type Toolkit struct {
 	mentions portal.MentionResolver
 	// self is the platform's own HTTP handler, through which manage_feedback
 	// opens a thread as its caller (#2371); see SetSelfHandler.
-	self            selfcall.Handler
-	actions         map[string]manageActionHandler
-	feedbackActions map[string]feedbackActionHandler
+	self selfcall.Handler
+	// platformFeedback is the service manage_feedback topic=platform posts
+	// to (#2820), bound by the server once channels are assembled.
+	platformFeedback atomic.Pointer[PlatformFeedback]
+	actions          map[string]manageActionHandler
+	feedbackActions  map[string]feedbackActionHandler
 	// library is a person's recents, favorites and trash (#2504, #2509);
 	// nil until SetLibrary, which leaves those actions unknown.
 	library *libraryAccess

@@ -15,14 +15,13 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 |---------|------|-------------|
 | Trino | `trino_query` | Execute read-only SQL queries (SELECT, SHOW, DESCRIBE, EXPLAIN) |
 | Trino | `trino_execute` | Execute any SQL including write operations (INSERT, UPDATE, DELETE, CREATE, DROP) |
-| Trino | `trino_explain` | Get query execution plans |
 | Trino | `trino_browse` | Browse the catalog hierarchy: list catalogs, schemas, or tables |
 | Trino | `trino_describe_table` | Get table schema and metadata |
 | Trino | `trino_export` | Export query results directly to a portal asset (CSV, JSON, JSON lines, Parquet, Markdown, text) |
 | Trino | `trino_list_connections` | List configured Trino connections |
 | S3 | `s3_list` | List buckets, or the objects in one bucket |
 | S3 | `s3_object` | Get, describe, upload, copy, delete, or presign one object |
-| Knowledge | `search` | The one way to discover: balanced, grouped-by-source results across the catalog, the glossary, tags, domains and data products, knowledge pages, memory, insights, feedback, assets, prompts, managed scripts, API endpoints, and connections |
+| Knowledge | `search` | The one way to discover: balanced, grouped-by-source results across the catalog, the glossary, tags, domains and data products, knowledge pages, memory, insights, feedback, assets, prompts, managed scripts, API endpoints, connections, and the platform's own tools (the tool for an action) |
 | Knowledge | `fetch` | Read a search result in full: dereferences any reference search emits (knowledge page, dataset, definition, asset, prompt, managed script, connection) to its complete content, under the same per-user scope |
 | Memory | `memory_capture` | The one way to record knowledge: sink-class routed, recall-first |
 | Knowledge | `apply_knowledge` | Review and promote reviewed captures to the catalog (admin-only) |
@@ -32,13 +31,10 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Portal | `manage_table` | Make a stored CSV or JSON-lines file queryable as a table and manage what is registered over it (register, list, unregister), or check that a table could be registered on a connection (check). Takes the `reference` a search hit carries, so it serves an uploaded resource and a saved asset through one action |
 | Portal | `manage_resource` | Manage a file in the managed resource library (create, replace_content, update, get, list, delete, extract): the files a saved asset references, and the members of a stored archive written out as files of their own. A replacement keeps the resource's id, URI and filename, so every asset referencing it serves the new bytes without being re-saved; `create` with `if_exists=replace` makes landing one rolling file idempotent, and a delete is refused while anything still points at the file |
 | Portal | `manage_feedback` | Review, open and respond to feedback (list pending across everything, create, get, reply, resolve, request/respond validation, edit and delete a message) |
-| Platform | `platform_find_tools` | Find the most relevant tools for a natural-language task, ranked by semantic similarity (persona-scoped) |
 | Platform | `manage_prompt` | Resolve and run prompts by any handle (`use`), plus create, update, delete, list, get, the script-reference commands (attach_script, detach_script), and the content verbs (patch, locate, get_content, outline, stats, diff) |
-| Platform | `show_prompts` | Render the prompt library as an interactive browser for the human (presentation-only; call only when the user wants to see their prompts) |
 | Platform | `manage_application` | Release an application built on the platform (schema, scripts, endpoints, forms, sources, assets) as a pinned set, roll it back, and move it between deployments |
 | Platform | `manage_approval` | Request an administrator's approval of a form's version for people who are not signed in, file a call a policy held, list requests, and decide one (an allowance of calls until a time for a held call) |
 | Platform | `manage_script` | Build and change automations. Author, validate, and dry-run managed scripts: small governed Starlark programs for a process whose logic is settled and will repeat, and the tool for a request to automate work or run it on a schedule |
-| Platform | `show_scripts` | Open the user's automations (scripts), their schedules, and their run history on the portal's Automations page (presentation-only; call only when the user wants to see them) |
 
 ---
 
@@ -55,7 +51,7 @@ Data-access tools carry one argument the platform adds rather than the toolkit: 
 
 Write the question behind the call, not a restatement of the arguments: "Running a SQL query" is worthless to the person who later reads the row. Do not repeat argument values in it, and never put personal data, credentials, or secrets in it.
 
-By default the argument appears on `search`, `fetch`, `trino_query`, `trino_execute`, `trino_export`, `trino_describe_table`, `api_invoke_endpoint`, `api_export`, `s3_object`, `s3_list`, and every tool proxied from an upstream MCP server through the [gateway toolkit](gateway.md). Orientation and platform-management tools (`platform_info`, `list_connections`, `platform_find_tools`, `memory_*`, `manage_*`, `save_asset`) do not carry it.
+By default the argument appears on `search`, `fetch`, `trino_query`, `trino_execute`, `trino_export`, `trino_describe_table`, `api_invoke_endpoint`, `api_export`, `s3_object`, `s3_list`, and every tool proxied from an upstream MCP server through the [gateway toolkit](gateway.md). Orientation and platform-management tools (`platform_info`, `list_connections`, `memory_*`, `manage_*`, `save_asset`) do not carry it.
 
 A call on one of these tools that states no purpose is refused with `PURPOSE_REQUIRED` (error category `purpose_required`); retry the same call with a purpose rather than looking for another tool. The refusal reaches only callers that thread a `session_id` handle, so an MCP App, a managed script, and the gateway REST shim are never refused for it. Both the gated set and the refusal are configurable — see [Purpose Configuration](configuration.md#purpose-configuration).
 
@@ -77,7 +73,7 @@ Clients are told by the specification to assume a tool is **not** read-only when
 
 The hint describes the tool, not the call. `manage_asset`, `manage_table`, `manage_resource`, `manage_prompt`, `manage_script`, `memory_manage` and `s3_object` all expose reads alongside writes, and each advertises the most it can do, so a list action on one of them is still a tool a client may confirm.
 
-These tools advertise `readOnlyHint: true`: `platform_info`, `search`, `fetch`, `list_connections`, `platform_find_tools`, `show_prompts`, `show_scripts`, `api_discover`, `graphql_discover`, `s3_list`, `trino_query`, `trino_explain`, `trino_browse`, `trino_describe_table`. Everything else advertises `readOnlyHint: false`.
+These tools advertise `readOnlyHint: true`: `platform_info`, `search`, `fetch`, `list_connections`, `api_discover`, `graphql_discover`, `s3_list`, `trino_query`, `trino_browse`, `trino_describe_table`. Everything else advertises `readOnlyHint: false`.
 
 A tool proxied from an upstream MCP server through the [gateway toolkit](gateway.md) carries the upstream's own annotations unchanged, including none at all where the upstream publishes none. The two toolkits built on the `mcp-trino` and `mcp-s3` libraries take their annotations from those libraries, and an operator can override them per deployment under a toolkit's `annotations:` key.
 
@@ -90,6 +86,8 @@ The admin API returns the same object. `GET /api/v1/admin/tools/schemas` carries
 ### trino_query
 
 Execute a read-only SQL query against Trino. Write operations (INSERT, UPDATE, DELETE, CREATE, DROP, etc.) are rejected with a clear error directing users to `trino_execute`.
+
+A query plan is read through this tool: send `EXPLAIN (TYPE LOGICAL)`, `EXPLAIN (TYPE DISTRIBUTED)`, `EXPLAIN (TYPE IO)` or `EXPLAIN (TYPE VALIDATE)` followed by the query, and the plan comes back as the result. EXPLAIN without ANALYZE is a read; `EXPLAIN ANALYZE` runs the statement it explains, so `trino_query` refuses it.
 
 Annotated with `ReadOnlyHint: true` so MCP clients can auto-approve calls to this tool.
 
@@ -128,7 +126,7 @@ Tool call: `trino_query` with query `SELECT customer_id, SUM(amount) as revenue 
 
 ---
 
-**No statement points a table, a schema or a partition at one of the platform's own buckets (#2616).** A catalog that registers tables over managed resources holds credentials that reach the resource bucket by design, so `trino_query`, `trino_execute` and `trino_explain` (and a script's `platform.query` and `platform.execute`, which call them) refuse, on every connection and for every persona, administrators included, a statement holding a location in the portal bucket or the managed-resource bucket: `external_location` or `location` on `CREATE TABLE` or `CREATE SCHEMA`, `ALTER TABLE ... SET PROPERTIES`, `CALL ... register_partition` or `register_table`, `ALTER TABLE ... EXECUTE add_files`, and the same statement run by `EXECUTE IMMEDIATE`. A location the platform cannot read before the statement runs is refused too: one assembled from parts (`||`, `concat`, a cast, a `U&'...'` string), a procedure argument that is not a literal, and `CREATE TABLE ... (LIKE ... INCLUDING PROPERTIES)`, which takes another table's location. The platform's own registrations run apart from the tools and are unaffected; `manage_table` is the way to put a table over a stored file. An external table over a platform bucket created before this release keeps reading until it is dropped.
+**No statement points a table, a schema or a partition at one of the platform's own buckets (#2616).** A catalog that registers tables over managed resources holds credentials that reach the resource bucket by design, so `trino_query` and `trino_execute` (and a script's `platform.query` and `platform.execute`, which call them) refuse, on every connection and for every persona, administrators included, a statement holding a location in the portal bucket or the managed-resource bucket: `external_location` or `location` on `CREATE TABLE` or `CREATE SCHEMA`, `ALTER TABLE ... SET PROPERTIES`, `CALL ... register_partition` or `register_table`, `ALTER TABLE ... EXECUTE add_files`, and the same statement run by `EXECUTE IMMEDIATE`. A location the platform cannot read before the statement runs is refused too: one assembled from parts (`||`, `concat`, a cast, a `U&'...'` string), a procedure argument that is not a literal, and `CREATE TABLE ... (LIKE ... INCLUDING PROPERTIES)`, which takes another table's location. The platform's own registrations run apart from the tools and are unaffected; `manage_table` is the way to put a table over a stored file. An external table over a platform bucket created before this release keeps reading until it is dropped.
 
 ### trino_execute
 
@@ -144,19 +142,6 @@ Annotated with `DestructiveHint: true` so MCP clients will prompt for user confi
 |-----------|------|----------|---------|-------------|
 | `query` | string | Yes | - | SQL query to execute |
 | `limit` | integer | No | 1000 | Maximum rows to return |
-| `connection` | string | No | default | Connection name to use |
-
----
-
-### trino_explain
-
-Get the execution plan for a query without running it.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `query` | string | Yes | - | SQL query to explain |
 | `connection` | string | No | default | Connection name to use |
 
 ---
@@ -179,12 +164,16 @@ Browse the Trino catalog hierarchy. Omit all parameters to list catalogs. Provid
 ### trino_describe_table
 
 Get detailed information about a table including columns, types, and statistics.
+The description the platform advertises for this tool (#2814) tells a caller to send `catalog`, `schema` and `table` as three separate arguments; it replaces the upstream description until txn2/mcp-trino#122 accepts a dotted name in `table`. Reading a table this way counts as reading its schema for the [schema gate](configuration.md#schema-gate-configuration).
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `table` | string | Yes | - | Table name (can be `catalog.schema.table`) |
+| `catalog` | string | Yes | - | The catalog containing the table |
+| `schema` | string | Yes | - | The schema containing the table |
+| `table` | string | Yes | - | The bare table name, never a dotted `catalog.schema.table` |
+| `include_sample` | boolean | No | false | Include a 5-row sample of data |
 | `connection` | string | No | default | Connection name to use |
 
 **Response includes:**
@@ -272,7 +261,7 @@ aliased. What each kind of read and write is now:
 
 Two tools cover object storage (#1591): `s3_list` is a listing, of buckets or of one bucket's objects, and `s3_object` is one action over a `(bucket, key)`. Both are registered on every S3 connection. Whether a connection accepts writes is its `read_only` setting: `put`, `copy`, `delete` and an upload link (`presign` with `method: PUT`) on a read-only connection are refused with an error that names the connection, while `get`, `metadata` and a download link (`presign` with `method: GET`) still work. `read_only` is enforced by the toolkit only; for defence in depth, give a read-only connection upstream credentials that can only read and list, so no path writes even if a handler missed the check. A connection that sets `bucket_prefix` serves only the buckets whose name starts with it: `s3_list` with any other `bucket`, and every `s3_object` action on one (or a copy whose `dest_bucket` is one), is refused naming the connection and the prefix.
 
-**The platform's own buckets are refused on every connection (#2616).** The portal bucket (`portal.s3_bucket`: assets, exports, script outputs, site releases) and the managed-resource bucket (`resources.managed.s3_bucket`: the resource library, webhook events, registered tables) are never served by `s3_list`, `s3_object` or a bucket source (`manage_resource extract from_bucket`, `manage_site publish from_bucket`), for any persona, administrators included: what they hold has an owner and a scope only the platform's own surfaces check. Every `s3_object` action naming one, either side of a copy, and `s3_list` naming one are refused before any request reaches the store, with the platform surface that reads it instead (`fetch` or `manage_resource` for a resource, `platform.read_resource` from a script, `fetch` or `manage_asset` for an asset, `manage_site` for a site), and a listing of a connection's buckets leaves them out. The name is compared case-insensitively, trimmed, and an ARN by its last segment, so a spelling the store could read as the bucket is refused too. The platform's own stores reach their buckets through clients of their own and are unaffected. At startup the platform lists the buckets of each S3 connection a persona may read buckets through, apart from startup, and logs `s3_connection_reaches_platform_bucket` for one of the platform's buckets and `s3_connection_reaches_backup_bucket` for a bucket named for backups (`backup`, `backups`, `bak`, `pgbackrest`, `barman`, `velero`, `wal-g` as a word of the name): the tools refuse the first and not the second, and the credentials reach both. Give such a connection credentials scoped to business buckets.
+**The platform's own buckets are refused on every connection (#2616).** `s3_object`'s description says so (#2814): an asset or an export's output is read with `fetch` or `manage_asset`, a managed resource with `fetch` or `manage_resource`, and a site with `manage_site`. The portal bucket (`portal.s3_bucket`: assets, exports, script outputs, site releases) and the managed-resource bucket (`resources.managed.s3_bucket`: the resource library, webhook events, registered tables) are never served by `s3_list`, `s3_object` or a bucket source (`manage_resource extract from_bucket`, `manage_site publish from_bucket`), for any persona, administrators included: what they hold has an owner and a scope only the platform's own surfaces check. Every `s3_object` action naming one, either side of a copy, and `s3_list` naming one are refused before any request reaches the store, with the platform surface that reads it instead (`fetch` or `manage_resource` for a resource, `platform.read_resource` from a script, `fetch` or `manage_asset` for an asset, `manage_site` for a site), and a listing of a connection's buckets leaves them out. The name is compared case-insensitively, trimmed, and an ARN by its last segment, so a spelling the store could read as the bucket is refused too. The platform's own stores reach their buckets through clients of their own and are unaffected. At startup the platform lists the buckets of each S3 connection a persona may read buckets through, apart from startup, and logs `s3_connection_reaches_platform_bucket` for one of the platform's buckets and `s3_connection_reaches_backup_bucket` for a bucket named for backups (`backup`, `backups`, `bak`, `pgbackrest`, `barman`, `velero`, `wal-g` as a word of the name): the tools refuse the first and not the second, and the credentials reach both. Give such a connection credentials scoped to business buckets.
 
 ### s3_list
 
@@ -338,7 +327,7 @@ Act on one object.
 
 ### memory_capture
 
-The one way to record knowledge. The `type` (sink-class) is the single organizing axis and drives routing: `personal_preference` and `episodic_event` are live for the capturer immediately; `business_knowledge`, `schema_entity`, and `operational_rule` are recorded as **pending** and reviewed before promotion to a shared catalog via `apply_knowledge`. Lives in the memory toolkit so creating memory never requires the knowledge toolkit.
+The one way to record knowledge. The `type` (sink-class) is the single organizing axis and drives routing: `personal_preference` and `episodic_event` are live for the capturer immediately; `business_knowledge`, `schema_entity`, and `operational_rule` are recorded as **pending** and reviewed before promotion to a shared catalog via `apply_knowledge`. Lives in the memory toolkit so creating memory never requires the knowledge toolkit. Its description says what is worth capturing (a definition, a convention, an official figure's method, who owns a dataset, a trap that cost a retry) and what is not (a column name just corrected in one's own query, or anything the table's schema already says) (#2814).
 
 Capture is **recall-first** and returns without waiting on the embedder (#1987). The record is stored at once and its embedding is queued. When the vector is written, a similarity check runs over the caller's own memory (superseded rows excluded; stale rows stay matchable, since a restatement corrects them). Of two records at or above the supersede threshold (0.9 cosine), the newer supersedes the older. Matches in the 0.75-0.9 band are written to the new record's metadata as `similar_existing` (id + score), so the agent can consolidate instead of keeping a near-duplicate. The response's `recall_check` is `pending` when that check will run, or `unavailable` when no embedding provider is configured. `schema_entity` carries `entity_urns` and optional `suggested_actions` (the catalog-change payload `apply_knowledge` later applies).
 
@@ -790,7 +779,7 @@ A dataset and its columns carry every kind of curation; curated queries, inciden
 
 ### memory_manage
 
-Manages the lifecycle of existing persistent memory. Create new memory with `memory_capture`. Opt-in per persona (requires `memory_*` in `tools.allow`). Requires `memory.enabled: true`.
+Manages the lifecycle of existing persistent memory. Create new memory with `memory_capture`. Its description, and a baseline instruction line when the caller may call it, say that a memory relied on that proved wrong or outdated is corrected with `update` or retired with `forget`, so the next session is not misled by it (#2814). Opt-in per persona (requires `memory_*` in `tools.allow`). Requires `memory.enabled: true`.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -1184,6 +1173,7 @@ Review, open and respond to feedback. Feedback is its own tool (rather than acti
 | `asset_id` / `collection_id` / `prompt_id` | string | No | - | Scope a `list` to one target, or the target `create` opens a thread on |
 | `knowledge_page_id` | string | No | - | The knowledge page `create` opens a thread on |
 | `target_type` | string | No | - | `standalone` scopes a `list` to, or opens a `create` on, the general channel |
+| `topic` | string | No | - | For create with `target_type=standalone`: `platform` posts [platform feedback](#platform-feedback) instead of opening a thread, with `trying_to`, `blocked_by`, `tool`, `suggestion` and `calls` in place of `body` |
 | `thread_id` | string | Conditional | - | Required for get, reply, resolve, request_validation, respond_validation, edit, delete |
 | `event_id` | string | Conditional | - | Required for edit and delete: the message, an event id from `get` |
 | `body` | string | Conditional | - | Comment text (required for reply, for create, where it is the first comment, and for edit, where it replaces the message's text) |
@@ -1213,6 +1203,58 @@ Review, open and respond to feedback. Feedback is its own tool (rather than acti
 Edit and delete are served by the portal's own routes, `PATCH` and `DELETE /api/v1/portal/threads/{id}/events/{eventID}`, inside the process as the caller, so the rules are the portal's on both surfaces. A change made in the portal is audited as a `manage_feedback` call with source `portal`, naming the thread and the message and never the text; one made through the tool is audited as that tool call.
 
 **Access:** `create` is the portal's rule, above. Everything else is scoped to the assets and collections the caller owns or can edit (admins see all), and a thread's author also gets and replies to it when the portal lets them read it, which is how a viewer follows a thread they opened. General-channel threads are readable and replyable by any authenticated caller, and resolved only by the thread author or an admin. `memory_capture thread_ids=[...]` folds a thread into the knowledge loop and resolves it, gated by the same owns-or-edit check.
+
+### Platform feedback
+
+`manage_feedback action=create target_type=standalone topic=platform` reports to whoever runs the platform what the platform could not do for the agent (#2820), instead of opening a General thread. The audit records that a call failed, not what the agent wanted; a post keeps that. The tool's description asks for one after the same refusal twice, or when a parameter, tool or capability the agent needs does not exist, and the second identical refusal in a session says so in its message ([A refusal met twice in a session](../reference/tools-api.md#a-refusal-met-twice-in-a-session)).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `topic` | string | Yes | `platform`; any other value is refused, and without it `create` opens a thread as before |
+| `trying_to` | string | Yes | The task the agent was trying to do, in a sentence (at most 500 bytes) |
+| `blocked_by` | string | Yes | What stopped it: the refusal, the missing parameter or tool (at most 2,000 bytes) |
+| `tool` | string | No | The tool involved (at most 100 bytes) |
+| `suggestion` | string | No | What would have let it finish (at most 2,000 bytes) |
+| `calls` | string[] | No | The calls involved, as `mcp:call:<id>` references and never their results (at most 20) |
+
+A post takes no `body`, and `target_type` must be `standalone`. The answer is `{id, report_count, folded, channels, message}`.
+
+**What is checked, in order.** Each refusal carries its own code (category `client_input`) and a message that names a field, never its content:
+
+| Code | When |
+|------|------|
+| `platform_feedback_off` | Platform feedback is off on the deployment (the default) |
+| `platform_feedback_persona` | The caller's persona may not post |
+| `platform_feedback_invalid` | `trying_to` or `blocked_by` is missing, a field is too long, there are more than 20 calls, or a call is not an `mcp:call:` reference |
+| `platform_feedback_secret` | A field holds a credential, or the check could not be run |
+| `platform_feedback_limit` | The session has posted `session_limit` times, or the persona `persona_daily_limit` times in the last 24 hours |
+
+The credential check (`internal/secretscan`) reads every field for credential shapes (a PEM private key, a bearer token, a provider token by its well-known prefix, a JSON Web Token, credentials written into a URL, a password-, secret- or token-style assignment) and for the deployment's own secret values: every stored secret and every connection configuration value the encryption layer seals at rest, as written and base64-, hex-, URL- and JSON-escaped (values shorter than 8 characters are not matched). The refusal names the field and the kind of match and never the value. A refused post stores only why and the persona (`platform_feedback_refusals`), never what it said, and the post's text fields are redacted in its audit row ([Parameter Sanitization](audit.md#parameter-sanitization)). Without a database, or before the server has bound the service, a post is refused as `feature_unavailable`.
+
+**Repeats are counted, not resent.** A post whose words (`trying_to`, `blocked_by`, `tool`) match one of the 500 most recently reported open posts, or whose embedding is at least as close to one of them as the asset near-duplicate threshold (`assetsimilar.NearDuplicate`), is recorded as another report of that post: `report_count` goes up, `folded` is `true`, and nothing is sent. Without an embedding provider only an exact repeat folds.
+
+**Delivery.** A new post is queued for each notification channel the settings name, as a channel document of type `platform.feedback`: the title `Platform feedback: <trying_to>` (cut at 120 characters), the fields as markdown, a link to `/portal/admin/platform-feedback/<id>` when `portal.public_base_url` is set, and `data` holding `{id, trying_to, blocked_by, tool, suggestion, calls, persona}`, which a `format: json` webhook delivers verbatim ([Notifications](notifications.md)). A status change is not sent.
+
+**Settings** are the `platform_feedback` section of `platform_settings`, read and saved at `GET`/`PUT /api/v1/admin/settings/platform-feedback`:
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `enabled` | `false` | Lets agents post |
+| `channels` | `[]` | Notification channels a new post is sent to; each must exist |
+| `personas` | `[]` | Personas that may post; empty is every persona except service accounts |
+| `session_limit` | `5` | Most posts one session may make (1 to 100; 0 keeps the default) |
+| `persona_daily_limit` | `50` | Most posts one persona may make in 24 hours (1 to 10,000; 0 keeps the default) |
+
+**Admin routes** (behind the admin API's authentication):
+
+| Route | What it does |
+|-------|--------------|
+| `GET /api/v1/admin/platform-feedback?status=&tool=&q=&limit=&offset=` | Posts, most recently reported first (`limit` 1 to 200, otherwise 50), with `total` and `stats`: `open`, `reports_this_week`, `refused_this_week`, `delivery_failures` |
+| `GET /api/v1/admin/platform-feedback/{id}` | One post with its newest 100 reports (persona, calls, when) and each channel's delivery as the notification queue holds it |
+| `PUT /api/v1/admin/platform-feedback/{id}/status` | `{status}`: `open`, `planned`, `done` or `declined`; `204` |
+| `POST /api/v1/admin/platform-feedback/{id}/resend` | `{channel}`: queues the post again for one of the channels the settings name, under a key of its own; `204` |
+
+Posts are kept in `platform_feedback` and each report in `platform_feedback_reports` (migration 000267).
 
 ---
 
@@ -1292,16 +1334,15 @@ See [Admin API](admin-api.md) for full request/response shapes.
 
 ## Platform Tools
 
-### platform_find_tools
+### Finding the tool for a task
 
-`platform_find_tools(query, limit)` ranks the platform's own registered tools by semantic similarity to a natural-language task description, so an agent can discover the right tools by intent instead of scanning every tool name. It is the tool-catalog analogue of `api_discover`'s semantic ranking.
+`search` answers "which tool does this" as well as "where is this data" (#2809). Its `tools` source ranks the platform's own registered tools against the intent, so a search for "publish a static site" returns `manage_site`, and "assets shared with me" returns `manage_asset`. Each hit names the tool, gives the first sentence of its description, and gives one example call that fits the intent: for a tool that chooses its operation by `command` or `action`, the value whose words best match the intent and the parameters that value requires, plus any enum parameter whose value the intent names (`{"action":"list","scope":"shared"}`). Pass `sources: ["tools"]` to ask for tools alone.
 
-- **Indexing** — every globally-visible tool's descriptor (name, description, and a parameter-schema summary) is embedded through the shared index-jobs framework (`source_kind = "tools"`) and persisted to the `tool_embeddings` table. On each reconcile sweep the tools gap check diffs the live registry against the persisted vectors by descriptor text hash, so a tool addition, removal, description-override edit, or visibility flip is picked up within one interval, while a steady-state corpus produces no job and the index settles rather than re-running every sweep. When a job does run, the worker's text-hash dedup re-embeds only the descriptors that actually changed. Embeddings are persona-neutral (indexed once for the whole catalog).
-- **Ranking** — the query is embedded and ranked against the stored vectors with pgvector cosine distance. When no embedding provider is configured or the index is empty, it falls back to a lexical name/description match and sets a `note` explaining why (the same UX as `api_discover`).
-- **Persona scoping** — results are filtered at read time to the tools the caller's persona is permitted to call, exactly like `tools/list`. The model never sees a tool it cannot call. (Row-level filtering, not per-persona embeddings.)
-- **Response** — `{ "tools": [ { "name", "description", "score" } ], "note"? }`, ranked most-relevant first and capped at `limit` (default 10, max 50).
+- **Indexing**: every globally-visible tool's descriptor (name, description, and a parameter-schema summary) is embedded through the shared index-jobs framework (`source_kind = "tools"`) and persisted to the `tool_embeddings` table. On each reconcile sweep the tools gap check diffs the live registry against the persisted vectors by descriptor text hash, so a tool addition, removal, description-override edit, or visibility flip is picked up within one interval, while a steady-state corpus produces no job and the index settles rather than re-running every sweep. When a job does run, the worker's text-hash dedup re-embeds only the descriptors that actually changed. Embeddings are persona-neutral (indexed once for the whole catalog). `search` itself is not indexed.
+- **Ranking**: the intent is embedded and ranked against the stored vectors with pgvector cosine distance. When no embedding provider is configured or the index is empty, the tools are ranked by how many of the intent's words their name and description hold.
+- **Persona scoping**: results are filtered at read time to the tools the caller's persona is permitted to call, by the same predicate `tools/list` applies. The model never sees a tool it cannot call.
 
-This is discovery, not routing: the agent still chooses which returned tool to call.
+This is discovery, not routing: the agent still chooses which tool to call.
 
 ### manage_prompt
 
@@ -1344,7 +1385,7 @@ Serving a prompt delivers each referenced script's **contract** — what it is, 
 
 A script's definition is readable by everyone signed in (#2027), so a reference resolves for every signed-in reader of the prompt, and any signed-in caller may reference any script. The last successful run, with what it produced, is included for the script's owner and administrators; anyone else's contract carries `runs_withheld`. Deleting a referenced script does not break the prompt; it still serves, and the payload reports the reference as no longer existing.
 
-**Prompt browser app.** In MCP Apps-capable hosts, the built-in `prompt-browser` app is bound to the `show_prompts` tool. `show_prompts` is presentation-only: its only job is to render the interactive library browser (search, facets, argument forms, a Run action) for the human, so an agent calls it only when the user wants to see their prompts. `manage_prompt` carries no app and renders nothing, so the agent's own prompt work (resolve, run, create, edit) never puts a UI in front of the user. The rendered app populates itself from its own `manage_prompt` calls. See [MCP Apps: Overview](../mcpapps/overview.md#built-in-app-prompt-browser). `manage_prompt`'s JSON results are complete on their own in clients that do not render apps.
+**No UI.** `manage_prompt` carries no MCP App and renders nothing, so the agent's own prompt work (resolve, run, create, edit) never puts a UI in front of the user; a person browses the library on the portal's Prompts page. `manage_prompt`'s JSON results are complete on their own in clients that do not render apps.
 
 ### manage_script
 
@@ -1399,20 +1440,6 @@ A call a policy held is a request too (#2437): `submit` with `kind` `call`, the 
 ### manage_application
 
 `manage_application` names an application built on the platform (an application database schema with its migrations, managed scripts with their endpoints and forms, webhook sources, portal assets) and releases it as a pinned set (#2411): from a release on, the scripts run and the assets serve the versions it pins, so a saved change goes live at the next release. Commands: `create`, `get` (with what a release would change, `pending`, and what it would refuse, `problems`), `list`, `update`, `delete`, `add_part`, `remove_part`, `release`, `rollback`, `releases`, `export` and `import` (#2412). Everyone signed in reads; the owner and administrators edit; administrators release, roll back, export and import. A release whose migration fails changes nothing; a rollback reverts migrations only when each has a down migration. An export is a bundle (a managed resource) naming the connections, secrets, webhook sources and bot checks it uses and carrying none of their values; an import is refused until `map` names a local one for each. See [Applications](applications.md).
-
-### show_scripts
-
-Opens the user's managed scripts in the portal for the human to look at: what they own, what each one is scheduled to do, and how its recent runs went. Call it only when the human wants to see their scripts, schedules, or automations, or asks what ran and why something did not update ("show me my scripts", "did the daily report run"). It performs no data operation and returns a short confirmation with a link to the pages where the deployment is configured with its public address. For reading a script, its runs, or its log as part of your own work, use `manage_script`, which returns data and renders no UI. Optional `search` pre-focuses the pages.
-
-The pages themselves are read-only and described in the [portal guide](../portal/scripts.md). Approving a version stays on the admin surface. A script's source and version history are readable by everyone signed in (#1866), and so on the portal are its cadence and its run history as status, timing, cause and error (#1994); the capability grants, and what each run was given, printed and wrote, are the script's owner's and an administrator's to read, and one run is additionally readable in full by whoever requested it.
-
----
-
-### show_prompts
-
-Renders the user's prompt library as an interactive browser for the human to look at. Call it only when the human wants to see, browse, or pick from their prompts visually ("show me my prompts", "open my prompt library"). It performs no data operation and returns only a short confirmation; the rendered app populates itself from its own `manage_prompt` calls. For running, creating, editing, or listing prompts as part of your own work, use `manage_prompt`, which returns data and renders no UI. Optional `search` pre-focuses the library.
-
----
 
 ## Next Steps
 

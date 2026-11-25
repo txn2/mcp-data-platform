@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,9 +14,11 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/handlertransport"
+	"github.com/txn2/mcp-data-platform/internal/platformfeedback"
 	"github.com/txn2/mcp-data-platform/internal/selfcall"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
@@ -65,7 +68,61 @@ type createThreadPayload struct {
 // assembled the handler).
 func (t *Toolkit) SetSelfHandler(h http.Handler) { t.self.Set(h) }
 
+// topicPlatform is the create topic that reports to the platform's operator
+// (#2820) instead of opening a General thread.
+const topicPlatform = "platform"
+
+// PlatformFeedback is the service a topic=platform create posts to; the
+// server binds it once it has assembled the notification channels.
+type PlatformFeedback interface {
+	Submit(ctx context.Context, c platformfeedback.Caller, p platformfeedback.Post) (platformfeedback.Result, error)
+}
+
+// SetPlatformFeedback binds the platform feedback service (#2820).
+func (t *Toolkit) SetPlatformFeedback(pf PlatformFeedback) { t.platformFeedback.Store(&pf) }
+
+// handlePlatformFeedback posts a topic=platform create. Its refusals carry the
+// service's code and a message that names a field, never its content.
+func (t *Toolkit) handlePlatformFeedback(ctx context.Context, input manageFeedbackInput) (*mcp.CallToolResult, any, error) {
+	if input.TargetType != threadTargetStandalone {
+		return toolkit.ErrorResult("topic=platform posts with target_type=standalone"), nil, nil
+	}
+	pf := t.platformFeedback.Load()
+	if pf == nil || *pf == nil {
+		return middleware.BuildErrorResult(middleware.UnavailableError(
+			"platform feedback is not available on this deployment", "Report the problem to an administrator another way.")), nil, nil
+	}
+	c := platformfeedback.Caller{Persona: mcpcontext.GetPersona(ctx)}
+	if caller, ok := mcpcontext.GetCaller(ctx); ok {
+		c.UserID = caller.UserID
+	}
+	if pc := middleware.GetPlatformContext(ctx); pc != nil {
+		c.SessionID = pc.SessionID
+		if c.Persona == "" {
+			c.Persona = pc.PersonaName
+		}
+	}
+	res, err := (*pf).Submit(ctx, c, platformfeedback.Post{
+		TryingTo: input.TryingTo, BlockedBy: input.BlockedBy, Tool: input.Tool, Suggestion: input.Suggestion, Calls: input.Calls,
+	})
+	var refusal *platformfeedback.RefusedError
+	switch {
+	case errors.As(err, &refusal):
+		return middleware.BuildErrorResult(middleware.ClientInputError(refusal.Code, refusal.Msg,
+			"Correct the post as the message says, or report the problem to an administrator another way.")), nil, nil
+	case err != nil:
+		return toolkit.ErrorResult("posting platform feedback: " + err.Error()), nil, nil
+	}
+	return toolkit.JSONResultTyped(res)
+}
+
 func (t *Toolkit) handleCreateThread(ctx context.Context, input manageFeedbackInput) (*mcp.CallToolResult, any, error) {
+	if input.Topic == topicPlatform {
+		return t.handlePlatformFeedback(ctx, input)
+	}
+	if input.Topic != "" {
+		return toolkit.ErrorResult("topic is platform, or omitted"), nil, nil
+	}
 	if t.threadStore == nil {
 		return toolkit.ErrorResult(threadsUnavail), nil, nil
 	}

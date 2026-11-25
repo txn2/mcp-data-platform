@@ -11,7 +11,6 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptcontract"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer/handlercmd"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptshare"
-	"github.com/txn2/mcp-data-platform/internal/platform/scriptshow"
 	"github.com/txn2/mcp-data-platform/internal/removedvalue"
 	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
@@ -23,10 +22,6 @@ import (
 // ToolNameManageScript is the MCP tool name of the script-management tool,
 // exported for composition roots that bind UI apps to it.
 const ToolNameManageScript = "manage_script"
-
-// ToolNameShowScripts is show_scripts (internal/platform/scriptshow), which
-// RegisterTool registers beside manage_script.
-const ToolNameShowScripts = scriptshow.ToolName
 
 // Command names.
 const (
@@ -180,9 +175,8 @@ type manageScriptInput struct {
 	handlercmd.CallSettings
 }
 
-// RegisterTool registers manage_script; where the deployment can execute
-// saved scripts, run_script; and the presentation-only show_scripts. It
-// also captures the server the two run paths open their in-memory sessions
+// RegisterTool registers manage_script and, where the deployment can execute
+// saved scripts, run_script. It also captures the server the two run paths open their in-memory sessions
 // against. No-op on a nil Handle or a no-database deployment (there is nowhere
 // to keep a script).
 func (h *Handle) RegisterTool(server *mcp.Server) {
@@ -206,7 +200,6 @@ func (h *Handle) RegisterTool(server *mcp.Server) {
 		return h.handleManageScript(ctx, input)
 	})
 	h.registerRunScript(server)
-	scriptshow.Register(server, h.portalURL)
 }
 
 // commandHandler handles one manage_script command.

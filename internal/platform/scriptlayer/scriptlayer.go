@@ -59,11 +59,6 @@ type Config struct {
 	// run commands read. nil leaves run_script unregistered, which is the
 	// correct shape for a deployment that cannot execute scripts at all.
 	Runs script.RunStore
-	// PortalURL is the deployment's public portal address, used by show_scripts
-	// to name where the script pages are. Empty leaves the tool registered and
-	// linkless: a deployment that has not been told its own address cannot be
-	// given one by guessing.
-	PortalURL string
 	// Destinations is the deployment's configured bucket destinations, which a
 	// draft run resolves platform.export names against exactly as a platform
 	// run does.
@@ -125,9 +120,6 @@ type Handle struct {
 	// runs.
 	states script.StateStore
 	runs   script.RunStore
-	// portalURL is the public portal address show_scripts points the human at,
-	// empty when the deployment has not been configured with one.
-	portalURL string
 	// server is the assembled MCP server, captured at RegisterTool. run_draft
 	// opens an in-memory session against it so a draft's platform calls cross
 	// the same middleware chain an agent's calls cross.
@@ -190,8 +182,8 @@ func (h *Handle) SetCallTester(t handlercmd.Tester) {
 func New(cfg Config) *Handle {
 	h := &Handle{
 		store: cfg.Store, runs: cfg.Runs,
-		portalURL: cfg.PortalURL, destinations: cfg.Destinations,
-		toolkits: cfg.Toolkits, draftExports: cfg.DraftExports,
+		destinations: cfg.Destinations,
+		toolkits:     cfg.Toolkits, draftExports: cfg.DraftExports,
 		runLimits: cfg.RunLimits.WithDefaults(),
 	}
 	if h.store == nil && cfg.DB != nil {
@@ -242,7 +234,7 @@ func (h *Handle) Handlers() *scripthandler.Service { return h.handlers }
 func (h *Handle) SaveGate() *scriptsave.Gate { return h.gate }
 
 // HasStore reports whether the layer has a script store, which is the condition
-// under which it registers manage_script, run_script and show_scripts. Callers
+// under which it registers manage_script and run_script. Callers
 // enumerating the platform's own tools ask this rather than assuming the tools
 // exist, so a no-database deployment is not credited with them.
 func (h *Handle) HasStore() bool {

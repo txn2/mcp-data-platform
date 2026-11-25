@@ -120,6 +120,9 @@ type ToolActivityAggregate struct {
 	CallCount     int     `json:"call_count"`
 	SuccessRate   float64 `json:"success_rate"`
 	AvgDurationMs float64 `json:"avg_duration_ms"`
+	// HoldCount is the calls that waited for an approval or an answer, left
+	// out of SuccessRate (#2819).
+	HoldCount int `json:"hold_count"`
 }
 
 // getToolDetail handles GET /api/v1/admin/tools/{name}.
@@ -296,6 +299,9 @@ func (h *Handler) fillToolActivity(ctx context.Context, name string, d *ToolDeta
 		StartTime: &from,
 		EndTime:   &now,
 		ToolName:  name,
+		// Tool calls only: a resource read or a prompt served is recorded
+		// under a tool's name too, and is not a call of it (#2819).
+		EventKind: string(audit.EventTypeMCPToolCall),
 	})
 	if err != nil || len(rows) == 0 {
 		return
@@ -306,6 +312,7 @@ func (h *Handler) fillToolActivity(ctx context.Context, name string, d *ToolDeta
 		CallCount:     row.Count,
 		SuccessRate:   row.SuccessRate,
 		AvgDurationMs: row.AvgDurationMS,
+		HoldCount:     row.HoldCount,
 	}
 }
 

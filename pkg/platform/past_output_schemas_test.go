@@ -10,6 +10,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/txn2/mcp-data-platform/internal/toolnames"
 )
 
 // pastOutputSchema is one tool's output schema as one release advertised it.
@@ -60,6 +62,11 @@ func TestEveryPastOutputSchemaAcceptsTheResult(t *testing.T) {
 	require.NotEmpty(t, session, "platform_info names no session_id")
 	results := map[string]any{"platform_info": info}
 	for _, past := range pastOutputSchemas(t) {
+		if _, retired := toolnames.Retired[past.Tool]; retired {
+			// A retired tool is called by no client: a cached list naming it
+			// is refused as an unknown tool, which no schema validates.
+			continue
+		}
 		result, ok := results[past.Tool]
 		if !ok {
 			result = structuredResult(ctx, t, cs, past.Tool, session)
@@ -77,9 +84,6 @@ func structuredResult(ctx context.Context, t *testing.T, cs *mcp.ClientSession, 
 	args := map[string]any{}
 	if session != "" {
 		args["session_id"] = session
-	}
-	if tool == "platform_find_tools" {
-		args["query"] = "query a table"
 	}
 	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: tool, Arguments: args})
 	require.NoError(t, err)

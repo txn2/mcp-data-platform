@@ -3,7 +3,6 @@ package sitesvc
 import (
 	"context"
 	"fmt"
-	"slices"
 
 	"github.com/txn2/mcp-data-platform/internal/site"
 )
@@ -55,8 +54,8 @@ func (s *Service) compareTree(ctx context.Context, st *site.Site, pair comparePa
 	}
 	out := compareFiles(baseFiles, targetFiles)
 	out.From, out.To = from, to
-	out.RedirectsAdded = missingFrom(target.Redirects, base.Redirects)
-	out.RedirectsRemoved = missingFrom(base.Redirects, target.Redirects)
+	out.RedirectsAdded = site.MissingRedirects(target.Redirects, base.Redirects)
+	out.RedirectsRemoved = site.MissingRedirects(base.Redirects, target.Redirects)
 	return out, nil
 }
 
@@ -77,37 +76,6 @@ func (s *Service) comparable(ctx context.Context, st *site.Site, number int) (*s
 }
 
 func compareFiles(base, target []site.File) *Comparison {
-	out := &Comparison{Changed: []string{}, Added: []string{}, Removed: []string{}}
-	before := make(map[string]string, len(base))
-	for _, f := range base {
-		before[f.Path] = f.SHA256
-	}
-	for _, f := range target {
-		digest, ok := before[f.Path]
-		switch {
-		case !ok:
-			out.Added = append(out.Added, f.Path)
-		case digest != f.SHA256:
-			out.Changed = append(out.Changed, f.Path)
-		}
-		delete(before, f.Path)
-	}
-	for p := range before {
-		out.Removed = append(out.Removed, p)
-	}
-	slices.Sort(out.Changed)
-	slices.Sort(out.Added)
-	slices.Sort(out.Removed)
-	return out
-}
-
-// missingFrom is the rules of a that b does not hold.
-func missingFrom(a, b []site.Redirect) []site.Redirect {
-	out := []site.Redirect{}
-	for _, r := range a {
-		if !slices.Contains(b, r) {
-			out = append(out, r)
-		}
-	}
-	return out
+	changed, added, removed := site.DiffFiles(base, target)
+	return &Comparison{Changed: changed, Added: added, Removed: removed}
 }

@@ -56,7 +56,6 @@ func TestPromptSchemas_ClosedAndInSyncWithInputStructs(t *testing.T) {
 		input  any
 	}{
 		{ToolNameManagePrompt, promptschema.ManagePrompt(testCommandNames()), managePromptInput{}},
-		{ToolNameShowPrompts, showPromptsSchema(), showPromptsInput{}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.tool, func(t *testing.T) {

@@ -31,7 +31,7 @@ jobs:
 
       - name: Install gremlins
         # Keep this version in sync with GREMLINS_VERSION in the Makefile.
-        run: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
+        run: scripts/go-install.sh github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
 
       # pkg/ and internal/ (#2732): internal/ holds most of the code the
       # security-design rules are about, and the run used to read pkg/ alone.

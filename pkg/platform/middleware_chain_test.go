@@ -51,7 +51,11 @@ func TestReceivingMiddlewareChain_CanonicalOrder(t *testing.T) {
 		mwSchemaGate,
 		mwRateLimit,
 		mwReflexiveCapture,
+		mwRepeatRefusal,
+		mwArgumentRefusal,
+		mwConnectionRoute,
 		mwErrorContract,
+		mwHelp,
 		mwConsent,
 		mwTasks,
 		mwResultBudget,
@@ -162,7 +166,15 @@ func TestReceivingMiddlewareChain_DeclaredDependencies(t *testing.T) {
 		mwEnrichment: {mwToolCall, mwTracing, mwMetrics, mwAudit, mwClientLogging},
 		// audit/metrics/reflexive-capture observe the normalized error, so the
 		// error contract is inner to all three.
-		mwErrorContract: {mwAudit, mwMetrics, mwReflexiveCapture},
+		mwErrorContract: {mwAudit, mwMetrics, mwReflexiveCapture, mwRepeatRefusal, mwArgumentRefusal, mwConnectionRoute},
+		// the repeated-refusal note reads the error contract's refusal (#2820).
+		mwRepeatRefusal: {mwAudit, mwMetrics},
+		// connection routing reads the error contract's refusal (#2812).
+		mwConnectionRoute: {mwAudit, mwMetrics},
+		// the argument refusal reads the error contract's refusal (#2811).
+		mwArgumentRefusal: {mwAudit, mwMetrics},
+		// help answers only a caller authorized past the gates (#2815).
+		mwHelp: {mwToolCall, mwWorkflowGate, mwRateLimit, mwErrorContract},
 	}
 
 	for name, reqs := range want {

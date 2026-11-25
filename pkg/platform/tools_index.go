@@ -10,12 +10,6 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/inprocess"
 )
 
-// platformFindToolsName is the discovery tool's own name. It is
-// excluded from the index so a find-tools query never ranks the
-// discovery tool itself, and is passed to the index queue as the
-// tool corpus's excluded name.
-const platformFindToolsName = "platform_find_tools"
-
 // platformToolEnumerator adapts Platform's unexported enumerateGlobalTools to
 // the indexqueue.ToolEnumerator interface, supplying the queue's tools source
 // with the live in-process tool corpus.

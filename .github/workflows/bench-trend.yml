@@ -37,7 +37,7 @@ jobs:
           cache: true
 
       - name: Install benchstat
-        run: GOTOOLCHAIN=local go install golang.org/x/perf/cmd/benchstat@v0.0.0-20260819171926-ebcb4798430d
+        run: GOTOOLCHAIN=local scripts/go-install.sh golang.org/x/perf/cmd/benchstat@v0.0.0-20260819171926-ebcb4798430d
 
       - name: Run the benchmarks
         run: make bench-trend
