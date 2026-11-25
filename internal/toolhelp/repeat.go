@@ -8,6 +8,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
@@ -25,14 +26,15 @@ type sessionOf func(ctx context.Context) string
 // RepeatMiddleware tells an agent, the second time one session's call to a
 // tool is refused with the same code, how to report what the platform could
 // not do (#2820): at that point the refusal is no longer a mistake to correct.
-// A refusal of a session-less call, and a refusal of manage_feedback itself,
-// are left as they are.
+// A refusal of a session-less call, a refusal of manage_feedback itself, and
+// a managed script's call are left as they are: a script reads the refusal's
+// structured error to classify its failure, and reads no advice.
 func RepeatMiddleware(session func(ctx context.Context) string) mcp.Middleware {
 	seen := &repeatSet{keys: map[string]struct{}{}}
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			result, err := next(ctx, method, req)
-			if err != nil || method != methodToolsCall || session == nil {
+			if err != nil || method != methodToolsCall || session == nil || mcpcontext.GetSource(ctx) == mcpcontext.SourceScript {
 				return result, err
 			}
 			return seen.annotate(sessionOf(session)(ctx), req, result), nil
@@ -64,9 +66,20 @@ func (s *repeatSet) annotate(session string, req mcp.Request, result mcp.Result)
 	if !s.seenBefore(session + "\x00" + tool + "\x00" + pe.Code) {
 		return result
 	}
-	rebuilt := *pe
-	rebuilt.Message = strings.TrimSpace(pe.Message) + repeatSentence
-	return middleware.BuildErrorResult(&rebuilt)
+	return withSentence(ctr)
+}
+
+// withSentence adds the sentence to the text the caller reads; the result's
+// structured error and every other part are kept as the tool wrote them.
+func withSentence(ctr *mcp.CallToolResult) *mcp.CallToolResult {
+	for _, c := range ctr.Content {
+		if tc, isText := c.(*mcp.TextContent); isText {
+			tc.Text = strings.TrimSpace(tc.Text) + repeatSentence
+			return ctr
+		}
+	}
+	ctr.Content = append(ctr.Content, &mcp.TextContent{Text: strings.TrimSpace(repeatSentence)})
+	return ctr
 }
 
 // seenBefore records a key and reports whether it was already recorded.

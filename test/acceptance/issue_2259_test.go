@@ -106,7 +106,7 @@ func TestIssue2259_TheThreeModesOnBothSurfacesAndSignedInIsRefused(t *testing.T)
 	// The tool's schema enumerates the modes, so the arguments are refused
 	// before the binding is read.
 	if out, refusal := endpointSet(t, admin, viaTool, "", map[string]any{"endpoint": viaTool, "auth_mode": "signed_in"}); out != nil ||
-		!strings.Contains(refusal, "signed_in does not equal any of: [authenticated public bot_check]") {
+		!strings.Contains(refusal, `"signed_in" is not one of auth_mode's values; it takes one of: authenticated, public, bot_check.`) {
 		t.Fatalf("handler_set signed_in: want refused, got %v %q", out, refusal)
 	}
 	if out, refusal := endpointSet(t, admin, viaTool, "", map[string]any{"endpoint": viaTool, "auth_mode": "bot_check", "bot_check": "acc-2259-no-such-check"}); out != nil ||

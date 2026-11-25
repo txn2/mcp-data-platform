@@ -68,7 +68,7 @@ func describeRefusal(ctx context.Context, lookup SchemaLookup, req mcp.Request, 
 	if !ok {
 		return result
 	}
-	return middleware.BuildErrorResult(middleware.ClientInputError(codeInvalidArguments, report.message(),
+	return middleware.BuildErrorResult(middleware.ClientInputError(codeInvalidArguments, report.messageOver(pe.Message),
 		"Resend the call with the accepted parameter names and types listed above. This is a problem "+
 			"with the call's arguments, not a platform fault; the tool does not accept other names for them."))
 }

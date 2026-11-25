@@ -1,6 +1,7 @@
 package sitetypecheck
 
 import (
+	"archive/tar"
 	"context"
 	"testing"
 
@@ -36,4 +37,14 @@ func TestDigest(t *testing.T) {
 	assert.Len(t, digest("a", "b"), 16)
 	assert.Equal(t, digest("a", "b"), digest("a", "b"))
 	assert.NotEqual(t, digest("ab"), digest("a", "b"), "parts are kept apart")
+}
+
+// TestParentDirectoryEntriesAreRefused: an archive entry or a file naming a
+// parent directory is never laid out, whatever cleaning would make of it.
+func TestParentDirectoryEntriesAreRefused(t *testing.T) {
+	_, ok := compilerEntry(&tar.Header{Name: "package/lib/../../escape.d.ts", Typeflag: tar.TypeReg})
+	assert.False(t, ok)
+	_, ok = keptEntry(&tar.Header{Name: "package/../escape.d.ts", Typeflag: tar.TypeReg})
+	assert.False(t, ok)
+	require.ErrorContains(t, writeTree(t.TempDir(), map[string][]byte{"lib/../../escape.d.ts": nil}), "outside the check")
 }

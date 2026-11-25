@@ -2515,6 +2515,7 @@ internal/thumbtypes -> pkg/contenttype
 internal/toolanswer -> pkg/registry
 internal/toolanswer -> pkg/toolkit
 internal/toolhelp -> internal/wirejson
+internal/toolhelp -> pkg/mcpcontext
 internal/toolhelp -> pkg/middleware
 internal/toolschema -> internal/inprocess
 internal/toolwrite -> internal/gqlschema

@@ -213,3 +213,19 @@ func TestClosestNameFromDescriptions(t *testing.T) {
 		t.Errorf("an unrelated word suggested %q", got)
 	}
 }
+
+// TestMessageOverKeepsANestedFault: a refusal whose fault is inside a nested
+// object keeps the validator's words for it and lists what the tool accepts.
+func TestMessageOverKeepsANestedFault(t *testing.T) {
+	r := argumentReport{tool: "manage_site", accepted: []string{"command (string, required)", "from_bucket (object)"}}
+	got := r.messageOver(`validating /properties/from_bucket: missing properties: ["connection"]`)
+	for _, want := range []string{`missing properties: ["connection"]`, "manage_site accepts: command (string, required), from_bucket (object)."} {
+		if !strings.Contains(got, want) {
+			t.Errorf("message lacks %q: %s", want, got)
+		}
+	}
+	r.unexpected = []unexpectedArgument{{name: "query", closest: "intent"}}
+	if strings.Contains(r.messageOver("validating root: unexpected additional properties"), "validating root") {
+		t.Error("a top-level fault the report describes kept the validator's words")
+	}
+}

@@ -44,7 +44,7 @@ async function openInDrawer(page: Page): Promise<void> {
 /** openInPanel opens the thread in the item's own FeedbackPanel. */
 async function openInPanel(page: Page): Promise<void> {
   await page.goto(`/portal/assets/${env("FEEDBACK_ASSET")}`);
-  await page.getByRole("button", { name: "Feedback", exact: false }).first().click();
+  await page.getByRole("button", { name: /^Feedback(,|$)/ }).first().click();
   await threadRow(page).click();
   await expect(page.getByRole("button", { name: "Back to list" })).toBeVisible();
 }

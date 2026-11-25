@@ -57,6 +57,17 @@ func describeArguments(tool string, schema map[string]any, rawArgs json.RawMessa
 	return r, true
 }
 
+// messageOver is the refusal sentence over the validator's own: its faults
+// when it found any at the top level, else the validator's message (a fault
+// inside a nested object, which it does not describe), then what the tool
+// accepts either way.
+func (r argumentReport) messageOver(original string) string {
+	if len(r.unexpected) > 0 || len(r.mismatches) > 0 {
+		return r.message()
+	}
+	return strings.TrimSpace(original) + " " + r.message()
+}
+
 // message is the refusal sentence: each fault, then what the tool accepts.
 func (r argumentReport) message() string {
 	var b strings.Builder
