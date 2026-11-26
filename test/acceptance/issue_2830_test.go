@@ -36,7 +36,10 @@ func files2830(include string) []map[string]any {
 // TestIssue2830_AnIncludeNamingFilesChecksLikeAGlob: each include form checks
 // and reports the error in each file it names, at its line and column.
 func TestIssue2830_AnIncludeNamingFilesChecksLikeAGlob(t *testing.T) {
-	c := connect(t)
+	// Each check waits its turn and compiles the compiler afresh (no
+	// compilation cache is kept on disk, #2828), so the connection outlives the
+	// default session bound (#1738).
+	c := connectFor(t, 20*time.Minute)
 	for include, want := range map[string][]string{
 		`["app.ts"]`:               {"app.ts"},
 		`["./app.ts"]`:             {"app.ts"},

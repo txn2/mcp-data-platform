@@ -32,7 +32,10 @@ const dir2828 = "../../build/dev-typecheck"
 // sites.typecheck.dir holds the laid-out compiler and no compilation cache or
 // check scratch.
 func TestIssue2828_ACheckLeavesOnlyTheCompilerOnDisk(t *testing.T) {
-	c := connect(t)
+	// Each check waits its turn and compiles the compiler afresh (no
+	// compilation cache is kept on disk, #2828), so the connection outlives the
+	// default session bound (#1738).
+	c := connectFor(t, 20*time.Minute)
 	site := newSite2817(t, c)
 	release, _ := publish2793(t, c, site, files2830(`["app.ts"]`))
 	if check := check2793(t, c, site, release, 0, 6*time.Minute); check["status"] != "errors" {
@@ -57,7 +60,10 @@ func TestIssue2828_ACheckLeavesOnlyTheCompilerOnDisk(t *testing.T) {
 // TestIssue2828_DeletingASiteDeletesItsChecksAndState: a site that was
 // checked, then deleted, leaves no check and no incremental state.
 func TestIssue2828_DeletingASiteDeletesItsChecksAndState(t *testing.T) {
-	c := connect(t)
+	// Each check waits its turn and compiles the compiler afresh (no
+	// compilation cache is kept on disk, #2828), so the connection outlives the
+	// default session bound (#1738).
+	c := connectFor(t, 20*time.Minute)
 	site := newSite2817(t, c)
 	release, _ := publish2793(t, c, site, files2830(`["app.ts"]`))
 	check2793(t, c, site, release, 0, 6*time.Minute)
