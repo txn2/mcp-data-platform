@@ -467,7 +467,10 @@ by TypeScript 7 in the platform:
 - It is a check, not a gate. The release publishes and the environment moves
   whatever the check finds. `manage_site publish` reports the queued check as
   `typecheck: {id, status}`; checks run one at a time, so a result can take minutes on a busy
-  deployment.
+  deployment, or on a small one: a check holds as much of the platform's CPU as it gets,
+  and preparing the compiler alone can take a minute or more where the deployment keeps no
+  compilation cache. A finished check reports `duration_ms` and `compile_ms`, the part of
+  it spent preparing the compiler.
 - Dependency types come from the lockfile in the site (`package-lock.json`,
   `pnpm-lock.yaml` or a Yarn 1 `yarn.lock`): each package at its locked version,
   verified against the lockfile's SHA-256 or stronger integrity hash (a package
@@ -477,10 +480,13 @@ by TypeScript 7 in the platform:
   lockfile does not lock is listed as `missing`; add it to `package.json` and the
   lockfile.
 - `manage_site build_report` shows the release's newest check under `typecheck`:
-  `clean`, `errors` with each error's file, line, column, code and message,
+  `clean`, `errors` with each error's file, line, column, code and message (an error
+  about the project rather than a file has no file: TS18003 is an `include` that matches
+  no file in the release, TS6053 an `extends` naming a file the release lacks, TS5110 an
+  option the compiler refuses),
   `over_limit` (the compiler needed more memory than the deployment allows),
   `unsupported` or `failed` with the reason (a compiler that crashed is reported with
-  its own panic message). `queued` or `running` means it has not finished; read it
+  its own panic message, one that exited without an error with what it wrote). `queued` or `running` means it has not finished; read it
   again later. A tsconfig's `include` may name files, directories or globs.
 - `unsupported` is a tsconfig that is not in the release at the path `_build.json`
   names, or one that sets `compilerOptions.baseUrl`, which TypeScript 7 no longer

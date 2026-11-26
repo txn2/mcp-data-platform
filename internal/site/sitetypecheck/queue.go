@@ -213,7 +213,22 @@ func (q *Queue) runOne(ctx context.Context, c *Check) error {
 	_ = q.db.QueryRowContext(ctx, `SELECT tsbuildinfo FROM site_typecheck_state WHERE site_id = $1 AND environment = $2`,
 		c.SiteID, c.Environment).Scan(&state)
 	res, next := q.checker.Check(ctx, src, c.Tsconfig, state)
+	logFinished(ctx, c, res)
 	return q.finish(ctx, c, res, next)
+}
+
+// logFinished logs how a check ended and how long it spent compiling the
+// compiler apart from the whole (#2833), which is what a deployment's CPU
+// limit costs a check; a compilation cache that could not be used is a
+// warning, since every check then compiles again.
+func logFinished(ctx context.Context, c *Check, res Result) {
+	attrs := []any{"check", c.ID, "site", c.SiteID, "status", res.Status, "duration_ms", res.DurationMS, "compile_ms", res.CompileMS}
+	if res.CacheError != "" {
+		slog.WarnContext(ctx, "site type check could not use the compilation cache and compiled without it",
+			append(attrs, "error", logsan.SanitizeForLog(res.CacheError))...)
+		return
+	}
+	slog.InfoContext(ctx, "site type check finished", attrs...)
 }
 
 // finish records a check's result, and the environment's new state.

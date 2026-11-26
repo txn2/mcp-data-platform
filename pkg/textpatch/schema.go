@@ -12,7 +12,7 @@ import (
 const PropertiesJSON = `{
   "edits": {
     "type": "array",
-    "description": "Ordered edits to apply (patch action). Each edit is anchored on text, never on a line number, and edits apply in order against the evolving body, so a later edit can anchor on text an earlier one introduced. If any edit fails to resolve, the whole call is refused and nothing is written. An edit carries its replacement text under 'replace' (op=replace) or 'text' (every other writing op); an edit that omits the key its op reads, or carries a key this grammar does not declare, is refused by name.",
+    "description": "Ordered edits to apply (required for patch). Each edit is anchored on text, never on a line number, and edits apply in order against the evolving body, so a later edit can anchor on text an earlier one introduced. If any edit fails to resolve, the whole call is refused and nothing is written. An edit carries its replacement text under 'replace' (op=replace) or 'text' (every other writing op); an edit that omits the key its op reads, or carries a key this grammar does not declare, is refused by name.",
     "maxItems": 100,
     "items": {
       "type": "object",
@@ -85,11 +85,11 @@ const PropertiesJSON = `{
   },
   "section": {
     "type": "string",
-    "description": "Heading naming a region (markdown or HTML h1-h6): scopes 'locate' to one region, or selects the span 'get_content' returns."
+    "description": "Heading naming a region, a markdown or HTML h1-h6 heading (locate and get_content actions): scopes a locate to that region, or selects the span get_content returns."
   },
   "selector": {
     "type": "string",
-    "description": "CSS selector naming an element on an HTML/JSX/SVG document: scopes 'locate' to that element, or selects the span 'get_content' returns. Same supported forms as the patch 'selector'. Refused on a markdown or structureless document."
+    "description": "CSS selector naming an element on an HTML/JSX/SVG document (locate and get_content actions): scopes a locate to that element, or selects the span get_content returns. Same supported forms as the patch 'selector'. Refused on a markdown or structureless document."
   },
   "occurrence": {
     "type": "string",
@@ -105,15 +105,15 @@ const PropertiesJSON = `{
   },
   "context_bytes": {
     "type": "integer",
-    "description": "How much surrounding text each locate match reports (default 160)."
+    "description": "How much surrounding text each match reports (locate action; default 160)."
   },
   "from_version": {
     "type": "integer",
-    "description": "Older side of a 'diff' comparison."
+    "description": "Older side of the comparison (diff action)."
   },
   "to_version": {
     "type": "integer",
-    "description": "Newer side of a 'diff' comparison. Defaults to the current version."
+    "description": "Newer side of the comparison (diff action). Defaults to the current version."
   }
 }`
 

@@ -61321,6 +61321,10 @@ const docTemplate = `{
         "sitetypecheck.Result": {
             "type": "object",
             "properties": {
+                "compile_ms": {
+                    "description": "CompileMS is the part of DurationMS spent compiling the TypeScript\ncompiler before it read a file (#2833), or reading it from the\ncompilation cache; zero for a check that never ran the compiler.",
+                    "type": "integer"
+                },
                 "diagnostics": {
                     "type": "array",
                     "items": {

@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
@@ -49,6 +51,9 @@ type job struct {
 	Tsconfig string `json:"tsconfig"`
 	// MemoryLimit is the most the compiler may hold, in bytes.
 	MemoryLimit int64 `json:"memory_limit"`
+	// CacheDir keeps the compiled compiler between checks (#2833): empty
+	// compiles it again for every check.
+	CacheDir string `json:"cache_dir,omitempty"`
 }
 
 // outcome is what the worker reports.
@@ -57,6 +62,12 @@ type outcome struct {
 	Output     string `json:"output"`
 	OverMemory bool   `json:"over_memory"`
 	Error      string `json:"error,omitempty"`
+	// CompileMS is how long the compiler's module took to compile, or to
+	// read from the compilation cache, before it ran (#2833).
+	CompileMS int64 `json:"compile_ms"`
+	// CacheError is why the compilation cache could not be used; the check
+	// compiled without it.
+	CacheError string `json:"cache_error,omitempty"`
 }
 
 // RunWorker runs one job read from in and writes its outcome to out. It is
@@ -76,29 +87,94 @@ func runJob(ctx context.Context, j job) outcome {
 	if err != nil {
 		return outcome{Error: err.Error()}
 	}
-	rt := wazero.NewRuntimeWithConfig(ctx, runtimeConfig(j))
-	defer func() { _ = rt.Close(ctx) }()
-	wasi_snapshot_preview1.MustInstantiate(ctx, rt)
-	mod, err := rt.CompileModule(ctx, wasm)
+	started := time.Now()
+	c, err := compile(ctx, j, wasm)
+	defer func() { _ = c.rt.Close(ctx) }()
+	compiled := time.Since(started).Milliseconds()
 	if err != nil {
 		// A module whose declared memory is over the limit is refused here,
 		// before it runs: that is the check over its limit, not a broken
 		// compiler.
-		return outcome{Error: "compiling the TypeScript compiler: " + err.Error(), OverMemory: j.MemoryLimit > 0 && strings.Contains(err.Error(), "memory")}
+		return outcome{
+			Error: "compiling the TypeScript compiler: " + err.Error(), OverMemory: overMemory(j, err),
+			CompileMS: compiled, CacheError: c.cacheErr,
+		}
 	}
 	var stdout, stderr boundedBuffer
-	_, err = rt.InstantiateModule(ctx, mod, moduleConfig(j, &stdout, &stderr))
-	return outcomeOf(j, err, stdout.String(), stderr.String())
+	_, err = c.rt.InstantiateModule(ctx, c.mod, moduleConfig(j, &stdout, &stderr))
+	o := outcomeOf(j, err, stdout.String(), stderr.String())
+	o.CompileMS, o.CacheError = compiled, c.cacheErr
+	return o
 }
 
-// runtimeConfig is the runtime a job's compiler runs in: its memory limit, and
-// closed when the job's context ends. It keeps no compilation cache on disk:
-// one was about 177 MiB in the temporary directory for the replica's life, a
-// sized /tmp's room (#2828), to save the seconds a compile takes.
-func runtimeConfig(j job) wazero.RuntimeConfig {
+// overMemory reports a compile refused for the memory the module declares.
+func overMemory(j job, err error) bool {
+	return j.MemoryLimit > 0 && strings.Contains(err.Error(), "memory")
+}
+
+// compiled is the compiler's module compiled in a runtime, and why the
+// compilation cache could not be used.
+type compiled struct {
+	rt       wazero.Runtime
+	mod      wazero.CompiledModule
+	cacheErr string
+}
+
+// compile compiles the compiler's module, through the job's compilation cache
+// when it has one. wazero fails a compile whose cache write fails (a full
+// disk) or whose cached copy cannot be read, so a failure with the cache is
+// asked again on the same runtime, which holds what it compiled in memory,
+// and then, the cache removed, on a runtime without one: a cache never fails
+// a check.
+func compile(ctx context.Context, j job, wasm []byte) (compiled, error) {
+	var cache wazero.CompilationCache
+	var opened error
+	if j.CacheDir != "" {
+		if cache, opened = wazero.NewCompilationCacheWithDir(j.CacheDir); opened != nil {
+			cache = nil
+		}
+	}
+	rt := newRuntime(ctx, j, cache)
+	mod, err := rt.CompileModule(ctx, wasm)
+	switch {
+	case opened != nil:
+		return compiled{rt: rt, mod: mod, cacheErr: opened.Error()}, err //nolint:wrapcheck // runJob names the step
+	case err == nil || cache == nil || overMemory(j, err):
+		return compiled{rt: rt, mod: mod}, err //nolint:wrapcheck // runJob names the step
+	}
+	cacheErr := err.Error()
+	if mod, err = rt.CompileModule(ctx, wasm); err == nil {
+		return compiled{rt: rt, mod: mod, cacheErr: cacheErr}, nil
+	}
+	_ = rt.Close(ctx)
+	_ = os.RemoveAll(j.CacheDir)
+	rt = newRuntime(ctx, j, nil)
+	mod, err = rt.CompileModule(ctx, wasm)
+	return compiled{rt: rt, mod: mod, cacheErr: cacheErr}, err //nolint:wrapcheck // runJob names the step
+}
+
+// newRuntime is a runtime for the job's compiler with WASI instantiated,
+// keeping compiled code in cache when there is one.
+func newRuntime(ctx context.Context, j job, cache wazero.CompilationCache) wazero.Runtime {
+	rt := wazero.NewRuntimeWithConfig(ctx, runtimeConfig(j, cache))
+	wasi_snapshot_preview1.MustInstantiate(ctx, rt)
+	return rt
+}
+
+// runtimeConfig is the runtime a job's compiler runs in: its memory limit,
+// closed when the job's context ends, and the compilation cache when the
+// deployment keeps one. Compiling the compiler is nearly all of a check's
+// start-up, about 7 seconds of one fast core and minutes at a fractional CPU
+// limit (#2833); a cached copy is read in a fraction of a second. The cache is
+// about 177 MiB, so it is kept only where sites.typecheck.compile_cache asks
+// for it, in sites.typecheck.dir (#2828).
+func runtimeConfig(j job, cache wazero.CompilationCache) wazero.RuntimeConfig {
 	cfg := wazero.NewRuntimeConfig()
 	if j.MemoryLimit > 0 {
 		cfg = cfg.WithMemoryLimitPages(uint32(min(j.MemoryLimit/wasmPage, maxWasmPages))) // #nosec G115 -- bounded to the 4 GiB a wasm32 module addresses
+	}
+	if cache != nil {
+		cfg = cfg.WithCompilationCache(cache)
 	}
 	return cfg.WithCloseOnContextDone(true)
 }

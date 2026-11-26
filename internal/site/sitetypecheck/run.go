@@ -74,6 +74,13 @@ type Result struct {
 	Lockfile     string   `json:"lockfile,omitempty"`
 	Message      string   `json:"message,omitempty"`
 	DurationMS   int64    `json:"duration_ms"`
+	// CompileMS is the part of DurationMS spent compiling the TypeScript
+	// compiler before it read a file (#2833), or reading it from the
+	// compilation cache; zero for a check that never ran the compiler.
+	CompileMS int64 `json:"compile_ms,omitempty"`
+	// CacheError is why the compilation cache could not be used, for the
+	// log; the check compiled without it.
+	CacheError string `json:"-"`
 }
 
 // Config bounds a check.
@@ -90,6 +97,10 @@ type Config struct {
 	// Registry is where packages and the compiler are fetched; empty is the
 	// npm registry.
 	Registry string
+	// CompileCache keeps the compiled compiler under Dir between checks
+	// (#2833): about 177 MiB, read in a fraction of a second where compiling
+	// takes seconds of a fast core and minutes at a fractional CPU limit.
+	CompileCache bool
 }
 
 func (c Config) withDefaults() Config {
@@ -152,10 +163,15 @@ type Checker struct {
 // removed when a checker is built (#2828).
 const legacyCompileCache = "wasm-cache"
 
+// compileCacheDir is where Config.CompileCache keeps the compiled compiler,
+// one directory per compiler version (#2833).
+const compileCacheDir = "compile-cache"
+
 // NewChecker builds a checker fetching through getter and caching in cache.
 func NewChecker(cfg Config, getter Getter, cache Cache) *Checker {
 	cfg = cfg.withDefaults()
 	_ = os.RemoveAll(filepath.Join(cfg.Dir, legacyCompileCache))
+	pruneCompileCache(cfg.Dir, cfg.CompileCache)
 	return &Checker{
 		cfg: cfg, getter: getter, cache: cache,
 		compilers: &compilerStore{getter: getter, cache: cache, dir: cfg.Dir, registry: cfg.Registry},
@@ -234,6 +250,7 @@ func (c *Checker) checkTree(ctx context.Context, src fs.FS, tsconfig string, sta
 	}
 	v := interpret(o, c.cfg.MemoryLimit)
 	res.Status, res.Message, res.Diagnostics, res.Missing = v.Status, v.Message, v.Diagnostics, v.Missing
+	res.CompileMS, res.CacheError = o.CompileMS, o.CacheError
 	next, _ = os.ReadFile(filepath.Join(stateDir, "tsbuildinfo")) // #nosec G304 -- a path inside this check's scratch directory
 	if len(next) == 0 {
 		next = state
@@ -248,6 +265,7 @@ func (c *Checker) run(ctx context.Context, compiler *compilerFiles, project, sta
 	o, err := c.spawn(ctx, job{
 		Wasm:    compiler.Wasm,
 		Project: project, Lib: compiler.Lib, State: state, Tsconfig: tsconfig, MemoryLimit: c.cfg.MemoryLimit,
+		CacheDir: c.cacheDir(),
 	}, c.cfg.MemoryLimit)
 	if ctx.Err() != nil {
 		return outcome{}, fmt.Errorf("the check ran longer than %s and was stopped", c.cfg.Timeout)
@@ -267,13 +285,37 @@ func interpret(o outcome, memoryLimit int64) Result {
 	case o.ExitCode == 0:
 		return Result{Status: StatusClean, Diagnostics: diags}
 	case len(diags) == 0:
-		return Result{Status: StatusFailed, Message: fmt.Sprintf("the compiler exited %d and reported nothing", o.ExitCode)}
+		return Result{Status: StatusFailed, Message: exitedWithout(o)}
 	}
 	return Result{Status: StatusErrors, Diagnostics: diags, Missing: missingModules(diags)}
 }
 
+// maxExitOutputBytes bounds the compiler output a failure with no diagnostic
+// carries in its message (#2834), as the crash text is bounded (#2830).
+const maxExitOutputBytes = 4 << 10
+
+// exitedWithout is the message of a run that exited non-zero with no
+// diagnostic this check reads: the first of what the compiler wrote, so the
+// reason is not lost, or that it wrote nothing.
+func exitedWithout(o outcome) string {
+	out := unmounted(strings.TrimSpace(o.Output))
+	if out == "" {
+		return fmt.Sprintf("the compiler exited %d and reported nothing", o.ExitCode)
+	}
+	if len(out) > maxExitOutputBytes {
+		out = strings.ToValidUTF8(out[:maxExitOutputBytes], "") + "\n..."
+	}
+	return fmt.Sprintf("the compiler exited %d with no diagnostic this check reads; it wrote:\n%s", o.ExitCode, out)
+}
+
 // diagnosticLine is one line tsc writes with --pretty false.
 var diagnosticLine = regexp.MustCompile(`^(.+)\((\d+),(\d+)\): (error|warning|message) (TS\d+): (.*)$`)
+
+// globalDiagnosticLine is a diagnostic with no file location (#2834): a
+// configuration or global error, such as TS18003 for an include that matches
+// no file, TS6053 for a missing extends target or TS5110 for an option the
+// compiler refuses.
+var globalDiagnosticLine = regexp.MustCompile(`^(error|warning|message) (TS\d+): (.*)$`)
 
 // maxDiagnostics bounds the errors a check keeps.
 const maxDiagnostics = 1000
@@ -282,19 +324,55 @@ const maxDiagnostics = 1000
 func parseDiagnostics(out string) []Diagnostic {
 	var diags []Diagnostic
 	for line := range strings.SplitSeq(out, "\n") {
-		m := diagnosticLine.FindStringSubmatch(strings.TrimRight(line, "\r"))
-		if m == nil {
+		d, ok := parseDiagnostic(strings.TrimRight(line, "\r"))
+		if !ok {
 			continue
 		}
-		ln, _ := strconv.Atoi(m[2])
-		col, _ := strconv.Atoi(m[3])
-		diags = append(diags, Diagnostic{File: strings.TrimPrefix(strings.TrimPrefix(m[1], projectMount+"/"), "/"), Line: ln, Column: col, Category: m[4], Code: m[5], Message: m[6]})
+		diags = append(diags, d)
 		if len(diags) == maxDiagnostics {
 			break
 		}
 	}
 	return diags
 }
+
+// parseDiagnostic reads one line of the compiler's output: a diagnostic at a
+// place in a file, or one with no location, whose file, line and column are
+// left empty.
+func parseDiagnostic(line string) (Diagnostic, bool) {
+	if m := diagnosticLine.FindStringSubmatch(line); len(m) > atMessage {
+		ln, _ := strconv.Atoi(m[atLine])
+		col, _ := strconv.Atoi(m[atColumn])
+		return Diagnostic{
+			File: strings.TrimPrefix(strings.TrimPrefix(m[atFile], projectMount+"/"), "/"), Line: ln, Column: col,
+			Category: m[atCategory], Code: m[atCode], Message: unmounted(m[atMessage]),
+		}, true
+	}
+	if m := globalDiagnosticLine.FindStringSubmatch(line); len(m) > globalMessage {
+		return Diagnostic{Category: m[globalCategory], Code: m[globalCode], Message: unmounted(m[globalMessage])}, true
+	}
+	return Diagnostic{}, false
+}
+
+// The submatches of diagnosticLine, and of globalDiagnosticLine.
+const (
+	atFile = iota + 1
+	atLine
+	atColumn
+	atCategory
+	atCode
+	atMessage
+)
+
+const (
+	globalCategory = iota + 1
+	globalCode
+	globalMessage
+)
+
+// unmounted is compiler text with the project's mount point taken off the
+// paths it names, so they read as paths in the release.
+func unmounted(s string) string { return strings.ReplaceAll(s, projectMount+"/", "") }
 
 // cannotFindModule names the module a TS2307 says is missing.
 var cannotFindModule = regexp.MustCompile(`Cannot find module '([^']+)'`)

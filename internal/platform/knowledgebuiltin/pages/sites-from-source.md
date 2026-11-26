@@ -167,7 +167,9 @@ does not needs a decision:
    with file, line and code. It never holds a publish back. A `tsconfig` that sets
    `baseUrl` is reported `unsupported` (TypeScript 7 no longer reads it): turn it into
    `paths` entries starting `./`. A Yarn 2+ lockfile cannot be verified; use
-   `package-lock.json`, `pnpm-lock.yaml` or a Yarn 1 lockfile.
+   `package-lock.json`, `pnpm-lock.yaml` or a Yarn 1 lockfile. A TS18003 error with no
+   file means the tsconfig's `include` matches no file in the site: name the folders
+   the source is in.
 9. **Version and errors.** `import.meta.site.release` is the release number; show it as
    the build number. With `"sourcemap": "private"`, maps are served only to the people
    who manage the site, and `manage_site symbolicate site=<site> stack=<trace>` maps a

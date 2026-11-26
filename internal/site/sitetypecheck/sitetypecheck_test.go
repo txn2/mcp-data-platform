@@ -7,11 +7,16 @@ import (
 	"context"
 	"crypto/sha512"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"os"
 	"strings"
 	"testing"
 	"testing/fstest"
+	"unicode/utf8"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // tgz is a gzip tarball of files under package/.
@@ -202,6 +207,34 @@ func TestParseAndInterpret(t *testing.T) {
 	}
 }
 
+// TestInterpret_DiagnosticsWithNoLocation: a configuration diagnostic carries
+// no file (#2834); it is a diagnostic like any other, and output with no
+// diagnostic at all is quoted in the failure rather than lost.
+func TestInterpret_DiagnosticsWithNoLocation(t *testing.T) {
+	out := "error TS18003: No inputs were found in config file '/project/tsconfig.json'. Specified 'include' paths were '[\"nothing-here/**/*.ts\"]' and 'exclude' paths were '[]'.\n" +
+		"/project/src/a.ts(2,3): error TS2322: Type 'string' is not assignable to type 'number'.\n"
+	v := interpret(outcome{ExitCode: 2, Output: out}, DefaultMemoryLimit)
+	require.Equal(t, StatusErrors, v.Status, v.Message)
+	require.Len(t, v.Diagnostics, 2)
+	assert.Equal(t, Diagnostic{
+		Category: "error", Code: "TS18003",
+		Message: `No inputs were found in config file 'tsconfig.json'. Specified 'include' paths were '["nothing-here/**/*.ts"]' and 'exclude' paths were '[]'.`,
+	}, v.Diagnostics[0])
+	assert.Equal(t, "src/a.ts", v.Diagnostics[1].File)
+
+	v = interpret(outcome{ExitCode: 3, Output: "Version 7.1.0\nsomething /project/x went wrong\n"}, DefaultMemoryLimit)
+	assert.Equal(t, StatusFailed, v.Status)
+	assert.Equal(t, "the compiler exited 3 with no diagnostic this check reads; it wrote:\nVersion 7.1.0\nsomething x went wrong", v.Message)
+
+	v = interpret(outcome{ExitCode: 3, Output: strings.Repeat("é", maxExitOutputBytes)}, DefaultMemoryLimit)
+	assert.True(t, strings.HasSuffix(v.Message, "\n..."), "a long output is cut")
+	assert.Less(t, len(v.Message), maxExitOutputBytes+200)
+	assert.True(t, utf8.ValidString(v.Message))
+
+	v = interpret(outcome{ExitCode: 3, Output: " \n"}, DefaultMemoryLimit)
+	assert.Equal(t, "the compiler exited 3 and reported nothing", v.Message)
+}
+
 func TestUnsupportedAndJSONC(t *testing.T) {
 	src := fstest.MapFS{
 		"tsconfig.json":     {Data: []byte("{\n // a comment\n \"compilerOptions\": {\"baseUrl\": \".\", /* x */ \"strict\": true,},\n}")},
@@ -249,7 +282,7 @@ func TestCheck_WithAFakeWorker(t *testing.T) {
 			t.Errorf("the package's types were not laid out: %v", err)
 		}
 		_ = os.WriteFile(j.State+"/tsbuildinfo", []byte("next"), 0o600)
-		return outcome{ExitCode: 2, Output: "src/a.ts(1,1): error TS2322: bad\n"}, nil
+		return outcome{ExitCode: 2, Output: "src/a.ts(1,1): error TS2322: bad\n", CompileMS: 42, CacheError: "disk full"}, nil
 	}
 	lock := `{"packages":{"node_modules/x":{"version":"1.0.0","resolved":"https://registry.npmjs.org/x/-/x-1.0.0.tgz","integrity":"` + sri(typesTgz) + `"}}}`
 	src := fstest.MapFS{
@@ -260,8 +293,14 @@ func TestCheck_WithAFakeWorker(t *testing.T) {
 	if res.Status != StatusErrors || len(res.Diagnostics) != 1 || res.Packages != 1 || res.Fetched != 1 || string(state) != "next" {
 		t.Fatalf("res = %+v state %q", res, state)
 	}
-	if seen.Tsconfig != "tsconfig.json" || seen.MemoryLimit != DefaultMemoryLimit {
+	if seen.Tsconfig != "tsconfig.json" || seen.MemoryLimit != DefaultMemoryLimit || seen.CacheDir != "" {
 		t.Errorf("job = %+v", seen)
+	}
+	if res.CompileMS != 42 || res.CacheError != "disk full" {
+		t.Errorf("the worker's compile time and cache error did not reach the result: %+v", res)
+	}
+	if raw, _ := json.Marshal(res); strings.Contains(string(raw), "disk full") {
+		t.Errorf("the cache error is for the log, not the stored result: %s", raw)
 	}
 	res, _ = c.Check(context.Background(), fstest.MapFS{"tsconfig.json": {Data: []byte(`{"compilerOptions":{"baseUrl":"."}}`)}}, "tsconfig.json", nil)
 	if res.Status != StatusUnsupported || res.Diagnostics == nil || res.Missing == nil {
@@ -297,5 +336,24 @@ func TestCheck_RealCompiler(t *testing.T) {
 	src["src/a.ts"] = &fstest.MapFile{Data: []byte("export const v: number = 7;\n")}
 	if res, _ := c.Check(context.Background(), src, "tsconfig.json", state); res.Status != StatusClean {
 		t.Errorf("fixed source = %+v", res)
+	}
+
+	// #2834: an include that matches no file is reported as TS18003, a
+	// diagnostic with no file location.
+	none := fstest.MapFS{"tsconfig.json": {Data: []byte(`{"compilerOptions":{"strict":true,"noEmit":true,"lib":["ES2022","DOM"]},"include":["nothing-here/**/*.ts"]}`)}}
+	res, _ = c.Check(context.Background(), none, "tsconfig.json", nil)
+	if res.Status != StatusErrors || len(res.Diagnostics) != 1 || res.Diagnostics[0].Code != "TS18003" || res.Diagnostics[0].File != "" {
+		t.Fatalf("empty include = %+v", res)
+	}
+
+	// #2833: with the compilation cache kept, the second check reads the
+	// compiled compiler rather than compiling it again.
+	cached := NewChecker(Config{Dir: t.TempDir(), CompileCache: true}, g, Cache{})
+	cached.spawn = c.spawn
+	cold, _ := cached.Check(context.Background(), none, "tsconfig.json", nil)
+	warm, _ := cached.Check(context.Background(), none, "tsconfig.json", nil)
+	t.Logf("compile_ms cold %d warm %d", cold.CompileMS, warm.CompileMS)
+	if cold.CompileMS <= 0 || warm.CompileMS*4 > cold.CompileMS || warm.Diagnostics[0].Code != "TS18003" {
+		t.Errorf("cold %+v warm %+v", cold, warm)
 	}
 }

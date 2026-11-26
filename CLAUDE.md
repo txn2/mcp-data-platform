@@ -508,6 +508,7 @@ sites:
     timeout: 5m
     registry: ""                    # default the npm registry
     dir: ""                         # writable directory a check works in; default the temp directory
+    compile_cache: false            # keep the compiled compiler (about 177 MiB) in dir between checks; compiling it is minutes at a fractional CPU limit (#2833)
 ```
 
 An agent's promote, rollback or public domain on an environment other than dev waits on a person (#2643, `internal/site/siteenv`): elicitation, or `APPROVAL_REQUIRED` and a request decided only in the portal, unless an administrator marked the environment `agents_may_promote`.

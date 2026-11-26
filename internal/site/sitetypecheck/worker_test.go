@@ -49,6 +49,7 @@ func TestRunWorker(t *testing.T) {
 	require.NoError(t, RunWorker(context.Background(), bytes.NewReader(in), &out))
 	var o outcome
 	require.NoError(t, json.Unmarshal(out.Bytes(), &o))
+	o.CompileMS = 0
 	assert.Equal(t, outcome{}, o, "a module that returns at once exits cleanly")
 
 	require.Error(t, RunWorker(context.Background(), strings.NewReader("{"), &out), "a job that is not JSON")
@@ -74,7 +75,67 @@ func TestRunJobOverItsMemory(t *testing.T) {
 	assert.True(t, o.OverMemory, "outcome = %+v", o)
 
 	j.MemoryLimit = 4 * wasmPage
-	assert.Equal(t, outcome{}, runJob(context.Background(), j), "within the limit it runs")
+	o = runJob(context.Background(), j)
+	o.CompileMS = 0
+	assert.Equal(t, outcome{}, o, "within the limit it runs")
+}
+
+// TestRunJobThroughTheCompilationCache: with a cache directory the first run
+// writes the compiled module there and the next reads it (#2833).
+func TestRunJobThroughTheCompilationCache(t *testing.T) {
+	j := workerJob(t, emptyCommand)
+	j.CacheDir = filepath.Join(t.TempDir(), "compile-cache", CompilerVersion)
+	first := runJob(context.Background(), j)
+	require.Empty(t, first.Error)
+	assert.Empty(t, first.CacheError)
+	written := cacheFiles(t, j.CacheDir)
+	require.NotEmpty(t, written, "the compiled module was not kept")
+
+	second := runJob(context.Background(), j)
+	assert.Empty(t, second.Error)
+	assert.Empty(t, second.CacheError)
+	assert.Equal(t, written, cacheFiles(t, j.CacheDir), "the second run read the cache rather than writing another entry")
+}
+
+// TestRunJobCompilesWithoutACacheItCannotUse: a cached entry that cannot be
+// read, or a cache directory that cannot be made, is reported and the module
+// compiled without it; the check runs.
+func TestRunJobCompilesWithoutACacheItCannotUse(t *testing.T) {
+	j := workerJob(t, emptyCommand)
+	j.CacheDir = filepath.Join(t.TempDir(), "cache")
+	require.Empty(t, runJob(context.Background(), j).Error)
+	for _, f := range cacheFiles(t, j.CacheDir) {
+		require.NoError(t, os.WriteFile(f, []byte("not a compiled module"), 0o600))
+	}
+	o := runJob(context.Background(), j)
+	assert.Empty(t, o.Error, "a corrupt cache entry failed the check")
+	assert.NotEmpty(t, o.CacheError)
+	assert.NoDirExists(t, j.CacheDir, "the unreadable cache is removed so the next check writes it again")
+
+	blocked := filepath.Join(t.TempDir(), "file")
+	require.NoError(t, os.WriteFile(blocked, nil, 0o600))
+	j.CacheDir = filepath.Join(blocked, "cache")
+	o = runJob(context.Background(), j)
+	assert.Empty(t, o.Error, "a cache directory that cannot be made failed the check")
+	assert.NotEmpty(t, o.CacheError)
+
+	over := workerJob(t, emptyCommand)
+	over.CacheDir = filepath.Join(t.TempDir(), "cache")
+	over.Wasm = filepath.Join(t.TempDir(), "missing.wasm")
+	assert.NotEmpty(t, runJob(context.Background(), over).Error)
+}
+
+// cacheFiles is every file under a compilation cache directory.
+func cacheFiles(t *testing.T, dir string) []string {
+	t.Helper()
+	var out []string
+	_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			out = append(out, p)
+		}
+		return nil
+	})
+	return out
 }
 
 func TestBoundedBuffer(t *testing.T) {
