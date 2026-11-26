@@ -172,6 +172,11 @@ func memoryLimit(read readFile) int64 {
 	return slices.Min(limits)
 }
 
+// ContainerLimit is the container's cgroup memory limit in bytes, the smaller
+// of the v2 and v1 limits; zero when neither is set. Unlike MemoryLimit it
+// leaves GOMEMLIMIT out: it is what every process in the container shares.
+func ContainerLimit() int64 { return containerLimit(os.ReadFile) }
+
 // containerLimit is the smaller of the cgroup v2 and v1 memory limits, zero
 // when neither is set.
 func containerLimit(read readFile) int64 {

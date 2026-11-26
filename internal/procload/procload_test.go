@@ -147,3 +147,11 @@ func TestSetSoftLimit(t *testing.T) {
 		})
 	}
 }
+
+// TestContainerLimitReadsTheCgroup: the exported reader agrees with the
+// cgroup files it reads, zero where there are none.
+func TestContainerLimitReadsTheCgroup(t *testing.T) {
+	if got, want := ContainerLimit(), containerLimit(os.ReadFile); got != want {
+		t.Errorf("ContainerLimit = %d, want %d", got, want)
+	}
+}

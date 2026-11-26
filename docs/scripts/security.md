@@ -727,6 +727,10 @@ and `TestEveryActionVerbIsClassified` registers those tools, reads each verb out
 of the input schema a client sees, and fails on a verb named in neither set
 (#1827). Every action tool's verb argument is an `enum` in its schema for that
 reason; a verb described only in prose could not be checked.
+`help`, which the platform answers on every action tool from its schema and
+which is in no tool's enum, reads on every action tool before its rule is
+consulted (#2827), and `TestEveryHelpAnswerIsARead` fails on a tool help is
+answered on whose help call would be classified as a write.
 
 Two forms are decided from the call rather than the name. An
 `api_invoke_endpoint` call is classified by the HTTP method it sends, resolving

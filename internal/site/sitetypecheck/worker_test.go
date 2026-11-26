@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,7 +33,7 @@ func workerJob(t *testing.T, wasm []byte) job {
 	}
 	return job{
 		Wasm: path, Project: filepath.Join(dir, "project"), Lib: filepath.Join(dir, "lib"),
-		State: filepath.Join(dir, "state"), CompileCache: filepath.Join(dir, "cache"),
+		State:    filepath.Join(dir, "state"),
 		Tsconfig: "tsconfig.json", MemoryLimit: 64 << 20,
 	}
 }
@@ -83,4 +84,42 @@ func TestBoundedBuffer(t *testing.T) {
 	assert.Equal(t, maxOutputBytes+10, n, "a write past the bound is accepted and dropped")
 	_, _ = b.Write([]byte("more"))
 	assert.Len(t, b.String(), maxOutputBytes)
+}
+
+// TestOutcomeOfACrashKeepsThePanic: a compiler that trapped is reported with
+// the panic it wrote to stderr, bounded, ahead of the runtime's error (#2830).
+func TestOutcomeOfACrashKeepsThePanic(t *testing.T) {
+	trap := errors.New("module[] function[_start] failed: wasm error: unreachable")
+	o := outcomeOf(job{}, trap, "", "panic: path must not be empty\n\ngoroutine 1 [running]:\n")
+	assert.True(t, strings.HasPrefix(o.Error, "panic: path must not be empty"), o.Error)
+	assert.Contains(t, o.Error, "wasm error: unreachable")
+
+	long := outcomeOf(job{}, trap, "", "panic: x\n"+strings.Repeat("frame\n", 5000))
+	assert.Less(t, len(long.Error), maxCrashBytes+200, "the crash text is bounded")
+
+	assert.Equal(t, trap.Error(), outcomeOf(job{}, trap, "", "").Error, "no stderr keeps the runtime's error")
+}
+
+// TestDefaultMemoryLimitFor: the compiler's default is a quarter of the
+// container's limit, within its floor and cap (#2828).
+func TestDefaultMemoryLimitFor(t *testing.T) {
+	for container, want := range map[int64]int64{
+		0:        DefaultMemoryLimit,
+		1 << 30:  MinDefaultMemoryLimit,
+		4 << 30:  1 << 30,
+		8 << 30:  2 << 30,
+		64 << 30: DefaultMemoryLimit,
+	} {
+		assert.Equal(t, want, DefaultMemoryLimitFor(container), "container %d MiB", container>>20)
+	}
+}
+
+// TestCeilingWarning: a worker that could take more than half the container
+// is warned about at startup, naming the setting (#2828).
+func TestCeilingWarning(t *testing.T) {
+	assert.Empty(t, CeilingWarning(1<<30, 4<<30), "the default in a 4 GiB container")
+	assert.Empty(t, CeilingWarning(3<<30, 0), "no container limit read")
+	w := CeilingWarning(3<<30, 4<<30)
+	assert.Contains(t, w, "sites.typecheck.memory_limit 3072 MiB")
+	assert.Contains(t, w, "4096 MiB limit")
 }

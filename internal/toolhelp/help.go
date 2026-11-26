@@ -3,19 +3,20 @@ package toolhelp
 import (
 	"context"
 	"encoding/json"
-	"regexp"
 	"slices"
 	"sort"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/toolwrite"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
 )
 
 // helpCommand is the value of a multi-command tool's command or action that
-// asks the tool what it takes (#2815).
-const helpCommand = "help"
+// asks the tool what it takes (#2815). It is the draft write barrier's help
+// verb, which reads on every tool this answers (#2827).
+const helpCommand = toolwrite.HelpVerb
 
 // helpDescriptionLimit bounds each parameter's description in a help answer:
 // the first sentence, cut here, which is enough to choose by.
@@ -100,15 +101,11 @@ type parameterHelp struct {
 	Description string `json:"description,omitempty"`
 }
 
-// commandPrefix matches a description that opens by naming the commands it is
-// for: "publish: ...", "grant, revoke: ...", "create and update: ...".
-var commandPrefix = regexp.MustCompile(`^([a-z_]+(?:(?:,\s*|\s+and\s+|\s+or\s+|,\s*and\s+|,\s*or\s+)[a-z_]+)*)\s*:`)
-
-// commandSplit splits that list into its names.
-var commandSplit = regexp.MustCompile(`,\s*(?:and\s+|or\s+)?|\s+and\s+|\s+or\s+`)
-
 // parametersByCommand sorts a tool's parameters (other than the command field)
-// into those its description names commands for and those common to all.
+// into those whose description names commands and those common to all
+// (#2826). A named parameter is listed under each command it names, required
+// there only when the schema or its description says that command needs it; a
+// common parameter is required only when the schema says so.
 func parametersByCommand(props map[string]any, required map[string]bool, field string, commands []string) (perCommand map[string][]parameterHelp, common []parameterHelp) {
 	perCommand = map[string][]parameterHelp{}
 	for _, name := range sortedKeys(props) {
@@ -117,17 +114,17 @@ func parametersByCommand(props map[string]any, required map[string]bool, field s
 		}
 		prop, _ := props[name].(map[string]any)
 		desc, _ := prop["description"].(string)
-		// A parameter is required where the schema says so, or where its
-		// description says the commands it names need it.
-		needed := required[name] || strings.Contains(strings.ToLower(desc), "required")
-		p := parameterHelp{Name: name, Type: typeOf(prop), Required: needed, Description: firstSentence(desc)}
-		names := commandsNamed(desc, commands)
-		if len(names) == 0 {
+		p := parameterHelp{Name: name, Type: typeOf(prop), Description: firstSentence(desc)}
+		use := useOf(desc, commands)
+		if len(use.named) == 0 {
+			p.Required = required[name]
 			common = append(common, p)
 			continue
 		}
-		for _, c := range names {
-			perCommand[c] = append(perCommand[c], p)
+		for _, c := range use.named {
+			pc := p
+			pc.Required = requiredFor(use, required[name], c)
+			perCommand[c] = append(perCommand[c], pc)
 		}
 	}
 	return perCommand, common
@@ -158,24 +155,6 @@ func buildHelp(tool, field string, schema map[string]any) (toolHelp, bool) {
 		h.Commands = append(h.Commands, commandHelp{Command: c, Parameters: params, Example: commandExample(field, c, params, common)})
 	}
 	return h, true
-}
-
-// commandsNamed is the commands a description opens by naming, when every
-// name in its leading list is one of them.
-func commandsNamed(desc string, commands []string) []string {
-	m := commandPrefix.FindStringSubmatch(desc)
-	if m == nil {
-		return nil
-	}
-	var out []string
-	for _, n := range commandSplit.Split(m[1], -1) {
-		n = strings.TrimSpace(n)
-		if !slices.Contains(commands, n) {
-			return nil
-		}
-		out = append(out, n)
-	}
-	return out
 }
 
 // commandExample is one call of a command: the command and every required

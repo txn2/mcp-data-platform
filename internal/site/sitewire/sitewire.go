@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/procload"
+
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/site/sitetypecheck"
 
@@ -241,7 +243,15 @@ func typecheckQueue(d Deps, svc *sitesvc.Service) *sitetypecheck.Queue {
 		slog.Warn("sites: type checks are off: the egress guard could not be built", "error", logsan.SanitizeForLog(err.Error()))
 		return nil
 	}
-	checker := sitetypecheck.NewChecker(sitetypecheck.Config{MemoryLimit: cfg.MemoryLimit, Timeout: cfg.Timeout, Registry: cfg.Registry, Dir: cfg.Dir},
+	container := procload.ContainerLimit()
+	memoryLimit := cfg.MemoryLimit
+	if memoryLimit <= 0 {
+		memoryLimit = sitetypecheck.DefaultMemoryLimitFor(container)
+	}
+	if warning := sitetypecheck.CeilingWarning(memoryLimit, container); warning != "" {
+		slog.Warn("sites: " + warning)
+	}
+	checker := sitetypecheck.NewChecker(sitetypecheck.Config{MemoryLimit: memoryLimit, Timeout: cfg.Timeout, Registry: cfg.Registry, Dir: cfg.Dir},
 		getter, sitetypecheck.Cache{Objects: svc.Objects, Bucket: d.Bucket, Prefix: "sites/_typecheck"})
 	return sitetypecheck.NewQueue(d.DB, checker, sitetypecheck.ReleaseSource(svc))
 }

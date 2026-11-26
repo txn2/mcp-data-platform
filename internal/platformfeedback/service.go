@@ -58,6 +58,10 @@ type Deps struct {
 	// Embed turns a post's words into a vector for folding a repeat; nil
 	// folds only an exact repeat.
 	Embed func(ctx context.Context, text string) ([]float32, error)
+	// EmbedTimeout bounds Embed; zero is DefaultEmbedTimeout. A post whose
+	// embedding does not come back in time is stored and sent unfolded, but
+	// for a repeat of its exact words (#2829).
+	EmbedTimeout time.Duration
 	// Channels resolves a channel name; Sender queues a send to it.
 	Channels notification.ChannelStore
 	Sender   ChannelSender
@@ -72,6 +76,12 @@ type Deps struct {
 	Now func() time.Time
 }
 
+// DefaultEmbedTimeout is how long a post waits for its embedding (#2829). The
+// embedding only folds a near-duplicate onto an open post, so a busy embedding
+// service, as right after an upgrade re-embeds the platform's knowledge, costs
+// a missed fold and never the report.
+const DefaultEmbedTimeout = 5 * time.Second
+
 // Service is platform feedback.
 type Service struct {
 	d     Deps
@@ -82,6 +92,9 @@ type Service struct {
 func New(d Deps) *Service {
 	if d.Now == nil {
 		d.Now = time.Now
+	}
+	if d.EmbedTimeout <= 0 {
+		d.EmbedTimeout = DefaultEmbedTimeout
 	}
 	return &Service{d: d, store: pgStore{db: d.DB}}
 }
@@ -230,13 +243,21 @@ func (s *Service) withinLimits(ctx context.Context, set Settings, c Caller) erro
 	return nil
 }
 
-// embed is the post's vector, nil when there is no embedder or it failed.
+// embed is the post's vector, nil when there is no embedder, it failed, or it
+// did not answer within EmbedTimeout (#2829), which is logged: the post is
+// then folded only onto an open post with its exact words.
 func (s *Service) embed(ctx context.Context, text string) []float32 {
 	if s.d.Embed == nil {
 		return nil
 	}
-	v, err := s.d.Embed(ctx, text)
+	ectx, cancel := context.WithTimeout(ctx, s.d.EmbedTimeout)
+	defer cancel()
+	v, err := s.d.Embed(ectx, text)
 	if err != nil {
+		if ctx.Err() == nil && errors.Is(ectx.Err(), context.DeadlineExceeded) {
+			slog.WarnContext(ctx, "platform feedback: the embedding did not answer in time; the post is folded only by its words",
+				"timeout", s.d.EmbedTimeout.String())
+		}
 		return nil
 	}
 	return v

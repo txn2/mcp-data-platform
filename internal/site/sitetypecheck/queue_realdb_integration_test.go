@@ -22,6 +22,8 @@ import (
 func TestQueue_RealDB_ClaimRunAndRecord(t *testing.T) {
 	ctx := context.Background()
 	db := testdb.New(t)
+	_, err := db.ExecContext(ctx, `INSERT INTO sites (id, name, owner_email, created_by) VALUES ('site_1', 'docs-2793', 'dana@example.com', 'dana@example.com')`)
+	require.NoError(t, err)
 	checker := NewChecker(Config{Dir: t.TempDir()}, &fakeGetter{}, Cache{})
 	var asked []int
 	q := NewQueue(db, checker, func(_ context.Context, _ string, release int) (fs.FS, error) {
@@ -30,7 +32,8 @@ func TestQueue_RealDB_ClaimRunAndRecord(t *testing.T) {
 		return fstest.MapFS{"src/a.ts": {Data: []byte("x")}}, nil
 	})
 
-	first, err := q.Enqueue(ctx, Request{SiteID: "site_1", Release: 1, Environment: "dev", Tsconfig: "tsconfig.json", By: "dana@example.com"})
+	var first int64
+	first, err = q.Enqueue(ctx, Request{SiteID: "site_1", Release: 1, Environment: "dev", Tsconfig: "tsconfig.json", By: "dana@example.com"})
 	require.NoError(t, err)
 	_, err = q.Enqueue(ctx, Request{SiteID: "site_1", Release: 2, Environment: "dev", Tsconfig: "tsconfig.json", By: "dana@example.com"})
 	require.NoError(t, err)
@@ -72,4 +75,12 @@ func TestQueue_RealDB_ClaimRunAndRecord(t *testing.T) {
 	none, err := q.Latest(ctx, "site_1", 99)
 	require.NoError(t, err)
 	assert.Nil(t, none)
+
+	// Deleting the site deletes its checks and its state (#2828).
+	_, err = db.ExecContext(ctx, `DELETE FROM sites WHERE id = 'site_1'`)
+	require.NoError(t, err)
+	var left int
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM site_typechecks WHERE site_id = 'site_1') +
+		(SELECT count(*) FROM site_typecheck_state WHERE site_id = 'site_1')`).Scan(&left))
+	assert.Zero(t, left, "a deleted site's type checks and state are left behind")
 }

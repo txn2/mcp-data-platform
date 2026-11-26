@@ -233,7 +233,7 @@ mcp-data-platform/
 │   ├── connid/                     # Connection identity: the instance a connection is stored under, the name a call binds it by, the toolkit serving it, and which half of the config owns it — one Resolver, distinct types
 │   ├── connview/                   # Builds the list_connections view (configured + discovered)
 │   ├── contenttype/                # Media-type detection and normalization for every content write path
-│   ├── database/                   # Database utilities (migrate/ = golang-migrate runner + 268 embedded SQL migrations)
+│   ├── database/                   # Database utilities (migrate/ = golang-migrate runner + 269 embedded SQL migrations)
 │   ├── embedding/                  # Text embedding generation for memory vector search
 │   ├── indexjobs/                  # Postgres-backed, source-kind-agnostic background indexer
 │   ├── knowledge/                  # Unified read path for platform knowledge (federation/ = live toolkit registry adapter)
@@ -504,7 +504,7 @@ sites:
     hour_retention: 2160h           # 90 days
   typecheck:                        # type checks a release's _build.json asks for (#2793)
     enabled: true                   # default on; needs the portal bucket
-    memory_limit: 3221225472        # bytes one check's compiler may hold (default 3 GiB)
+    memory_limit: 0                 # bytes one check's compiler may hold (default a quarter of the container's limit, 512 MiB to 3 GiB, #2828)
     timeout: 5m
     registry: ""                    # default the npm registry
     dir: ""                         # writable directory a check works in; default the temp directory

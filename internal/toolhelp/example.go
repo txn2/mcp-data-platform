@@ -46,14 +46,20 @@ func Example(schema map[string]any, intent string) map[string]any {
 	return ex
 }
 
-// neededFor reports a parameter an example of cmd carries: one the schema
-// requires and no other command claims, or one whose description says it is
-// required for cmd ("publish: ... Required for publish").
+// neededFor reports a parameter an example of cmd carries: one required for
+// cmd by the schema or by its description (#2826).
 func neededFor(prop map[string]any, required bool, cmd string, commands []string) bool {
 	desc, _ := prop["description"].(string)
-	named := commandsNamed(desc, commands)
-	forCmd := len(named) == 0 || slices.Contains(named, cmd)
-	return forCmd && (required || (len(named) > 0 && strings.Contains(strings.ToLower(desc), "required")))
+	return requiredFor(useOf(desc, commands), required, cmd)
+}
+
+// HelpField is the argument help is answered on for a tool with this input
+// schema: its command or action field, when that is an enum. ok is false for a
+// tool help does not apply to.
+func HelpField(schema map[string]any) (field string, ok bool) {
+	props, _ := schema["properties"].(map[string]any)
+	field, _ = commandEnum(props)
+	return field, field != ""
 }
 
 // commandEnum is the field a tool chooses its operation by and its values, or

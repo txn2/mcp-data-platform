@@ -239,12 +239,22 @@ type actionRule struct {
 	split map[string]actionRule
 }
 
+// HelpVerb is the command or action internal/toolhelp answers on every tool
+// that chooses its operation by one (#2815): the tool's parameters, read from
+// its schema. It reads, on every action tool, before the tool's own table is
+// consulted, because it is in no tool's advertised enum and so in no table
+// (#2827). TestEveryHelpAnswerIsARead (test/structure) holds the two together.
+const HelpVerb = "help"
+
 // classify applies one action rule.
 func (r actionRule) classify(tool string, args map[string]any) Decision {
 	action := argValue(args, r.arg)
 	call := tool
 	if action != "" {
 		call = tool + " " + r.arg + "=" + action
+	}
+	if strings.EqualFold(action, HelpVerb) {
+		return Decision{Call: call, Declared: true}
 	}
 	if sub, ok := r.split[action]; ok {
 		return sub.classify(call, args)
