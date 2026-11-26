@@ -93,6 +93,11 @@ type TypecheckConfig struct {
 	// out in; unset is the temporary directory. An image with no /tmp names
 	// a volume here.
 	Dir string `yaml:"dir"`
+	// CompileCache keeps the compiled TypeScript compiler in Dir between
+	// checks (#2833); unset is off. Compiling it is nearly all of a check's
+	// start-up, minutes at a fractional CPU limit, and the cache takes about
+	// 177 MiB of Dir for as long as it is on.
+	CompileCache bool `yaml:"compile_cache"`
 }
 
 // IsEnabled reports whether checks run; unset is on.

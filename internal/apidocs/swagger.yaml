@@ -19228,6 +19228,12 @@ definitions:
     type: object
   sitetypecheck.Result:
     properties:
+      compile_ms:
+        description: |-
+          CompileMS is the part of DurationMS spent compiling the TypeScript
+          compiler before it read a file (#2833), or reading it from the
+          compilation cache; zero for a check that never ran the compiler.
+        type: integer
       diagnostics:
         items:
           $ref: '#/definitions/sitetypecheck.Diagnostic'

@@ -55,6 +55,31 @@ describe("SiteTypecheckCard (#2793)", () => {
     expect(mutate).toHaveBeenCalled();
   });
 
+  it("lists a diagnostic with no file location as a row with no file, line or column (#2834)", () => {
+    const onOpenFile = vi.fn();
+    const message = "No inputs were found in config file 'tsconfig.json'.";
+    check = {
+      ...base,
+      status: "errors",
+      result: { ...result, status: "errors", diagnostics: [{ file: "", line: 0, column: 0, category: "error", code: "TS18003", message }] },
+    };
+    render(<SiteTypecheckCard site="marketing" release={12} canCheck onOpenFile={onOpenFile} />);
+    expect(screen.getByText("TS18003")).toBeInTheDocument();
+    expect(screen.getByText(message)).toBeInTheDocument();
+    expect(screen.queryByText("0")).toBeNull();
+    expect(screen.queryByRole("button", { name: "" })).toBeNull();
+  });
+
+  it("says how much of a check went to preparing the compiler, from a second up (#2833)", () => {
+    check = { ...base, result: { ...result, status: "clean", duration_ms: 162140, compile_ms: 103727 } };
+    const { unmount } = render(<SiteTypecheckCard site="marketing" release={12} canCheck />);
+    expect(screen.getByText(/in 162 s \(104 s of it preparing the compiler\)/)).toBeInTheDocument();
+    unmount();
+    check = { ...base, result: { ...result, status: "clean", duration_ms: 3000, compile_ms: 251 } };
+    render(<SiteTypecheckCard site="marketing" release={12} canCheck />);
+    expect(screen.queryByText(/preparing the compiler/)).toBeNull();
+  });
+
   it("says how many checks wait ahead of a queued one, with no Check again", () => {
     check = { ...base, status: "queued", ahead: 2 };
     render(<SiteTypecheckCard site="marketing" release={12} canCheck />);

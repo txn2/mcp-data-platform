@@ -92,7 +92,7 @@ export function SiteTypecheckCard({
       }
     >
       <div className="space-y-3">
-        <p className="text-sm text-muted-foreground">
+        <p className="whitespace-pre-line break-words text-sm text-muted-foreground">
           <TypecheckSentence check={check} />
         </p>
         {check.status === "errors" && <Diagnostics check={check} onOpenFile={onOpenFile} />}
@@ -147,6 +147,11 @@ function aheadOf(ahead: number): string {
   return `${plural(ahead, "release")} ${ahead === 1 ? "is" : "are"} ahead of this one.`;
 }
 
+/** compilePart is the clause naming how much of a check went to preparing the compiler, from a second up (#2833). */
+function compilePart(ms?: number): string {
+  return ms !== undefined && ms >= 1000 ? ` (${seconds(ms)} of it preparing the compiler)` : "";
+}
+
 function FinishedSentence({ check }: { check: TypecheckCheck }) {
   const res = check.result;
   const lockfile = res && res.packages > 0 && res.lockfile ? res.lockfile : "";
@@ -154,7 +159,7 @@ function FinishedSentence({ check }: { check: TypecheckCheck }) {
     <>
       {check.status === "errors" && "The release published and is being served. TypeScript found these errors in it. "}
       Checked {when(check.finished_at ?? check.created_at)} against <span className="font-mono text-xs">{check.tsconfig}</span>
-      {res ? ` in ${seconds(res.duration_ms)}` : ""}
+      {res ? ` in ${seconds(res.duration_ms)}${compilePart(res.compile_ms)}` : ""}
       {lockfile && (
         <>
           , using the types of {plural(res!.packages, "package")} at the versions in <span className="font-mono text-xs">{lockfile}</span>
@@ -183,7 +188,7 @@ function Diagnostics({ check, onOpenFile }: { check: TypecheckCheck; onOpenFile?
           {diags.map((d, i) => (
             <TableRow key={`${d.file}:${d.line}:${d.column}:${i}`}>
               <TableCell className="break-all font-mono text-xs">
-                {onOpenFile ? (
+                {onOpenFile && d.file ? (
                   <button type="button" className="text-left text-primary hover:underline" onClick={() => onOpenFile(d.file)}>
                     {d.file}
                   </button>
@@ -191,8 +196,8 @@ function Diagnostics({ check, onOpenFile }: { check: TypecheckCheck; onOpenFile?
                   d.file
                 )}
               </TableCell>
-              <TableCell>{d.line}</TableCell>
-              <TableCell>{d.column}</TableCell>
+              <TableCell>{d.line || ""}</TableCell>
+              <TableCell>{d.column || ""}</TableCell>
               <TableCell className="font-mono text-xs">{d.code}</TableCell>
               <TableCell>{d.message}</TableCell>
             </TableRow>

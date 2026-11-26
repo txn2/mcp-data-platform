@@ -184,6 +184,7 @@ sites:
     timeout: 5m
     registry: ""                 # default the npm registry
     dir: ""                      # writable directory a check works in; default the temp directory
+    compile_cache: false         # keep the compiled compiler in dir between checks, about 177 MiB (#2833)
 ```
 
 `sites.typecheck` bounds the [type checks](#type-checks) a release asks for.
@@ -798,6 +799,31 @@ is logged and never fails the publish.
   container's memory limit (at least 512 MiB, at most 3 GiB; 3 GiB when no limit
   can be read), and startup logs a warning when a worker could take more than
   half the container's limit (#2828).
+- **What a check costs in CPU.** Before the compiler reads a file, wazero
+  compiles its WebAssembly (about 50 MB) to machine code: about 7 seconds of
+  one fast core, and about 100 seconds at a CPU limit of 0.5. A check holds as
+  much of the replica's CPU limit as it can get from start to end, so the
+  replica's tool calls and script runs share that CPU for the whole check, and
+  every publish to a site that sets `typecheck` starts one. A small three-file
+  check took 162 seconds at a 0.5 CPU limit, 104 of them compiling the
+  compiler, and 35 to 49 seconds on 4 CPUs. Each check reports the compiling
+  part as `compile_ms`, and logs it with `duration_ms` in its `site type check
+  finished` line.
+- **The compilation cache.** `sites.typecheck.compile_cache: true` keeps the
+  compiled compiler under `sites.typecheck.dir/compile-cache` (#2833): the
+  first check on a replica compiles it, and every later one reads it in under a
+  second. It takes about 177 MiB of `dir` for as long as the setting is on, so
+  give `dir` a volume of its own with room for it beside the laid-out compiler
+  (54 MiB) and the largest release a check lays out; an `emptyDir` keeps it
+  until the pod is replaced. It is off by default, which compiles the compiler
+  for every check and keeps nothing. Starting with the setting off removes the
+  cache; a newer compiler or wazero version leaves the older copy to be
+  removed at the next start. A cache that cannot be read or written (a full
+  volume) never fails a check: the check compiles without it and logs a
+  warning naming why. The cache is machine code the worker runs as it reads
+  it, so `dir` must be writable by the platform alone; the compiler itself
+  never sees it, since only the release, the standard library and the check's
+  state are mounted in its file system.
 - **Dependency types.** Read from the release's lockfile: `package-lock.json`
   (versions 2 and 3), `pnpm-lock.yaml`, or a Yarn 1 `yarn.lock`, the first found.
   Each locked package is fetched at its locked version from its `https` tarball
@@ -821,13 +847,14 @@ A finished check is one of:
 | Status | Meaning |
 |---|---|
 | `clean` | The compiler exited cleanly. |
-| `errors` | Each diagnostic with its `file`, `line`, `column`, `category`, `code` and `message` (at most 1,000), and `missing`: the packages the code imports whose types were not found (from TS2307 "Cannot find module", relative and `@/` specifiers left out), which the lockfile does not lock. |
+| `errors` | Each diagnostic with its `file`, `line`, `column`, `category`, `code` and `message` (at most 1,000; a diagnostic about the project rather than a place in a file, such as TS18003 for an `include` that matches no file, TS6053 for a missing `extends` target or TS5110 for an option the compiler refuses, has an empty `file` and `line` and `column` 0), and `missing`: the packages the code imports whose types were not found (from TS2307 "Cannot find module", relative and `@/` specifiers left out), which the lockfile does not lock. |
 | `over_limit` | The compiler needed more than `sites.typecheck.memory_limit` and was stopped. The site is not affected. |
 | `unsupported` | The release has no file at the `tsconfig` path, or its tsconfig sets `compilerOptions.baseUrl`, which TypeScript 7 no longer reads; the message says to replace it with `paths` entries that start with `./`. |
-| `failed` | The check could not run: the compiler or a package could not be read, the lockfile could not be read, the check ran past `sites.typecheck.timeout`, or the compiler exited reporting nothing. The message says which; a compiler that crashed is reported with its own panic message and the first frames of its stack (#2830). |
+| `failed` | The check could not run: the compiler or a package could not be read, the lockfile could not be read, the check ran past `sites.typecheck.timeout`, or the compiler exited without a diagnostic. The message says which; a compiler that crashed is reported with its own panic message and the first frames of its stack (#2830), and one that exited without a diagnostic with the first 4 KiB of what it wrote (#2834). |
 
 A check also reports the `lockfile` read, how many `packages` it locks, how many
-were `fetched` rather than read from the cache, and `duration_ms`. `queued` and
+were `fetched` rather than read from the cache, `duration_ms`, and `compile_ms`,
+the part of it spent compiling the compiler before it read a file (#2833). `queued` and
 `running` are the statuses before it finishes; a queued check says how many run
 before it (`ahead`).
 
@@ -846,6 +873,7 @@ sites:
     timeout: 5m              # longest one check may run; default 5m
     registry: ""             # where the compiler and package types are fetched; default https://registry.npmjs.org/
     dir: ""                  # writable directory a check lays the compiler and release out in; default the temp directory
+    compile_cache: false     # keep the compiled compiler in dir between checks (about 177 MiB); default off
 ```
 
 A JavaScript import of a stylesheet by URL in `external` mode becomes an `@import`
@@ -1220,6 +1248,16 @@ manage_site command=promote site=cool-site to=prod                             #
 
 `cool-site.<pages_domain>` and `cool-site--prod.<pages_domain>` still ask for a
 sign-in; only `cool-site.example.com` answers anyone.
+
+## Upgrading to #2833
+
+A type check reports `compile_ms` beside `duration_ms` and logs both when it
+finishes. `sites.typecheck.compile_cache: true` keeps the compiled compiler in
+`sites.typecheck.dir` between checks, about 177 MiB; a deployment with a
+fractional CPU limit that sets `typecheck` on a site gains the most from it.
+Nothing changes until it is set. A diagnostic with no file location (TS18003
+and other configuration errors) is reported as a diagnostic, and a check whose
+compiler exited without one quotes what it wrote (#2834).
 
 ## Upgrading to v1.169.1 (migration 000269)
 

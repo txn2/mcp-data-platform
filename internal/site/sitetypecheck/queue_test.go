@@ -1,11 +1,13 @@
 package sitetypecheck
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"log/slog"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -145,4 +147,29 @@ func TestQueue_FinishKeepsTheState(t *testing.T) {
 	mock.ExpectExec(`INSERT INTO site_typecheck_state`).WillReturnError(errors.New("down"))
 	require.ErrorContains(t, q.finish(context.Background(), c, Result{Status: StatusClean}, []byte("state")), "incremental state")
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestLogFinished: a finished check is logged with its whole time and its
+// compile time (#2833); one that could not use the compilation cache is a
+// warning naming why.
+func TestLogFinished(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	c := &Check{ID: 7, SiteID: "s1"}
+
+	logFinished(context.Background(), c, Result{Status: StatusClean, DurationMS: 162140, CompileMS: 103727})
+	var line map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &line))
+	assert.Equal(t, "INFO", line["level"])
+	assert.Equal(t, "site type check finished", line["msg"])
+	assert.InDelta(t, 162140, line["duration_ms"], 0)
+	assert.InDelta(t, 103727, line["compile_ms"], 0)
+
+	buf.Reset()
+	logFinished(context.Background(), c, Result{Status: StatusClean, CacheError: "write /cache/x: no space left on device"})
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &line))
+	assert.Equal(t, "WARN", line["level"])
+	assert.Contains(t, line["error"], "no space left on device")
 }

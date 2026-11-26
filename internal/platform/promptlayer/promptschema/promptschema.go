@@ -108,7 +108,7 @@ func ManagePrompt(commands []string) any {
 			"owner_email": map[string]any{
 				KeyType: ValString,
 				KeyDescription: "Owner of a personal prompt to target by name (get, delete, update, " +
-					"patch and the other content verbs). Admin only: lets an operator address or " +
+					"patch, locate, get_content, outline, stats, diff). Admin only: lets an operator address or " +
 					"disambiguate another user's personal prompt that admin list already shows. " +
 					"Ignored for non-admins, who can only act on their own prompts.",
 			},

@@ -15,6 +15,7 @@ export type TypecheckStatus =
   | "failed";
 
 export interface TypecheckDiagnostic {
+  /** Empty, with line and column 0, for a diagnostic about the project rather than a place in a file (TS18003). */
   file: string;
   line: number;
   column: number;
@@ -35,6 +36,8 @@ export interface TypecheckResult {
   lockfile?: string;
   message?: string;
   duration_ms: number;
+  /** The part of duration_ms spent preparing the compiler before it read a file. */
+  compile_ms?: number;
 }
 
 export interface TypecheckCheck {

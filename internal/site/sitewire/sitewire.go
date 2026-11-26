@@ -251,7 +251,7 @@ func typecheckQueue(d Deps, svc *sitesvc.Service) *sitetypecheck.Queue {
 	if warning := sitetypecheck.CeilingWarning(memoryLimit, container); warning != "" {
 		slog.Warn("sites: " + warning)
 	}
-	checker := sitetypecheck.NewChecker(sitetypecheck.Config{MemoryLimit: memoryLimit, Timeout: cfg.Timeout, Registry: cfg.Registry, Dir: cfg.Dir},
+	checker := sitetypecheck.NewChecker(sitetypecheck.Config{MemoryLimit: memoryLimit, Timeout: cfg.Timeout, Registry: cfg.Registry, Dir: cfg.Dir, CompileCache: cfg.CompileCache},
 		getter, sitetypecheck.Cache{Objects: svc.Objects, Bucket: d.Bucket, Prefix: "sites/_typecheck"})
 	return sitetypecheck.NewQueue(d.DB, checker, sitetypecheck.ReleaseSource(svc))
 }
