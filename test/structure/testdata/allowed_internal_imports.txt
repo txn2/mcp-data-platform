@@ -348,6 +348,7 @@ internal/endpoint/ephttp -> internal/endpoint/eprun
 internal/endpoint/ephttp -> internal/httpjson
 internal/endpoint/ephttp -> internal/httpobs
 internal/endpoint/ephttp -> internal/logsan
+internal/endpoint/ephttp -> internal/refscheme
 internal/endpoint/ephttp -> internal/reqlog
 internal/endpoint/ephttp -> pkg/ratelimit
 internal/endpoint/eppreview -> internal/endpoint/epform
@@ -1160,6 +1161,7 @@ internal/notification/notifyworker -> internal/notification/notifychannel
 internal/notification/notifyworker -> internal/notification/notifypost
 internal/notification/notifyworker -> internal/notification/notifyrender
 internal/notification/notifyworker -> internal/notification/notifysend
+internal/notification/notifyworker -> internal/refscheme
 internal/notification/notifyworker -> pkg/notification
 internal/notification/notifyworker -> pkg/notification/smtp
 internal/objectobs -> internal/outbound
@@ -2776,6 +2778,7 @@ pkg/memory -> pkg/catalog
 pkg/memory -> pkg/semantic
 pkg/middleware -> internal/auditredact
 pkg/middleware -> internal/bgloop
+pkg/middleware -> internal/cachescope
 pkg/middleware -> internal/jsonwalk
 pkg/middleware -> internal/logsan
 pkg/middleware -> internal/mcpobs

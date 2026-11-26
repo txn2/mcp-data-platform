@@ -24,7 +24,9 @@ import (
 // Acceptance for #1870: inbound webhook sources.
 //
 // Every request to /hooks/{source} is sent as raw HTTP bytes with the
-// Content-Type a sender declares. Wire forms: application/json, and
+// Content-Type a sender declares.
+//
+// Wire forms: application/json, and
 // application/x-www-form-urlencoded carrying the JSON in a `payload` field;
 // criteria 1 to 7 send both. The admin API takes one JSON object per route.
 // The platform's tools are called through the MCP client: trino_query and

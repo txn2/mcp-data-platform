@@ -129,10 +129,19 @@ async function watched(page: Page): Promise<Page> {
   return page;
 }
 
+/**
+ * checkCard clicks a card and waits for the provider page it opens. The tab
+ * that page opens in is closed and the asset's page brought back to the front
+ * before the next card is clicked: headless Chrome puts the new tab in front,
+ * and a click on the next card, made while the asset's page was behind it,
+ * never reached the frame (#2824; the page saw no message for it).
+ */
 async function checkCard(page: Page, frame: FrameLocator, card: NonNullable<Case["cards"]>[number]) {
   const button = frame.locator(`[data-mcp-video="${card.video}"]`);
   await expect(button, `no card for ${card.video}`).toBeVisible();
-  const opened = page.context().waitForEvent("request", { predicate: (r) => r.url().startsWith(card.opens), timeout: 30_000 });
+  const context = page.context();
+  const opened = context.waitForEvent("request", { predicate: (r) => r.url().startsWith(card.opens), timeout: 30_000 });
+  const tab = context.waitForEvent("page", { timeout: 30_000 }).catch(() => null);
   const clicked = await page.evaluate(() => Math.round(performance.now()));
   await button.click();
   try {
@@ -142,6 +151,9 @@ async function checkCard(page: Page, frame: FrameLocator, card: NonNullable<Case
     const why = `${card.video} opened nothing; clicked at ${clicked}, the page saw ${JSON.stringify(trail)}`;
     throw new Error(`${why}: ${(err as Error).message}`, { cause: err });
   }
+  const opener = await tab;
+  if (opener && opener !== page) await opener.close();
+  await page.bringToFront();
 }
 
 for (const c of cases()) {

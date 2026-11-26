@@ -72,3 +72,25 @@ func TestUpsertedForgetsTheSavedConnectionsState(t *testing.T) {
 		t.Errorf("a failed read changed the state to %q", s)
 	}
 }
+
+// A peer's save applied after this replica served the connection's delete is
+// taken back when the store no longer has it, and kept when it does or when
+// the store cannot be read (#2824).
+func TestConfirmedTakesBackASaveDeletedWhileItWasApplied(t *testing.T) {
+	reg, tk := peerRig(t)
+	cfg := map[string]any{"base_url": "https://x.example.com"}
+	// The first read found the row; the delete removed it, then found nothing
+	// in the toolkits to remove; the apply put it back.
+	Upserted(reg, nil, "api", "deleted-2824", Read{Found: true, Config: cfg})
+	Upserted(reg, nil, "api", "kept-2824", Read{Found: true, Config: cfg})
+	Upserted(reg, nil, "api", "unread-2824", Read{Found: true, Config: cfg})
+	require.True(t, tk.HasConnection("deleted-2824"))
+
+	Confirmed(reg, nil, "api", "deleted-2824", Read{})
+	Confirmed(reg, nil, "api", "kept-2824", Read{Found: true, Config: cfg})
+	Confirmed(reg, nil, "api", "unread-2824", Read{Err: errors.New("db down")})
+
+	assert.False(t, tk.HasConnection("deleted-2824"), "a connection deleted while it was applied stays in service")
+	assert.True(t, tk.HasConnection("kept-2824"))
+	assert.True(t, tk.HasConnection("unread-2824"))
+}

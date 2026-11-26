@@ -736,12 +736,20 @@ The rest of `_build.json`:
 | `splitting` | Default `true` (#2778): each `import()` an entry makes becomes a chunk at `/_chunks/<name>-<hash>.js` (`ChunkNames`), the entry keeping its path. An entry with no dynamic import is one file, as before; `false` is one file always. Two entries that load the same module write one chunk; the same path with different bytes refuses the publish. Chunks are served `public, max-age=31536000, immutable`; a chunk the current release lacks is served from one of the five releases before it that is not pruned, so a page loaded before a publish still loads its lazy routes. |
 | `imports` local prefixes | A key ending `/` may map to a folder of the site written from its root, `"@/": "/src/"` (#2781); it resolves through the local resolver, extensions, `index` files and incremental tracking included. |
 | `define` | `import.meta.env.X` and `process.env.X` replaced by JSON scalars (#2781). A read of an `import.meta.env.X` that `define` does not set, or of `import.meta.env` whole, refuses the publish naming the file, line and key. |
-| `imports_from` | `"package.json"`: the imports map generated at every publish from package.json and the lockfile, the explicit entries winning (#2785). `manage_site imports` returns the same map as a proposal. |
+| `imports_from` | `"package.json"`: the imports map generated at every publish from package.json and the lockfile, the explicit entries winning (#2785). A library mapped in `imports`, by its own key, a prefix key or its package's key, publishes though the lockfile does not lock it, so a library is added with one line in `_build.json` and no lockfile edit (#2790); the singleton check still judges its URL. A specifier neither locked nor mapped refuses the publish naming it. `manage_site imports` returns the same map as a proposal, `missing` naming only what neither the lockfile nor `imports` resolves; with `tailwind` set, the stylesheet's `@import "tailwindcss"` is the stylesheet compiler's and is never proposed. |
 | `singletons` | Packages beside `react` and `react-dom` only one copy of which may load. In `external` mode a publish is refused when two URLs name one at different versions, a `deps` pin names another version, or an esm.sh URL for a package that peers on one does not pin it; peers come from the lockfile, else the npm registry through the egress guard, and a registry that does not answer leaves them unjudged. |
 | `exclude` | Globs kept as source and never served. |
 | `sourcemap` | `true` serves maps to anyone; `"private"` writes them and serves them only on a private environment's own address to someone signed in there who manages the site (owner, a manage grant, or an administrator), recorded on the release as `site_releases.private_maps` (#2784); `false` writes none. `manage_site symbolicate` maps a stack trace through them. |
 | `tailwind`, `tailwind_input` | Tailwind CSS 4 at an exact version (#2780). `tailwindcss@<version>` is fetched from the npm registry through the egress guard, held to the registry's sha512 integrity, its `dist/lib.js` rewritten for goja by esbuild and kept per version; the stylesheet importing `tailwindcss` is compiled with the release's files split into class candidates (`@source` and `@source not` widen and narrow them), and its output replaces the stylesheet in the entry. No module loader is given, so `@plugin` and `@config` refuse the publish naming the directive. A run is bounded by 30 seconds, 500,000 candidates, 64 MiB of files scanned and 8 MiB of output, and a refusal names the limit. |
-| `budgets` | Per entry `js`, `js_gzip`, `css`, `css_gzip`: a warning in the publish result past it, never a refusal (#2783). |
+| `budgets` | Per entry `js`, `js_gzip`, `css`, `css_gzip`: a warning in the publish result past it, never a refusal (#2783). `js` and `js_gzip` are judged against what loads at start, the entry's script and the shared chunks it imports statically (#2791). |
+
+The build report (`manage_site build_report`, and `builds` in a publish result)
+describes what loads when the page starts: the entry's script and every chunk it
+imports statically, transitively (#2791). A chunk reached only through `import()` is
+loaded when first used and is left out. `start_imports` are the URLs that set imports
+when the page loads, `start_bytes` and `start_gzip_bytes` its size, and
+`largest_inputs` the modules contributing most to it; `largest_inputs_lazy` names the
+modules contributing most to the chunks loaded later.
 
 ### Type checks
 

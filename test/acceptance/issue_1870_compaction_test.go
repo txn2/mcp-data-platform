@@ -28,6 +28,11 @@ import (
 // The criteria about what happens to a window after it ends: compaction, a
 // segment that lands late, a reader that runs every minute, and retention.
 //
+// Wire forms: the burst is sent as application/json and as
+// application/x-www-form-urlencoded carrying the JSON in a `payload` field
+// (issue1870Forms); queries go through trino_query with string connection,
+// sql and purpose.
+//
 // The sources compact every minute (config.compact_every_minutes = 1) and the
 // local stack's compactor waits five seconds after a window ends, so a window
 // is compacted within about a minute of its last event. Nothing here waits for
@@ -276,8 +281,15 @@ const issue1870Bucket = "managed-resources"
 // issue1870SendBurst posts 100,000 events in batches of 100 from 50 senders
 // through the proxy, and sends 5% of them a second time, as a sender retrying
 // does. Every request must be acknowledged.
+//
+// It starts in the first half of a minute. Compaction keeps one event per
+// event id in each window (docs/server/webhooks.md), so a batch and its
+// resend must land in one window for criterion 6 to hold; a burst started
+// near the end of a minute put one resend in the next window and counted its
+// 100 events twice (#2824).
 func issue1870SendBurst(t *testing.T, source string) {
 	t.Helper()
+	issue1870StartEarlyInAMinute()
 	batches := make(chan []map[string]any, issue1870Senders)
 	go func() {
 		defer close(batches)
@@ -330,6 +342,16 @@ func issue1870SendBurst(t *testing.T, source string) {
 	if failed.Load() > 0 {
 		t.FailNow()
 	}
+}
+
+// issue1870StartEarlyInAMinute returns at once in the first half of a minute,
+// and otherwise at the start of the next one.
+func issue1870StartEarlyInAMinute() {
+	now := time.Now()
+	if now.Second() < 30 {
+		return
+	}
+	time.Sleep(time.Until(now.Truncate(time.Minute).Add(time.Minute)))
 }
 
 // issue1870SendQuiet posts twenty events to the source nobody reads.

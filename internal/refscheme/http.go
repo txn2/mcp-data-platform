@@ -14,45 +14,88 @@ import (
 // apiPrefix is where the portal's and the admin's JSON routes are served.
 const apiPrefix = "/api/"
 
+// Prefixes are the paths the HTTP boundary rewrites: the JSON API, and the
+// endpoints a managed script answers (/endpoints/<name>, and an environment's
+// /environments/<env>/endpoints/<name>), whose responses leave for a person
+// and whose requests carry back references a response gave out (#2788): a
+// form that sent a reference it was handed was refused by a script that
+// validates the canonical form.
+var Prefixes = []string{apiPrefix, "/endpoints/", "/environments/"}
+
+// rewritten reports a path the boundary rewrites.
+func rewritten(p string) bool {
+	for _, prefix := range Prefixes {
+		if strings.HasPrefix(p, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // maxRewrittenBody bounds a JSON body read whole to be rewritten; a larger one
 // passes as it is.
 const maxRewrittenBody = 32 << 20
 
-// HTTP is the HTTP boundary of the scheme for the JSON API (#2776): a
-// reference under the deployment's scheme in a request's path, query or JSON
-// body reaches the handler canonical, and every reference in a JSON answer
-// leaves under the deployment's scheme. Any other answer (a file, a stream) is
-// sent as it is. With no scheme set it is the handler itself.
+// HTTP is the HTTP boundary of the scheme for the JSON API (#2776) and the
+// endpoints (#2788): a reference under the deployment's scheme in a request's
+// path, query or JSON body reaches the handler canonical, and every reference
+// in a JSON answer leaves under the deployment's scheme. Any other answer (a
+// file, a stream, a page) is sent as it is. With no scheme set it is the
+// handler itself.
 func HTTP(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !Rewrites() || !strings.HasPrefix(r.URL.Path, apiPrefix) {
+		if !Rewrites() || !rewritten(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
-		canonHTTPRequest(r)
+		canonHTTPRequest(r, strings.HasPrefix(r.URL.Path, apiPrefix))
 		dw := &displayWriter{ResponseWriter: w}
 		defer dw.finish()
 		next.ServeHTTP(dw, r)
 	})
 }
 
-func canonHTTPRequest(r *http.Request) {
+// canonHTTPRequest makes a request's path and query canonical, and its JSON
+// body when withBody: an endpoint's body is made canonical by the endpoint
+// itself (CanonJSONBody), after its binding's body limit and rate limits, so
+// nothing here reads a public endpoint's body before they are applied.
+func canonHTTPRequest(r *http.Request, withBody bool) {
 	r.URL.Path = canonPath(r.URL.Path)
 	if r.URL.RawPath != "" {
 		r.URL.RawPath = canonPath(r.URL.RawPath)
 	}
 	r.URL.RawQuery = Canon(r.URL.RawQuery)
-	if r.Body == nil || r.Body == http.NoBody || !isJSON(r.Header.Get("Content-Type")) || r.ContentLength > maxRewrittenBody {
+	if !withBody || r.Body == nil || r.Body == http.NoBody || !isJSON(r.Header.Get("Content-Type")) || r.ContentLength > maxRewrittenBody {
 		return
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxRewrittenBody+1))
-	_ = r.Body.Close()
-	if err == nil && len(body) <= maxRewrittenBody {
-		body = CanonBytes(body)
+	if err != nil || len(body) > maxRewrittenBody {
+		// Too large to rewrite, or unreadable: the handler reads it as sent,
+		// what was read first included, rather than a body cut at the bound.
+		r.Body = readCloser{io.MultiReader(bytes.NewReader(body), r.Body), r.Body}
+		return
 	}
+	_ = r.Body.Close()
+	body = CanonBytes(body)
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	r.ContentLength = int64(len(body))
 	r.Header.Set("Content-Length", strconv.Itoa(len(body)))
+}
+
+// readCloser reads one reader and closes another.
+type readCloser struct {
+	io.Reader
+	io.Closer
+}
+
+// CanonJSONBody is a request body with its references canonical when its
+// content type is JSON and a scheme is set, and the body as it is otherwise.
+// An endpoint calls it on the body its binding's limit admitted (#2788).
+func CanonJSONBody(contentType string, body []byte) []byte {
+	if !Rewrites() || !isJSON(contentType) {
+		return body
+	}
+	return CanonBytes(body)
 }
 
 // canonPath is a path with each segment that is a reference canonical: a

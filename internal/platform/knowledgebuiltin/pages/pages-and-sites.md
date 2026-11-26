@@ -387,14 +387,14 @@ A release without `_build.json` is published exactly as before.
 |---|---|
 | `entries` | The files compiled. Each, with the local modules it imports, becomes an ES module at the same path ending `.js`: `app.tsx` is served as `/app.js`, so the page loads `<script type="module" src="/app.js">`. A CSS file an entry imports becomes `app.css` beside it (name the imported stylesheet something else, such as `styles.css`, or it collides with that output); its `url()` references are left as written. |
 | `imports` | Where each library comes from: a package name, or a prefix ending `/`, mapped to an `https` URL at an exact version (`@18.3.1`; `@18` or `@^18` is refused). A path inside a mapped package follows its URL: with `react` mapped, `react/jsx-runtime` is `https://esm.sh/react@18.3.1/jsx-runtime`. A prefix may instead map to a folder of the site, written from its root: `"@/": "/src/"` makes `@/components/Button` the local file `/src/components/Button.tsx`, as `tsconfig` paths do. `"@/": "/../"` and `"@/": "src/"` are refused. An import of a name not mapped refuses the publish, naming it. There is no npm install and no `node_modules`. |
-| `imports_from` | `"package.json"` generates the imports map at every publish from `package.json` and the lockfile (`package-lock.json`, `pnpm-lock.yaml` or `yarn.lock`), as `manage_site imports` proposes it; an entry you write in `imports` wins. |
+| `imports_from` | `"package.json"` generates the imports map at every publish from `package.json` and the lockfile (`package-lock.json`, `pnpm-lock.yaml` or `yarn.lock`), as `manage_site imports` proposes it; an entry you write in `imports` wins, and a library written there publishes though the lockfile does not lock it. |
 | `define` | Replaces `import.meta.env.X` or `process.env.X` with a JSON value (a string, number, `true`, `false` or `null`). A read of an `import.meta.env.X` that `define` does not set refuses the publish, naming the file, line and key, rather than compiling into a page that throws. The values are the same in every environment: a release is promoted unchanged, so a value that differs per environment comes from an application endpoint read when the page starts. |
 | `remote` | `external` (the default) leaves URL imports as URLs, which the browser loads from the CDN; the compile reads nothing from the network. `bundle` fetches them at publish and bundles them into the output, so the site loads nothing from a CDN. |
 | `splitting` | `true` (the default) puts what an entry loads by `import()` (`React.lazy(() => import("./pages/Reports"))`) in chunks of its own under `/_chunks/`, named by a hash of their content, loaded when first used. An entry with no dynamic import is one file, as before. `false` compiles each entry into one file. |
 | `sourcemap` | `true` writes `app.js.map` beside each output, holding the source text, served to anyone. `"private"` writes the same maps and serves them only to the people who manage the site, on the environment's own address while signed in there (`/_signin`); anyone else gets 404. `false` writes none. |
 | `minify` | `true` shortens the output. |
 | `tailwind` | An exact Tailwind CSS 4 version (`"4.1.13"`): the stylesheet holding `@import "tailwindcss"` is compiled by Tailwind at publish, in the platform, and its output takes its place. `tailwind_input` names that stylesheet when it is not an entry's own. Configure in CSS with `@theme`, `@custom-variant` and `@utility`; `@plugin` and `@config` refuse the publish, since no code from the site runs. |
-| `budgets` | `{"app.tsx": {"js_gzip": "300KB"}}`: a publish whose entry is larger than its budget (`js`, `js_gzip`, `css`, `css_gzip`, a size such as `"300KB"` at 1024 bytes to the KB, or a number of bytes) warns in its result; it is not refused. |
+| `budgets` | `{"app.tsx": {"js_gzip": "300KB"}}`: a publish whose entry is larger than its budget (`js`, `js_gzip`, `css`, `css_gzip`, a size such as `"300KB"` at 1024 bytes to the KB, or a number of bytes) warns in its result; it is not refused. `js` and `js_gzip` measure what loads at start: the entry's script and the chunks it imports statically. |
 | `singletons` | Packages only one copy of which may load, beside `react` and `react-dom`. |
 | `exclude` | Globs of files kept as source and never served: `["e2e/**", "docs/**"]`. |
 | `typecheck` | `{"tsconfig": "tsconfig.json"}` type-checks each release after it publishes, with that project file (a `.json` path in the site; `tsconfig.json` when left out). See Type checks below. |
@@ -444,8 +444,11 @@ the usual remedy is to reload the page when a dynamic import fails.
 A publish, a patch and a dry run report what each entry compiled to, in `builds`: each
 output with its bytes and gzip bytes and, against the release before, its change
 (`app.js 412 KB → 498 KB (+86 KB)`; a chunk is compared by its name without the hash),
-the inputs contributing most bytes, the URLs the entry loads when it starts, and any
-budget it exceeds. `manage_site build_report` reads a release's report later, and
+and what loads when the page starts, the entry's script and the chunks it imports
+statically: its size (`start_bytes`, `start_gzip_bytes`), the URLs it imports
+(`start_imports`) and the inputs contributing most bytes to it (`largest_inputs`); a
+chunk reached only through `import()` is left out of these, and `largest_inputs_lazy`
+names what makes those chunks big. It also lists any budget the start exceeds. `manage_site build_report` reads a release's report later, and
 `manage_site symbolicate` with `stack` maps a stack trace from the minified output to
 original files, lines and columns through the release's maps.
 

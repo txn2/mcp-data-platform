@@ -280,6 +280,28 @@ func (c *Config) mapped(spec string) (target string, local, ok bool) {
 	return "", false, false
 }
 
+// Unmapped is the specifiers of specs that imports does not resolve, by their
+// own entry, a prefix entry or their package's entry (#2790). A specifier an
+// entry written in imports resolves is not missing from a lockfile: that
+// entry wins over what the lockfile would give, so an imports_from site gains
+// a library with one line in the build file and no lockfile edit.
+func (c *Config) Unmapped(specs []string) []string {
+	out := []string{}
+	for _, spec := range specs {
+		if _, _, ok := c.mapped(spec); !ok {
+			out = append(out, spec)
+		}
+	}
+	return out
+}
+
+// tailwindSpecifier is the bare specifier a stylesheet compiled with Tailwind
+// imports, "tailwindcss" or a path inside it. With tailwind set the
+// stylesheet compiler answers it, and no import map entry is wanted (#2790).
+func (c *Config) tailwindSpecifier(spec string) bool {
+	return c.Tailwind != "" && (spec == "tailwindcss" || strings.HasPrefix(spec, "tailwindcss/"))
+}
+
 // longestPrefix is the longest imports key ending in / that holds spec.
 func (c *Config) longestPrefix(spec string) string {
 	best := ""

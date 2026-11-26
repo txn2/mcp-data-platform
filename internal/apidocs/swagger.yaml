@@ -17710,8 +17710,15 @@ definitions:
         type: string
       largest_inputs:
         description: |-
-          LargestInputs are the modules contributing most bytes, at most ten:
-          paths of the site, and URLs fetched in bundle mode.
+          LargestInputs are the modules contributing most bytes to what loads at
+          start, at most ten: paths of the site, and URLs fetched in bundle mode.
+        items:
+          $ref: '#/definitions/sitebuild.InputSize'
+        type: array
+      largest_inputs_lazy:
+        description: |-
+          LargestInputsLazy are the modules contributing most bytes to the chunks
+          loaded when first used, at most ten.
         items:
           $ref: '#/definitions/sitebuild.InputSize'
         type: array
@@ -17719,10 +17726,19 @@ definitions:
         items:
           $ref: '#/definitions/sitebuild.OutputSize'
         type: array
+      start_bytes:
+        description: |-
+          StartBytes and StartGzipBytes are the size of the scripts that load at
+          start: the entry's script and the chunks it imports statically. The js
+          and js_gzip budgets are judged against them.
+        type: integer
+      start_gzip_bytes:
+        type: integer
       start_imports:
         description: |-
-          StartImports are the URLs the entry imports when it is loaded, not the
-          ones a chunk imports when it is first used.
+          StartImports are the URLs the entry and the chunks it imports statically
+          import when the page loads, not the ones a chunk loaded when first used
+          imports.
         items:
           type: string
         type: array

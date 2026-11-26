@@ -237,6 +237,21 @@ server:
   `acme:asset:X` and `mcp:asset:X` are one entity to search, citation counts, "Linked
   from" and call reuse, and changing the setting later changes only what is written
   out. With no setting nothing is rewritten.
+- **Managed scripts stay canonical (#2788).** A script is stored code written against
+  the `mcp:` form, so its own session receives tool results canonical: a script that
+  compares a reference with a literal `mcp:resource:` prefix keeps working when the
+  key is set. `manage_script`'s code fields (`source`, `edits`, `find`, `pattern`,
+  `replace`, `text`, `before`, `after`, `diff`, `lines`) are never rewritten in either
+  direction, so a script may hold `acme://` as a literal and its source reads back as
+  saved. What a script reports through `manage_script` and `run_script` (`log`,
+  `result`, `state`, `checkpoint`, `state_discarded`, `error`, `failure`, `tests`) is
+  shown as the script produced it, in the `mcp:` form, so a test written from a
+  draft's output expects what the script returns. The scheme is applied where a script's output leaves for a person: an
+  endpoint's JSON answer, and the title and body of every notification a channel or
+  mailbox receives. An endpoint's path, query and JSON body (`/endpoints/` and
+  `/environments/<env>/endpoints/`) are read canonical, the way the API's are, so a
+  reference a response handed to a browser reaches the next script as `mcp:`. A file
+  a script exports is data and is written as the script wrote it.
 - **Resource URIs follow it.** With `resources.managed.uri_scheme` unset, resource URIs
   are written out as `acme://global/...` and stored as `mcp://`; a scheme set there is
   stored and written as it is. `mcp://` is read either way.

@@ -22,6 +22,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/notification/notifypost"
 	"github.com/txn2/mcp-data-platform/internal/notification/notifyrender"
 	"github.com/txn2/mcp-data-platform/internal/notification/notifysend"
+	"github.com/txn2/mcp-data-platform/internal/refscheme"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 	"github.com/txn2/mcp-data-platform/pkg/notification/smtp"
 )
@@ -295,6 +296,7 @@ func (w *Worker) deliver(ctx context.Context, settings *smtp.Settings, batch []n
 		terminal bool
 		err      error
 	)
+	displayReferences(batch)
 	if name, addressed := notification.ChannelName(batch[0].Recipient); addressed {
 		kind, terminal, err = w.deliverToChannel(ctx, name, batch)
 	} else {
@@ -317,6 +319,18 @@ func (w *Worker) deliver(ctx context.Context, settings *smtp.Settings, batch []n
 	}
 	slog.InfoContext(ctx, "notification: sent", "recipient", batch[0].Recipient, "count", len(batch))
 	return nil
+}
+
+// displayReferences writes the references a batch's documents name under
+// the deployment's reference scheme: a message leaves for a person here, and
+// what was queued is canonical, whether an agent's notify or a script's
+// (#2788). The rows are untouched; only what is sent changes.
+func displayReferences(batch []notification.Notification) {
+	for i := range batch {
+		if doc := batch[i].Payload.Document; doc != nil {
+			doc.Title, doc.Body = refscheme.Display(doc.Title), refscheme.Display(doc.Body)
+		}
+	}
 }
 
 // deliverByEmail renders the batch as one branded email and sends it over

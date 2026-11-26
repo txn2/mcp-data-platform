@@ -15,6 +15,14 @@
 # held to that file by TestEveryAcceptanceEnvironmentRunsNightly. The run's
 # conclusion is every job's, which is what the release tag rules read
 # (scripts/release-tag.py): a red night refuses a final tag.
+#
+# Every pull request runs it too, and the pre-merge job below is the one check
+# a merge waits on (#2824). The pull request job "Acceptance (changed
+# criteria)" runs a ticket's criteria alone on a fresh stack, so a defect that
+# shows only after the suite's other criteria have changed the stack reached
+# main unseen: #2823 merged green, and that night's run failed on a deleted
+# GraphQL connection a replica kept serving. A pull request's passing run also
+# answers the tag rule for the merged tree (#2487).
 name: E2E Nightly
 
 on:
@@ -22,11 +30,15 @@ on:
     # 07:00 UTC daily — a low-traffic hour for the shared runners.
     - cron: "0 7 * * *"
   workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
 
-# A slow nightly run must never pile up behind itself.
+# A slow nightly run must never pile up behind itself. A pull request's runs
+# are grouped by the pull request, and a push cancels the run of the commit it
+# replaced.
 concurrency:
-  group: e2e-nightly
-  cancel-in-progress: false
+  group: e2e-nightly-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -158,3 +170,21 @@ jobs:
         run: |
           cat nightly-output/*.txt > nightly-output.txt 2>/dev/null || true
           python3 scripts/e2e_nightly.py report "$OUTCOME" nightly-output.txt
+
+  # The check a pull request's merge waits on: every job above passed on its
+  # head commit (#2824). Required in the branch protection of main.
+  pre-merge:
+    name: E2E Nightly (pre-merge)
+    needs: [e2e, acceptance]
+    if: always() && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Every job passed
+        env:
+          E2E: ${{ needs.e2e.result }}
+          ACCEPTANCE: ${{ needs.acceptance.result }}
+        run: |
+          echo "e2e: $E2E, acceptance: $ACCEPTANCE"
+          test "$E2E" = success && test "$ACCEPTANCE" = success

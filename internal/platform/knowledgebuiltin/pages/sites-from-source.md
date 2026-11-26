@@ -137,7 +137,9 @@ does not needs a decision:
    entries import, at the locked versions, with each library's locked peers pinned
    through `?deps=` so that one copy of React loads. Review it and write it into
    `imports`, or set `"imports_from": "package.json"` to generate it at every publish.
-   A publish that would load two copies of React is refused, naming the URL.
+   With `imports_from`, a library can also be added with one line in `imports`
+   (`"left-pad": "https://esm.sh/left-pad@1.3.0"`) and no lockfile edit: an entry you
+   write wins. A publish that would load two copies of React is refused, naming the URL.
 2. **Path aliases.** Map a `tsconfig` alias to its folder in `imports`:
    `"@/": "/src/"`. The source keeps the imports the team's editor and type checker
    expect.
@@ -172,9 +174,12 @@ does not needs a decision:
    minified stack trace to source.
 
 Each publish reports what every entry compiled to, in `builds`: sizes with gzip, the
-change from the release before, the largest inputs and the URLs loaded at start.
-`"budgets": {"src/main.tsx": {"js_gzip": "300KB"}}` warns in that result when an entry
-grows past its budget, and `manage_site build_report` reads a release's report later.
+change from the release before, and what loads when the page starts (the entry and the
+chunks it imports statically): `start_bytes`, `start_imports` and `largest_inputs`.
+`largest_inputs_lazy` names what makes the routes loaded later big.
+`"budgets": {"src/main.tsx": {"js_gzip": "300KB"}}` warns in that result when what
+loads at start grows past its budget, and `manage_site build_report` reads a release's
+report later.
 
 ## The site's guide
 
@@ -188,7 +193,8 @@ patch or publish). Keep it current whenever you change how the site is built.
 - Build: `_build.json` compiles `src/main.tsx` to `/src/main.js`; `index.html` loads it.
 - Imports: local modules by `@/` (mapped to `/src/`); libraries generated from
   package.json (`imports_from`), React 18.3.1 pinned through `deps`.
-- Adding a library: add it to package.json and the lockfile, then publish.
+- Adding a library: add it to package.json and the lockfile, then publish (or, with no
+  package manager, map it in `_build.json`'s `imports`).
 - Settings: `src/settings.ts`; per-environment values come from `/endpoints/config`.
 - Environments: dev is where changes land; prod moves only by promote.
 - Kept as source, not run: `e2e/`, `docs/`.

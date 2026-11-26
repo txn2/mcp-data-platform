@@ -66,7 +66,7 @@ func TestCanonAndDisplay(t *testing.T) {
 func TestMiddleware(t *testing.T) {
 	useScheme(t, "acme", "")
 	var seen string
-	handler := Middleware()(func(_ context.Context, method string, req mcp.Request) (mcp.Result, error) {
+	handler := Middleware(Options{})(func(_ context.Context, method string, req mcp.Request) (mcp.Result, error) {
 		switch method {
 		case "tools/call":
 			p, _ := req.GetParams().(*mcp.CallToolParamsRaw)
@@ -91,7 +91,7 @@ func TestMiddleware(t *testing.T) {
 	assert.Equal(t, "acme:asset:a1", as[map[string]any](t, r.StructuredContent)["reference"])
 
 	tool := &mcp.Tool{Name: "fetch", Description: "takes mcp:asset:<id>"}
-	listHandler := Middleware()(func(context.Context, string, mcp.Request) (mcp.Result, error) {
+	listHandler := Middleware(Options{})(func(context.Context, string, mcp.Request) (mcp.Result, error) {
 		return &mcp.ListToolsResult{Tools: []*mcp.Tool{tool}}, nil
 	})
 	listed, err := listHandler(context.Background(), "tools/list", &mcp.ServerRequest[*mcp.ListToolsParams]{Params: &mcp.ListToolsParams{}})
@@ -104,13 +104,13 @@ func TestMiddleware(t *testing.T) {
 	assert.Equal(t, "no references", as[*mcp.InitializeResult](t, other).Instructions)
 
 	read := &mcp.ServerRequest[*mcp.ReadResourceParams]{Params: &mcp.ReadResourceParams{URI: "acme://global/x"}}
-	canonRequest(read)
+	canonRequest(read, nil)
 	assert.Equal(t, "mcp://global/x", read.Params.URI)
 	prompt := &mcp.ServerRequest[*mcp.GetPromptParams]{Params: &mcp.GetPromptParams{Arguments: map[string]string{"a": "acme:asset:x"}}}
-	canonRequest(prompt)
+	canonRequest(prompt, nil)
 	assert.Equal(t, "mcp:asset:x", prompt.Params.Arguments["a"])
 	typed := &mcp.ServerRequest[*mcp.CallToolParams]{Params: &mcp.CallToolParams{Arguments: map[string]any{"id": "acme:asset:x"}}}
-	canonRequest(typed)
+	canonRequest(typed, nil)
 	assert.Equal(t, "mcp:asset:x", as[map[string]any](t, typed.Params.Arguments)["id"])
 
 	useScheme(t, "", "")
@@ -230,7 +230,7 @@ func TestMiddleware_PlatformText(t *testing.T) {
 	call := func(name string) *mcp.CallToolResult {
 		t.Helper()
 		req := &mcp.ServerRequest[*mcp.CallToolParamsRaw]{Params: &mcp.CallToolParamsRaw{Name: name, Arguments: json.RawMessage(`{}`)}}
-		res, err := Middleware("platform_info")(answer)(context.Background(), "tools/call", req)
+		res, err := Middleware(Options{PlatformText: []string{"platform_info"}})(answer)(context.Background(), "tools/call", req)
 		require.NoError(t, err)
 		return as[*mcp.CallToolResult](t, res)
 	}
@@ -246,4 +246,109 @@ func TestMiddleware_PlatformText(t *testing.T) {
 
 	assert.False(t, platformTextTool(nil, []string{"platform_info"}))
 	assert.False(t, platformTextTool(&mcp.ServerRequest[*mcp.ListToolsParams]{Params: &mcp.ListToolsParams{}}, []string{"platform_info"}))
+}
+
+type scriptKey struct{}
+
+// A managed script's session reads results canonical, and a tool's verbatim
+// fields pass both ways untouched while its other fields are rewritten
+// (#2788).
+func TestMiddlewareScriptsAndVerbatimFields(t *testing.T) {
+	useScheme(t, "acme", "")
+	var seen string
+	opts := Options{
+		Canonical: func(ctx context.Context) bool { return ctx.Value(scriptKey{}) != nil },
+		Verbatim:  map[string][]string{"manage_script": {"source", "edits"}},
+	}
+	handler := Middleware(opts)(func(_ context.Context, _ string, req mcp.Request) (mcp.Result, error) {
+		p, _ := req.GetParams().(*mcp.CallToolParamsRaw)
+		seen = string(p.Arguments)
+		return &mcp.CallToolResult{
+			Content:           []mcp.Content{&mcp.TextContent{Text: `{"reference":"mcp:script:s1","source":"x.startswith(\"mcp:resource:\")"}`}},
+			StructuredContent: map[string]any{"reference": "mcp:script:s1", "source": `x.startswith("mcp:resource:")`},
+		}, nil
+	})
+	call := func(ctx context.Context, name, args string) *mcp.CallToolResult {
+		res, err := handler(ctx, "tools/call", &mcp.ServerRequest[*mcp.CallToolParamsRaw]{Params: &mcp.CallToolParamsRaw{Name: name, Arguments: json.RawMessage(args)}})
+		require.NoError(t, err)
+		return as[*mcp.CallToolResult](t, res)
+	}
+
+	// A script's session: the result keeps the canonical form.
+	script := call(context.WithValue(context.Background(), scriptKey{}, true), "manage_resource", `{"reference":"acme:resource:r1"}`)
+	assert.JSONEq(t, `{"reference":"mcp:resource:r1"}`, seen, "a script's request is still made canonical")
+	assert.Equal(t, "mcp:script:s1", as[map[string]any](t, script.StructuredContent)["reference"])
+	assert.Contains(t, as[*mcp.TextContent](t, script.Content[0]).Text, `"reference":"mcp:script:s1"`)
+
+	// An agent writing a script: its source keeps the deployment's scheme as
+	// written, the reference beside it is canonical.
+	agent := call(context.Background(), "manage_script", `{"reference":"acme:script:s1","source":"s.replace(\"acme://\", \"mcp://\")","edits":[{"find":"acme:resource:","replace":"x"}]}`)
+	assert.JSONEq(t, `{"reference":"mcp:script:s1","source":"s.replace(\"acme://\", \"mcp://\")","edits":[{"find":"acme:resource:","replace":"x"}]}`, seen)
+	sc := as[map[string]any](t, agent.StructuredContent)
+	assert.Equal(t, "acme:script:s1", sc["reference"], "a reference outside the code is displayed")
+	assert.Equal(t, `x.startswith("mcp:resource:")`, sc["source"], "the source reads back as it was saved")
+	text := as[*mcp.TextContent](t, agent.Content[0]).Text
+	assert.Contains(t, text, `"reference": "acme:script:s1"`)
+	assert.Contains(t, text, `x.startswith(\"mcp:resource:\")`)
+
+	// Another tool is rewritten whole, as before.
+	call(context.Background(), "save_asset", `{"content":"see acme:asset:a1"}`)
+	assert.JSONEq(t, `{"content":"see mcp:asset:a1"}`, seen)
+}
+
+// A request to an endpoint carries back a reference a response gave out: its
+// path, query and JSON body reach the script canonical, and its JSON answer
+// leaves under the scheme; a webhook post is not rewritten (#2788).
+func TestHTTPEndpoints(t *testing.T) {
+	useScheme(t, "acme", "")
+	var gotPath, gotQuery, gotBody string
+	h := HTTP(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotQuery = r.URL.Path, r.URL.RawQuery
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"reference":"mcp:resource:r1"}`)
+	}))
+	for _, path := range []string{"/endpoints/upload/acme:resource:r1", "/environments/dev/endpoints/upload/acme:resource:r1"} {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, path+"?ref=acme:resource:r1", strings.NewReader(`{"file":"acme:resource:r1"}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		assert.True(t, strings.HasSuffix(gotPath, "/mcp:resource:r1"), gotPath)
+		assert.Equal(t, "ref=mcp:resource:r1", gotQuery)
+		assert.JSONEq(t, `{"file":"acme:resource:r1"}`, gotBody, "an endpoint makes its body canonical itself, after its limits")
+		assert.JSONEq(t, `{"reference":"acme:resource:r1"}`, rec.Body.String())
+	}
+	assert.Equal(t, `{"file":"mcp:resource:r1"}`, string(CanonJSONBody("application/json; charset=utf-8", []byte(`{"file":"acme:resource:r1"}`))))
+	assert.Equal(t, `file=acme:resource:r1`, string(CanonJSONBody("application/x-www-form-urlencoded", []byte(`file=acme:resource:r1`))))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/hooks/src", strings.NewReader(`{"file":"acme:resource:r1"}`))
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(httptest.NewRecorder(), req)
+	assert.JSONEq(t, `{"file":"acme:resource:r1"}`, gotBody, "a webhook's body is the sender's")
+}
+
+// A chunked JSON body past the rewrite bound reaches the handler whole and as
+// sent, never cut at the bound.
+func TestHTTPOversizedBodyPassesWhole(t *testing.T) {
+	useScheme(t, "acme", "")
+	var got int
+	h := HTTP(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		got = len(b)
+	}))
+	body := strings.Repeat("a", maxRewrittenBody+10)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/x", io.NopCloser(strings.NewReader(body)))
+	req.ContentLength = -1
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(httptest.NewRecorder(), req)
+	assert.Equal(t, len(body), got)
+}
+
+// A verbatim tool's JSON keeps a large integer exact when its other fields are
+// rewritten.
+func TestVerbatimRewriteKeepsLargeNumbers(t *testing.T) {
+	useScheme(t, "acme", "")
+	out := rewriteJSONBytes([]byte(`{"n":9007199254740993,"ref":"acme:asset:a","source":"acme:asset:a"}`), CanonBytes, Canon, map[string]bool{"source": true})
+	assert.JSONEq(t, `{"n":9007199254740993,"ref":"mcp:asset:a","source":"acme:asset:a"}`, string(out))
+	assert.Contains(t, string(out), "9007199254740993")
 }

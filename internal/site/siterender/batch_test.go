@@ -236,3 +236,42 @@ func TestImportsFromRefusals(t *testing.T) {
 		t.Errorf("a registry that does not answer refused the publish: %v", err)
 	}
 }
+
+// A library mapped by hand in imports publishes on an imports_from site whose
+// lockfile does not lock it, loaded from the hand-written URL; a hand-mapped
+// React library without ?deps= is still refused as a second copy of React;
+// and a specifier neither locked nor mapped is still refused, named (#2790).
+func TestImportsFromHonoursAHandWrittenEntry(t *testing.T) {
+	lock := `{"lockfileVersion":3,"packages":{"":{},"node_modules/react":{"version":"18.3.1"},"node_modules/react-dom":{"version":"18.3.1","peerDependencies":{"react":"^18.3.1"}}}}`
+	pkg := `{"dependencies":{"react":"^18.3.1","react-dom":"^18.3.1"}}`
+	app := `import { createRoot } from "react-dom/client"; import x from "left-pad"; createRoot(document.body).render(<p>{x("a",3)}</p>);`
+
+	files := map[string]string{
+		sitebuild.ControlFile: `{"entries":["app.tsx"],"imports_from":"package.json","imports":{"left-pad":"https://esm.sh/left-pad@1.3.0"}}`,
+		"app.tsx":             app, "package.json": pkg, "package-lock.json": lock,
+	}
+	out := newCapture()
+	if _, err := Render(context.Background(), tree(files), Options{}, out); err != nil {
+		t.Fatalf("a hand-mapped library refused the publish: %v", err)
+	}
+	written := make([]string, 0, len(out.files))
+	for _, body := range out.files {
+		written = append(written, body)
+	}
+	if !strings.Contains(strings.Join(written, "\n"), "https://esm.sh/left-pad@1.3.0") {
+		t.Error("left-pad is not loaded from the hand-written URL")
+	}
+
+	files[sitebuild.ControlFile] = `{"entries":["app.tsx"],"imports_from":"package.json","imports":{"left-pad":"https://esm.sh/left-pad@1.3.0","react-select":"https://esm.sh/react-select@5.8.0"}}`
+	files["app.tsx"] = `import { createRoot } from "react-dom/client"; import S from "react-select"; createRoot(document.body).render(<S/>);`
+	fetch := registryFetch{"https://registry.npmjs.org/react-select/5.8.0": `{"peerDependencies":{"react":"*","react-dom":"*"}}`}
+	if _, err := Render(context.Background(), tree(files), Options{Fetch: fetch}, newCapture()); err == nil || !strings.Contains(err.Error(), "own copy of react") {
+		t.Errorf("a hand-mapped React library without ?deps= was not refused as a second copy: %v", err)
+	}
+
+	files[sitebuild.ControlFile] = `{"entries":["app.tsx"],"imports_from":"package.json"}`
+	files["app.tsx"] = app
+	if _, err := Render(context.Background(), tree(files), Options{}, newCapture()); err == nil || !strings.Contains(err.Error(), "locks no version of left-pad") {
+		t.Errorf("a specifier neither locked nor mapped was not refused by name: %v", err)
+	}
+}

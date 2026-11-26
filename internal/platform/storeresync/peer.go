@@ -64,3 +64,19 @@ func Upserted(toolkits connreconcile.ToolkitSource, declared connid.Declarer, ki
 		}
 	}
 }
+
+// Confirmed takes back a peer's save this replica applied when a second read of
+// the store, made after the apply, finds the connection gone (#2824). The first
+// read and the apply are not one step: a delete this replica served between
+// them removed the row and then found nothing in the toolkits to remove, and
+// the apply that followed put the deleted connection back into service here,
+// where every call and list_connections kept reaching it. A delete removes the
+// row before it removes the connection from the toolkits, so a read after the
+// apply either sees the row gone, and the connection is removed here, or comes
+// before the row's delete, whose own removal then finds it applied.
+func Confirmed(toolkits connreconcile.ToolkitSource, declared connid.Declarer, kind, name string, read Read) {
+	if read.Err != nil || read.Found {
+		return
+	}
+	Removed(toolkits, declared, kind, name, "reload-bus: failed to remove a connection deleted while it was applied")
+}

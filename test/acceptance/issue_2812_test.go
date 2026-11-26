@@ -92,8 +92,8 @@ func TestIssue2812_TheBaselineMapsKindsTheDeploymentHas(t *testing.T) {
 		t.Fatalf("the baseline carries no connection line:\n%s", instructions)
 	}
 	section := instructions[i:]
-	if strings.Contains(section, "- GraphQL:") && !strings.Contains(asJSON(c.call("list_connections", map[string]any{})), `"kind":"graphql"`) {
-		t.Error("the line names GraphQL, which the deployment has no connection of")
+	if listed := asJSON(c.call("list_connections", map[string]any{})); strings.Contains(section, "- GraphQL:") && !strings.Contains(listed, `"kind":"graphql"`) {
+		t.Errorf("the line names GraphQL, which the deployment has no connection of:\n%s\nlist_connections: %s", section, listed)
 	}
 	for _, want := range []string{"- Trino: ", "- application database: manage_schema, or platform.query in a managed script"} {
 		if !strings.Contains(section, want) {

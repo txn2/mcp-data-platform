@@ -62,8 +62,8 @@ func (r *run) generateImports() (*pkgmap.Lock, error) {
 	if err != nil {
 		return nil, fmt.Errorf(importsFromErr, err)
 	}
-	if len(gen.Missing) > 0 {
-		return nil, errors.New(lock.File + " locks no version of " + strings.Join(gen.Missing, ", ") + "; add them to package.json, or map them in imports")
+	if missing := r.build.Unmapped(gen.Missing); len(missing) > 0 {
+		return nil, errors.New(lock.File + " locks no version of " + strings.Join(missing, ", ") + "; add them to package.json, or map them in imports")
 	}
 	if err := r.build.Merge(gen.Imports); err != nil {
 		return nil, fmt.Errorf(importsFromErr, err)
