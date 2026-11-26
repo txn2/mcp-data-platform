@@ -409,3 +409,16 @@ func TestClassify_ApplicationDatabase(t *testing.T) {
 		assert.True(t, classify("manage_schema", map[string]any{"command": command}).Writes, command)
 	}
 }
+
+// TestClassify_HelpReadsOnEveryActionTool: help, answered from a tool's schema
+// and in no tool's enum, reads on every action tool, whatever its case (#2827).
+func TestClassify_HelpReadsOnEveryActionTool(t *testing.T) {
+	for _, tool := range ActionTools() {
+		rule := actionTools[tool]
+		for _, v := range []string{"help", " HELP "} {
+			if d := (Classifier{}).Classify(tool, map[string]any{rule.arg: v}); d.Writes || !d.Declared {
+				t.Errorf("%s %s=%q: %+v, want a declared read", tool, rule.arg, v, d)
+			}
+		}
+	}
+}

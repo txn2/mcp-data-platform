@@ -348,3 +348,28 @@ func TestEmbed_NoEmbedder(t *testing.T) {
 		t.Errorf("embedding = %v", v)
 	}
 }
+
+// TestEmbed_BoundedByEmbedTimeout: an embedder that never answers costs the
+// post its embedding, not its caller's wait (#2829).
+func TestEmbed_BoundedByEmbedTimeout(t *testing.T) {
+	svc := New(Deps{
+		Embed: func(ctx context.Context, _ string) ([]float32, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+		EmbedTimeout: time.Millisecond,
+	})
+	done := make(chan []float32, 1)
+	go func() { done <- svc.embed(context.Background(), "x") }()
+	select {
+	case v := <-done:
+		if v != nil {
+			t.Errorf("embedding = %v", v)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("embed waited past its bound")
+	}
+	if New(Deps{}).d.EmbedTimeout != DefaultEmbedTimeout {
+		t.Error("zero EmbedTimeout is not the default")
+	}
+}

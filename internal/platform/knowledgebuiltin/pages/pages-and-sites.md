@@ -479,8 +479,9 @@ by TypeScript 7 in the platform:
 - `manage_site build_report` shows the release's newest check under `typecheck`:
   `clean`, `errors` with each error's file, line, column, code and message,
   `over_limit` (the compiler needed more memory than the deployment allows),
-  `unsupported` or `failed` with the reason. `queued` or `running` means it has not
-  finished; read it again later.
+  `unsupported` or `failed` with the reason (a compiler that crashed is reported with
+  its own panic message). `queued` or `running` means it has not finished; read it
+  again later. A tsconfig's `include` may name files, directories or globs.
 - `unsupported` is a tsconfig that is not in the release at the path `_build.json`
   names, or one that sets `compilerOptions.baseUrl`, which TypeScript 7 no longer
   reads: replace it with `paths` entries that start with `./`.

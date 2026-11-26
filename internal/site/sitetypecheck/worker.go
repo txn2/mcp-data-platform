@@ -28,11 +28,17 @@ const (
 // maxOutputBytes bounds what a check's compiler output is kept to.
 const maxOutputBytes = 4 << 20
 
+// projectMount is where the release is mounted in the compiler's file system,
+// and its working directory. Not /: a tsconfig include naming a file (["app.ts"])
+// makes the compiler take the directory of /app.ts, which is empty, and panic
+// with "path must not be empty" (#2830).
+const projectMount = "/project"
+
 // job is one check as the worker runs it, all paths on the replica's disk.
 type job struct {
-	Wasm         string `json:"wasm"`
-	CompileCache string `json:"compile_cache"`
-	// Project is the release with its node_modules, mounted read-only at /.
+	Wasm string `json:"wasm"`
+	// Project is the release with its node_modules, mounted read-only at
+	// projectMount.
 	Project string `json:"project"`
 	// Lib is the standard library, mounted read-only at /ts/lib.
 	Lib string `json:"lib"`
@@ -85,17 +91,14 @@ func runJob(ctx context.Context, j job) outcome {
 	return outcomeOf(j, err, stdout.String(), stderr.String())
 }
 
-// runtimeConfig is the runtime a job's compiler runs in: its memory limit,
-// the compilation cache, and closed when the job's context ends.
+// runtimeConfig is the runtime a job's compiler runs in: its memory limit, and
+// closed when the job's context ends. It keeps no compilation cache on disk:
+// one was about 177 MiB in the temporary directory for the replica's life, a
+// sized /tmp's room (#2828), to save the seconds a compile takes.
 func runtimeConfig(j job) wazero.RuntimeConfig {
 	cfg := wazero.NewRuntimeConfig()
 	if j.MemoryLimit > 0 {
 		cfg = cfg.WithMemoryLimitPages(uint32(min(j.MemoryLimit/wasmPage, maxWasmPages))) // #nosec G115 -- bounded to the 4 GiB a wasm32 module addresses
-	}
-	if j.CompileCache != "" {
-		if cache, err := wazero.NewCompilationCacheWithDir(j.CompileCache); err == nil {
-			cfg = cfg.WithCompilationCache(cache)
-		}
 	}
 	return cfg.WithCloseOnContextDone(true)
 }
@@ -103,17 +106,25 @@ func runtimeConfig(j job) wazero.RuntimeConfig {
 // moduleConfig is the compiler's command line and file system: the project
 // read-only at /, the standard library at /ts/lib, and the state at /state.
 func moduleConfig(j job, stdout, stderr *boundedBuffer) wazero.ModuleConfig {
-	fsc := wazero.NewFSConfig().WithReadOnlyDirMount(j.Project, "/").WithReadOnlyDirMount(j.Lib, "/ts/lib")
-	args := []string{"tsc", "-p", "/" + strings.TrimPrefix(j.Tsconfig, "/"), "--pretty", "false", "--noEmit"}
+	fsc := wazero.NewFSConfig().WithReadOnlyDirMount(j.Project, projectMount).WithReadOnlyDirMount(j.Lib, "/ts/lib")
+	args := []string{"tsc", "-p", projectMount + "/" + strings.TrimPrefix(j.Tsconfig, "/"), "--pretty", "false", "--noEmit"}
 	if j.State != "" {
 		fsc = fsc.WithDirMount(j.State, "/state")
 		args = append(args, "--incremental", "--tsBuildInfoFile", "/state/tsbuildinfo")
 	}
 	return wazero.NewModuleConfig().WithFSConfig(fsc).WithArgs(args...).
+		WithEnv("PWD", projectMount).
 		WithStdout(stdout).WithStderr(stderr).WithSysWalltime().WithSysNanotime()
 }
 
-// outcomeOf reads how the compiler's run ended.
+// maxCrashBytes bounds the compiler's own crash text kept in a failure: the
+// panic and the first frames of its stack, which name the cause.
+const maxCrashBytes = 4 << 10
+
+// outcomeOf reads how the compiler's run ended. A run that trapped keeps what
+// the compiler wrote to stderr ahead of the runtime's error (#2830): the
+// compiler is Go, and a panic's message and stack are the cause, where the
+// trap alone is an anonymous wasm stack.
 func outcomeOf(j job, err error, stdout, stderr string) outcome {
 	o := outcome{Output: stdout}
 	var exit *sys.ExitError
@@ -126,8 +137,15 @@ func outcomeOf(j job, err error, stdout, stderr string) outcome {
 	if strings.Contains(stderr, "out of memory") || strings.Contains(o.Error, "memory") && j.MemoryLimit > 0 {
 		o.OverMemory = true
 	}
-	if o.ExitCode != 0 && o.Output == "" && !o.OverMemory && o.Error == "" {
-		o.Error = strings.TrimSpace(stderr)
+	crash := strings.TrimSpace(stderr)
+	switch {
+	case o.ExitCode != 0 && o.Output == "" && !o.OverMemory && o.Error == "":
+		o.Error = crash
+	case o.Error != "" && crash != "" && !o.OverMemory:
+		if len(crash) > maxCrashBytes {
+			crash = strings.ToValidUTF8(crash[:maxCrashBytes], "") + "\n..."
+		}
+		o.Error = crash + "\n(" + o.Error + ")"
 	}
 	return o
 }

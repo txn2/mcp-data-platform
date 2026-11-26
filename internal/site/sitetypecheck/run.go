@@ -23,10 +23,18 @@ import (
 
 // Defaults for a check.
 const (
+	// DefaultMemoryLimit is the compiler's limit where the container's memory
+	// limit cannot be read, and the most the default ever is.
 	DefaultMemoryLimit = 3 << 30
-	DefaultTimeout     = 5 * time.Minute
-	maxPackages        = 3000
-	fetchConcurrency   = 8
+	// MinDefaultMemoryLimit is the least the default is in a small container.
+	MinDefaultMemoryLimit = 512 << 20
+	// containerShare is the share of the container's memory limit the
+	// compiler gets by default (#2828): the worker runs in the replica's
+	// container, so its memory counts against the limit beside the server's.
+	containerShare   = 4
+	DefaultTimeout   = 5 * time.Minute
+	maxPackages      = 3000
+	fetchConcurrency = 8
 	// workerHeadroom is what the worker process may hold beside the
 	// compiler's own memory: its Go runtime and the job.
 	workerHeadroom = 512 << 20
@@ -73,7 +81,9 @@ type Config struct {
 	// Dir is where the compiler and each check's scratch files are kept on
 	// the replica's disk.
 	Dir string
-	// MemoryLimit is the most the compiler may hold, in bytes.
+	// MemoryLimit is the most the compiler may hold, in bytes; zero is
+	// DefaultMemoryLimit. The platform passes DefaultMemoryLimitFor its
+	// container's limit when the configuration sets none.
 	MemoryLimit int64
 	// Timeout is the longest a check may run.
 	Timeout time.Duration
@@ -98,6 +108,33 @@ func (c Config) withDefaults() Config {
 	return c
 }
 
+// DefaultMemoryLimitFor is the compiler's default limit in a container of
+// this memory limit (#2828): a quarter of it, at least MinDefaultMemoryLimit
+// and at most DefaultMemoryLimit; DefaultMemoryLimit when the limit is unknown.
+func DefaultMemoryLimitFor(container int64) int64 {
+	if container <= 0 {
+		return DefaultMemoryLimit
+	}
+	return min(max(container/containerShare, MinDefaultMemoryLimit), DefaultMemoryLimit)
+}
+
+// WorkerCeiling is the most a check's worker process holds with this compiler
+// limit: the compiler and the worker's own runtime beside it.
+func WorkerCeiling(memoryLimit int64) int64 { return memoryLimit + workerHeadroom }
+
+// CeilingWarning is the startup warning for a compiler limit whose worker
+// could take more than half the container's memory limit, which the server's
+// heap shares (#2828); "" when it cannot or the limit is unknown.
+func CeilingWarning(memoryLimit, container int64) string {
+	if container <= 0 || WorkerCeiling(memoryLimit) <= container/2 {
+		return ""
+	}
+	return fmt.Sprintf("a type check's worker may hold %d MiB (sites.typecheck.memory_limit %d MiB plus %d MiB for its runtime), "+
+		"more than half the container's %d MiB limit, which the server's own heap (GOMEMLIMIT) shares: a check beside a busy "+
+		"server can get the container killed; lower sites.typecheck.memory_limit or raise the container's limit",
+		WorkerCeiling(memoryLimit)>>20, memoryLimit>>20, workerHeadroom>>20, container>>20)
+}
+
 // spawnFunc runs one job, in production a worker process of the platform's
 // own binary.
 type spawnFunc func(ctx context.Context, j job, memoryLimit int64) (outcome, error)
@@ -111,9 +148,14 @@ type Checker struct {
 	spawn     spawnFunc
 }
 
+// legacyCompileCache is where v1.169.0 kept the compiler's compilation cache,
+// removed when a checker is built (#2828).
+const legacyCompileCache = "wasm-cache"
+
 // NewChecker builds a checker fetching through getter and caching in cache.
 func NewChecker(cfg Config, getter Getter, cache Cache) *Checker {
 	cfg = cfg.withDefaults()
+	_ = os.RemoveAll(filepath.Join(cfg.Dir, legacyCompileCache))
 	return &Checker{
 		cfg: cfg, getter: getter, cache: cache,
 		compilers: &compilerStore{getter: getter, cache: cache, dir: cfg.Dir, registry: cfg.Registry},
@@ -204,7 +246,7 @@ func (c *Checker) run(ctx context.Context, compiler *compilerFiles, project, sta
 	ctx, cancel := context.WithTimeout(ctx, c.cfg.Timeout)
 	defer cancel()
 	o, err := c.spawn(ctx, job{
-		Wasm: compiler.Wasm, CompileCache: filepath.Join(c.cfg.Dir, "wasm-cache"),
+		Wasm:    compiler.Wasm,
 		Project: project, Lib: compiler.Lib, State: state, Tsconfig: tsconfig, MemoryLimit: c.cfg.MemoryLimit,
 	}, c.cfg.MemoryLimit)
 	if ctx.Err() != nil {
@@ -246,7 +288,7 @@ func parseDiagnostics(out string) []Diagnostic {
 		}
 		ln, _ := strconv.Atoi(m[2])
 		col, _ := strconv.Atoi(m[3])
-		diags = append(diags, Diagnostic{File: strings.TrimPrefix(m[1], "/"), Line: ln, Column: col, Category: m[4], Code: m[5], Message: m[6]})
+		diags = append(diags, Diagnostic{File: strings.TrimPrefix(strings.TrimPrefix(m[1], projectMount+"/"), "/"), Line: ln, Column: col, Category: m[4], Code: m[5], Message: m[6]})
 		if len(diags) == maxDiagnostics {
 			break
 		}
@@ -450,7 +492,7 @@ func spawnWorker(ctx context.Context, j job, memoryLimit int64) (outcome, error)
 	cmd.Stdin = bytes.NewReader(in)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
-	cmd.Env = append(os.Environ(), "GOMEMLIMIT="+strconv.FormatInt(memoryLimit+workerHeadroom, 10))
+	cmd.Env = append(os.Environ(), "GOMEMLIMIT="+strconv.FormatInt(WorkerCeiling(memoryLimit), 10))
 	runErr := cmd.Run()
 	var o outcome
 	if err := json.Unmarshal(stdout.Bytes(), &o); err != nil {

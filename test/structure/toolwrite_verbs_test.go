@@ -37,6 +37,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/notifylayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/promptlayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer"
+	"github.com/txn2/mcp-data-platform/internal/toolhelp"
 	"github.com/txn2/mcp-data-platform/internal/toolwrite"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
@@ -188,4 +189,36 @@ func schemaEnum(schema map[string]any) func(arg string) ([]string, bool) {
 		}
 		return out, true
 	}
+}
+
+// TestEveryHelpAnswerIsARead fails when a tool internal/toolhelp answers help
+// on is one whose help call the draft write barrier classifies as a write
+// (#2827): help is in no tool's advertised enum, so the per-verb gate above
+// cannot see it, and a draft refused it on every action tool.
+func TestEveryHelpAnswerIsARead(t *testing.T) {
+	schemas := listedInputSchemas(t, actionToolServer(t))
+	var problems []string
+	answered := 0
+	for _, tool := range sortedSchemaNames(schemas) {
+		field, ok := toolhelp.HelpField(schemas[tool])
+		if !ok {
+			continue
+		}
+		answered++
+		if d := (toolwrite.Classifier{}).Classify(tool, map[string]any{field: toolwrite.HelpVerb}); d.Writes {
+			problems = append(problems, tool+" "+field+"="+toolwrite.HelpVerb+" is classified as a write")
+		}
+	}
+	require.NotZero(t, answered, "no tool in the listing takes a command or action enum")
+	require.Empty(t, problems, "help calls the draft write barrier refuses:\n  %s", strings.Join(problems, "\n  "))
+}
+
+// sortedSchemaNames is the listed tool names in order.
+func sortedSchemaNames(schemas map[string]map[string]any) []string {
+	names := make([]string, 0, len(schemas))
+	for name := range schemas {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }

@@ -2483,6 +2483,7 @@ internal/site/sitewire -> internal/platform/configwarn
 internal/site/sitewire -> internal/platform/resourcewrite
 internal/site/sitewire -> internal/platform/scriptsrc
 internal/site/sitewire -> internal/platform/settingsjson
+internal/site/sitewire -> internal/procload
 internal/site/sitewire -> internal/site
 internal/site/sitewire -> internal/site/sitebuild/modfetch
 internal/site/sitewire -> internal/site/sitebuild/tailwind
@@ -2516,6 +2517,7 @@ internal/thumbdue -> internal/advisorylock
 internal/thumbtypes -> pkg/contenttype
 internal/toolanswer -> pkg/registry
 internal/toolanswer -> pkg/toolkit
+internal/toolhelp -> internal/toolwrite
 internal/toolhelp -> internal/wirejson
 internal/toolhelp -> pkg/mcpcontext
 internal/toolhelp -> pkg/middleware

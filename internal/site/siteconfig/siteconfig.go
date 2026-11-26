@@ -79,8 +79,10 @@ type TypecheckConfig struct {
 	// Enabled runs the checks sites ask for; unset is on.
 	Enabled *bool `yaml:"enabled"`
 	// MemoryLimit is the most one check's compiler may hold, in bytes; unset
-	// is 3 GiB. A check over it is stopped and reported, and the replica is
-	// unaffected: the compiler runs in a worker process of its own.
+	// is a quarter of the container's memory limit, 512 MiB to 3 GiB (#2828).
+	// A check over it is stopped and reported. The compiler runs in a worker
+	// process of its own, but in the replica's container: its memory counts
+	// against the container's limit beside the server's heap.
 	MemoryLimit int64 `yaml:"memory_limit"`
 	// Timeout is the longest one check may run; unset is 5 minutes.
 	Timeout time.Duration `yaml:"timeout"`

@@ -1217,7 +1217,7 @@ Edit and delete are served by the portal's own routes, `PATCH` and `DELETE /api/
 | `suggestion` | string | No | What would have let it finish (at most 2,000 bytes) |
 | `calls` | string[] | No | The calls involved, as `mcp:call:<id>` references and never their results (at most 20) |
 
-A post takes no `body`, and `target_type` must be `standalone`. The answer is `{id, report_count, folded, channels, message}`.
+A post takes no `body`, and `target_type` must be `standalone`. The answer is `{id, report_count, folded, channels, message}`. A post waits at most 5 seconds for its embedding, which only folds a near-duplicate onto an open post; past that, as when the embedding service is busy re-embedding after an upgrade, it is stored and sent, folded only onto an open post with the same words, and the platform logs a warning (#2829).
 
 **What is checked, in order.** Each refusal carries its own code (category `client_input`) and a message that names a field, never its content:
 

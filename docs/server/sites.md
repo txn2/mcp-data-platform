@@ -180,7 +180,7 @@ sites:
     hour_retention: 2160h        # hour rows (90 days): the 7-day and 30-day views
   typecheck:                     # type checks a site's _build.json asks for (#2793)
     enabled: true                # default on; needs the portal bucket
-    memory_limit: 3221225472     # bytes; default 3 GiB
+    memory_limit: 0              # bytes; default a quarter of the container's memory limit (512 MiB to 3 GiB)
     timeout: 5m
     registry: ""                 # default the npm registry
     dir: ""                      # writable directory a check works in; default the temp directory
@@ -785,10 +785,19 @@ is logged and never fails the publish.
   disk under `sites.typecheck.dir` (the temporary directory when unset). The
   checks are the one part of the platform that writes files: an image with no
   `/tmp` names a volume there, and a check that cannot write to it fails naming
-  the setting. It runs as WebAssembly under wazero in a worker process of its own (the
-  platform binary run again as `mcp-data-platform typecheck-worker`), with
-  `sites.typecheck.memory_limit` as its memory limit, so the replica's memory
-  never holds the compiler's.
+  the setting. Once any check has run, the laid-out compiler stays there, about
+  54 MiB per replica; each check adds the release and its dependency types while
+  it runs and removes them when it ends. Give `sites.typecheck.dir` a volume of
+  its own rather than a `/tmp` sized for upload spooling: going over an
+  `emptyDir`'s `sizeLimit` evicts the pod. It runs as WebAssembly under wazero in
+  a worker process of its own (the platform binary run again as
+  `mcp-data-platform typecheck-worker`), with `sites.typecheck.memory_limit` as
+  its memory limit and 512 MiB more for the worker's own runtime. The worker
+  runs in the replica's container, so its memory counts against the container's
+  limit beside the server's heap: unset, `memory_limit` is a quarter of the
+  container's memory limit (at least 512 MiB, at most 3 GiB; 3 GiB when no limit
+  can be read), and startup logs a warning when a worker could take more than
+  half the container's limit (#2828).
 - **Dependency types.** Read from the release's lockfile: `package-lock.json`
   (versions 2 and 3), `pnpm-lock.yaml`, or a Yarn 1 `yarn.lock`, the first found.
   Each locked package is fetched at its locked version from its `https` tarball
@@ -815,7 +824,7 @@ A finished check is one of:
 | `errors` | Each diagnostic with its `file`, `line`, `column`, `category`, `code` and `message` (at most 1,000), and `missing`: the packages the code imports whose types were not found (from TS2307 "Cannot find module", relative and `@/` specifiers left out), which the lockfile does not lock. |
 | `over_limit` | The compiler needed more than `sites.typecheck.memory_limit` and was stopped. The site is not affected. |
 | `unsupported` | The release has no file at the `tsconfig` path, or its tsconfig sets `compilerOptions.baseUrl`, which TypeScript 7 no longer reads; the message says to replace it with `paths` entries that start with `./`. |
-| `failed` | The check could not run: the compiler or a package could not be read, the lockfile could not be read, the check ran past `sites.typecheck.timeout`, or the compiler exited reporting nothing. The message says which. |
+| `failed` | The check could not run: the compiler or a package could not be read, the lockfile could not be read, the check ran past `sites.typecheck.timeout`, or the compiler exited reporting nothing. The message says which; a compiler that crashed is reported with its own panic message and the first frames of its stack (#2830). |
 
 A check also reports the `lockfile` read, how many `packages` it locks, how many
 were `fetched` rather than read from the cache, and `duration_ms`. `queued` and
@@ -833,7 +842,7 @@ checks and refuses `typecheck`.
 sites:
   typecheck:
     enabled: true            # default on
-    memory_limit: 3221225472 # bytes one check's compiler may hold; default 3 GiB
+    memory_limit: 0          # bytes one check's compiler may hold; default a quarter of the container's limit, 512 MiB to 3 GiB
     timeout: 5m              # longest one check may run; default 5m
     registry: ""             # where the compiler and package types are fetched; default https://registry.npmjs.org/
     dir: ""                  # writable directory a check lays the compiler and release out in; default the temp directory
@@ -1211,6 +1220,19 @@ manage_site command=promote site=cool-site to=prod                             #
 
 `cool-site.<pages_domain>` and `cool-site--prod.<pages_domain>` still ask for a
 sign-in; only `cool-site.example.com` answers anyone.
+
+## Upgrading to v1.169.1 (migration 000269)
+
+Migration 000269 gives `site_typechecks` and `site_typecheck_state` a foreign
+key to `sites` that cascades, so deleting a site deletes its type checks and
+incremental state, and removes the rows of sites deleted before it. Type checks
+no longer keep wazero's compilation cache on disk: the `wasm-cache` folder
+v1.169.0 left under `sites.typecheck.dir` (about 177 MiB) is removed when the
+platform starts. An unset `sites.typecheck.memory_limit` is now a quarter of
+the container's memory limit rather than 3 GiB (#2828). The project is mounted
+at `/project` in the compiler's file system, which lets a tsconfig `include`
+name a file (#2830); each environment's incremental state is rebuilt on its
+next check.
 
 ## Upgrading to #2793 (migration 000268)
 
