@@ -75,3 +75,18 @@ func TestHelpReadsManageAssetsSchema(t *testing.T) {
 		}
 	}
 }
+
+// TestExampleForSharedAssetsListsThem: search's tools source answers "assets
+// shared with me" with manage_asset action=list scope=shared (#2809); a
+// parameter that mentions search in passing does not pull the example to it
+// (#2826).
+func TestExampleForSharedAssetsListsThem(t *testing.T) {
+	var schema map[string]any
+	if err := json.Unmarshal(manageAssetSchema, &schema); err != nil {
+		t.Fatal(err)
+	}
+	ex := toolhelp.Example(schema, "assets shared with me")
+	if ex["action"] != "list" || ex["scope"] != "shared" {
+		t.Errorf("example = %v, want action list scope shared", ex)
+	}
+}

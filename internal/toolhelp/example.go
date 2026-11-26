@@ -35,7 +35,7 @@ func Example(schema map[string]any, intent string) map[string]any {
 		fillNamedEnums(ex, props, "", nil, words)
 		return ex
 	}
-	cmd := bestCommand(field, commands, props, words)
+	cmd := bestCommand(field, commands, props, required, words)
 	ex := map[string]any{field: cmd}
 	for _, name := range sortedKeys(props) {
 		if name != field && neededFor(asMap(props[name]), required[name], cmd, commands) {
@@ -75,23 +75,17 @@ func commandEnum(props map[string]any) (field string, values []string) {
 
 // bestCommand scores each command by the intent words its name and its own
 // parameters hold, and by the enum values the intent names in a parameter
-// whose description mentions it; ties go to the command listed first.
-func bestCommand(field string, commands []string, props map[string]any, words []string) string {
+// whose description mentions it; ties go to the command listed first. A
+// command's own parameters are those whose description opens by naming it and
+// those it requires (#2826): a description that only mentions a command in
+// passing ("for the 'search' action") does not lend it its words.
+func bestCommand(field string, commands []string, props map[string]any, required map[string]bool, words []string) string {
 	best, bestScore := commands[0], -1
 	for _, c := range commands {
 		score := 2 * countMatches(words, strings.ReplaceAll(c, "_", " "))
 		for name, raw := range props {
-			if name == field {
-				continue
-			}
-			p := asMap(raw)
-			desc, _ := p["description"].(string)
-			named := commandsNamed(desc, commands)
-			if slices.Contains(named, c) {
-				score += countMatches(words, name+" "+desc)
-			}
-			if len(named) == 0 && mentions(desc, c) && namedEnumValue(p, words) != "" {
-				score += 2
+			if name != field {
+				score += parameterScore(paramRef{name: name, p: asMap(raw), required: required[name]}, c, commands, words)
 			}
 		}
 		if score > bestScore {
@@ -99,6 +93,32 @@ func bestCommand(field string, commands []string, props map[string]any, words []
 		}
 	}
 	return best
+}
+
+// paramRef is one parameter of a schema: its name, its property and whether
+// the schema requires it.
+type paramRef struct {
+	name     string
+	p        map[string]any
+	required bool
+}
+
+// parameterScore is what one parameter adds to command c's score: the intent
+// words its name and description hold when it is one of c's own parameters,
+// and 2 when it names no command, mentions c, and the intent names one of its
+// enum values.
+func parameterScore(ref paramRef, c string, commands, words []string) int {
+	name, p, required := ref.name, ref.p, ref.required
+	desc, _ := p["description"].(string)
+	use := useOf(desc, commands)
+	score := 0
+	if slices.Contains(prefixNamed(desc, commands), c) || (len(use.named) > 0 && requiredFor(use, required, c)) {
+		score += countMatches(words, name+" "+desc)
+	}
+	if len(use.named) == 0 && mentions(desc, c) && namedEnumValue(p, words) != "" {
+		score += 2
+	}
+	return score
 }
 
 // fillNamedEnums sets each enum parameter (other than the command field) whose
