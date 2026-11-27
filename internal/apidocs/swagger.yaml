@@ -20722,6 +20722,17 @@ definitions:
         - failing
         - disabled
         type: string
+      input:
+        description: |-
+          Input is what feeds the source (#2792): posted to (http), a polled
+          mailbox (imap), a form's submissions (form) or an application
+          database's notifications (postgres). The overview filters by it.
+        enum:
+        - http
+        - imap
+        - form
+        - postgres
+        type: string
       last_day:
         additionalProperties:
           format: int64
@@ -21071,6 +21082,13 @@ definitions:
     type: object
   whimap.RepairRecord:
     properties:
+      collapsed:
+        description: |-
+          Collapsed and CollapsedFiles are the copies of a message no event names
+          deleted into the folder that stays, and the files they held (#2842).
+        type: integer
+      collapsed_files:
+        type: integer
       kept:
         type: integer
       moved:
@@ -21086,10 +21104,17 @@ definitions:
     type: object
   whimap.RepairReport:
     properties:
+      collapsed:
+        description: |-
+          Collapsed are the copies of a folder no event names, deleted into the
+          one that stays (#2842), each with how many files it held.
+        items:
+          $ref: '#/definitions/whimap.RemovedFolder'
+        type: array
       kept:
         description: |-
-          Kept are the folders of the old form no event names and no named folder
-          matches.
+          Kept are the folders of the old form no event names that are a copy of
+          nothing.
         items:
           type: string
         type: array
@@ -23511,14 +23536,22 @@ paths:
       - Audit
   /admin/audit/metrics/breakdown:
     get:
-      description: Returns audit event counts grouped by a dimension.
+      description: 'Returns audit event counts grouped by a dimension. Counts are
+        exact over the window, never capped. With success=false they are the failures:
+        by error_category (the category a call was refused or failed with, such as
+        search_required, schema_required or invalid_arguments), by source (mcp, script,
+        portal, endpoint) or by persona.'
       parameters:
       - description: 'Dimension: tool_name, user_id, persona, toolkit_kind, connection,
-          event_kind'
+          event_kind, error_category, source'
         in: query
         name: group_by
         required: true
         type: string
+      - description: Count only the calls that succeeded (true) or failed (false)
+        in: query
+        name: success
+        type: boolean
       - description: 'Max entries (default: 10, max: 100)'
         in: query
         name: limit

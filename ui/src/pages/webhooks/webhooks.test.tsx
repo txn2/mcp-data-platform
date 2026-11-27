@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { WebhookStatusOverview } from "@/api/admin/types";
 import { mockWebhookOverview, mockWebhookSources, mockWebhookStatus } from "@/mocks/data/webhooks";
@@ -85,6 +85,52 @@ function row(text: string): HTMLElement {
   return screen.getByText(text, { selector: "div.font-medium" }).closest("tr")!;
 }
 
+describe("searching and filtering the sources (#2792)", () => {
+  const sourceRows = () => screen.queryAllByText(/./, { selector: "tbody div.font-medium" }).map((e) => e.textContent);
+
+  beforeEach(() => {
+    window.history.replaceState(null, "", "/portal/admin/webhooks");
+  });
+  afterEach(() => {
+    cleanup();
+    window.history.replaceState(null, "", "/portal/admin/webhooks");
+  });
+
+  it("narrows the list as you type, with no reload, and clearing shows every source again", () => {
+    render(<WebhooksPage onNavigate={vi.fn()} />);
+    const all = sourceRows();
+    expect(all.length).toBeGreaterThan(2);
+    const box = screen.getByRole("textbox", { name: "Search sources" });
+    fireEvent.change(box, { target: { value: "CRM" } });
+    expect(sourceRows()).toEqual(["crm-contacts"]);
+    expect(window.location.search).toBe("?q=CRM");
+    expect(screen.getByText(`1 of ${all.length} sources`)).toBeInTheDocument();
+    fireEvent.change(box, { target: { value: "" } });
+    expect(sourceRows()).toEqual(all);
+    expect(window.location.search).toBe("");
+  });
+
+  it("says no sources match rather than showing an empty table, and clears from there", () => {
+    render(<WebhooksPage onNavigate={vi.fn()} />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Search sources" }), { target: { value: "no-such-source" } });
+    expect(screen.getByText(/No sources match\./)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Clear the search and filters" }));
+    expect(sourceRows().length).toBeGreaterThan(2);
+  });
+
+  it("starts from the filter the address holds, so a filtered view can be shared", () => {
+    window.history.replaceState(null, "", "/portal/admin/webhooks?q=events&kind=imap");
+    render(<WebhooksPage onNavigate={vi.fn()} />);
+    expect(screen.getByRole("textbox", { name: "Search sources" })).toHaveValue("events");
+    expect(screen.queryByText("email-events", { selector: "div.font-medium" })).toBeNull();
+    window.history.replaceState(null, "", "/portal/admin/webhooks?rejected=1");
+    cleanup();
+    render(<WebhooksPage onNavigate={vi.fn()} />);
+    expect(sourceRows()).toContain("email-events");
+    expect(sourceRows()).not.toContain("meeting-summaries");
+  });
+});
+
 describe("WebhooksPage", () => {
   it("shows every source's health and counts from one request, and opens one on row click", () => {
     const onNavigate = vi.fn();
@@ -116,7 +162,7 @@ describe("WebhooksPage", () => {
           {
             name: "new-source", enabled: true, health: "silent", auth_mode: "hmac", connection: "c", table: "webhook_new_source",
             last_event_at: null, last_hour: {}, last_day: {}, pending: 0, failing: 0,
-            ack_last_hour: noAcks, ack_last_day: noAcks, segments_open_window: 0, segments_per_window_p95: 0,
+            ack_last_hour: noAcks, ack_last_day: noAcks, segments_open_window: 0, segments_per_window_p95: 0, input: "http",
           },
         ],
       }),
@@ -608,6 +654,8 @@ describe("the attachment repair (#2836)", () => {
     moved: 20114,
     removed: 2,
     removed_files: 3,
+    collapsed: 1,
+    collapsed_files: 4,
     kept: 1,
     report: {
       moved: [],
@@ -615,6 +663,7 @@ describe("the attachment repair (#2836)", () => {
         { folder: "webhooks/inbox/attachments/2026-11-04/inbox-9-3", files: 2 },
         { folder: "webhooks/inbox/attachments/2026-11-04/inbox-9-4", files: 1 },
       ],
+      collapsed: [{ folder: "webhooks/inbox/attachments/2018-06-20/inbox-1794972606-11033", files: 4 }],
       kept: ["webhooks/inbox/attachments/2026-09-01/inbox-3-10"],
     },
   };
@@ -624,16 +673,24 @@ describe("the attachment repair (#2836)", () => {
     const line = screen.getByTestId("attachment-repair");
     expect(line.textContent).toContain("20,114 message folders moved to their new addresses");
     expect(line.textContent).toContain("2 later copies removed (3 files)");
-    expect(line.textContent).toContain("1 folder kept (no message names them)");
+    // A message whose event expired, filed again under a renumbered folder (#2842).
+    expect(line.textContent).toContain("1 renumbered copy removed (4 files)");
+    expect(line.textContent).toContain("1 folder kept (no message names them and they have no copy)");
     expect(within(line).getByText("2026-11-04/inbox-9-3 (2 files)")).toBeTruthy();
+    expect(within(line).getByText("2018-06-20/inbox-1794972606-11033 (4 files)")).toBeTruthy();
     expect(within(line).getByText("2026-09-01/inbox-3-10")).toBeTruthy();
+  });
+
+  it("shows a repair that only collapsed renumbered copies", () => {
+    render(<AttachmentRepair source="inbox" repair={{ ...repair, moved: 0, removed: 0, kept: 0 }} />);
+    expect(screen.getByTestId("attachment-repair").textContent).toContain("1 renumbered copy removed (4 files)");
   });
 
   it("says how many more a long list holds, and nothing when it did nothing", () => {
     render(<AttachmentRepair source="inbox" repair={{ ...repair, removed: 19960 }} />);
     expect(screen.getByText("and 19,958 more")).toBeTruthy();
     cleanup();
-    const { container } = render(<AttachmentRepair source="inbox" repair={{ ...repair, moved: 0, removed: 0, kept: 0 }} />);
+    const { container } = render(<AttachmentRepair source="inbox" repair={{ ...repair, moved: 0, removed: 0, collapsed: 0, kept: 0 }} />);
     expect(container.textContent).toBe("");
   });
 });

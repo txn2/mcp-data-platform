@@ -1714,7 +1714,9 @@ export const handlers = [
     const filtered = filterByTimeRange(url, mockAuditEvents);
     const groupBy = url.searchParams.get("group_by") ?? "tool_name";
     const limit = parseInt(url.searchParams.get("limit") ?? "10", 10);
-    return HttpResponse.json(computeBreakdown(filtered, groupBy, limit));
+    const success = url.searchParams.get("success");
+    const scoped = success === null ? filtered : filtered.filter((e) => String(e.success) === success);
+    return HttpResponse.json(computeBreakdown(scoped, groupBy, limit));
   }),
 
   http.get(`${ADMIN_BASE}/audit/metrics/overview`, ({ request }) => {

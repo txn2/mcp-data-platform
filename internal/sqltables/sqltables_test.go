@@ -1,6 +1,7 @@
 package sqltables
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -178,6 +179,27 @@ func TestExtractCTENames(t *testing.T) {
 				"parsed_agg":  true,
 			},
 		},
+		// The forms between a name and its body #2840 found reported as tables.
+		{
+			name:     "materialized",
+			sql:      "WITH b AS MATERIALIZED (SELECT 1 AS id) SELECT * FROM b",
+			expected: map[string]bool{"b": true},
+		},
+		{
+			name:     "not materialized, no space before the body",
+			sql:      "WITH b AS NOT MATERIALIZED(SELECT 1) SELECT * FROM b",
+			expected: map[string]bool{"b": true},
+		},
+		{
+			name:     "recursive with a column list",
+			sql:      "WITH RECURSIVE tree (id, parent) AS (SELECT 1, 0) SELECT * FROM tree",
+			expected: map[string]bool{"tree": true},
+		},
+		{
+			name:     "quoted name, folded",
+			sql:      `WITH "Batch" AS (SELECT 1), Up AS(SELECT 2) SELECT * FROM up`,
+			expected: map[string]bool{"batch": true, "up": true},
+		},
 	}
 
 	for _, tt := range tests {
@@ -284,4 +306,32 @@ func TestExtractTablesWithRegex(t *testing.T) {
 			t.Errorf("expected nil, got %+v", result)
 		}
 	})
+}
+
+// TestExtract_DataModifyingWithStatement is #2840's statement: names its WITH
+// clause defines are not tables, whatever form defines them, and the tables
+// its CTEs read are.
+func TestExtract_DataModifyingWithStatement(t *testing.T) {
+	sql := `WITH b AS MATERIALIZED (SELECT gen_random_uuid() AS id),
+old AS (SELECT r.container_id, jsonb_build_object('a', r.a) AS v FROM container_rate r JOIN container_grid g ON g.id = r.grid_id),
+up AS (
+    INSERT INTO container_rate (container_id, a) SELECT c.id, 1 FROM container c
+    ON CONFLICT (container_id) DO UPDATE SET a = EXCLUDED.a
+    RETURNING container_id, a
+)
+INSERT INTO rate_change (batch_id, container_id, old_values, new_values)
+SELECT b.id, up.container_id, old.v, jsonb_build_object('a', up.a)
+  FROM up
+ CROSS JOIN B
+  LEFT JOIN old ON old.container_id = up.container_id
+RETURNING container_id, batch_id::text AS batch_id`
+	refs := Extract(sql)
+	got := make([]string, 0, len(refs))
+	for _, r := range refs {
+		got = append(got, r.FullPath)
+	}
+	want := []string{"container_rate", "container_grid", "container"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("Extract = %v, want %v", got, want)
+	}
 }

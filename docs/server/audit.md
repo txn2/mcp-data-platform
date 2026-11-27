@@ -281,6 +281,23 @@ metrics endpoints count such holds apart (#2819):
 These are computed when the metrics are read, from `error_category` and
 `event_kind`, so they apply to rows written before #2819 as well.
 
+## Failures by category, source and persona
+
+`GET /api/v1/admin/audit/metrics/breakdown` counts the failed calls of any
+window three ways (#2795): `group_by=error_category` by the category each was
+refused or failed with (`schema_required`, `search_required`,
+`purpose_required`, `invalid_arguments`, `session_expired`, `upstream_5xx`,
+...), `group_by=source` by where it came from (`mcp` for an agent session,
+`script` for a script run, `portal`, `endpoint`), and `group_by=persona`, each
+with `success=false`; `success=true` counts the successes, and no `success`
+counts every call. Every breakdown count is exact over its window
+(`start_time`, `end_time`), never capped: the event list's `total` stops at
+10,000 (`total_capped`), and the breakdown is how a larger window is counted.
+A call held for a person is a failure here, under `input_required`.
+
+Admin > Audit > Overview shows the same three counts for the page's time range
+under **Failures**, for tool calls.
+
 ## Parameter Sanitization
 
 Tool call arguments are logged for debugging and compliance. The `parameters` field stores those arguments verbatim (including complete SQL text and anything embedded in it), so treat it as sensitive.

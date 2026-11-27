@@ -154,6 +154,8 @@ export function useAuditTimeseries(params: TimeseriesParams = {}) {
 interface BreakdownParams {
   groupBy: BreakdownDimension;
   limit?: number;
+  /** Only the calls that succeeded (true) or failed (false) (#2795). */
+  success?: boolean;
   eventKind?: string;
   startTime?: string;
   endTime?: string;
@@ -163,6 +165,7 @@ export function useAuditBreakdown(params: BreakdownParams) {
   const searchParams = new URLSearchParams();
   searchParams.set("group_by", params.groupBy);
   if (params.limit) searchParams.set("limit", String(params.limit));
+  if (params.success !== undefined) searchParams.set("success", String(params.success));
   if (params.eventKind) searchParams.set("event_kind", params.eventKind);
   if (params.startTime) searchParams.set("start_time", params.startTime);
   if (params.endTime) searchParams.set("end_time", params.endTime);

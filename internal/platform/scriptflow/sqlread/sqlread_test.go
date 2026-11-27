@@ -33,6 +33,25 @@ func TestWritesOf(t *testing.T) {
 		},
 		{"SELECT FOR UPDATE writes nothing", "WITH a AS (SELECT * FROM s.t FOR UPDATE) SELECT * FROM a", nil},
 		{"a read", "SELECT * FROM s.t", nil},
+		// #2840: a statement is read by where its words stand, not by a
+		// comment in front of it or a verb inside one.
+		{
+			"a WITH statement opening with a comment",
+			"-- record the change beside the rate\nWITH b AS MATERIALIZED (SELECT 1 AS id) INSERT INTO s.rate_change SELECT id FROM b",
+			[]Write{{"INSERT", "s.rate_change"}},
+		},
+		{
+			"a block comment in front of the verb", "/* nightly */ UPDATE s.stock SET n = 0",
+			[]Write{{"UPDATE", "s.stock"}},
+		},
+		{
+			"a verb in a comment is not a write", "WITH a AS (SELECT 1 /* (DELETE FROM s.gone */) SELECT * FROM a",
+			nil,
+		},
+		{
+			"a -- inside a literal is not a comment", "WITH a AS (SELECT '--' AS x) INSERT INTO s.t SELECT x FROM a",
+			[]Write{{"INSERT", "s.t"}},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -60,4 +79,26 @@ func TestTablesInAndHoles(t *testing.T) {
 	_, ok = LastWrite("SELECT 1")
 	assert.False(t, ok)
 	assert.Empty(t, WritesOf("WITH x AS (SELECT 1) SELECT * FROM x"))
+}
+
+// TestTablesIn_TheTicketStatement is #2840's statement: its WITH names are not
+// tables, its writes are its CTE's target and its own, and a table named only
+// in a comment is not read.
+func TestTablesIn_TheTicketStatement(t *testing.T) {
+	sql := `-- one batch id for the whole change
+WITH b AS MATERIALIZED (SELECT gen_random_uuid() AS id),
+old AS (SELECT r.container_id, jsonb_build_object('a', r.a) AS v FROM container_rate r JOIN container_grid g ON g.id = r.grid_id),
+up AS (
+    INSERT INTO container_rate (container_id, a) SELECT c.id, $1 FROM container c
+    ON CONFLICT (container_id) DO UPDATE SET a = EXCLUDED.a
+    RETURNING container_id, a
+)
+INSERT INTO rate_change (batch_id, container_id, old_values, new_values)
+SELECT b.id, up.container_id, old.v, jsonb_build_object('a', up.a)
+  FROM up
+ CROSS JOIN b -- not FROM legacy_rates
+  LEFT JOIN old ON old.container_id = up.container_id
+RETURNING container_id, batch_id::text AS batch_id`
+	assert.Equal(t, []Write{{"INSERT", "container_rate"}, {"INSERT", "rate_change"}}, WritesOf(sql))
+	assert.Equal(t, []string{"container_rate", "container_grid", "container"}, TablesIn(sql))
 }

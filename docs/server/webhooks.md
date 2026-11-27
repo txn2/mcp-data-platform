@@ -418,12 +418,27 @@ still resolve. A folder of the old form that no event names is a later copy
 when a folder an event names, received the same day, holds the same files
 (names and sizes): its files and its stored folder are deleted. Compaction
 keeps the first copy of each message's event, so the copy a renumbering filed
-is the one no event names. A folder no event names and nothing matches is kept,
-since its event may have expired and its files may be all that is left of the
-message. What the repair moved, deleted and kept is listed on the source's page
-in the portal, Admin > Webhooks, and returned as `attachment_repair` by
-`GET /api/v1/admin/webhooks/sources/{name}`. A repair that fails is logged and
-tried again before the next poll, and the source's mail is filed either way.
+is the one no event names. A folder no event names is also a copy when
+another folder no event names is the same mail folder and UID under a different
+UIDVALIDITY, on the same day, holding the same files (#2842): the message's
+event has expired from the source's table, which on a backfilled mailbox is
+most of its mail. The copy with the lowest UIDVALIDITY, the first numbering,
+stays where it is, and the others are deleted. Each deleted copy's files hand
+their addresses (their own `uri` and any alias an earlier move left on them) to
+the file of the same name that stays, so a reference to a copy still resolves.
+A folder no event names that is a copy of nothing is kept, since its files may
+be all that is left of the message. What the repair moved, deleted as later
+copies, deleted as renumbered copies (`collapsed`) and kept is listed on the
+source's page in the portal, Admin > Webhooks, and returned as
+`attachment_repair` by `GET /api/v1/admin/webhooks/sources/{name}`. A repair
+that fails is logged and tried again before the next poll, and the source's mail
+is filed either way.
+
+The repair is recorded with its version. A source the first version (#2836)
+repaired is repaired again, once, by the second (#2842): what the first pass
+moved is of the new form and untouched, so the second reads only the folders
+the first kept. Its moves, removals and collapses are added to the counts
+already recorded, and `kept` is replaced by what is left.
 
 Attachments are not removed by `compacted_retention_days`: an expired window's
 own file goes, and the attachments its events named stay until someone deletes
@@ -841,7 +856,13 @@ metastore still lists. An operator may add one as a backstop, set longer than
   windows whose last compaction failed (Failing) with the newest one's error,
   and the raw files recorded against the open window (Raw files (current
   window); hover for the 95th percentile per window over the last day).
-  Clicking a row opens the source's page.
+  Clicking a row opens the source's page. Above the table, a search box
+  narrows the rows as you type, matching every word against a source's name,
+  table, connection and kind; **Filter by kind** keeps inbound, form, mailbox
+  or database sources (each row's `input` in the status route); and **Filter
+  by rejected requests** keeps the sources that rejected a request in the last
+  day (#2792). The search and filters are kept in the page's address (`q`,
+  `kind`, `rejected=1`), so a filtered list can be bookmarked or shared.
 - **Spool**, where a receiver has one (#2121): one row per replica with the
   events it acknowledged and has not yet drained (Waiting), their size, how
   long the oldest has waited, the events drained and the drains that failed

@@ -51,9 +51,11 @@ test.describe("Admin Indexing Dashboard", () => {
   });
 
   test("shows in-flight, retry backoff, and failure triage", async ({ page }) => {
-    await expect(page.getByText("In flight")).toBeVisible();
-    await expect(page.getByText("Retry backoff")).toBeVisible();
-    await expect(page.getByText("Failure triage")).toBeVisible();
+    // The section headings, by role: "No jobs in flight." is also text
+    // holding "In flight" while the dashboard is still loading (#2843).
+    await expect(page.getByRole("heading", { name: "In flight" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Retry backoff" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Failure triage" })).toBeVisible();
     // The failure-triage group surfaces the grouped error signature and a
     // last-seen timestamp drawn from the failures endpoint.
     await expect(page.getByText(/provider timeout/i).first()).toBeVisible();

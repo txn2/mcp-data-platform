@@ -83,10 +83,19 @@ operator holding an API key. Both are reachable from the portal's admin
 navigation, and the caller-facing [operation browser](../portal/apis.md) links
 to the `Gateway` tag beside the call it hands you.
 
-ReDoc is themed from the portal's own palette
-(`ui/src/pages/api-reference/redocTheme.ts`), with one stylesheet
-(`redoc.css`) for the components ReDoc styles with a literal rather than a
-theme key. What holds it is a contrast sweep in
+ReDoc 3 (#2769) gives every section, tag and operation an address under the
+page (`/portal/admin/api-reference/gateway`, and an operation's address beneath
+its tag), so a place in the reference can be bookmarked and Back returns to
+where the reader was. It follows the portal's light and dark theme by itself;
+its own theme switch and its vendor link are hidden, and one stylesheet
+(`ui/src/pages/api-reference/redoc.css`) replaces the few light-theme colors
+that fall short of AA (the PUT, PATCH and GET labels, the search prompt, a
+link-styled button) with the portal's tokens. ReDoc 3 sends telemetry to its
+vendor and draws a logo from the vendor's CDN by default: the page turns the
+telemetry off (`disableTelemetry`), and the build removes every address ReDoc
+would fetch from (`ui/redocOfflinePlugin.ts`, which fails the build if a new
+ReDoc adds one), so the page calls nothing outside the deployment and works
+air-gapped. What holds the colors is a contrast sweep in
 `ui/e2e/interactive/api-reference.spec.ts`: it walks every element of the
 rendered document on both themes, resolves the background each one's text
 actually sits on, and fails on any pair below WCAG AA for its size. A renderer
@@ -1242,6 +1251,8 @@ Returns the aggregate audit statistics for a time range: how many calls, how man
 Per-tool, per-person and per-connection counts are `GET /api/v1/admin/audit/metrics/breakdown`, counts over time are `GET /api/v1/admin/audit/metrics/timeseries`, and durations by percentile are `GET /api/v1/admin/audit/metrics/performance`.
 
 A call held for a person (`error_category` `input_required`) is counted in `hold_count` on the overview, on each `GET /api/v1/admin/audit/metrics/breakdown` entry and on each `GET /api/v1/admin/audit/metrics/timeseries` bucket, and is left out of `success_rate` on both sides and out of `error_count` (#2819). The breakdown also takes `group_by=event_kind`. See [Calls held for a person](audit.md#calls-held-for-a-person).
+
+The breakdown takes `group_by=error_category` and `group_by=source`, and a `success` filter (`true` or `false`): with `success=false` it counts the failed calls of the window by the category each was refused with, by where it came from, or by persona, exactly and never capped (#2795). See [Failures by category, source and persona](audit.md#failures-by-category-source-and-persona).
 
 ### Audit Metrics: Enrichment
 

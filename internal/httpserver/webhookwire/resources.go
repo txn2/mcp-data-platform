@@ -64,6 +64,10 @@ type windowResources struct {
 	// the windows to the people the platform created accounts for, so they
 	// land in the platform's own folder instead (#2257).
 	external func(name string) bool
+	// handOver gives one resource's addresses to another before the first is
+	// deleted as its copy (#2842): resource.HandOverAddresses on the
+	// platform's database.
+	handOver func(ctx context.Context, from, to string) error
 }
 
 // systemClaims are the platform's authority to write the windows: an
@@ -324,8 +328,16 @@ func (h windowResources) MoveFolder(ctx context.Context, src whsource.Source, fr
 	}, systemClaims())
 }
 
-// DeleteFile removes one of src's files.
-func (h windowResources) DeleteFile(ctx context.Context, _ whsource.Source, id string) error {
+// RemoveCopy removes the file id as a copy of the file keep (#2842): id's
+// addresses are handed to keep first, so a reference to the copy resolves to
+// the file that stays, and then id and its versions are deleted.
+func (h windowResources) RemoveCopy(ctx context.Context, src whsource.Source, id, keep string) error {
+	if keep == "" || h.handOver == nil {
+		return fmt.Errorf("removing %s from %s: no file to hand its addresses to", id, src.Name)
+	}
+	if err := h.handOver(ctx, id, keep); err != nil {
+		return err
+	}
 	return h.Delete(ctx, id)
 }
 

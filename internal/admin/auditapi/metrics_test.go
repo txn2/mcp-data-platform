@@ -30,13 +30,16 @@ type mockMetricsQuerier struct {
 	enrichmentErr     error
 	discoveryResult   *audit.DiscoveryStats
 	discoveryErr      error
+	// lastBreakdown is the filter the last breakdown was asked with.
+	lastBreakdown audit.BreakdownFilter
 }
 
 func (m *mockMetricsQuerier) Timeseries(_ context.Context, _ audit.TimeseriesFilter) ([]audit.TimeseriesBucket, error) {
 	return m.timeseriesResult, m.timeseriesErr
 }
 
-func (m *mockMetricsQuerier) Breakdown(_ context.Context, _ audit.BreakdownFilter) ([]audit.BreakdownEntry, error) {
+func (m *mockMetricsQuerier) Breakdown(_ context.Context, f audit.BreakdownFilter) ([]audit.BreakdownEntry, error) {
+	m.lastBreakdown = f
 	return m.breakdownResult, m.breakdownErr
 }
 
@@ -209,6 +212,36 @@ func TestGetAuditBreakdown_QueryError(t *testing.T) {
 
 	h.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+// TestGetAuditBreakdown_FailuresByCategoryAndSource is #2795: the failures of
+// a window grouped by the category they were refused with, or by where the
+// call came from, through the same route; a success value that is not a
+// boolean is refused rather than read as "any".
+func TestGetAuditBreakdown_FailuresByCategoryAndSource(t *testing.T) {
+	mock := &mockMetricsQuerier{breakdownResult: []audit.BreakdownEntry{{Dimension: "schema_required", Count: 3}}}
+	h := testMux(Config{Metrics: mock})
+	for _, dim := range []string{"error_category", "source", "persona"} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+			"/api/v1/admin/audit/metrics/breakdown?group_by="+dim+"&success=false", http.NoBody))
+		require.Equal(t, http.StatusOK, rec.Code, dim)
+		assert.Equal(t, audit.BreakdownDimension(dim), mock.lastBreakdown.GroupBy)
+		require.NotNil(t, mock.lastBreakdown.Success, dim)
+		assert.False(t, *mock.lastBreakdown.Success, dim)
+	}
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/admin/audit/metrics/breakdown?group_by=source", http.NoBody))
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Nil(t, mock.lastBreakdown.Success, "no success parameter counts every call")
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/admin/audit/metrics/breakdown?group_by=source&success=maybe", http.NoBody))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, decodeProblem(rec.Body.Bytes()).Detail, "invalid success")
 }
 
 // --- Overview handler tests ---

@@ -6,6 +6,7 @@ import fs from "fs";
 import { createRequire } from "module";
 import { buildSync } from "esbuild";
 import { bootRecovery } from "./bootRecoveryPlugin";
+import { redocOffline } from "./redocOfflinePlugin";
 
 // Serve mockServiceWorker.js from root "/" so the service worker scope covers
 // /api/* requests. Without this, the worker at /portal/mockServiceWorker.js can
@@ -386,6 +387,7 @@ export default defineConfig(({ mode }) => {
       react(),
       tailwindcss(),
       bootRecovery(),
+      redocOffline(),
       vendorFiles("reveal-vendor", REVEAL_VENDOR_PREFIX, revealFiles),
       vendorFiles("maplibre-vendor", MAP_VENDOR_PREFIX, mapFiles),
       vendorFiles("jsx-vendor", JSX_VENDOR_PREFIX, jsxVendorFiles),
@@ -424,6 +426,9 @@ export default defineConfig(({ mode }) => {
     // import of whichever page was loading (#1833). Naming them here bundles
     // them at startup, where nothing is waiting on them.
     optimizeDeps: {
+      // ReDoc is pre-bundled for the dev server before ordinary plugins run,
+      // so the rewrite that keeps it off Redocly's hosts is applied here too.
+      rolldownOptions: { plugins: [redocOffline()] },
       exclude: ["mermaid"],
       include: ["dayjs", "@braintree/sanitize-url", "hyparquet", "hyparquet-compressors"],
     },

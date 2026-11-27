@@ -90,8 +90,18 @@ func TestIssue2444_ADeletedUnreachableConnectionLeavesEveryReplicasStateCount(t 
 		}
 		return s
 	}
-	if after := unreachable2444(t); sum(after) != sum(baseline)+1 {
-		t.Fatalf("after the probe replicas report unreachable %v, baseline %v", after, baseline)
+	// The state is read off the scrape path, so the count is polled to the
+	// same bound the reload is, rather than read once (#2843).
+	probed := time.Now().Add(reload2444)
+	for {
+		after := unreachable2444(t)
+		if sum(after) == sum(baseline)+1 {
+			break
+		}
+		if time.Now().After(probed) {
+			t.Fatalf("after the probe replicas report unreachable %v, baseline %v, within %s", after, baseline, reload2444)
+		}
+		time.Sleep(250 * time.Millisecond)
 	}
 
 	if status, _ := a.rest(http.MethodDelete, "/api/v1/admin/connection-instances/api/"+name, http.NoBody); status != http.StatusNoContent {

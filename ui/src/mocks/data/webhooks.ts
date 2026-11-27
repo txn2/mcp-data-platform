@@ -10,6 +10,7 @@ import type {
   WebhookStatusOverview,
   WebhookStatusRange,
   WebhookVolumePoint,
+  WebhookSourceStatus,
 } from "@/api/admin/types";
 
 // Webhook sources for the demo portal and the page tests (#1870, #1979): one
@@ -335,6 +336,7 @@ export function mockWebhookOverview(
         enabled: s.enabled,
         health: mockHealth(s, st),
         auth_mode: s.auth.mode,
+        input: (s.config.input ?? "http") as WebhookSourceStatus["input"],
         connection: s.connection,
         table: s.table,
         last_event_at: st.last_segment_at,

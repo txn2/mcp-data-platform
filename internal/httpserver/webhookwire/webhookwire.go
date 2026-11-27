@@ -192,6 +192,9 @@ func buildFrom(p platformSource, address string, exec whtable.Executor) (*Webhoo
 		resources: windowResources{
 			w: writer, byURI: p.ResourceStore(), uriScheme: uriScheme, adminPersona: cfg.Admin.Persona,
 			external: externalPersona(p.PersonaRegistry()),
+			handOver: func(ctx context.Context, from, to string) error {
+				return resourcewrite.HandOverAddresses(ctx, p.DB(), from, to)
+			},
 		},
 		encryptor: p.RestEncryptor(), metrics: p.Metrics(), observe: p.Metrics(), cfg: cfg,
 		replica: instanceheader.HostName(address), address: address,

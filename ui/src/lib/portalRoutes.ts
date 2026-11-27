@@ -126,6 +126,9 @@ const KNOWN_PATTERNS: readonly RegExp[] = [
   // under a script that names no page gets the not-found page instead of a
   // blank one.
   /^\/automations\/[^/]+\/runs\/[^/]+$/,
+  // A tag, operation or section of the API reference: ReDoc 3 gives each an
+  // address under the page (#2769).
+  /^\/admin\/api-reference\/.+$/,
   /^\/admin\/assets\/.+$/,
   /^\/admin\/collections\/.+$/,
   /^\/admin\/resources\/[^/]+$/,

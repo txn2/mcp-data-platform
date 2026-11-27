@@ -264,6 +264,9 @@ func buildBreakdownQuery(filter audit.BreakdownFilter) (query string, args []any
 	if filter.EventKind != "" {
 		qb = qb.Where(sq.Eq{colEventKind: filter.EventKind})
 	}
+	if filter.Success != nil {
+		qb = qb.Where(sq.Eq{"success": *filter.Success})
+	}
 
 	qb = qb.GroupBy("dimension").
 		OrderBy("count DESC").

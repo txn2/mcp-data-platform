@@ -1,6 +1,7 @@
 package webhookwire
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"sort"
@@ -109,9 +110,24 @@ func TestAttachmentLibrary(t *testing.T) {
 	require.NoError(t, h.MoveFolder(ctx, inbox, "a/old", "a/new"))
 	assert.Equal(t, []resource.FolderRename{{Library: resource.ScopeFilter{Scope: resource.ScopePersona, ScopeID: "analyst"}, From: "a/old", To: "a/new"}}, w.moves)
 
+	// A copy's addresses go to the file that stays before it is deleted
+	// (#2842); with nothing to hand them to, nothing is deleted.
 	w.rows["x"] = &resource.Resource{ID: "x"}
-	require.NoError(t, h.DeleteFile(ctx, inbox, "x"))
+	require.Error(t, h.RemoveCopy(ctx, inbox, "x", "k"), "no handover wired")
+	var handed [][2]string
+	h.handOver = func(_ context.Context, from, to string) error {
+		handed = append(handed, [2]string{from, to})
+		return nil
+	}
+	require.Error(t, h.RemoveCopy(ctx, inbox, "x", ""), "no file to hand the addresses to")
+	assert.Contains(t, w.rows, "x")
+	require.NoError(t, h.RemoveCopy(ctx, inbox, "x", "k"))
+	assert.Equal(t, [][2]string{{"x", "k"}}, handed)
 	assert.NotContains(t, w.rows, "x")
+	w.rows["y"] = &resource.Resource{ID: "y"}
+	h.handOver = func(context.Context, string, string) error { return errBoom }
+	require.ErrorIs(t, h.RemoveCopy(ctx, inbox, "y", "k"), errBoom)
+	assert.Contains(t, w.rows, "y", "a failed handover deletes nothing")
 
 	require.NoError(t, h.DeleteSourceFolder(ctx, inbox))
 	assert.Contains(t, w.deletedFolders, "webhooks/inbox")

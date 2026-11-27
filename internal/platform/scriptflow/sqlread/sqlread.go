@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/pglex"
 	"github.com/txn2/mcp-data-platform/internal/sqltables"
 )
 
@@ -34,6 +35,7 @@ type Write struct{ Verb, Table string }
 // WITH, each common table expression's target and the target of the statement
 // that follows them.
 func WritesOf(sql string) []Write {
+	sql = withoutComments(sql)
 	if withRe.MatchString(sql) {
 		matches := cteDMLRe.FindAllStringSubmatch(sql, -1)
 		if len(matches) == 0 {
@@ -71,7 +73,7 @@ var (
 // that rather than dropped or guessed.
 func TablesIn(sql string) []string {
 	var holes []string
-	masked := holeRe.ReplaceAllStringFunc(sql, func(m string) string {
+	masked := holeRe.ReplaceAllStringFunc(withoutComments(sql), func(m string) string {
 		holes = append(holes, m)
 		return fmt.Sprintf("zzhole%dzz", len(holes)-1)
 	})
@@ -93,6 +95,35 @@ func TablesIn(sql string) []string {
 		out = append(out, p)
 	}
 	return out
+}
+
+// withoutComments is sql with each comment replaced by a space (#2840). A
+// statement is read by where its words stand: one opening with a comment
+// ("-- record the change\nWITH ...") is still a WITH statement, and a table
+// named in a comment is neither read nor written. Literals, quoted names and
+// dollar-quoted bodies are kept as written, and a "--" inside one is not a
+// comment.
+func withoutComments(sql string) string {
+	if !strings.Contains(sql, "--") && !strings.Contains(sql, "/*") {
+		return sql
+	}
+	var b strings.Builder
+	b.Grow(len(sql))
+	for i := 0; i < len(sql); {
+		end := pglex.SkipLexeme(sql, i)
+		switch {
+		case end == i:
+			_ = b.WriteByte(sql[i])
+			i++
+		case sql[i] == '-' || sql[i] == '/':
+			_ = b.WriteByte(' ')
+			i = end
+		default:
+			_, _ = b.WriteString(sql[i:end])
+			i = end
+		}
+	}
+	return b.String()
 }
 
 // HasHole reports whether any name carries a computed part.

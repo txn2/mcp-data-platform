@@ -70,8 +70,12 @@ type SourceStatus struct {
 	Enabled bool   `json:"enabled"`
 	// Health is the source's overall state. When more than one applies, the
 	// first of disabled, failing, silent, receiving is reported.
-	Health     string `json:"health" enums:"receiving,silent,failing,disabled"`
-	AuthMode   string `json:"auth_mode"`
+	Health   string `json:"health" enums:"receiving,silent,failing,disabled"`
+	AuthMode string `json:"auth_mode"`
+	// Input is what feeds the source (#2792): posted to (http), a polled
+	// mailbox (imap), a form's submissions (form) or an application
+	// database's notifications (postgres). The overview filters by it.
+	Input      string `json:"input" enums:"http,imap,form,postgres"`
 	Connection string `json:"connection"`
 	Table      string `json:"table"`
 	// LastEventAt is when the source last received an event; null when it

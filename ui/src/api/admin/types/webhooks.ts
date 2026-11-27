@@ -106,19 +106,23 @@ export interface WebhookIMAPFolder {
 }
 
 /**
- * WebhookAttachmentRepair is what the one-time repair of an imap source's
- * attachments did (#2836): the whole counts, and the first 100 folders of each
- * list, as paths in the source's library.
+ * WebhookAttachmentRepair is what the repair of an imap source's attachments
+ * did (#2836, #2842): the whole counts across its passes, and the first 100
+ * folders of each list, as paths in the source's library.
  */
 export interface WebhookAttachmentRepair {
   repaired_at: string;
   moved: number;
   removed: number;
   removed_files: number;
+  /** Copies of a message no event names, under another numbering of its folder (#2842). */
+  collapsed: number;
+  collapsed_files: number;
   kept: number;
   report: {
     moved: { from: string; to: string }[];
     removed: { folder: string; files: number }[];
+    collapsed: { folder: string; files: number }[];
     kept: string[];
   };
 }
@@ -300,6 +304,8 @@ export interface WebhookSourceStatus {
   enabled: boolean;
   health: WebhookHealth;
   auth_mode: WebhookAuthMode;
+  /** What feeds the source (#2792): posted to, a mailbox, a form, a database. */
+  input: "http" | "imap" | "form" | "postgres";
   connection: string;
   table: string;
   /** When the source last received an event; null when it never has. */

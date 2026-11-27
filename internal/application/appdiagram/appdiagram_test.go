@@ -495,3 +495,50 @@ func TestBuild_AnUnqualifiedTableIsTheApplications(t *testing.T) {
 	}
 	assert.True(t, found, "products is drawn in the application's schema")
 }
+
+// TestBuild_AWithStatementsNamesAreNotTables is #2840: a script that writes an
+// audit row in the same statement as the change it records, with a batch id
+// held in a MATERIALIZED common table expression, writes both tables and reads
+// no table named for an expression. No finding names the expression, and the
+// audit table the script reads elsewhere is written by it, even when the
+// statement opens with a comment.
+func TestBuild_AWithStatementsNamesAreNotTables(t *testing.T) {
+	f, in := shop()
+	f.filled = []string{"products"}
+	f.sources[intake][2] = `RATE_SQL = """
+-- one batch id for the whole change
+WITH b AS MATERIALIZED (SELECT gen_random_uuid() AS id),
+old AS (SELECT r.code, jsonb_build_object('n', r.n) AS v FROM company r JOIN site s ON s.code = r.code),
+up AS (
+    INSERT INTO company (code, n) SELECT d.code, $1 FROM document d
+    ON CONFLICT (code) DO UPDATE SET n = EXCLUDED.n
+    RETURNING code, n
+)
+INSERT INTO invoice (batch_id, code, old_values)
+SELECT b.id, up.code, old.v
+  FROM up
+ CROSS JOIN b
+  LEFT JOIN old ON old.code = up.code
+RETURNING code, batch_id::text AS batch_id
+"""
+
+def apply(tx):
+    """Applies the rate change and records it."""
+    return tx.query(RATE_SQL, params = [1])
+
+def main():
+    """Changes the rates."""
+    platform.transaction("orders", apply)
+    platform.execute("INSERT INTO shop.document (b) VALUES (1)", connection = "orders")
+    platform.execute("INSERT INTO shop.site (code) VALUES (1)", connection = "orders")
+    platform.execute("INSERT INTO shop.signups (email) VALUES (1)", connection = "orders")
+`
+	f.sources[api][1] = "def handle(req):\n    \"\"\"Answers.\"\"\"\n    return platform.query(\"SELECT * FROM invoice JOIN products ON true\", connection = \"orders\")\n"
+	d := Build(context.Background(), f, in)
+	for _, n := range d.Nodes {
+		assert.NotContains(t, []string{"b", "old", "up"}, n.Label, "a WITH name is drawn as a table")
+	}
+	assert.True(t, hasLink(d, "script:"+intake, "table:orders/shop.invoice", LinkWrites), "the statement's own target is written")
+	assert.True(t, hasLink(d, "script:"+intake, "table:orders/shop.company", LinkWrites), "the CTE's target is written")
+	assert.Empty(t, unwrittenFindings(d), "every table read is written by a part")
+}

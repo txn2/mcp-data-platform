@@ -1,10 +1,8 @@
-import { useMemo } from "react";
 import { ExternalLink } from "lucide-react";
 import { RedocStandalone } from "redoc";
 
 import { Button } from "@/components/ui/button";
 import { API_SPEC_URL, SWAGGER_UI_URL } from "@/lib/apiDocs";
-import { useResolvedDark } from "@/stores/theme";
 import { redocOptions } from "./redocTheme";
 import "./redoc.css";
 
@@ -24,9 +22,17 @@ import "./redoc.css";
 // large dependency, so the page it is imported by is one of the shell's lazy
 // routes (see AdminPages) and none of it is downloaded until this page opens.
 
+const OPTIONS = redocOptions();
+
+/**
+ * REFERENCE_BASE_PATH is where ReDoc mounts its own routes. ReDoc 3 gives each
+ * section, tag and operation an address of its own and writes them as links
+ * from the root unless told otherwise, which would send a reader clicking
+ * "Gateway" to /gateway, out of the portal.
+ */
+export const REFERENCE_BASE_PATH = "/portal/admin/api-reference";
+
 export function ApiReferencePage() {
-  const dark = useResolvedDark();
-  const options = useMemo(() => redocOptions(dark), [dark]);
 
   return (
     <div className="space-y-3">
@@ -44,19 +50,16 @@ export function ApiReferencePage() {
         </Button>
       </div>
 
-      {/* Two things this block is careful about.
-          Keyed by theme, because ReDoc resolves its theme once, when the
-          document mounts: a reader switching to dark mid-read would otherwise
-          keep the palette they arrived on.
-          No overflow on the container, because ReDoc's menu is
+      {/* No overflow on the container, because ReDoc's menu is
           `position: sticky` and an ancestor with any other overflow becomes the
           scroll container it sticks to -- one that never scrolls, leaving the
-          menu pinned to the top of the document instead of following. */}
+          menu pinned to the top of the document instead of following. The
+          options never change, so they are made once, outside the render. */}
       <div className="redoc-host rounded-lg border bg-card">
         <RedocStandalone
-          key={dark ? "dark" : "light"}
           specUrl={API_SPEC_URL}
-          options={options}
+          basePath={REFERENCE_BASE_PATH}
+          options={OPTIONS}
         />
       </div>
     </div>

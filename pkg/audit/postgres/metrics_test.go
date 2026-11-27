@@ -223,6 +223,9 @@ func TestBreakdown_AllDimensions(t *testing.T) {
 		audit.BreakdownByPersona,
 		audit.BreakdownByToolkitKind,
 		audit.BreakdownByConnection,
+		audit.BreakdownByEventKind,
+		audit.BreakdownByErrorCategory,
+		audit.BreakdownBySource,
 	}
 	for _, dim := range dims {
 		t.Run(string(dim), func(t *testing.T) {
@@ -241,6 +244,21 @@ func TestBreakdown_AllDimensions(t *testing.T) {
 			assert.NotNil(t, result)
 		})
 	}
+}
+
+// TestBreakdown_FailuresOnly is #2795: with Success set the breakdown counts
+// only the calls that failed (or only those that succeeded).
+func TestBreakdown_FailuresOnly(t *testing.T) {
+	failed := false
+	query, args, err := buildBreakdownQuery(audit.BreakdownFilter{GroupBy: audit.BreakdownByErrorCategory, Success: &failed})
+	require.NoError(t, err)
+	assert.Contains(t, query, "COALESCE(error_category, '') AS dimension")
+	assert.Contains(t, query, "AND success = $3 GROUP BY")
+	assert.Equal(t, false, args[2])
+
+	query, _, err = buildBreakdownQuery(audit.BreakdownFilter{GroupBy: audit.BreakdownBySource})
+	require.NoError(t, err)
+	assert.Contains(t, query, "timestamp <= $2 GROUP BY", "no filter, every call")
 }
 
 func TestBreakdown_CustomLimit(t *testing.T) {

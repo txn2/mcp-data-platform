@@ -20,8 +20,11 @@ type fakeLibrary struct {
 	files          map[string]StoredFile
 	moves          []FolderMove
 	deletedFolders []string
-	listErr        error
-	moveErr        error
+	// handedTo is, for each removed copy, the file its addresses went to.
+	handedTo  map[string]string
+	listErr   error
+	moveErr   error
+	removeErr error
 }
 
 func (f *fakeLibrary) ListAttachments(context.Context, whsource.Source) ([]StoredFile, error) {
@@ -50,7 +53,14 @@ func (f *fakeLibrary) MoveFolder(_ context.Context, _ whsource.Source, from, to 
 	return nil
 }
 
-func (f *fakeLibrary) DeleteFile(_ context.Context, _ whsource.Source, id string) error {
+func (f *fakeLibrary) RemoveCopy(_ context.Context, _ whsource.Source, id, keep string) error {
+	if f.removeErr != nil {
+		return f.removeErr
+	}
+	if f.handedTo == nil {
+		f.handedTo = map[string]string{}
+	}
+	f.handedTo[id] = keep
 	delete(f.files, id)
 	return nil
 }
@@ -73,20 +83,20 @@ func (f *fakeEvents) WindowEvents(_ context.Context, _ whsource.Source, w whstor
 }
 
 type fakeRepairs struct {
-	done    map[string]RepairReport
-	readErr error
+	done     map[string]RepairReport
+	versions map[string]int
+	readErr  error
 }
 
-func (f *fakeRepairs) Repaired(_ context.Context, source string) (bool, error) {
-	_, ok := f.done[source]
-	return ok, f.readErr
+func (f *fakeRepairs) RepairedVersion(_ context.Context, source string) (int, error) {
+	return f.versions[source], f.readErr
 }
 
-func (f *fakeRepairs) RecordRepair(_ context.Context, source string, r RepairReport) error {
+func (f *fakeRepairs) RecordRepair(_ context.Context, source string, version int, r RepairReport) error {
 	if f.done == nil {
-		f.done = map[string]RepairReport{}
+		f.done, f.versions = map[string]RepairReport{}, map[string]int{}
 	}
-	f.done[source] = r
+	f.done[source], f.versions[source] = r, version
 	return nil
 }
 
@@ -151,6 +161,8 @@ func TestRepair_MovesNamedFoldersAndRemovesLaterCopies(t *testing.T) {
 
 	assert.NotContains(t, lib.files, "r3")
 	assert.NotContains(t, lib.files, "r4")
+	assert.Equal(t, map[string]string{"r3": "r1", "r4": "r2"}, lib.handedTo,
+		"each copy's addresses go to the file of the same name that stays")
 	assert.Equal(t, day+MessageFolder("<m1@x>"), lib.files["r1"].Folder, "the named folder answers at the message's address")
 	assert.Equal(t, []string{day + "inbox-9-3"}, lib.deletedFolders)
 	assert.Equal(t, report, store.done["inbox"], "the report is recorded")
@@ -213,4 +225,81 @@ func TestRepair_AFailureLeavesItOwed(t *testing.T) {
 	}
 	_, err := (&Repairer{Store: &fakeRepairs{readErr: errors.New("db")}}).Owed(context.Background(), whsource.Source{Name: "x"})
 	assert.Error(t, err)
+}
+
+// TestRepair_CollapsesCopiesNoEventNames is #2842: a message whose event has
+// expired, filed again under each UIDVALIDITY the server gave its folder, is
+// left as one folder, the first numbering, where it is; its copies' files hand
+// their addresses to it and are counted as collapsed, not kept. Two messages
+// that share one UID in different folders, the same UID under another
+// numbering holding other files, and the same folder and UID on another day
+// are not copies.
+func TestRepair_CollapsesCopiesNoEventNames(t *testing.T) {
+	day := "webhooks/inbox/attachments/2018-06-20/"
+	lib := &fakeLibrary{files: map[string]StoredFile{
+		"a1": {ID: "a1", Folder: day + "inbox-1538884683-11033", Name: "plan.pdf", Size: 10},
+		"a2": {ID: "a2", Folder: day + "inbox-1538884683-11033", Name: "logo.png", Size: 4},
+		"b1": {ID: "b1", Folder: day + "inbox-1794972606-11033", Name: "plan.pdf", Size: 10},
+		"b2": {ID: "b2", Folder: day + "inbox-1794972606-11033", Name: "logo.png", Size: 4},
+		// A third numbering, written before the second one sorted: still a copy.
+		"c1": {ID: "c1", Folder: day + "inbox-1694972606-11033", Name: "plan.pdf", Size: 10},
+		"c2": {ID: "c2", Folder: day + "inbox-1694972606-11033", Name: "logo.png", Size: 4},
+		// Same UID, another numbering, other files: another message.
+		"d1": {ID: "d1", Folder: day + "inbox-1894972606-11033", Name: "other.pdf", Size: 10},
+		// Same UID in another folder: another message.
+		"e1": {ID: "e1", Folder: day + "sent-1794972606-11033", Name: "plan.pdf", Size: 10},
+		"e2": {ID: "e2", Folder: day + "sent-1794972606-11033", Name: "logo.png", Size: 4},
+		// Same folder and UID on another day: another message.
+		"f1": {ID: "f1", Folder: "webhooks/inbox/attachments/2018-06-21/inbox-1794972606-11033", Name: "plan.pdf", Size: 10},
+	}}
+	store := &fakeRepairs{}
+	report, err := (&Repairer{Library: lib, Events: &fakeEvents{}, Store: store}).Repair(context.Background(), whsource.Source{Name: "inbox"})
+	require.NoError(t, err)
+
+	assert.Empty(t, report.Moved)
+	assert.Empty(t, report.Removed)
+	assert.Equal(t, []RemovedFolder{
+		{Folder: day + "inbox-1694972606-11033", Files: 2},
+		{Folder: day + "inbox-1794972606-11033", Files: 2},
+	}, report.Collapsed)
+	assert.Equal(t, 4, report.CollapsedFiles())
+	assert.Equal(t, []string{
+		day + "inbox-1538884683-11033",
+		day + "inbox-1894972606-11033",
+		day + "sent-1794972606-11033",
+		"webhooks/inbox/attachments/2018-06-21/inbox-1794972606-11033",
+	}, report.Kept, "kept lists only the folders that are a copy of nothing")
+
+	assert.Equal(t, map[string]string{"b1": "a1", "b2": "a2", "c1": "a1", "c2": "a2"}, lib.handedTo)
+	assert.Equal(t, day+"inbox-1538884683-11033", lib.files["a1"].Folder, "the first numbering stays where it is")
+	assert.ElementsMatch(t, []string{day + "inbox-1694972606-11033", day + "inbox-1794972606-11033"}, lib.deletedFolders)
+	assert.Equal(t, RepairVersion, store.versions["inbox"])
+}
+
+// TestRepair_ASourceRepairedByTheFirstVersionIsRepairedAgain: a source the
+// first repair recorded is owed to this one, and a source this one recorded is
+// not (#2842).
+func TestRepair_ASourceRepairedByTheFirstVersionIsRepairedAgain(t *testing.T) {
+	store := &fakeRepairs{versions: map[string]int{"old": 1, "new": RepairVersion}}
+	r := &Repairer{Store: store}
+	owed, err := r.Owed(context.Background(), whsource.Source{Name: "old"})
+	require.NoError(t, err)
+	assert.True(t, owed, "repaired by version 1")
+	owed, err = r.Owed(context.Background(), whsource.Source{Name: "new"})
+	require.NoError(t, err)
+	assert.False(t, owed)
+}
+
+// TestRepair_AFailedCollapseLeavesItOwed: a copy that cannot be removed fails
+// the repair before it is recorded.
+func TestRepair_AFailedCollapseLeavesItOwed(t *testing.T) {
+	day := "webhooks/inbox/attachments/2018-06-20/"
+	lib := &fakeLibrary{removeErr: errors.New("boom"), files: map[string]StoredFile{
+		"a1": {ID: "a1", Folder: day + "inbox-1-7", Name: "x", Size: 1},
+		"b1": {ID: "b1", Folder: day + "inbox-2-7", Name: "x", Size: 1},
+	}}
+	store := &fakeRepairs{}
+	_, err := (&Repairer{Library: lib, Events: &fakeEvents{}, Store: store}).Repair(context.Background(), whsource.Source{Name: "inbox"})
+	require.Error(t, err)
+	assert.Empty(t, store.done)
 }
