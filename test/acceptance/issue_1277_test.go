@@ -191,17 +191,21 @@ func TestIssue1277_SearchSurfacesTheConnectionsOperations(t *testing.T) {
 	c := connect(t)
 	name := issue1277Connect(t, c, "search", nil)
 
-	out := c.call("search", map[string]any{
-		"intent": "dataset", "sources": []any{"endpoints"}, "limit": 50,
-		"purpose": issue1277Purpose,
+	// The connection is saved on one replica; the other loads it from the
+	// reload bus and reads its schema in the background, and a search may
+	// reach either, so the operations are waited for rather than looked for
+	// once.
+	waitFor(t, "the graphql connection's operations in the endpoints group", func() (bool, string) {
+		out := c.call("search", map[string]any{
+			"intent": "dataset", "sources": []any{"endpoints"}, "limit": 50,
+			"purpose": issue1277Purpose,
+		})
+		raw, err := json.Marshal(out)
+		if err != nil {
+			return false, err.Error()
+		}
+		return strings.Contains(string(raw), name), string(raw)
 	})
-	raw, err := json.Marshal(out)
-	if err != nil {
-		t.Fatalf("marshal search result: %v", err)
-	}
-	if !strings.Contains(string(raw), name) {
-		t.Fatalf("the graphql connection's operations are absent from the endpoints group:\n%s", raw)
-	}
 }
 
 // TestIssue1277_DiscoverRendersASkeletonThatRuns is the criterion the

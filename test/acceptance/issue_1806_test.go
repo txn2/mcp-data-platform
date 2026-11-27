@@ -76,9 +76,12 @@ func TestIssue1806_AnS3ConnectionReadsItsKeysFromStoredSecrets(t *testing.T) {
 	if status, out := put1806(t, c, "s3", name, s3Config1806(idSecret, keySecret)); status != http.StatusOK {
 		t.Fatalf("saving the connection again: %d %v", status, out)
 	}
-	if res, _, err := c.callRaw("s3_list", map[string]any{"connection": name, "purpose": "Acceptance #1806: list with a wrong key."}); err == nil && !res.IsError {
-		t.Error("s3_list succeeded with the wrong key the secret now holds")
-	}
+	// The save rebuilds the connection on the replica that took it; the other
+	// rebuilds it when the reload bus reaches it, and a call may reach either.
+	waitFor(t, "s3_list refused with the wrong key the secret now holds", func() (bool, string) {
+		res, text, err := c.callRaw("s3_list", map[string]any{"connection": name, "purpose": "Acceptance #1806: list with a wrong key."})
+		return err != nil || res.IsError, text
+	})
 }
 
 // TestIssue1806_ASaveIsRefusedASecretOrFieldThatDoesNotFit: a secret not
