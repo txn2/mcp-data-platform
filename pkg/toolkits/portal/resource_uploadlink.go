@@ -10,15 +10,15 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceupload"
-	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
-	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
-// resourceActionUploadLink issues a single-use link an agent PUTs a file to
-// from its shell (#2639): a file larger than a tool call reaches the library
-// with no portal, no API key and no public object storage.
+// resourceActionUploadLink issues a link files are PUT to (#2639): from an
+// agent's shell, a file larger than a tool call reaches the library with no
+// portal, no API key and no public object storage; from an external service,
+// its output lands in the library by URL, several files to a link and up to a
+// day after it was issued (#2844).
 const resourceActionUploadLink = "upload_link"
 
 // UploadLinks issues upload links (resourceupload.Service).
@@ -40,6 +40,16 @@ func (t *Toolkit) MountUploadLinks(mux *http.ServeMux) {
 	}
 }
 
+// MountUploadLinkPortal registers the portal's upload link routes (#2844) on
+// mux, from the issuer this toolkit holds; nothing without one.
+func (t *Toolkit) MountUploadLinkPortal(mux *http.ServeMux, extract resource.ClaimsExtractor) {
+	if m, ok := t.uploadLinks.(interface {
+		MountPortal(mux *http.ServeMux, extract resource.ClaimsExtractor)
+	}); ok {
+		m.MountPortal(mux, extract)
+	}
+}
+
 // uploadLinkOutput is a link as the caller is handed it.
 type uploadLinkOutput struct {
 	resourceupload.Issued
@@ -57,13 +67,9 @@ func (t *Toolkit) handleUploadLink(ctx context.Context, input manageResourceInpu
 	if t.uploadLinks == nil {
 		return toolkit.ErrorResult("this deployment cannot issue upload links: it has no resource library or no database to keep them"), nil, nil
 	}
-	if pc := middleware.GetPlatformContext(ctx); mcpcontext.GetSource(ctx) == mcpcontext.SourceScript ||
-		(pc != nil && strings.HasPrefix(pc.UserID, "script:")) {
-		// A run has no shell to PUT from, and its recording keeps every answer
-		// it is given, the link's token among them.
-		return toolkit.ErrorResult("a saved script's run cannot use an upload link: it writes the file with " +
-			"manage_resource action=create, or lands an export with platform.export"), nil, nil
-	}
+	// A saved script's run may ask for one to hand an external service
+	// (#2844). Its recording keeps the link, and the recording is read by the
+	// script's owner and administrators, who can write the folder already.
 	claims := refClaims(ctx)
 	in, refusal := uploadLinkRequest(input, claims)
 	if refusal != "" {
@@ -79,22 +85,47 @@ func (t *Toolkit) handleUploadLink(ctx context.Context, input manageResourceInpu
 	}
 	return toolkit.JSONResultTyped(uploadLinkOutput{
 		Issued: issued, Scope: string(in.Scope), ScopeID: in.ScopeID, Path: in.Path, Filename: in.Filename,
-		Example: "curl --fail -T " + shellQuoted(in.Filename) + " -H 'Content-Type: " + input.ContentType + "' '" + issued.URL + "'",
-		Message: "PUT the file to upload_url from your shell, once, before expires_at; it is filed at this address as you, " +
-			"with the checks a portal upload gets. The answer names the resource's reference, which manage_resource " +
-			"action=extract and manage_site publish take. The link is good for one upload and at most max_bytes.",
+		Example: uploadExample(in.Filename, input.ContentType, issued.URL),
+		Message: uploadMessage(issued),
 	})
+}
+
+// uploadExample is the curl that PUTs one file to the link.
+func uploadExample(filename, contentType, url string) string {
+	if filename == "" {
+		return "curl --fail -T 'report.pdf' -H 'Content-Type: " + contentType + "' '" + url + "/report.pdf'"
+	}
+	return "curl --fail -T " + shellQuoted(filename) + " -H 'Content-Type: " + contentType + "' '" + url + "'"
+}
+
+// uploadMessage says how the link is used.
+func uploadMessage(issued resourceupload.Issued) string {
+	where := "PUT the file to upload_url"
+	if issued.NameInURL {
+		where = "PUT each file to upload_url followed by /<filename>"
+	}
+	return where + ", from your shell or by giving the URL to the service that produces the files, before " +
+		"expires_at. Each file is filed in this folder as you, with the checks a portal upload gets, and the answer " +
+		"to each PUT names the resource's reference, which manage_resource action=extract and manage_site publish " +
+		"take. The link takes max_files files of at most max_bytes each; a PUT that files nothing can be sent again. " +
+		"It is listed, and can be revoked, on the portal's Resources page."
 }
 
 // uploadLinkRequest is the link input asks for, checked as a create of the
 // same file is before it reads any content, or the refusal.
 func uploadLinkRequest(input manageResourceInput, claims resource.Claims) (in resourceupload.IssueRequest, refusal string) {
 	scope, scopeID := resolveResourceScope(input, claims)
-	filename, err := resource.SanitizeFilename(input.Filename)
-	if err != nil {
-		return resourceupload.IssueRequest{}, "filename is required and must be a plain file name: " + err.Error()
+	filename := ""
+	if strings.TrimSpace(input.Filename) != "" {
+		clean, err := resource.SanitizeFilename(input.Filename)
+		if err != nil {
+			return resourceupload.IssueRequest{}, "filename must be a plain file name: " + err.Error()
+		}
+		filename = clean
 	}
-	if err := validateResourcePlacement(scope, scopeID, input); err != nil {
+	// A display name is optional: a file a link files with none is named for
+	// itself (#2844).
+	if err := validatePlacement(scope, scopeID, input); err != nil {
 		return resourceupload.IssueRequest{}, err.Error()
 	}
 	if strings.TrimSpace(input.ContentType) == "" {
@@ -110,7 +141,7 @@ func uploadLinkRequest(input manageResourceInput, claims resource.Claims) (in re
 		Scope: scope, ScopeID: scopeID, Path: input.Path, Filename: filename,
 		DisplayName: input.DisplayName, Description: input.Description, Tags: normalizeTags(input.Tags),
 		ContentType: input.ContentType, IfExists: strings.TrimSpace(input.IfExists),
-		MaxBytes: input.SizeBytes, TTL: time.Duration(input.TTLSeconds) * time.Second,
+		MaxBytes: input.SizeBytes, TTL: time.Duration(input.TTLSeconds) * time.Second, MaxFiles: input.MaxFiles,
 	}, ""
 }
 

@@ -34990,6 +34990,54 @@ const docTemplate = `{
                 }
             }
         },
+        "/resources/downloads/{token}/{filename}": {
+            "get": {
+                "description": "Serves the managed resource a download link names (manage_resource action=download_link or the portal's Copy link, #2847), as a download, with no session or key. A single-download link ends after its first full download (a GET without Range; a HEAD or a byte-range read does not count) or after an hour, a six-hour link after six hours. An expired, used or altered link answers 403; a file since deleted, or a name that is not the file's, answers 404.",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Download a file through a download link",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "The link's signed token",
+                        "name": "token",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "The file's name",
+                        "name": "filename",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/resources/external-folders": {
             "get": {
                 "security": [
@@ -35587,9 +35635,144 @@ const docTemplate = `{
                 }
             }
         },
+        "/resources/upload-links": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The upload links the caller made (from the portal or manage_resource action=upload_link, #2844) that can still take a file: not expired, not revoked and not full. A link's token is never listed.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "List my open upload links",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/resourceupload.openList"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Makes a link an external service PUTs files to (#2844), filed in the folder named as the caller, with the checks a portal upload gets. Without a filename each file is PUT to upload_url/\u003cfilename\u003e; max_files (1 to 100) is how many files it takes, size_bytes the most each may be, ttl_seconds how long it lives (default 900, at most 86400). The link is shown once.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Make an upload link",
+                "parameters": [
+                    {
+                        "description": "The link",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/resourceupload.issueBody"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/resourceupload.Issued"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/resources/upload-links/{id}/revoke": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Ends an upload link before it expires (#2844): a PUT to it answers 404 from then on. The person who made it, or an administrator, may.",
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Revoke an upload link",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "The link's id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/resources/uploads/{token}": {
             "put": {
-                "description": "Files the request body as the managed resource the link was issued for (manage_resource action=upload_link, #2639), as the person who asked for it, with the checks a portal upload gets: the deployment's upload limit, the denied types and the link's if_exists. The link is the credential: it takes no session or key, is good for one PUT, and expires minutes after it was issued. A body past the size the link was issued for is refused. An unknown, used or expired link answers 404, the three told apart to no one.",
+                "description": "Files the request body as a managed resource in the folder the link was issued for (manage_resource action=upload_link or the portal's Resources page, #2639, #2844), as the person who asked for it, with the checks a portal upload gets: the deployment's upload limit, the denied types and the link's if_exists. The link is the credential: it takes no session or key, takes as many files as it was issued for (max_files), and expires when it was issued to (at most a day). A link issued with a filename is PUT to as it is; one issued without is PUT to with each file's name after the token (/resources/uploads/{token}/{filename}). A PUT that files nothing (a body past the size, a refused type) gives its place back, so it can be sent again. An unknown, full, revoked or expired link answers 404, told apart to no one.",
                 "consumes": [
                     "application/octet-stream"
                 ],
@@ -35611,10 +35794,78 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "201": {
-                        "description": "resource_id, reference, uri, filename, content_type and size_bytes of the file filed",
+                        "description": "Created",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/resourceupload.uploadedFile"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/resources/uploads/{token}/{filename}": {
+            "put": {
+                "description": "The form of PUT /resources/uploads/{token} for a link issued with no filename (#2844): the file is filed under the name after the token, which must be a plain file name.",
+                "consumes": [
+                    "application/octet-stream"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Upload a named file to an upload link",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "The link's token",
+                        "name": "token",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "The file's name",
+                        "name": "filename",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/resourceupload.uploadedFile"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
@@ -36055,6 +36306,73 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/resources/{id}/download-link": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a short-lived link anybody holding it can download the file from with no sign-in (#2847), for handing a file to a connection or service that takes one by URL. expires is single_download (the default), which ends after the first full download or an hour, or 6h, which works for six hours. The caller must be able to read the file.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Get a download link",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Resource ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "single_download (default) or 6h",
+                        "name": "expires",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/resource.downloadLinkResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/resource.errorResponse"
                         }
@@ -54853,6 +55171,22 @@ const docTemplate = `{
                 }
             }
         },
+        "resource.downloadLinkResponse": {
+            "type": "object",
+            "properties": {
+                "expires": {
+                    "type": "string",
+                    "example": "single_download"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string",
+                    "example": "https://data.example.com/api/v1/resources/downloads/eyJ...Q/report.pdf"
+                }
+            }
+        },
         "resource.errorResponse": {
             "type": "object",
             "properties": {
@@ -55262,6 +55596,156 @@ const docTemplate = `{
                 },
                 "via_persona": {
                     "type": "string"
+                }
+            }
+        },
+        "resourceupload.Issued": {
+            "type": "object",
+            "properties": {
+                "expires_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "max_bytes": {
+                    "type": "integer"
+                },
+                "max_files": {
+                    "type": "integer"
+                },
+                "method": {
+                    "type": "string"
+                },
+                "name_in_url": {
+                    "description": "NameInURL says each file is named by the path segment after URL.",
+                    "type": "boolean"
+                },
+                "upload_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "resourceupload.Open": {
+            "type": "object",
+            "properties": {
+                "content_type": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "filename": {
+                    "type": "string"
+                },
+                "files_used": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "max_bytes": {
+                    "type": "integer"
+                },
+                "max_files": {
+                    "type": "integer"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "scope": {
+                    "type": "string"
+                },
+                "scope_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "resourceupload.issueBody": {
+            "type": "object",
+            "properties": {
+                "content_type": {
+                    "type": "string",
+                    "example": "image/png"
+                },
+                "filename": {
+                    "type": "string",
+                    "example": "report.pdf"
+                },
+                "if_exists": {
+                    "type": "string",
+                    "example": "fail"
+                },
+                "max_files": {
+                    "type": "integer",
+                    "example": 4
+                },
+                "path": {
+                    "type": "string",
+                    "example": "renders"
+                },
+                "scope": {
+                    "type": "string",
+                    "example": "user"
+                },
+                "scope_id": {
+                    "type": "string"
+                },
+                "size_bytes": {
+                    "type": "integer",
+                    "example": 20971520
+                },
+                "ttl_seconds": {
+                    "type": "integer",
+                    "example": 7200
+                }
+            }
+        },
+        "resourceupload.openList": {
+            "type": "object",
+            "properties": {
+                "links": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/resourceupload.Open"
+                    }
+                }
+            }
+        },
+        "resourceupload.uploadedFile": {
+            "type": "object",
+            "properties": {
+                "content_type": {
+                    "type": "string",
+                    "example": "application/zip"
+                },
+                "filename": {
+                    "type": "string",
+                    "example": "site.zip"
+                },
+                "files_remaining": {
+                    "description": "FilesRemaining is how many more files the link takes (#2844).",
+                    "type": "integer",
+                    "example": 3
+                },
+                "reference": {
+                    "type": "string",
+                    "example": "mcp:resource:0b9c6a3e-2f1d-4c8e-9a7b-5d4e3f2a1b0c"
+                },
+                "resource_id": {
+                    "type": "string",
+                    "example": "0b9c6a3e-2f1d-4c8e-9a7b-5d4e3f2a1b0c"
+                },
+                "size_bytes": {
+                    "type": "integer",
+                    "example": 209715200
+                },
+                "uri": {
+                    "type": "string",
+                    "example": "mcp://user/u-1/site-sources/site.zip"
                 }
             }
         },
@@ -63584,6 +64068,17 @@ const docTemplate = `{
                 }
             }
         },
+        "whimap.FailedFolder": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "folder": {
+                    "type": "string"
+                }
+            }
+        },
         "whimap.FolderMove": {
             "type": "object",
             "properties": {
@@ -63646,6 +64141,9 @@ const docTemplate = `{
                 "collapsed_files": {
                     "type": "integer"
                 },
+                "failed": {
+                    "type": "integer"
+                },
                 "kept": {
                     "type": "integer"
                 },
@@ -63663,6 +64161,10 @@ const docTemplate = `{
                 },
                 "report": {
                     "$ref": "#/definitions/whimap.RepairReport"
+                },
+                "unmoved": {
+                    "description": "Unmoved and Failed are how many folders the last pass left where they\nwere because the message's folder already held files, and because a\nmove or removal failed (#2845).",
+                    "type": "integer"
                 }
             }
         },
@@ -63674,6 +64176,13 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/whimap.RemovedFolder"
+                    }
+                },
+                "failed": {
+                    "description": "Failed are the folders a move or removal failed on, each with what the\nlibrary said, left where they were (#2845).",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/whimap.FailedFolder"
                     }
                 },
                 "kept": {
@@ -63695,6 +64204,13 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/whimap.RemovedFolder"
+                    }
+                },
+                "unmoved": {
+                    "description": "Unmoved are the folders an event names left where they are because the\nmessage's folder already held files (#2845).",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
                     }
                 }
             }

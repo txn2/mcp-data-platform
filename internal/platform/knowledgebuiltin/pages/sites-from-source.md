@@ -66,10 +66,10 @@ manage_resource action=upload_link filename=site.zip path=sites/marketing
 curl --fail -T site.zip -H 'Content-Type: application/zip' '<upload_url>'
 ```
 
-The link is good for one upload, expires after 15 minutes (`ttl_seconds`, at most
-an hour), takes at most `size_bytes`, and files the archive at that address as you,
-with the checks the portal's upload makes. The PUT answers the resource's
-reference. A person can upload through the portal's Resources page instead. Then
+The link takes one file, expires after 15 minutes (`ttl_seconds`, at most a day),
+takes at most `size_bytes`, and files the archive at that address as you, with the
+checks the portal's upload makes; a PUT that files nothing (too large, say) can be
+sent again. The PUT answers the resource's reference. A person can upload through the portal's Resources page instead. Then
 publish from the archive:
 
 ```

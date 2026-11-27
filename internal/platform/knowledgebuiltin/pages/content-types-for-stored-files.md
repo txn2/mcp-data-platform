@@ -54,7 +54,11 @@ flowchart TD
 declaration, and so does `manage_resource action=upload_link`: the type is
 declared when the link is issued and the file sent to it is stored under that
 declaration, read against its first bytes as any declaration is; the `PUT`'s own
-`Content-Type` header does not change it. The upload form takes it too, because a browser declares the type
+`Content-Type` header does not change it. A link for several files declares one
+type for all of them, so a service delivering images and a JSON manifest uses two
+links. A file handed out through `manage_resource action=download_link` is always
+served as a download, whatever its type, so an HTML or SVG file reached by that
+link never renders. The upload form takes it too, because a browser declares the type
 of the file a person picked. `manage_resource action=extract` with
 `from_bucket` declares each object as the bucket stored it: an object put
 there under its real type keeps it, and one put there as

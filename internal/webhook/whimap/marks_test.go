@@ -97,6 +97,7 @@ func TestRepairsStore(t *testing.T) {
 	rep := RepairReport{
 		Moved: []FolderMove{{From: "a", To: "b"}}, Removed: []RemovedFolder{{Folder: "c", Files: 3}},
 		Collapsed: []RemovedFolder{{Folder: "d", Files: 2}, {Folder: "e", Files: 1}}, Kept: []string{},
+		Unmoved: []string{"u"}, Failed: []FailedFolder{{Folder: "f", Error: "refused"}, {Folder: "g", Error: "refused"}},
 	}
 	mock.ExpectExec("INSERT INTO webhook_imap_repairs").WithArgs("inbox", 2, 1, 1, 3, 2, 3, 0, sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
 	require.NoError(t, r.RecordRepair(ctx, "inbox", 2, rep))
@@ -109,12 +110,14 @@ func TestRepairsStore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, none)
 	mock.ExpectQuery("FROM webhook_imap_repairs WHERE source").
-		WillReturnRows(sqlmock.NewRows(cols).AddRow(time.Now(), 1, 1, 3, 2, 3, 0, []byte(`{"moved":[{"from":"a","to":"b"}],"removed":[{"folder":"c","files":3}],"collapsed":[{"folder":"d","files":2},{"folder":"e","files":1}],"kept":[]}`)))
+		WillReturnRows(sqlmock.NewRows(cols).AddRow(time.Now(), 1, 1, 3, 2, 3, 0, []byte(`{"moved":[{"from":"a","to":"b"}],"removed":[{"folder":"c","files":3}],"collapsed":[{"folder":"d","files":2},{"folder":"e","files":1}],"kept":[],"unmoved":["u"],"failed":[{"folder":"f","error":"refused"},{"folder":"g","error":"refused"}]}`)))
 	got, err := r.Get(ctx, "inbox")
 	require.NoError(t, err)
 	assert.Equal(t, rep, got.Report)
 	assert.Equal(t, 2, got.Collapsed)
 	assert.Equal(t, 3, got.CollapsedFiles)
+	assert.Equal(t, 1, got.Unmoved, "#2845: counted from the list")
+	assert.Equal(t, 2, got.Failed)
 	// A report version 1 wrote has no collapsed list: read as empty, not null.
 	mock.ExpectQuery("FROM webhook_imap_repairs WHERE source").
 		WillReturnRows(sqlmock.NewRows(cols).AddRow(time.Now(), 1, 0, 0, 0, 0, 0, []byte(`{"moved":[{"from":"a","to":"b"}],"removed":[],"kept":[]}`)))
@@ -122,9 +125,14 @@ func TestRepairsStore(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, got.Report.Collapsed)
 	assert.Empty(t, got.Report.Collapsed)
-	long := RepairReport{Kept: make([]string, 150)}
+	// Nor, before #2845, an unmoved or failed list.
+	assert.Equal(t, []string{}, got.Report.Unmoved)
+	assert.Equal(t, []FailedFolder{}, got.Report.Failed)
+	assert.Zero(t, got.Unmoved)
+	assert.Zero(t, got.Failed)
+	long := RepairReport{Kept: make([]string, 150), Unmoved: make([]string, 150), Failed: make([]FailedFolder, 150)}
 	for i := range long.Kept {
-		long.Kept[i] = "k"
+		long.Kept[i], long.Unmoved[i], long.Failed[i] = "k", "u", FailedFolder{Folder: "f", Error: "e"}
 	}
 	body, err := json.Marshal(long)
 	require.NoError(t, err)
@@ -133,6 +141,10 @@ func TestRepairsStore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 150, got.Kept, "the count is the whole")
 	assert.Len(t, got.Report.Kept, repairListLimit, "the list read is the first hundred")
+	assert.Equal(t, 150, got.Unmoved)
+	assert.Len(t, got.Report.Unmoved, repairListLimit)
+	assert.Equal(t, 150, got.Failed)
+	assert.Len(t, got.Report.Failed, repairListLimit)
 	mock.ExpectQuery("FROM webhook_imap_repairs WHERE source").WillReturnRows(sqlmock.NewRows(cols).AddRow(time.Now(), 0, 0, 0, 0, 0, 0, []byte(`{`)))
 	_, err = r.Get(ctx, "inbox")
 	require.Error(t, err)

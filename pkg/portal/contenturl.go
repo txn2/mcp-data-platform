@@ -73,7 +73,7 @@ func (h *Handler) mintContentURL(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "version not found")
 		return
 	}
-	target := contenturl.Target{AssetID: id, Version: version, Expires: time.Now().Add(ttl).Truncate(time.Second)}
+	target := contenturl.Target{ID: id, Version: version, Expires: time.Now().Add(ttl).Truncate(time.Second)}
 	path := contenturl.Path + contenturl.Sign(h.deps.ContentURLKey, target)
 	resp := contentURLResponse{Path: path, Version: version, ExpiresAt: target.Expires}
 	if h.deps.PublicBaseURL != "" {
@@ -103,12 +103,12 @@ func (h *Handler) serveSignedContent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, contenturl.ErrInvalid.Error())
 		return
 	}
-	asset, err := h.deps.AssetStore.Get(r.Context(), target.AssetID)
+	asset, err := h.deps.AssetStore.Get(r.Context(), target.ID)
 	if err != nil || asset.DeletedAt != nil {
 		writeError(w, http.StatusNotFound, errAssetNotFound)
 		return
 	}
-	ver, err := h.deps.VersionStore.GetByVersion(r.Context(), target.AssetID, target.Version)
+	ver, err := h.deps.VersionStore.GetByVersion(r.Context(), target.ID, target.Version)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "version not found")
 		return

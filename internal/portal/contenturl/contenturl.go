@@ -40,23 +40,34 @@ var (
 	ErrInvalid = errors.New("this link is not valid")
 )
 
-// A token's payload is asset|version|expiry, the numbers in decimal.
+// A token's payload is asset|version|expiry, the numbers in decimal, and
+// |once for a token used once (#2847).
 const (
 	tokenFields = 3
-	decimal     = 10
-	int64Bits   = 64
+	onceFields  = 4
+	// onceAt is where a single-use token's id sits in its payload.
+	onceAt    = 3
+	decimal   = 10
+	int64Bits = 64
 )
 
-// Target is the version a token reads.
+// Target is what a token reads: one version of an asset, or a managed
+// resource (#2847, under its own key, where Version is unused).
 type Target struct {
-	AssetID string
+	ID      string
 	Version int
 	Expires time.Time
+	// Once names a token that is good for one use, which its reader records
+	// by this id; empty for a token good until it expires.
+	Once string
 }
 
 // Sign returns the token for one version, valid until expires.
 func Sign(key []byte, t Target) string {
-	payload := t.AssetID + "|" + strconv.Itoa(t.Version) + "|" + strconv.FormatInt(t.Expires.Unix(), decimal)
+	payload := t.ID + "|" + strconv.Itoa(t.Version) + "|" + strconv.FormatInt(t.Expires.Unix(), decimal)
+	if t.Once != "" {
+		payload += "|" + t.Once
+	}
 	return base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." +
 		base64.RawURLEncoding.EncodeToString(mac(key, payload))
 }
@@ -78,7 +89,7 @@ func Verify(key []byte, token string, now time.Time) (Target, error) {
 		return Target{}, ErrInvalid
 	}
 	parts := strings.Split(string(payload), "|")
-	if len(parts) != tokenFields {
+	if len(parts) != tokenFields && (len(parts) != onceFields || parts[onceAt] == "") {
 		return Target{}, ErrInvalid
 	}
 	version, vErr := strconv.Atoi(parts[1])
@@ -86,7 +97,10 @@ func Verify(key []byte, token string, now time.Time) (Target, error) {
 	if vErr != nil || uErr != nil || parts[0] == "" {
 		return Target{}, ErrInvalid
 	}
-	t := Target{AssetID: parts[0], Version: version, Expires: time.Unix(unix, 0)}
+	t := Target{ID: parts[0], Version: version, Expires: time.Unix(unix, 0)}
+	if len(parts) == onceFields {
+		t.Once = parts[onceAt]
+	}
 	if !now.Before(t.Expires) {
 		return t, ErrExpired
 	}
@@ -133,7 +147,7 @@ func Minter(key []byte, base string) func(assetID string, version int) (string, 
 	}
 	return func(assetID string, version int) (string, time.Time) {
 		expires := time.Now().Add(DefaultTTL).Truncate(time.Second)
-		return base + Path + Sign(key, Target{AssetID: assetID, Version: version, Expires: expires}), expires
+		return base + Path + Sign(key, Target{ID: assetID, Version: version, Expires: expires}), expires
 	}
 }
 

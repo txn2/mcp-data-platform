@@ -14,8 +14,8 @@ import (
 
 // TestRepairsRealDB: a source's repair is owed until recorded, the record
 // keeps what it did and by which version, a second pass by a later version
-// adds to what the first did and replaces what is kept (#2842), and the row
-// goes with its source.
+// adds to what the first did and replaces what is kept (#2842) and what was
+// left unmoved or failed (#2845), and the row goes with its source.
 func TestRepairsRealDB(t *testing.T) {
 	db := testdb.New(t)
 	ctx := context.Background()
@@ -40,11 +40,15 @@ func TestRepairsRealDB(t *testing.T) {
 	got, err := r.Get(ctx, "inbox")
 	require.NoError(t, err)
 	assert.Equal(t, []RemovedFolder{}, got.Report.Collapsed)
+	assert.Equal(t, []string{}, got.Report.Unmoved)
+	assert.Equal(t, []FailedFolder{}, got.Report.Failed)
 
 	second := RepairReport{
 		Moved: []FolderMove{}, Removed: []RemovedFolder{},
 		Collapsed: []RemovedFolder{{Folder: "a/inbox-2-5", Files: 2}},
 		Kept:      []string{"a/inbox-1-5"},
+		Unmoved:   []string{"a/sent-5-16690"},
+		Failed:    []FailedFolder{{Folder: "a/inbox-8-8", Error: "moving to a/n: storage unavailable"}},
 	}
 	require.NoError(t, r.RecordRepair(ctx, "inbox", 2, second))
 	version, err = r.RepairedVersion(ctx, "inbox")
@@ -59,12 +63,29 @@ func TestRepairsRealDB(t *testing.T) {
 	assert.Equal(t, 1, got.Collapsed)
 	assert.Equal(t, 2, got.CollapsedFiles)
 	assert.Equal(t, 1, got.Kept, "kept is what is left")
+	assert.Equal(t, 1, got.Unmoved)
+	assert.Equal(t, 1, got.Failed)
 	assert.Equal(t, RepairReport{
 		Moved:     []FolderMove{{From: "a/inbox-7-3", To: "a/m"}},
 		Removed:   []RemovedFolder{{Folder: "a/inbox-9-3", Files: 2}, {Folder: "a/inbox-9-4", Files: 1}},
 		Collapsed: []RemovedFolder{{Folder: "a/inbox-2-5", Files: 2}},
 		Kept:      []string{"a/inbox-1-5"},
+		Unmoved:   []string{"a/sent-5-16690"},
+		Failed:    []FailedFolder{{Folder: "a/inbox-8-8", Error: "moving to a/n: storage unavailable"}},
 	}, got.Report)
+
+	// A third pass replaces what was left unmoved or failed rather than
+	// adding to it.
+	third := RepairReport{
+		Moved: []FolderMove{}, Removed: []RemovedFolder{}, Collapsed: []RemovedFolder{},
+		Kept: []string{"a/inbox-1-5"}, Unmoved: []string{"a/sent-5-16690"}, Failed: []FailedFolder{},
+	}
+	require.NoError(t, r.RecordRepair(ctx, "inbox", 3, third))
+	got, err = r.Get(ctx, "inbox")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a/sent-5-16690"}, got.Report.Unmoved)
+	assert.Equal(t, []FailedFolder{}, got.Report.Failed)
+	assert.Zero(t, got.Failed)
 	assert.False(t, got.RepairedAt.IsZero())
 
 	// A source repaired first by this version.

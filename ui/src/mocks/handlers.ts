@@ -1,3 +1,4 @@
+import { resourceLinkHandlers } from "./handlers/resourceLinks";
 import type {
   APIRouteRule,
   AuditEvent,
@@ -1355,6 +1356,8 @@ export const handlers = [
   // Persona effective access and file shares (#2257, #2258). First, because
   // /api/v1/resources/shared-with-me would otherwise be read as a resource id.
   ...personaAccessHandlers,
+  // Upload and download links (#2844, #2847), ahead of /api/v1/resources/:id.
+  ...resourceLinkHandlers,
   // An asset the reader cannot open, for links to one (#2432).
   ...lockedAssetHandlers,
   // A person's library (#2504, #2509).

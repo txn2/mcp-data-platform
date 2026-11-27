@@ -299,7 +299,9 @@ var actionTools = map[string]actionRule{
 	"manage_table": {arg: "action", reads: set("list", "check"), writes: set("register", "unregister")},
 	// manage_resource: get reads what is filed at an address and list reports
 	// a folder. extract writes a file per archive member.
-	"manage_resource": {arg: "action", reads: set("get", "list"), writes: set(
+	// manage_resource: download_link stores nothing (a signed link; a single
+	// download is recorded when it is fetched, not when it is made, #2847).
+	"manage_resource": {arg: "action", reads: set("get", "list", "download_link"), writes: set(
 		"create", "replace_content", "update", "delete", "extract", "upload_link",
 	)},
 	// manage_feedback: create, reply, resolve, the two validation verbs, and

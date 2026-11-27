@@ -492,6 +492,7 @@ internal/httpserver -> internal/platform/knowledgebuiltin
 internal/httpserver -> internal/platform/listenbridge
 internal/httpserver -> internal/platform/notifydelivery
 internal/httpserver -> internal/platform/resourceaudit
+internal/httpserver -> internal/platform/resourcedownload
 internal/httpserver -> internal/platform/resourceupload
 internal/httpserver -> internal/platform/scriptgrant
 internal/httpserver -> internal/platform/scriptstore
@@ -1585,6 +1586,12 @@ internal/platform/reflexivecapture -> pkg/toolkits/memory
 internal/platform/resourceaudit -> pkg/audit
 internal/platform/resourceaudit -> pkg/middleware
 internal/platform/resourceaudit -> pkg/resource
+internal/platform/resourcedownload -> internal/httpjson
+internal/platform/resourcedownload -> internal/logsan
+internal/platform/resourcedownload -> internal/portal/contenturl
+internal/platform/resourcedownload -> pkg/blobserve
+internal/platform/resourcedownload -> pkg/portal/shareguest
+internal/platform/resourcedownload -> pkg/resource
 internal/platform/resourceholds -> internal/portal/assetrefs
 internal/platform/resourceindex -> internal/docread
 internal/platform/resourceindex -> internal/indexpolicy
@@ -3228,6 +3235,7 @@ pkg/toolkits/portal -> internal/handlertransport
 pkg/toolkits/portal -> internal/httpjson
 pkg/toolkits/portal -> internal/indexpolicy
 pkg/toolkits/portal -> internal/logsan
+pkg/toolkits/portal -> internal/platform/resourcedownload
 pkg/toolkits/portal -> internal/platform/resourceupload
 pkg/toolkits/portal -> internal/platformfeedback
 pkg/toolkits/portal -> internal/portal/access

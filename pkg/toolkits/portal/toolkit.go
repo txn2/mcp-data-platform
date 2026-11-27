@@ -450,6 +450,8 @@ type Toolkit struct {
 	// leaves manage_resource reporting that rather than accepting a write
 	// that would go nowhere.
 	resourceWriter ResourceWriter
+	// downloadLinks mints manage_resource action=download_link's links (#2847).
+	downloadLinks DownloadLinks
 	// uploadLinks issues manage_resource action=upload_link's links (#2639).
 	uploadLinks UploadLinks
 	// resourceHolds answers what still points at a managed resource, which is

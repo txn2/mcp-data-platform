@@ -5,10 +5,17 @@
 // asked for it, with the checks a portal upload gets. The bytes never pass
 // through a tool call, and nothing about object storage has to be public.
 //
-// The link's token is a bearer credential for one write. It is handed to the
-// caller once and never stored: a link is found by the token's SHA-256, claimed
-// by one atomic statement that also refuses a used or expired link, and bound
-// to its address, its declared type and its size.
+// The link's token is a bearer credential for the files it was issued for. It
+// is handed to the caller once and never stored: a link is found by the
+// token's SHA-256, a place on it taken by one atomic statement that also
+// refuses a full, revoked or expired link, and it is bound to its folder, its
+// declared type and its size.
+//
+// A link an external service uses (#2844) lives up to a day, so it outlasts a
+// job queue, takes up to max_files files, and, issued with no filename, has
+// the service name each file in the URL. A PUT that files nothing gives its
+// place back, so the service can try again. The person who asked for a link
+// sees it, and can revoke it, on the portal's Resources page.
 package resourceupload
 
 import (
@@ -35,12 +42,16 @@ import (
 // RoutePrefix is where a link is PUT to, followed by its token.
 const RoutePrefix = "/api/v1/resources/uploads/"
 
-// How long a link lives: DefaultTTL unless the caller asks for less, never
-// more than MaxTTL.
+// How long a link lives: DefaultTTL unless the caller asks for another
+// lifetime, never more than MaxTTL, which a job waiting in a queue fits in
+// (#2844).
 const (
 	DefaultTTL = 15 * time.Minute
-	MaxTTL     = time.Hour
+	MaxTTL     = 24 * time.Hour
 )
+
+// MaxFiles is the most files one link takes.
+const MaxFiles = 100
 
 // tokenBytes is the token's randomness: 256 bits, which no one guesses.
 const tokenBytes = 32
@@ -48,6 +59,9 @@ const tokenBytes = 32
 // keptAfterExpiry is how long a link's row is kept once it has expired, as
 // the record of what it wrote; issuing a link sweeps older ones.
 const keptAfterExpiry = 7 * 24 * time.Hour
+
+// linkDescription describes a file a link issued with no description files.
+const linkDescription = "Filed through an upload link."
 
 // changeSummary labels a revision written through a link.
 const changeSummary = "Uploaded through an upload link"
@@ -61,6 +75,10 @@ var (
 	ErrTooLarge = errors.New("the file is larger than the size this upload link was issued for")
 	// ErrRefused is a link that cannot be issued as asked.
 	ErrRefused = errors.New("refused")
+	// ErrBadName is a PUT whose file name the link does not take: none for a
+	// link issued without one, another for a link issued with one, or a name
+	// that is not a plain file name.
+	ErrBadName = errors.New("bad file name")
 )
 
 // link is one issued Link as it is kept.
@@ -80,17 +98,44 @@ type link struct {
 	IfExists    string
 	MaxBytes    int64
 	ExpiresAt   time.Time
+	// MaxFiles is how many files the link takes, FilesUsed how many places
+	// are taken, this PUT's among them (#2844).
+	MaxFiles  int
+	FilesUsed int
+}
+
+// Open is a link that can still take a file, as its issuer sees it on the
+// Resources page. It never carries the token.
+type Open struct {
+	ID          string    `json:"id"`
+	Scope       string    `json:"scope"`
+	ScopeID     string    `json:"scope_id,omitempty"`
+	Path        string    `json:"path"`
+	Filename    string    `json:"filename,omitempty"`
+	ContentType string    `json:"content_type"`
+	MaxBytes    int64     `json:"max_bytes"`
+	MaxFiles    int       `json:"max_files"`
+	FilesUsed   int       `json:"files_used"`
+	CreatedAt   time.Time `json:"created_at"`
+	ExpiresAt   time.Time `json:"expires_at"`
 }
 
 // Store keeps the links (PostgresStore).
 type Store interface {
 	// insert keeps l, found by tokenSHA256 alone.
 	insert(ctx context.Context, l link, tokenSHA256 string) error
-	// claim marks the link tokenSHA256 names used and returns it, or
-	// ErrNoLink when no unused link that has not expired at now answers to it.
+	// claim takes a place on the link tokenSHA256 names and returns it, or
+	// ErrNoLink when no link with a place left, not revoked and not expired
+	// at now answers to it.
 	claim(ctx context.Context, tokenSHA256 string, now time.Time) (*link, error)
-	// finish records what the link wrote, or why it wrote nothing.
+	// finish records the file a place filed, or, with no resourceID, why it
+	// filed nothing, and gives the place back.
 	finish(ctx context.Context, id, resourceID, failure string) error
+	// open lists the links a person asked for that can still take a file.
+	open(ctx context.Context, userID, email string, now time.Time) ([]Open, error)
+	// revoke ends a link its issuer (or an administrator) names, ErrNoLink
+	// when there is none to end.
+	revoke(ctx context.Context, id string, by resource.Claims, now time.Time) error
 	// sweep removes the links that expired before cutoff.
 	sweep(ctx context.Context, cutoff time.Time) error
 }
@@ -128,18 +173,25 @@ type IssueRequest struct {
 	Tags        []string
 	ContentType string
 	IfExists    string
-	// MaxBytes is the most the file may be.
+	// MaxBytes is the most each file may be.
 	MaxBytes int64
 	// TTL is how long the link lives; zero is DefaultTTL.
 	TTL time.Duration
+	// MaxFiles is how many files the link takes; zero is one.
+	MaxFiles int
 }
 
-// Issued is a link as the caller is handed it, once.
+// Issued is a link as the caller is handed it, once. With a filename the
+// file is PUT to URL; without one each file is PUT to URL/<filename>.
 type Issued struct {
+	ID        string    `json:"id"`
 	URL       string    `json:"upload_url"`
 	Method    string    `json:"method"`
 	ExpiresAt time.Time `json:"expires_at"`
 	MaxBytes  int64     `json:"max_bytes"`
+	MaxFiles  int       `json:"max_files"`
+	// NameInURL says each file is named by the path segment after URL.
+	NameInURL bool `json:"name_in_url,omitempty"`
 }
 
 func (s *Service) now() time.Time {
@@ -158,6 +210,14 @@ func (s *Service) ceiling() int64 {
 
 // Issue keeps a link for in, writable by claims, and returns it.
 func (s *Service) Issue(ctx context.Context, in IssueRequest, claims resource.Claims, userID string) (Issued, error) {
+	if in.Filename != "" {
+		// The name a create would file it under, from the tool or the portal.
+		clean, err := resource.SanitizeFilename(in.Filename)
+		if err != nil {
+			return Issued{}, fmt.Errorf("filename must be a plain file name: %w: %w", err, ErrRefused)
+		}
+		in.Filename = clean
+	}
 	if err := s.check(in, claims); err != nil {
 		return Issued{}, err
 	}
@@ -181,17 +241,25 @@ func (s *Service) Issue(ctx context.Context, in IssueRequest, claims resource.Cl
 		ID: uuid.NewString(), UserID: userID, UserEmail: claims.Email, Claims: claims,
 		Scope: in.Scope, ScopeID: in.ScopeID, Path: in.Path, Filename: in.Filename, DisplayName: in.DisplayName,
 		Description: in.Description, Tags: in.Tags, ContentType: in.ContentType, IfExists: in.IfExists,
-		MaxBytes: in.MaxBytes, ExpiresAt: now.Add(ttl),
+		MaxBytes: in.MaxBytes, ExpiresAt: now.Add(ttl), MaxFiles: max(in.MaxFiles, 1),
 	}
 	_ = s.Store.sweep(ctx, now.Add(-keptAfterExpiry)) // the record of old links; a failed sweep is retried by the next issue
 	if err := s.Store.insert(ctx, l, sum); err != nil {
 		return Issued{}, fmt.Errorf("issuing an upload link: %w", err)
 	}
-	return Issued{URL: base + RoutePrefix + token, Method: "PUT", ExpiresAt: l.ExpiresAt, MaxBytes: l.MaxBytes}, nil
+	return Issued{
+		ID: l.ID, URL: base + RoutePrefix + token, Method: "PUT", ExpiresAt: l.ExpiresAt, MaxBytes: l.MaxBytes,
+		MaxFiles: l.MaxFiles, NameInURL: l.Filename == "",
+	}, nil
 }
 
-// check refuses a link that could not be issued as asked.
+// check refuses a link that could not be issued as asked: the rules a create
+// of the same file meets before it reads any content, for the tool and the
+// portal alike.
 func (s *Service) check(in IssueRequest, claims resource.Claims) error {
+	if err := checkPlacement(in); err != nil {
+		return fmt.Errorf("the link's folder or type: %w: %w", err, ErrRefused)
+	}
 	switch {
 	case !claims.CanWriteFolder(in.Scope, in.ScopeID, in.Path):
 		return fmt.Errorf("you cannot write to that library, so no upload link is issued for it: %w", ErrRefused)
@@ -201,8 +269,35 @@ func (s *Service) check(in IssueRequest, claims resource.Claims) error {
 		return fmt.Errorf("size_bytes %d is over this deployment's upload limit of %d bytes: %w", in.MaxBytes, s.ceiling(), ErrRefused)
 	case in.TTL > MaxTTL:
 		return fmt.Errorf("an upload link lives at most %d seconds: %w", int(MaxTTL.Seconds()), ErrRefused)
+	case in.MaxFiles < 0 || in.MaxFiles > MaxFiles:
+		return fmt.Errorf("max_files is how many files the link takes, 1 to %d: %w", MaxFiles, ErrRefused)
+	case in.MaxFiles > 1 && in.Filename != "":
+		return fmt.Errorf("a link for several files takes no filename: the service names each file in the URL: %w", ErrRefused)
 	}
 	return nil
+}
+
+// checkPlacement is the address and type a link files at, checked as a create
+// checks them.
+func checkPlacement(in IssueRequest) error {
+	if err := resource.ValidateScope(in.Scope, in.ScopeID); err != nil {
+		return err //nolint:wrapcheck // the rule's own sentence
+	}
+	if err := resource.ValidatePath(in.Path); err != nil {
+		return err //nolint:wrapcheck // the rule's own sentence
+	}
+	if strings.TrimSpace(in.ContentType) == "" {
+		return errors.New("content_type is required: the type of the file the link takes")
+	}
+	if err := resource.ValidateMIMEType(in.ContentType); err != nil {
+		return err //nolint:wrapcheck // the rule's own sentence
+	}
+	switch in.IfExists {
+	case "", "fail", "replace":
+		return nil
+	default:
+		return fmt.Errorf("if_exists %q is not one a link takes: fail or replace", in.IfExists)
+	}
 }
 
 // newToken is a fresh token and its SHA-256, the form it is kept by.
@@ -221,18 +316,23 @@ func Hash(token string) string {
 	return hex.EncodeToString(h[:])
 }
 
-// Upload files body, PUT to the link token names, at the link's address as
-// the person who asked for it. declared is the request's Content-Length, -1
-// when it sent none. The link is spent whatever the outcome.
-func (s *Service) Upload(ctx context.Context, token string, body io.Reader, declared int64) (*resource.Resource, error) {
+// Upload files body, PUT to the link token names, in the link's folder as the
+// person who asked for it. name is the file name the URL carries after the
+// token, empty when it carries none; declared is the request's
+// Content-Length, -1 when it sent none. A file filed takes one of the link's
+// places; a PUT that files nothing gives its place back. remaining is how many
+// more files the link takes.
+func (s *Service) Upload(
+	ctx context.Context, token, name string, body io.Reader, declared int64,
+) (res *resource.Resource, remaining int, err error) {
 	if token == "" || len(token) > 2*tokenBytes {
-		return nil, ErrNoLink
+		return nil, 0, ErrNoLink
 	}
 	l, err := s.Store.claim(ctx, Hash(token), s.now())
 	if err != nil {
-		return nil, fmt.Errorf("upload link: %w", err)
+		return nil, 0, fmt.Errorf("upload link: %w", err)
 	}
-	res, err := s.write(ctx, l, body, declared)
+	res, err = s.named(ctx, l, name, body, declared)
 	failure := ""
 	if err != nil {
 		failure = err.Error()
@@ -244,7 +344,57 @@ func (s *Service) Upload(ctx context.Context, token string, body io.Reader, decl
 	if ferr := s.Store.finish(ctx, l.ID, resourceID, failure); ferr != nil && err == nil {
 		err = ferr
 	}
-	return res, err
+	remaining = l.MaxFiles - l.FilesUsed
+	if err != nil {
+		remaining++
+	}
+	return res, remaining, err
+}
+
+// named files body under the name the link was issued for, or, for a link
+// issued with none, the name the URL carries.
+func (s *Service) named(ctx context.Context, l *link, name string, body io.Reader, declared int64) (*resource.Resource, error) {
+	switch {
+	case l.Filename == "" && name == "":
+		return nil, fmt.Errorf("this link takes each file's name in the URL: PUT to the link followed by /<filename>: %w", ErrBadName)
+	case l.Filename != "" && name != "" && name != l.Filename:
+		return nil, fmt.Errorf("this link was issued for %q: PUT to the link itself: %w", l.Filename, ErrBadName)
+	case l.Filename == "":
+		clean, err := resource.SanitizeFilename(name)
+		if err != nil || clean != name {
+			return nil, fmt.Errorf("the name %q is not a plain file name: %w", name, ErrBadName)
+		}
+		l.Filename = clean
+		if l.MaxFiles > 1 {
+			// One display name for several files would name them all alike.
+			l.DisplayName = clean
+		}
+	}
+	describe(l)
+	return s.write(ctx, l, body, declared)
+}
+
+// describe gives a file a link issued with no display name or description,
+// as the portal's are, its own name and the description that says where it
+// came from, since a create requires both (#2844).
+func describe(l *link) {
+	if strings.TrimSpace(l.DisplayName) == "" {
+		l.DisplayName = l.Filename
+	}
+	if strings.TrimSpace(l.Description) == "" {
+		l.Description = linkDescription
+	}
+}
+
+// Opened lists the links the person claims names asked for that can still
+// take a file.
+func (s *Service) Opened(ctx context.Context, claims resource.Claims) ([]Open, error) {
+	return s.Store.open(ctx, claims.Sub, claims.Email, s.now())
+}
+
+// Revoke ends the link id, which its issuer or an administrator may.
+func (s *Service) Revoke(ctx context.Context, id string, claims resource.Claims) error {
+	return s.Store.revoke(ctx, id, claims, s.now())
 }
 
 // write files body at l's address: its next version when l says replace and a

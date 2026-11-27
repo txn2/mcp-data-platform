@@ -192,8 +192,14 @@ func (p *Poller) repair(ctx context.Context, src whsource.Source) {
 	if err == nil && owed {
 		var r RepairReport
 		if r, err = p.cfg.Repair.Repair(ctx, src); err == nil {
-			p.cfg.Logger.InfoContext(ctx, "webhooks: imap attachments repaired", "source", logsan.SanitizeForLog(src.Name),
-				"moved", len(r.Moved), "removed_folders", len(r.Removed), "removed_files", r.RemovedFiles(), "kept", len(r.Kept))
+			level := slog.LevelInfo
+			if len(r.Failed) > 0 {
+				level = slog.LevelWarn
+			}
+			p.cfg.Logger.Log(ctx, level, "webhooks: imap attachments repaired", "source", logsan.SanitizeForLog(src.Name),
+				"moved", len(r.Moved), "removed_folders", len(r.Removed), "removed_files", r.RemovedFiles(),
+				"collapsed_folders", len(r.Collapsed), "collapsed_files", r.CollapsedFiles(),
+				"kept", len(r.Kept), "unmoved", len(r.Unmoved), "failed", len(r.Failed))
 		}
 	}
 	if err != nil {

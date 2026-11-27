@@ -42,21 +42,67 @@ Sending a folder a second time does not file a second copy of it. A file whose f
 
 The portal does this through the create route every upload uses, `POST /api/v1/resources`, with the form field `if_exists=skip_unchanged` ahead of the file part. The answer carries `outcome`: `created` (201), `revised` or `unchanged` (200). Without the field, or with `if_exists=fail`, an address that is taken is refused with 409 as before. Each version records the SHA-256 of its bytes as `content_sha256` in the version history.
 
-## Uploading from an agent's shell
+## Upload links
 
-An agent with only its MCP session uploads a file too large for a tool call
-through a single-use link (#2639): `manage_resource action=upload_link` with the
-address (`path`, `filename`, `scope`), `display_name`, `description`,
-`content_type` and `size_bytes` answers `upload_url` on the platform's own
-origin (`portal.public_base_url`), and one `PUT` of the file to it
-(`curl --fail -T site.zip -H 'Content-Type: application/zip' '<upload_url>'`)
-files it there as the caller, with the upload limit, the denied types and
-`if_exists` a portal upload has. The link needs no session or key: it is the
-credential for that one write. It expires after 15 minutes (`ttl_seconds`, at
-most an hour), takes at most `size_bytes`, writes only its address, and is spent
-by its first PUT; an unknown, used or expired link answers 404 and a body past
-the size 413. Only the token's SHA-256 is stored (`resource_upload_links`), never
-the token, and the row records what the link wrote or why it wrote nothing.
+An upload link lets something without a session put files into a folder: an
+agent's shell, for a file too large for a tool call (#2639), or an external
+service that delivers its output by URL (#2844). `manage_resource
+action=upload_link`, or **Upload > Upload link...** on the Resources page (and
+**Upload link here...** on empty space), makes one for a folder you can write,
+with `content_type` (the type of file it takes), `size_bytes` (the most each
+file may be, at most the upload limit), `max_files` (1 to 100, default 1) and
+`ttl_seconds` (15 minutes by default, at most a day, long enough for a job that
+waits in a queue). It answers `upload_url` on the platform's own origin
+(`portal.public_base_url`).
+
+- A link for one file can name it (`filename`); the file is then PUT to
+  `upload_url` itself (`curl --fail -T site.zip -H 'Content-Type: application/zip' '<upload_url>'`).
+- A link with no filename has the uploader name each file in the URL:
+  `PUT <upload_url>/<filename>`. A link for several files always works this way.
+  The name must be a plain file name.
+
+Each file is filed in the folder as the person who made the link, with the
+upload limit, the denied types and `if_exists` a portal upload has, and the
+answer (201) carries its `reference` and `files_remaining`. A PUT that files
+nothing (a body past the size answers 413, a refused type 422) gives its place
+back, so the service can send it again. A full, revoked, expired or unknown
+link answers 404, told apart to no one.
+
+The link needs no session or key: it is the credential. It is shown once, in
+the tool's answer or the portal's **Upload link ready** dialog. Only the
+token's SHA-256 is stored (`resource_upload_links`), with every file the link
+filed and the last failure. **Upload > Upload links** lists the links you made
+(from the portal or through an agent) that can still take a file, with their
+folder, type, files filed and expiry, and **Revoke** ends one
+(`GET /api/v1/resources/upload-links`, `POST /api/v1/resources/upload-links`,
+`POST /api/v1/resources/upload-links/{id}/revoke`; an administrator can revoke
+anyone's). A saved script's run can ask for a link to hand to a service; its
+recording keeps the link, and a recording is read only by the script's owner
+and administrators.
+
+## Download links
+
+A download link lets a connection or service that takes a file by URL fetch one
+from Resources with no session or key (#2847). `manage_resource
+action=download_link` with the file's `reference` (or its address), or **Copy
+link** on a file (its right-click menu, or the button beside Copy URI in the
+preview pane), makes one for a file you can read, on the platform's public
+address, ending in the file's name. It comes in two kinds (`expires`):
+
+- `single_download` (the default): ends after its first full download, or after
+  an hour if nobody downloads it. A `HEAD` request or a byte-range read does not
+  count as the download, since fetchers often make one first.
+- `6h`: anyone holding it can download the file for six hours.
+
+The file is always served as a download (`Content-Disposition: attachment`,
+`nosniff`), so HTML or SVG is never rendered from a link. An expired, used or
+altered link answers 403, and a file since deleted 404. The link is signed with
+a key derived from the browser-session signing key, so every replica checks
+what any replica made; a used single download is recorded by its id
+(`resource_download_uses`), so every replica refuses a second one. A deployment
+with no `auth.browser_session.signing_key` or `portal.public_base_url` makes no
+links and says so. The portal route is
+`GET /api/v1/resources/{id}/download-link?expires=single_download|6h`.
 
 ## Folders
 
@@ -191,7 +237,7 @@ Inside a folder they can write, a grantee uploads files (one at a time or in bul
 - A folder covers its own path and what is beneath it by segment: a grant on `reports` covers `reports/q3` and never `reports2` or `reports-old`.
 - A grant follows its folder: an administrator's rename or move of the folder rewrites its grants and the ones beneath it in the same change, and deleting the folder deletes them.
 - A persona grant covers everyone whose roles reach that persona, including a person whose roles reach several personas.
-- Grants are read on every request. A removed grant, or a person whose roles no longer reach a granted persona, is refused on their next write, on every replica. An [upload link](#uploading-from-an-agents-shell) reads them again when its file arrives, so a grant removed after the link was issued refuses the upload.
+- Grants are read on every request. A removed grant, or a person whose roles no longer reach a granted persona, is refused on their next write, on every replica. An [upload link](#upload-links) reads them again when its file arrives, so a grant removed after the link was issued refuses the upload.
 - The persona's Resources level is a ceiling no grant overrides: a persona whose level allows no uploads writes no Global folder. A person of an external persona never sees Global, so a grant to an external person or persona is refused when it is saved, and one whose holder later becomes external grants nothing.
 - A managed script writes where its author can write: a run acting for a grantee files under their folders, and a grant held by somebody else gives a run nothing.
 - `manage_resource` upload, upload link, version, move and delete in `scope=global` follow the grants. A refusal names the Global folders the caller can write, or says they can write none.

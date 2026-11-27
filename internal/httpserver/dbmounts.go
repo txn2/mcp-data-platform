@@ -19,6 +19,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/httpserver/collectionsweepwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/siteportalwire"
@@ -54,6 +55,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/knowledgebuiltin"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceaudit"
+	"github.com/txn2/mcp-data-platform/internal/platform/resourcedownload"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceupload"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptgrant"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
@@ -69,6 +71,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/portal/shareguest"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
+	portaltoolkit "github.com/txn2/mcp-data-platform/pkg/toolkits/portal"
 )
 
 // mountPortalAPI registers the portal REST API on the mux if portal is enabled.
@@ -381,6 +384,29 @@ func scriptDeps(p *platform.Platform) (scripthttp.Deps, bool) {
 	return deps, true
 }
 
+// mountDownloadLinks serves the files download links name (#2847) and gives
+// manage_resource action=download_link its minter, nil where browser sessions
+// have no signing key or the portal no public address.
+func mountDownloadLinks(mux *http.ServeMux, p *platform.Platform) *resourcedownload.Service {
+	s := resourcedownload.New(resourcedownload.Options{
+		Master: browserSessionSigningKey(p), Base: p.Config().Portal.PublicBaseURL,
+		Store: p.ResourceStore(), Objects: p.ResourceS3Client(), Bucket: p.Config().Resources.Managed.S3Bucket,
+		Uses: resourcedownload.NewUses(p.DB()),
+	})
+	if s == nil {
+		return nil
+	}
+	s.Mount(mux)
+	for _, k := range p.ToolkitRegistry().All() {
+		if d, ok := k.(interface {
+			SetDownloadLinks(portaltoolkit.DownloadLinks)
+		}); ok {
+			d.SetDownloadLinks(s)
+		}
+	}
+	return s
+}
+
 // contentURLKey derives the signed-content-URL key, nil where browser sessions
 // have no signing key.
 func contentURLKey(p *platform.Platform) []byte {
@@ -456,6 +482,7 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform, notify *notifyd
 
 	extractClaims := resourceClaimsExtractor(p)
 	resourceupload.MountFrom(mux, p.ToolkitRegistry().All()) // a file PUT to an upload link (#2639)
+	downloads := mountDownloadLinks(mux, p)                  // a file read through a download link (#2847)
 
 	// A deleted resource must not leave a table serving its file (#1327), and
 	// a revision of one moves the tables that follow it (#1536).
@@ -479,6 +506,12 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform, notify *notifyd
 		// write funnels fill.
 		Producers:   producedby.NewPostgres(p.DB()),
 		IndexPolicy: p.Config().Resources.Index.Resolver(), // when the uploader does not say (#2111)
+	}
+	if downloads != nil {
+		deps.DownloadLink = func(res *resource.Resource, expires string) (string, time.Time, error) {
+			link, err := downloads.Mint(res, expires)
+			return link.URL, link.ExpiresAt, err //nolint:wrapcheck // the minter's sentence is the refusal
+		}
 	}
 	// Content revision and version history are a capability of the store, not a
 	// requirement of it: the Postgres store implements VersionStore, and a store
@@ -516,6 +549,7 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform, notify *notifyd
 	external := externalfiles.New(externalfiles.NewStore(p.DB()), p.PersonaRegistry().GetForRoles)
 	claims := shares.Bind(external.Bind(extractClaims))
 	handler := resource.NewHandler(deps, claims, nil)
+	resourceupload.MountPortalFrom(mux, p.ToolkitRegistry().All(), claims) // the Resources page's upload links (#2844)
 	shares.Register(mux, func() func(http.Handler) http.Handler { return buildAdminAuth(p) })
 	external.Register(mux)
 	mux.Handle("/api/v1/resources/", handler)

@@ -68,7 +68,8 @@ export function MailboxSection({
  * first of each list behind a disclosure.
  */
 export function AttachmentRepair({ source, repair }: { source: string; repair: WebhookAttachmentRepair }) {
-  if (repair.moved + repair.removed + repair.collapsed + repair.kept === 0) return null;
+  const { unmoved, failed } = leftInPlace(repair);
+  if (repair.moved + repair.removed + repair.collapsed + repair.kept + unmoved + failed === 0) return null;
   const n = (v: number) => v.toLocaleString();
   const at = new Date(repair.repaired_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   const root = `webhooks/${source}/attachments/`;
@@ -80,9 +81,10 @@ export function AttachmentRepair({ source, repair }: { source: string; repair: W
         Attachments repaired {at}: {n(repair.moved)} message folder{repair.moved === 1 ? "" : "s"} moved to their new addresses,{" "}
         {n(repair.removed)} later cop{repair.removed === 1 ? "y" : "ies"} removed ({files(repair.removed_files)}),{" "}
         {n(repair.collapsed)} renumbered cop{repair.collapsed === 1 ? "y" : "ies"} removed ({files(repair.collapsed_files)}), {n(repair.kept)}{" "}
-        folder{repair.kept === 1 ? "" : "s"} kept (no message names them and they have no copy).
+        folder{repair.kept === 1 ? "" : "s"} kept (no message names them and they have no copy)
+        <LeftInPlace unmoved={unmoved} failed={failed} />.
       </p>
-      {repair.removed + repair.collapsed + repair.kept > 0 && (
+      {repair.removed + repair.collapsed + repair.kept + unmoved + failed > 0 && (
         <details className="mt-2">
           <summary className="cursor-pointer text-xs text-muted-foreground">Show folders</summary>
           <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 font-mono text-xs">
@@ -93,6 +95,8 @@ export function AttachmentRepair({ source, repair }: { source: string; repair: W
               items={repair.report.collapsed.map((r) => `${short(r.folder)} (${files(r.files)})`)}
             />
             <RepairList label="Kept" total={repair.kept} items={repair.report.kept.map(short)} />
+            <RepairList label="Not moved" total={unmoved} items={(repair.report.unmoved ?? []).map(short)} />
+            <FailedList total={failed} items={(repair.report.failed ?? []).map((f) => ({ folder: short(f.folder), error: f.error }))} />
           </dl>
         </details>
       )}
@@ -109,6 +113,42 @@ function RepairList({ label, total, items }: { label: string; total: number; ite
         {items.map((i) => (
           <span key={i} className="block break-all">
             {i}
+          </span>
+        ))}
+        {total > items.length && <span className="block font-sans text-muted-foreground">and {(total - items.length).toLocaleString()} more</span>}
+      </dd>
+    </>
+  );
+}
+
+/** How many folders the repair left where they were (#2845), none in a record from before it. */
+function leftInPlace(repair: WebhookAttachmentRepair): { unmoved: number; failed: number } {
+  return { unmoved: repair.unmoved ?? 0, failed: repair.failed ?? 0 };
+}
+
+/** The end of the repair's sentence: the folders it left unmoved and the ones it failed on (#2845). */
+function LeftInPlace({ unmoved, failed }: { unmoved: number; failed: number }) {
+  const s = (k: number) => (k === 1 ? "" : "s");
+  return (
+    <>
+      {unmoved > 0 &&
+        `, ${unmoved.toLocaleString()} folder${s(unmoved)} not moved (a message filed twice, whose folder already holds the first copy)`}
+      {failed > 0 && `, ${failed.toLocaleString()} folder${s(failed)} that couldn't be repaired`}
+    </>
+  );
+}
+
+/** The folders the repair could not move or remove, each with what the library said (#2845). */
+function FailedList({ total, items }: { total: number; items: { folder: string; error: string }[] }) {
+  if (total === 0) return null;
+  return (
+    <>
+      <dt className="font-sans text-muted-foreground">Failed</dt>
+      <dd>
+        {items.map((f) => (
+          <span key={f.folder} className="block break-all">
+            {f.folder}
+            <span className="block font-sans whitespace-normal text-destructive">{f.error}</span>
           </span>
         ))}
         {total > items.length && <span className="block font-sans text-muted-foreground">and {(total - items.length).toLocaleString()} more</span>}

@@ -966,8 +966,10 @@ A `create` declares what the bytes are in `content_type`; a create that does not
 | `scope` | string | No | `user` | `user`, `persona`, or `global`. For `list`, omitting it means every library you can see rather than only your own |
 | `scope_id` | string | No | you | Persona name for `scope=persona`; must be empty for `scope=global` |
 | `change_summary` | string | No | `Content replaced via manage_resource` | Why the content changed, shown in the version history beside the revision |
-| `size_bytes` | integer | Conditional | - | For `upload_link`: the most the file may be, in bytes, at most the deployment's upload limit |
-| `ttl_seconds` | integer | No | `900` | For `upload_link`: how long the link lives, at most 3600 |
+| `size_bytes` | integer | Conditional | - | For `upload_link`: the most each file may be, in bytes, at most the deployment's upload limit |
+| `ttl_seconds` | integer | No | `900` | For `upload_link`: how long the link lives, at most 86400 (a day) |
+| `max_files` | integer | No | `1` | For `upload_link`: how many files the link takes, 1 to 100; with more than one, no `filename` |
+| `expires` | string | No | `single_download` | For `download_link`: `single_download` (ends after the first full download, or an hour) or `6h` |
 
 **Actions:**
 
@@ -978,7 +980,8 @@ A `create` declares what the bytes are in `content_type`; a create that does not
 | `get` | Report what is filed at an address, or what a reference names, without the bytes. Nothing there is `found: false` rather than an error, on either branch | `path` + `filename`, or `reference` |
 | `list` | Report the files under a folder, newest first, with the `total` the page was cut from | - |
 | `delete` | Remove a file and its version history, refusing while something still points at it | `path` + `filename`, or `reference` |
-| `upload_link` | Issue a single-use link on the platform's own origin that a file larger than a tool call is PUT to from a shell (`curl -T`), filed at the address as the caller with the checks a portal upload gets (#2639). The answer carries `upload_url`, `method` (PUT), `expires_at`, `max_bytes` and an `example` curl; the PUT answers 201 with the resource's `reference`. The link is good for one PUT, expires after `ttl_seconds`, refuses a body past `size_bytes` (413), and an unknown, used or expired link answers 404. A saved script's run cannot ask for one | `filename`, `display_name`, `path`, `description`, `content_type`, `size_bytes` |
+| `upload_link` | Issue a link on the platform's own origin that files are PUT to, from a shell (`curl -T`) or by an external service, each filed in the folder as the caller with the checks a portal upload gets (#2639, #2844). The answer carries `id`, `upload_url`, `method` (PUT), `expires_at`, `max_bytes`, `max_files`, `name_in_url`, an `example` curl and a `message`. With a `filename` the file is PUT to `upload_url`; without one each file is PUT to `upload_url/<filename>`. Each PUT answers 201 with the resource's `reference` and `files_remaining`; a body past `size_bytes` is refused (413) and, like any PUT that files nothing, gives its place back; a full, revoked, expired or unknown link answers 404. Listed and revoked on the portal's Resources page | `path`, `content_type`, `size_bytes` |
+| `download_link` | A link anybody holding it downloads the file from with no sign-in, for a connection or service that takes a file by URL (#2847). The answer carries `url` (ending in the file's name), `expires`, `expires_at`, `reference`, `filename`, `content_type` and `size_bytes`. `single_download` ends after the first full download (a HEAD or byte-range read does not count) or an hour; `6h` works for six hours | `reference`, or `path` and `filename` |
 
 **Response Schema (create):**
 

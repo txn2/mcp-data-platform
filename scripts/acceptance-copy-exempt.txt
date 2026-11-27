@@ -1,0 +1,4 @@
+# Texts an acceptance criterion asserts that the platform composes at run time,
+# so no production literal holds them (scripts/acceptance-copy-check.py).
+# One per line: the text, a tab, and why it is composed.
+manage_resource action=create	internal/toolwrite names a call as tool + " " + arg + "=" + verb (toolwrite.go), the refused_write.call issue 1664 asserts

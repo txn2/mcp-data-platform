@@ -88,6 +88,7 @@ export function FileManager(props: FileManagerProps) {
         actions={fm.actions}
         onClose={() => fm.setDialog(null)}
         onShare={(id) => fm.setDialog({ kind: "share", resourceId: id })}
+        onNewLink={fm.canWrite ? () => fm.uploadLink() : undefined}
         onDone={(message) => {
           fm.setDialog(null);
           fm.selection.clear();
@@ -121,6 +122,9 @@ function Bar({ fm }: { fm: FM }) {
       onUpload={() => fm.upload(false)}
       onUploadMany={() => fm.upload(true)}
       onUploadShare={fm.canShare ? fm.uploadAndShare : undefined}
+      onUploadLink={() => fm.uploadLink()}
+      onUploadLinks={fm.openLinks}
+      openLinks={fm.openLinkCount}
       drop={{ accepts: (e) => fm.accepts(fm.root, e), onDrop: (p, e) => fm.dropOn(fm.root, p, e) }}
     />
   );
@@ -248,6 +252,7 @@ function Pane({ fm, download }: { fm: FM; download: Download }) {
           onOpen: fm.openEntry,
           onDownload: (r) => void download.run(r.filename, downloadResource(r), r.id),
           onCopyURI: fm.copyURI,
+          onCopyLink: fm.copyLink,
           onRename: () => first && fm.startRename(first.key),
           onMove: () => fm.act("move"),
           onTag: () => fm.act("tag"),
