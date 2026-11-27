@@ -83,13 +83,24 @@ func TestIssue2839_ASearchIsAnsweredWhileAPagesChunksAreAtTheEmbedder(t *testing
 		t.Fatalf("the search took %s behind the page's embed", took)
 	}
 
-	waitFor(t, "the page embedded in full", func() (bool, string) {
-		var status string
+	// The page is not starved by the searches that preempted it: it finishes.
+	// On a CPU-only embedder its chunks take 80 to 95 seconds by themselves,
+	// so the bound is the embed's time with room to spare, not the 90-second
+	// wait other criteria use (#2843).
+	deadline := time.Now().Add(embedded2839)
+	var status string
+	for {
 		err := db.QueryRow(`SELECT status FROM index_jobs WHERE source_kind = 'portal-knowledge-pages'
 		                     ORDER BY created_at DESC LIMIT 1`).Scan(&status)
-		if err != nil {
-			return false, err.Error()
+		if err == nil && status == "succeeded" {
+			return
 		}
-		return status == "succeeded", status
-	})
+		if time.Now().After(deadline) {
+			t.Fatalf("the page embedded in full did not arrive within %s; last look: %s (%v)", embedded2839, status, err)
+		}
+		time.Sleep(2 * time.Second)
+	}
 }
+
+// embedded2839 is how long the page may take to embed in full.
+const embedded2839 = 5 * time.Minute
