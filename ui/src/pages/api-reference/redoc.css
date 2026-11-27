@@ -70,6 +70,37 @@ html:not(.dark) .redoc-host .tag-delete {
 }
 
 /*
+ * The light theme's code samples. ReDoc colors a sample's tokens from its own
+ * palette: strings and JSON property names in a blue that reads 4.46:1 on its
+ * #fbfbfc sample panel (found on CI's renderer, #2843), and booleans, keywords,
+ * functions and operators in green, magenta and carrot shades that read lower.
+ * Each takes the portal token of the same family used above, all past 6:1.
+ */
+html:not(.dark) .redoc-host .token.string,
+html:not(.dark) .redoc-host .token.property,
+html:not(.dark) .redoc-host .token.attr-name,
+html:not(.dark) .redoc-host .token.selector {
+  color: #1d4ed8;
+}
+html:not(.dark) .redoc-host .token.boolean,
+html:not(.dark) .redoc-host .token.inserted {
+  color: #15671d;
+}
+html:not(.dark) .redoc-host .token.keyword,
+html:not(.dark) .redoc-host .token.atrule,
+html:not(.dark) .redoc-host .token.attr-value {
+  color: #9d174d;
+}
+html:not(.dark) .redoc-host .token.function,
+html:not(.dark) .redoc-host .token.operator,
+html:not(.dark) .redoc-host .token.class-name,
+html:not(.dark) .redoc-host .token.regex,
+html:not(.dark) .redoc-host .token.url,
+html:not(.dark) .redoc-host .token.variable {
+  color: #8a5a00;
+}
+
+/*
  * The navigation menu's height.
  *
  * ReDoc makes the menu `position: sticky` with a height of the viewport. That
