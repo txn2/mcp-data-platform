@@ -7,6 +7,7 @@ import type { SourceFile } from "../bulk/plan";
 import type { ResourceRoot } from "../scopes";
 import { deleteMany, describeFolder, expandPicked, folderDescription, summarize, tagMany, type Picked } from "./actions";
 import { DeleteDialog, DescribeDialog, MoveDialog, TagDialog } from "./ActionDialogs";
+import { NewUploadLinkDialog, UploadLinksDialog } from "./LinkDialogs";
 import { PermissionsDialog } from "./PermissionsDialog";
 import type { useActions } from "./useActions";
 
@@ -19,6 +20,9 @@ export type FmDialog =
   | { kind: "describe"; folder: string }
   // Who may write a Global folder, for an administrator (#2684).
   | { kind: "permissions"; folder: string }
+  // An upload link for a service (#2844), and the caller's open links.
+  | { kind: "newLink"; folder: string; root: ResourceRoot }
+  | { kind: "links"; folder?: string; root?: ResourceRoot }
   | null;
 
 /** The open dialog: an action over the selection, or an upload. */
@@ -33,6 +37,7 @@ export function FmDialogs({
   onClose,
   onDone,
   onShare,
+  onNewLink,
 }: {
   dialog: FmDialog;
   root: ResourceRoot;
@@ -46,8 +51,12 @@ export function FmDialogs({
   onDone: (message?: string) => void;
   /** Opens the share dialog on a file "Upload and share" just uploaded. */
   onShare: (resourceId: string) => void;
+  /** Opens New upload link from the links list, where the folder in view takes uploads. */
+  onNewLink?: () => void;
 }) {
   if (!dialog) return null;
+  const alone = standaloneDialog(dialog, onClose, onNewLink);
+  if (alone) return alone;
   const paths = folders.map((f) => f.path);
   switch (dialog.kind) {
     case "upload":
@@ -55,8 +64,6 @@ export function FmDialogs({
       return (
         <Uploading dialog={dialog} root={root} paths={paths} admin={admin} personaNames={personaNames} onClose={onClose} onShare={onShare} />
       );
-    case "share":
-      return <ShareDialog target={{ type: "resource", id: dialog.resourceId }} open onOpenChange={(o) => !o && onClose()} />;
     case "move":
       return (
         <MoveDialog
@@ -87,8 +94,6 @@ export function FmDialogs({
       );
     case "delete":
       return <Deleting root={root} picked={dialog.picked} actions={actions} onClose={onClose} onDone={onDone} />;
-    case "permissions":
-      return <PermissionsDialog folder={dialog.folder} onClose={onClose} />;
     case "describe":
       return (
         <DescribeDialog
@@ -101,6 +106,22 @@ export function FmDialogs({
           }}
         />
       );
+  }
+}
+
+/** The dialogs that need nothing of the selection or the folder's data, or null. */
+function standaloneDialog(dialog: NonNullable<FmDialog>, onClose: () => void, onNewLink?: () => void) {
+  switch (dialog.kind) {
+    case "share":
+      return <ShareDialog target={{ type: "resource", id: dialog.resourceId }} open onOpenChange={(o) => !o && onClose()} />;
+    case "newLink":
+      return <NewUploadLinkDialog root={dialog.root} folder={dialog.folder} onClose={onClose} />;
+    case "links":
+      return <UploadLinksDialog onClose={onClose} onNew={onNewLink} />;
+    case "permissions":
+      return <PermissionsDialog folder={dialog.folder} onClose={onClose} />;
+    default:
+      return null;
   }
 }
 

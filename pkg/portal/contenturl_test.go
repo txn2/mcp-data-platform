@@ -64,7 +64,7 @@ func TestContentURL_ExpiredOrAlteredIs403(t *testing.T) {
 	asset := &Asset{ID: "a1", OwnerID: "u1", CurrentVersion: 1}
 	h := contentURLHandler(&mockAssetStore{getAsset: asset}, &mockVersionStore{getVersion: &AssetVersion{Version: 1}},
 		&mockS3Client{}, nil)
-	expired := contenturl.Sign(testContentURLKey, contenturl.Target{AssetID: "a1", Version: 1, Expires: time.Now().Add(-time.Second)})
+	expired := contenturl.Sign(testContentURLKey, contenturl.Target{ID: "a1", Version: 1, Expires: time.Now().Add(-time.Second)})
 	w := serveContentURL(h, contenturl.Path+expired)
 	assert.Equal(t, http.StatusForbidden, w.Code)
 	assert.Contains(t, w.Body.String(), "expired")
@@ -74,7 +74,7 @@ func TestContentURL_ExpiredOrAlteredIs403(t *testing.T) {
 }
 
 func TestContentURL_Refusals(t *testing.T) {
-	live := contenturl.Sign(testContentURLKey, contenturl.Target{AssetID: "a1", Version: 1, Expires: time.Now().Add(time.Minute)})
+	live := contenturl.Sign(testContentURLKey, contenturl.Target{ID: "a1", Version: 1, Expires: time.Now().Add(time.Minute)})
 	deleted := time.Now()
 	for name, tc := range map[string]struct {
 		assets   *mockAssetStore

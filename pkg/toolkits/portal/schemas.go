@@ -479,23 +479,34 @@ var manageResourceSchema = json.RawMessage(`{
   "properties": {
     "action": {
       "type": "string",
-      "enum": ["create", "replace_content", "update", "get", "list", "delete", "extract", "upload_link"],
-      "description": "What to do: get a single-use link to PUT a file to from your shell, for a file too large for a tool call (upload_link: name the address, content_type and size_bytes, then run the curl it returns; the file is filed there as you, and the answer names its reference for extract or manage_site publish), file new content as a managed resource (create), write new content over an existing one (replace_content), change an existing one's display_name, description, tags or index without touching its content (update; given a path and a description and no reference, update describes the folder instead, which is what search matches a folder of files that are not indexed one by one on), read what is filed at a path or a reference without its bytes (get), report the files under a folder (list), remove a file and its version history (delete), or write the files inside a stored zip, gzip or gzipped tar archive, or the objects under a bucket prefix (from_bucket), out as managed resources of their own (extract). A get finding nothing is an answer and not a failure: an empty address and a reference naming a file that is gone or outside what you can see both report found=false, the same way fetch reports a dangling reference, so a create-or-replace decides on it. A replacement moves every table registered over the file that follows it (the default) onto the new contents, and reports each table in its result; a table registered with follow=false stays on the version it was registered over and is reported as behind."
+      "enum": ["create", "replace_content", "update", "get", "list", "delete", "extract", "upload_link", "download_link"],
+      "description": "What to do: get a link to PUT files to, from your shell for a file too large for a tool call or from an external service that delivers its output by URL (upload_link: name the folder, content_type and size_bytes, and a filename for one file, or max_files and no filename to have the service name each file in the URL, upload_url/<filename>; each file is filed there as you, and the answer to each PUT names its reference for extract or manage_site publish; a PUT that files nothing can be sent again), get a short-lived link anybody can download a file from with no sign-in, to hand a file to a connection or service that takes one by URL (download_link: name the file by reference or address; expires is single_download, the default, which ends after the first full download or an hour, or 6h), file new content as a managed resource (create), write new content over an existing one (replace_content), change an existing one's display_name, description, tags or index without touching its content (update; given a path and a description and no reference, update describes the folder instead, which is what search matches a folder of files that are not indexed one by one on), read what is filed at a path or a reference without its bytes (get), report the files under a folder (list), remove a file and its version history (delete), or write the files inside a stored zip, gzip or gzipped tar archive, or the objects under a bucket prefix (from_bucket), out as managed resources of their own (extract). A get finding nothing is an answer and not a failure: an empty address and a reference naming a file that is gone or outside what you can see both report found=false, the same way fetch reports a dangling reference, so a create-or-replace decides on it. A replacement moves every table registered over the file that follows it (the default) onto the new contents, and reports each table in its result; a table registered with follow=false stays on the version it was registered over and is reported as behind."
     },
     "reference": {
       "type": "string",
-      "description": "The managed resource to act on, named by the mcp:resource:<id> reference a search hit, a fetch document, or a create reported. Required for replace_content and update, and for extract, where it names the archive (or pass from_bucket instead). For get and delete it is the alternative to naming the address (scope + path + filename); pass one or the other, and pass it verbatim."
+      "description": "The managed resource to act on, named by the mcp:resource:<id> reference a search hit, a fetch document, or a create reported. Required for replace_content and update, and for extract, where it names the archive (or pass from_bucket instead). For get, delete and download_link it is the alternative to naming the address (scope + path + filename); pass one or the other, and pass it verbatim."
     },
     "size_bytes": {
       "type": "integer",
       "minimum": 1,
-      "description": "For upload_link: the most the file may be, in bytes, at most the deployment's upload limit. A larger PUT is refused and spends the link."
+      "description": "For upload_link: the most each file may be, in bytes, at most the deployment's upload limit. A larger PUT is refused and can be sent again smaller."
+    },
+    "max_files": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "description": "For upload_link: how many files the link takes, default 1. With more than one, pass no filename: each file is PUT to upload_url/<filename>."
     },
     "ttl_seconds": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 3600,
-      "description": "For upload_link: how long the link lives, default 900 (15 minutes), at most 3600."
+      "maximum": 86400,
+      "description": "For upload_link: how long the link lives, default 900 (15 minutes), at most 86400 (a day, for a service whose job waits in a queue)."
+    },
+    "expires": {
+      "type": "string",
+      "enum": ["single_download", "6h"],
+      "description": "For download_link: single_download (the default) ends after the first full download, or after an hour if it is never downloaded; a HEAD request or a byte-range read does not count as the download. 6h works for anyone holding it for six hours."
     },
     "if_exists": {
       "type": "string",
@@ -543,7 +554,7 @@ var manageResourceSchema = json.RawMessage(`{
     },
     "filename": {
       "type": "string",
-      "description": "Name of the file, for example weather-daily.csv. Required for create, and for a get or a delete that names the address rather than a reference. It is normalized to lowercase with spaces replaced, and it becomes part of the resource's permanent mcp:// uri. replace_content ignores it: a replacement never renames the file, because the name is embedded in every reference to it. For extract it is optional and names the one selected member's file directly in path, which gives a monthly delivery whose member is called export_2026_10.csv one stable address (delivery.csv, say) to register a table over; without it each member keeps its own name."
+      "description": "Name of the file, for example weather-daily.csv. Required for create, and for a get, a delete or a download_link that names the address rather than a reference. For upload_link it names the one file the link takes; leave it out to have the uploader name each file in the URL. It is normalized to lowercase with spaces replaced, and it becomes part of the resource's permanent mcp:// uri. replace_content ignores it: a replacement never renames the file, because the name is embedded in every reference to it. For extract it is optional and names the one selected member's file directly in path, which gives a monthly delivery whose member is called export_2026_10.csv one stable address (delivery.csv, say) to register a table over; without it each member keeps its own name."
     },
     "display_name": {
       "type": "string",

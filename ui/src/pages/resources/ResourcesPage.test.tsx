@@ -28,6 +28,16 @@ vi.mock("@/api/resources/hooks", () => ({
   useDeleteResource: vi.fn(() => ({ mutateAsync: vi.fn() })),
 }));
 
+// Upload and download links (#2844, #2847): their own module, so a case
+// counting the file manager's resource requests counts only those.
+const linkApi = vi.hoisted(() => ({ fetchDownloadLink: vi.fn(), links: [] as unknown[] }));
+vi.mock("@/api/resources/links", () => ({
+  useUploadLinks: () => ({ data: linkApi.links, isLoading: false, error: null }),
+  useCreateUploadLink: () => ({ mutate: vi.fn(), isPending: false }),
+  useRevokeUploadLink: () => ({ mutate: vi.fn(), isPending: false }),
+  fetchDownloadLink: linkApi.fetchDownloadLink,
+}));
+
 vi.mock("@/api/admin/hooks", () => ({
   usePersonas: vi.fn(() => ({ data: { personas: [{ name: "analyst" }, { name: "ops" }] } })),
 }));
@@ -387,6 +397,19 @@ describe("selection and the preview pane", () => {
     expect(pane.textContent).toContain("me@example.com");
   });
 
+  it("copies a download link of either kind from the pane's Copy link (#2847)", async () => {
+    linkApi.fetchDownloadLink.mockResolvedValue({ url: "https://p/dl/tok/orders.csv", expires: "6h", expires_at: "" });
+    Object.assign(navigator, { clipboard: { writeText: vi.fn(() => Promise.resolve()) } });
+    renderPage();
+    fireEvent.click(row("f-orders"));
+    const pane = screen.getByTestId("preview-file");
+    fireEvent.keyDown(within(pane).getByRole("button", { name: "Copy link" }), { key: "Enter" });
+    expect(screen.getByRole("menuitem", { name: "Single download" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("menuitem", { name: "For 6 hours" }));
+    await waitFor(() => expect(linkApi.fetchDownloadLink).toHaveBeenCalledWith("f-orders", "6h"));
+    expect(await screen.findByText("Copied a link that works for 6 hours")).toBeTruthy();
+  });
+
   it("opens a folder on click", () => {
     renderPage();
     fireEvent.click(row("d:data/weekly"));
@@ -610,20 +633,42 @@ describe("dragging rows", () => {
 });
 
 describe("the context menu, inline rename and the keyboard", () => {
-  it("offers Open, Rename, Move, Tag, Copy URI and Delete on a row", () => {
+  it("offers Open, Rename, Move, Tag, Copy URI, Copy link and Delete on a row", () => {
     renderPage();
     fireEvent.contextMenu(row("f-orders"));
     const items = within(screen.getByTestId("context-menu"))
       .getAllByRole("menuitem")
       .map((b) => b.textContent?.replace(/(Enter|F2|⌘⌫)$/, ""));
-    expect(items).toEqual(["Open", "Rename", "Move to...", "Tag...", "Copy URI", "Delete"]);
+    expect(items).toEqual(["Open", "Rename", "Move to...", "Tag...", "Copy URI", "Copy link", "Delete"]);
   });
 
-  it("offers New folder and Upload here on empty space", () => {
+  it("copies a single-download link from a row's Copy link (#2847)", async () => {
+    linkApi.fetchDownloadLink.mockResolvedValueOnce({ url: "https://p/dl/tok/orders.csv", expires: "single_download", expires_at: "" });
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.assign(navigator, { clipboard: { writeText } });
+    renderPage();
+    fireEvent.contextMenu(row("f-orders"));
+    fireEvent.click(within(screen.getByTestId("context-menu")).getByRole("menuitem", { name: "Copy link" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("https://p/dl/tok/orders.csv"));
+    expect(linkApi.fetchDownloadLink).toHaveBeenCalledWith("f-orders", "single_download");
+    expect(await screen.findByText("Copied a link for a single download")).toBeTruthy();
+  });
+
+  it("says when a download link could not be made", async () => {
+    linkApi.fetchDownloadLink.mockRejectedValueOnce(new Error("this deployment cannot give out download links"));
+    renderPage();
+    fireEvent.contextMenu(row("f-orders"));
+    fireEvent.click(within(screen.getByTestId("context-menu")).getByRole("menuitem", { name: "Copy link" }));
+    expect(await screen.findByText("The link couldn't be made: this deployment cannot give out download links")).toBeTruthy();
+  });
+
+  it("offers New folder, Upload here and Upload link here on empty space", () => {
     renderPage();
     fireEvent.contextMenu(screen.getByTestId("listing").parentElement!);
     const items = within(screen.getByTestId("context-menu")).getAllByRole("menuitem").map((b) => b.textContent);
-    expect(items).toEqual(["New folder", "Upload here"]);
+    expect(items).toEqual(["New folder", "Upload here", "Upload link here..."]);
+    fireEvent.click(within(screen.getByTestId("context-menu")).getByRole("menuitem", { name: "Upload link here..." }));
+    expect(screen.getByRole("heading", { name: "New upload link" })).toBeTruthy();
   });
 
   it("renames a file inline on F2", async () => {
@@ -799,6 +844,25 @@ describe("what the page offers depends on who is reading", () => {
     signIn({ is_admin: true });
     renderPage("/resources/lib/global/brand");
     expect(screen.getByRole("button", { name: "Upload" })).toBeTruthy();
+  });
+
+  it("offers an upload link for the folder in view and the open links (#2844)", () => {
+    linkApi.links = [
+      { id: "a", scope: "user", path: "data", content_type: "text/csv", max_bytes: 1, max_files: 2, files_used: 0, created_at: "", expires_at: "" },
+    ];
+    renderPage();
+    fireEvent.keyDown(screen.getByRole("button", { name: "Upload" }), { key: "Enter" });
+    expect(screen.getByRole("menuitem", { name: /Upload links\s*1 open/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Upload link..." }));
+    expect(screen.getByRole("heading", { name: "New upload link" })).toBeTruthy();
+    expect((screen.getByLabelText("Folder in /My Resources") as HTMLInputElement).value).toBe("data");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.keyDown(screen.getByRole("button", { name: "Upload" }), { key: "Enter" });
+    fireEvent.click(screen.getByRole("menuitem", { name: /Upload links/ }));
+    expect(screen.getByRole("heading", { name: "Upload links" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "New upload link..." }));
+    expect(screen.getByRole("heading", { name: "New upload link" })).toBeTruthy();
+    linkApi.links = [];
   });
 
   it("files an upload into the folder in view", () => {

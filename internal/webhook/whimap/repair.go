@@ -44,6 +44,19 @@ import (
 //   - a folder no event names and nothing matches is kept and listed: its
 //     message's event may have expired, and its files may be all that is left
 //     of it.
+//   - a folder an event names whose message folder already holds files is not
+//     moved and is listed as not moved (#2845). Another folder of the same
+//     message took the address first, in this pass or an earlier one: one
+//     message filed twice, two kept events each naming its own files. Moving it
+//     there would be refused when the two hold a file of one name and would
+//     merge two events' files into one folder when they do not, and deleting it
+//     as a copy would leave its event naming a resource id that no longer
+//     exists, since a handover moves addresses, not ids.
+//
+// A folder whose move or removal fails is listed with its error and left where
+// it is, and the pass goes on to the rest and is recorded (#2845): a refusal
+// that repeats would otherwise run the whole repair again on every poll and
+// never clear, and a folder left in the old form still answers where it is.
 //
 // A copy is deleted file by file, each file's addresses (its own and any an
 // earlier move left aliased to it) handed to the file of the same name in the
@@ -91,6 +104,18 @@ type RepairReport struct {
 	// Kept are the folders of the old form no event names that are a copy of
 	// nothing.
 	Kept []string `json:"kept"`
+	// Unmoved are the folders an event names left where they are because the
+	// message's folder already held files (#2845).
+	Unmoved []string `json:"unmoved"`
+	// Failed are the folders a move or removal failed on, each with what the
+	// library said, left where they were (#2845).
+	Failed []FailedFolder `json:"failed"`
+}
+
+// FailedFolder is one folder the repair could not move or remove.
+type FailedFolder struct {
+	Folder string `json:"folder"`
+	Error  string `json:"error"`
 }
 
 // FolderMove is one folder moved.
@@ -123,7 +148,10 @@ func fileCount(folders []RemovedFolder) int {
 
 // newReport is an empty report, its lists empty rather than null.
 func newReport() RepairReport {
-	return RepairReport{Moved: []FolderMove{}, Removed: []RemovedFolder{}, Collapsed: []RemovedFolder{}, Kept: []string{}}
+	return RepairReport{
+		Moved: []FolderMove{}, Removed: []RemovedFolder{}, Collapsed: []RemovedFolder{},
+		Kept: []string{}, Unmoved: []string{}, Failed: []FailedFolder{},
+	}
 }
 
 // Repairer repairs the attachments of imap sources.
@@ -142,9 +170,9 @@ func (r *Repairer) Owed(ctx context.Context, src whsource.Source) (bool, error) 
 	return version < RepairVersion, nil
 }
 
-// Repair repairs src's attachments and records what it did. A failure leaves
-// it owed, so the next poll tries again; what it had moved or deleted stays
-// done, and a second run finds less to do.
+// Repair repairs src's attachments and records what it did. A failure to list
+// the attachments or read the events leaves it owed, so the next poll tries
+// again; a folder that fails is listed in the report, and the pass recorded.
 func (r *Repairer) Repair(ctx context.Context, src whsource.Source) (RepairReport, error) {
 	files, err := r.Library.ListAttachments(ctx, src)
 	if err != nil {
@@ -157,9 +185,7 @@ func (r *Repairer) Repair(ctx context.Context, src whsource.Source) (RepairRepor
 		if err != nil {
 			return RepairReport{}, err
 		}
-		if report, err = r.apply(ctx, src, folders, owners); err != nil {
-			return RepairReport{}, err
-		}
+		report = r.apply(ctx, src, folders, occupied(files), owners)
 	}
 	if err := r.Store.RecordRepair(ctx, src.Name, RepairVersion, report); err != nil {
 		return RepairReport{}, fmt.Errorf("recording the attachment repair of %s: %w", src.Name, err)
@@ -233,6 +259,16 @@ func groupOldFolders(source string, files []StoredFile) []messageFolder {
 	return out
 }
 
+// occupied is every folder holding a file: a message folder of the new form
+// is taken when it is among them, whatever moved or saved its files there.
+func occupied(files []StoredFile) map[string]bool {
+	out := make(map[string]bool, len(files))
+	for _, f := range files {
+		out[f.Folder] = true
+	}
+	return out
+}
+
 // owners maps each attachment resource a kept event names to that event's id.
 func (r *Repairer) owners(ctx context.Context, src whsource.Source) (map[string]string, error) {
 	windows, err := r.Events.Live(ctx, src.Name)
@@ -272,14 +308,13 @@ func addOwners(owners map[string]string, events []whevent.Stored) {
 }
 
 // apply moves the folders an event names, deletes each folder no event names
-// that a moved folder of its day matches, and collapses the copies of each
-// message no event names.
-func (r *Repairer) apply(ctx context.Context, src whsource.Source, folders []messageFolder, owners map[string]string) (RepairReport, error) {
+// that a named folder of its day matches, and collapses the copies of each
+// message no event names. taken is every folder already holding a file.
+func (r *Repairer) apply(
+	ctx context.Context, src whsource.Source, folders []messageFolder, taken map[string]bool, owners map[string]string,
+) RepairReport {
 	report := newReport()
-	named, unnamed, err := r.moveNamed(ctx, src, folders, owners, &report)
-	if err != nil {
-		return report, err
-	}
+	named, unnamed := r.moveNamed(ctx, src, folders, taken, owners, &report)
 	rest := make([]messageFolder, 0, len(unnamed))
 	for _, f := range unnamed {
 		keep, ok := named[f.namedKey()]
@@ -288,22 +323,28 @@ func (r *Repairer) apply(ctx context.Context, src whsource.Source, folders []mes
 			continue
 		}
 		if err := r.removeCopy(ctx, src, f, keep); err != nil {
-			return report, err
+			report.fail(f, err)
+			continue
 		}
 		report.Removed = append(report.Removed, RemovedFolder{Folder: f.path, Files: len(f.files)})
 	}
-	if err := r.collapse(ctx, src, rest, &report); err != nil {
-		return report, err
-	}
+	r.collapse(ctx, src, rest, &report)
 	sort.Strings(report.Kept)
-	return report, nil
+	sort.Strings(report.Unmoved)
+	slices.SortFunc(report.Failed, func(a, b FailedFolder) int { return strings.Compare(a.Folder, b.Folder) })
+	return report
+}
+
+// fail lists f as a folder the repair could not move or remove.
+func (r *RepairReport) fail(f messageFolder, err error) {
+	r.Failed = append(r.Failed, FailedFolder{Folder: f.path, Error: err.Error()})
 }
 
 // collapse deletes each folder no event names into the first numbering of the
 // same message (#2842): the folder of the same day, folder name and UID with
 // the lowest UIDVALIDITY that holds the same files. A folder that matches no
-// earlier numbering is kept.
-func (r *Repairer) collapse(ctx context.Context, src whsource.Source, folders []messageFolder, report *RepairReport) error {
+// earlier numbering is kept, and one whose removal fails is listed as failed.
+func (r *Repairer) collapse(ctx context.Context, src whsource.Source, folders []messageFolder, report *RepairReport) {
 	slices.SortFunc(folders, func(a, b messageFolder) int {
 		if c := strings.Compare(a.copyKey(), b.copyKey()); c != 0 {
 			return c
@@ -323,11 +364,11 @@ func (r *Repairer) collapse(ctx context.Context, src whsource.Source, folders []
 			continue
 		}
 		if err := r.removeCopy(ctx, src, f, keep); err != nil {
-			return err
+			report.fail(f, err)
+			continue
 		}
 		report.Collapsed = append(report.Collapsed, RemovedFolder{Folder: f.path, Files: len(f.files)})
 	}
-	return nil
 }
 
 func cmpUint(a, b uint64) int {
@@ -349,12 +390,13 @@ func sameFiles(keepers []messageFolder, f messageFolder) (messageFolder, bool) {
 }
 
 // moveNamed moves each folder an event names to the message's folder of the
-// new form, and returns each by its day and files, and the folders no event
-// names.
+// new form, unless that folder already holds files, and returns each named
+// folder by its day and files, and the folders no event names.
 func (r *Repairer) moveNamed(
-	ctx context.Context, src whsource.Source, folders []messageFolder, owners map[string]string, report *RepairReport,
-) (named map[string]messageFolder, unnamed []messageFolder, err error) {
-	named, targets := map[string]messageFolder{}, map[string]bool{}
+	ctx context.Context, src whsource.Source, folders []messageFolder, taken map[string]bool, owners map[string]string,
+	report *RepairReport,
+) (named map[string]messageFolder, unnamed []messageFolder) {
+	named = map[string]messageFolder{}
 	for _, f := range folders {
 		owner := ownerOf(f, owners)
 		if owner == "" {
@@ -365,21 +407,22 @@ func (r *Repairer) moveNamed(
 			named[f.namedKey()] = f
 		}
 		to := path.Join(path.Dir(f.path), MessageFolder(owner))
-		// Two folders named by one message id are two kept events of it, in
-		// windows of different days' arrival; each event names its own files,
-		// so neither is a copy to delete, and only the first can take the
-		// address.
-		if targets[to] {
-			report.Kept = append(report.Kept, f.path)
+		// Two folders named by one message id are two kept events of it; each
+		// event names its own files, so neither is a copy to delete, and only
+		// the first to reach the address takes it, in this pass or an earlier
+		// one. The library holding files there is what says it was taken.
+		if taken[to] {
+			report.Unmoved = append(report.Unmoved, f.path)
 			continue
 		}
-		targets[to] = true
 		if err := r.Library.MoveFolder(ctx, src, f.path, to); err != nil {
-			return nil, nil, fmt.Errorf("moving %s to %s: %w", f.path, to, err)
+			report.fail(f, fmt.Errorf("moving to %s: %w", to, err))
+			continue
 		}
+		taken[to] = true
 		report.Moved = append(report.Moved, FolderMove{From: f.path, To: to})
 	}
-	return named, unnamed, nil
+	return named, unnamed
 }
 
 // removeCopy deletes a copy's files and its stored folder, each file's

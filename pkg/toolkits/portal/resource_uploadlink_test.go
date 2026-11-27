@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -68,15 +69,63 @@ func TestUploadLink(t *testing.T) {
 	res = callResource(t, tk, linkInput())
 	assert.True(t, res.IsError)
 
+	// A saved script's run may ask for one to hand an external service (#2844).
+	links.err = nil
 	script := mcpcontext.WithSource(refCtx(""), mcpcontext.SourceScript)
 	res, _, err := tk.handleManageResource(script, nil, linkInput())
 	require.NoError(t, err)
-	require.True(t, res.IsError)
-	assert.Contains(t, errText(t, res), "saved script's run cannot use an upload link")
+	require.False(t, res.IsError, errText(t, res))
+
+	// A link for several files takes no filename; the curl names one in the URL.
+	many := linkInput()
+	many.Filename, many.MaxFiles = "", 4
+	res = callResource(t, tk, many)
+	require.False(t, res.IsError, errText(t, res))
+	assert.Equal(t, 4, links.asked.MaxFiles)
+	assert.Empty(t, links.asked.Filename)
+	tc, _ = res.Content[0].(*mcp.TextContent)
+	require.NoError(t, json.Unmarshal([]byte(tc.Text), &out))
+	assert.Contains(t, out["example"], "/report.pdf'")
+	assert.Contains(t, uploadMessage(resourceupload.Issued{NameInURL: true}), "followed by /<filename>")
+	// No display name or description is needed: each file is named for
+	// itself and described as filed through the link (#2844).
+	unnamed := linkInput()
+	unnamed.DisplayName, unnamed.Description = "", ""
+	res = callResource(t, tk, unnamed)
+	require.False(t, res.IsError, errText(t, res))
+	tooLong := linkInput()
+	tooLong.DisplayName = strings.Repeat("x", resource.MaxDisplayNameLen+1)
+	assert.True(t, callResource(t, tk, tooLong).IsError, "a display name given is still checked")
+	longDesc := linkInput()
+	longDesc.Description = strings.Repeat("x", resource.MaxDescriptionLen+1)
+	assert.True(t, callResource(t, tk, longDesc).IsError, "a description given is still checked")
+	bad := linkInput()
+	bad.Filename = "///"
+	assert.True(t, callResource(t, tk, bad).IsError, "a filename with nothing left of it")
 	assert.Equal(t, "'it'\\''s.zip'", shellQuoted("it's.zip"))
 	mux := http.NewServeMux()
 	tk.MountUploadLinks(mux) // an issuer with no route of its own mounts nothing
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/resources/uploads/x", http.NoBody))
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// portalLinks is an issuer that mounts the portal's link routes.
+type portalLinks struct {
+	fakeLinks
+	mounted bool
+}
+
+func (p *portalLinks) MountPortal(*http.ServeMux, resource.ClaimsExtractor) { p.mounted = true }
+
+// TestMountUploadLinkPortal: the portal's link routes are mounted from the
+// issuer this toolkit holds when it serves them (#2844), and not otherwise.
+func TestMountUploadLinkPortal(t *testing.T) {
+	tk, _ := resourceToolkit(t)
+	tk.SetUploadLinks(&fakeLinks{})
+	tk.MountUploadLinkPortal(http.NewServeMux(), nil)
+	p := &portalLinks{}
+	tk.SetUploadLinks(p)
+	tk.MountUploadLinkPortal(http.NewServeMux(), nil)
+	assert.True(t, p.mounted)
 }

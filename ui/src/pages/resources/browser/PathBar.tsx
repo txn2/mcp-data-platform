@@ -17,6 +17,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { ViewMode } from "@/components/listView";
@@ -58,6 +59,9 @@ export function PathBar({
   onUpload,
   onUploadMany,
   onUploadShare,
+  onUploadLink,
+  onUploadLinks,
+  openLinks,
   drop,
 }: {
   root: ResourceRoot;
@@ -82,6 +86,12 @@ export function PathBar({
   onUploadMany: () => void;
   /** Uploads to the caller's own folder and shares the file; absent when they cannot share (#2258). */
   onUploadShare?: () => void;
+  /** Opens New upload link for the folder in view (#2844). */
+  onUploadLink?: () => void;
+  /** Opens the caller's open upload links. */
+  onUploadLinks?: () => void;
+  /** How many upload links the caller has open. */
+  openLinks?: number;
   drop: CrumbDrop;
 }) {
   const parts = path ? path.split("/") : [];
@@ -159,7 +169,14 @@ export function PathBar({
             <FolderPlus />
             New folder
           </Button>
-          <UploadMenu onUpload={onUpload} onUploadMany={onUploadMany} onUploadShare={onUploadShare} />
+          <UploadMenu
+            onUpload={onUpload}
+            onUploadMany={onUploadMany}
+            onUploadShare={onUploadShare}
+            onUploadLink={onUploadLink}
+            onUploadLinks={onUploadLinks}
+            openLinks={openLinks}
+          />
         </>
       )}
     </div>
@@ -257,10 +274,16 @@ function UploadMenu({
   onUpload,
   onUploadMany,
   onUploadShare,
+  onUploadLink,
+  onUploadLinks,
+  openLinks,
 }: {
   onUpload: () => void;
   onUploadMany: () => void;
   onUploadShare?: () => void;
+  onUploadLink?: () => void;
+  onUploadLinks?: () => void;
+  openLinks?: number;
 }) {
   return (
     <DropdownMenu>
@@ -275,6 +298,14 @@ function UploadMenu({
         <DropdownMenuItem onSelect={onUpload}>A file...</DropdownMenuItem>
         <DropdownMenuItem onSelect={onUploadMany}>Many files or a folder...</DropdownMenuItem>
         {onUploadShare && <DropdownMenuItem onSelect={onUploadShare}>Upload and share...</DropdownMenuItem>}
+        {(onUploadLink || onUploadLinks) && <DropdownMenuSeparator />}
+        {onUploadLink && <DropdownMenuItem onSelect={onUploadLink}>Upload link...</DropdownMenuItem>}
+        {onUploadLinks && (
+          <DropdownMenuItem onSelect={onUploadLinks} className="justify-between">
+            <span>Upload links</span>
+            {openLinks ? <span className="text-xs text-muted-foreground">{openLinks} open</span> : null}
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

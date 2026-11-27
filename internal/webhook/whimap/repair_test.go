@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sort"
 	"testing"
 	"time"
@@ -25,6 +26,10 @@ type fakeLibrary struct {
 	listErr   error
 	moveErr   error
 	removeErr error
+	// moveErrs and removeErrs fail one folder's move, or one file's removal,
+	// and leave the others to succeed.
+	moveErrs   map[string]error
+	removeErrs map[string]error
 }
 
 func (f *fakeLibrary) ListAttachments(context.Context, whsource.Source) ([]StoredFile, error) {
@@ -39,9 +44,25 @@ func (f *fakeLibrary) ListAttachments(context.Context, whsource.Source) ([]Store
 	return out, nil
 }
 
+// MoveFolder refuses a move onto a folder already holding a file of a name
+// the moved folder holds, as the library does (resource.checkFolderTargets):
+// "<file> already answers at <uri>; nothing was moved".
 func (f *fakeLibrary) MoveFolder(_ context.Context, _ whsource.Source, from, to string) error {
 	if f.moveErr != nil {
 		return f.moveErr
+	}
+	if err := f.moveErrs[from]; err != nil {
+		return err
+	}
+	for _, moving := range f.files {
+		if moving.Folder != from {
+			continue
+		}
+		for _, there := range f.files {
+			if there.Folder == to && there.Name == moving.Name {
+				return fmt.Errorf("the file %q already answers at %s/%s; nothing was moved", there.Name, to, there.Name)
+			}
+		}
 	}
 	f.moves = append(f.moves, FolderMove{From: from, To: to})
 	for id, file := range f.files {
@@ -56,6 +77,9 @@ func (f *fakeLibrary) MoveFolder(_ context.Context, _ whsource.Source, from, to 
 func (f *fakeLibrary) RemoveCopy(_ context.Context, _ whsource.Source, id, keep string) error {
 	if f.removeErr != nil {
 		return f.removeErr
+	}
+	if err := f.removeErrs[id]; err != nil {
+		return err
 	}
 	if f.handedTo == nil {
 		f.handedTo = map[string]string{}
@@ -174,7 +198,9 @@ func TestRepair_MovesNamedFoldersAndRemovesLaterCopies(t *testing.T) {
 
 // TestRepair_TwoFoldersOfOneMessageKeepTheSecond: two kept events of one
 // Message-ID in different windows each name their own folder; the first takes
-// the address and the second is kept rather than deleted.
+// the address and the second stays where it is, listed as not moved rather
+// than deleted (an event names its files by resource id, which a deleted copy
+// would leave naming nothing) and not as kept (#2845).
 func TestRepair_TwoFoldersOfOneMessageKeepTheSecond(t *testing.T) {
 	day := "webhooks/inbox/attachments/2026-11-04/"
 	lib := &fakeLibrary{files: map[string]StoredFile{
@@ -189,8 +215,12 @@ func TestRepair_TwoFoldersOfOneMessageKeepTheSecond(t *testing.T) {
 	report, err := (&Repairer{Library: lib, Events: events, Store: &fakeRepairs{}}).Repair(context.Background(), whsource.Source{Name: "inbox"})
 	require.NoError(t, err)
 	assert.Len(t, report.Moved, 1)
-	assert.Equal(t, []string{day + "inbox-9-3"}, report.Kept)
+	assert.Equal(t, []string{day + "inbox-9-3"}, report.Unmoved)
+	assert.Empty(t, report.Kept, "kept is the folders no event names")
 	assert.Empty(t, report.Removed)
+	assert.Empty(t, report.Failed)
+	assert.Equal(t, day+"inbox-9-3", lib.files["r2"].Folder)
+	assert.NotContains(t, lib.handedTo, "r2")
 }
 
 // TestRepair_NothingToDoStillRecords: a source with no folder of the old form
@@ -205,8 +235,9 @@ func TestRepair_NothingToDoStillRecords(t *testing.T) {
 	assert.Contains(t, store.done, "fresh")
 }
 
-// TestRepair_AFailureLeavesItOwed: a failed list, event read or move records
-// nothing, so the next poll runs the repair again.
+// TestRepair_AFailureLeavesItOwed: a failed list or event read records
+// nothing, so the next poll runs the repair again. One folder's failure is not
+// one of these (TestRepair_AFolderThatFailsDoesNotStopTheOthers).
 func TestRepair_AFailureLeavesItOwed(t *testing.T) {
 	day := "webhooks/inbox/attachments/2026-11-04/"
 	files := map[string]StoredFile{"r1": {ID: "r1", Folder: day + "inbox-7-3", Name: "a.pdf", Size: 10}}
@@ -215,7 +246,6 @@ func TestRepair_AFailureLeavesItOwed(t *testing.T) {
 	for name, r := range map[string]*Repairer{
 		"list":   {Library: &fakeLibrary{listErr: errors.New("boom")}, Events: ok},
 		"events": {Library: &fakeLibrary{files: files}, Events: &fakeEvents{err: errors.New("boom")}},
-		"move":   {Library: &fakeLibrary{files: files, moveErr: errors.New("boom")}, Events: ok},
 	} {
 		store := &fakeRepairs{}
 		r.Store = store
@@ -290,16 +320,112 @@ func TestRepair_ASourceRepairedByTheFirstVersionIsRepairedAgain(t *testing.T) {
 	assert.False(t, owed)
 }
 
-// TestRepair_AFailedCollapseLeavesItOwed: a copy that cannot be removed fails
-// the repair before it is recorded.
-func TestRepair_AFailedCollapseLeavesItOwed(t *testing.T) {
-	day := "webhooks/inbox/attachments/2018-06-20/"
-	lib := &fakeLibrary{removeErr: errors.New("boom"), files: map[string]StoredFile{
-		"a1": {ID: "a1", Folder: day + "inbox-1-7", Name: "x", Size: 1},
-		"b1": {ID: "b1", Folder: day + "inbox-2-7", Name: "x", Size: 1},
+// TestRepair_AFolderWhoseMessageFolderExistsIsNotMoved is #2845: a folder an
+// event names whose message folder already holds files, because an earlier
+// pass moved another folder of the same message there, is not moved onto it,
+// whether the two hold the same files (which the library refuses) or other
+// files (which it would merge into one folder). The pass is recorded, so the
+// source is not owed again.
+func TestRepair_AFolderWhoseMessageFolderExistsIsNotMoved(t *testing.T) {
+	day := "webhooks/inbox/attachments/2026-01-21/"
+	target := day + MessageFolder("<m1@x>")
+	for name, there := range map[string]StoredFile{
+		"same files":  {ID: "t1", Folder: target, Name: "a.pdf", Size: 10},
+		"other files": {ID: "t1", Folder: target, Name: "z.pdf", Size: 3},
+	} {
+		lib := &fakeLibrary{files: map[string]StoredFile{
+			"t1": there,
+			"r1": {ID: "r1", Folder: day + "sent-items-5-16690", Name: "a.pdf", Size: 10},
+		}}
+		start := time.Date(2026, 1, 21, 9, 0, 0, 0, time.UTC)
+		events := &fakeEvents{
+			windows: []whstore.Window{{Start: start}},
+			events:  map[time.Time][]whevent.Stored{start: {mailEvent(t, "<m1@x>", "r1")}},
+		}
+		store := &fakeRepairs{versions: map[string]int{"inbox": 1}}
+		r := &Repairer{Library: lib, Events: events, Store: store}
+		report, err := r.Repair(context.Background(), whsource.Source{Name: "inbox"})
+		require.NoError(t, err, name)
+		assert.Empty(t, report.Moved, name)
+		assert.Empty(t, lib.moves, name)
+		assert.Equal(t, []string{day + "sent-items-5-16690"}, report.Unmoved, name)
+		assert.Empty(t, report.Failed, name)
+		assert.Equal(t, day+"sent-items-5-16690", lib.files["r1"].Folder, name)
+		assert.Equal(t, there, lib.files["t1"], name)
+		assert.Equal(t, RepairVersion, store.versions["inbox"], name)
+	}
+}
+
+// TestRepair_ASecondPassOverTheFirstPassesOutput: the repair run again over a
+// library it already repaired, as a source repaired by an earlier version is
+// (#2845), succeeds and moves nothing: the folder the first pass moved is of
+// the new form, and the folder it left beside it is not moved onto it.
+func TestRepair_ASecondPassOverTheFirstPassesOutput(t *testing.T) {
+	day := "webhooks/inbox/attachments/2026-01-21/"
+	lib := &fakeLibrary{files: map[string]StoredFile{
+		"r1": {ID: "r1", Folder: day + "sent-items-5-16689", Name: "a.pdf", Size: 10},
+		"r2": {ID: "r2", Folder: day + "sent-items-5-16690", Name: "a.pdf", Size: 10},
 	}}
+	a, b := time.Date(2026, 1, 21, 9, 0, 0, 0, time.UTC), time.Date(2026, 1, 22, 9, 0, 0, 0, time.UTC)
+	events := &fakeEvents{
+		windows: []whstore.Window{{Start: a}, {Start: b}},
+		events:  map[time.Time][]whevent.Stored{a: {mailEvent(t, "<m1@x>", "r1")}, b: {mailEvent(t, "<m1@x>", "r2")}},
+	}
 	store := &fakeRepairs{}
-	_, err := (&Repairer{Library: lib, Events: &fakeEvents{}, Store: store}).Repair(context.Background(), whsource.Source{Name: "inbox"})
-	require.Error(t, err)
-	assert.Empty(t, store.done)
+	r := &Repairer{Library: lib, Events: events, Store: store}
+	first, err := r.Repair(context.Background(), whsource.Source{Name: "inbox"})
+	require.NoError(t, err)
+	require.Len(t, first.Moved, 1)
+
+	second, err := r.Repair(context.Background(), whsource.Source{Name: "inbox"})
+	require.NoError(t, err, "the second pass is not refused by the address the first took")
+	assert.Empty(t, second.Moved)
+	assert.Equal(t, []string{day + "sent-items-5-16690"}, second.Unmoved)
+	assert.Empty(t, second.Failed)
+	assert.Len(t, lib.moves, 1, "only the first pass moved anything")
+}
+
+// TestRepair_AFolderThatFailsDoesNotStopTheOthers: a folder whose move or
+// copy removal fails is listed with its error and the pass goes on to every
+// other folder and is recorded, so a refusal that repeats is not retried on
+// every poll (#2845). The folder stays where it was, and still answers there.
+func TestRepair_AFolderThatFailsDoesNotStopTheOthers(t *testing.T) {
+	day := "webhooks/inbox/attachments/2026-11-04/"
+	lib := &fakeLibrary{
+		files: map[string]StoredFile{
+			// Two folders events name: the first's move fails.
+			"r1": {ID: "r1", Folder: day + "inbox-7-1", Name: "a.pdf", Size: 10},
+			"r2": {ID: "r2", Folder: day + "inbox-7-2", Name: "b.pdf", Size: 10},
+			// A later copy of the second, removed into it.
+			"r3": {ID: "r3", Folder: day + "inbox-9-2", Name: "b.pdf", Size: 10},
+			// Two renumberings of a message no event names, and a third whose
+			// removal fails.
+			"c1": {ID: "c1", Folder: day + "inbox-1-50", Name: "x", Size: 1},
+			"c2": {ID: "c2", Folder: day + "inbox-2-50", Name: "x", Size: 1},
+			"c3": {ID: "c3", Folder: day + "inbox-3-50", Name: "x", Size: 1},
+		},
+		moveErrs:   map[string]error{day + "inbox-7-1": errors.New("storage unavailable")},
+		removeErrs: map[string]error{"c2": errors.New("delete refused")},
+	}
+	start := time.Date(2026, 11, 4, 9, 0, 0, 0, time.UTC)
+	events := &fakeEvents{
+		windows: []whstore.Window{{Start: start}},
+		events:  map[time.Time][]whevent.Stored{start: {mailEvent(t, "<m1@x>", "r1"), mailEvent(t, "<m2@x>", "r2")}},
+	}
+	store := &fakeRepairs{}
+	report, err := (&Repairer{Library: lib, Events: events, Store: store}).Repair(context.Background(), whsource.Source{Name: "inbox"})
+	require.NoError(t, err)
+
+	assert.Equal(t, []FolderMove{{From: day + "inbox-7-2", To: day + MessageFolder("<m2@x>")}}, report.Moved)
+	assert.Equal(t, []RemovedFolder{{Folder: day + "inbox-9-2", Files: 1}}, report.Removed)
+	assert.Equal(t, []RemovedFolder{{Folder: day + "inbox-3-50", Files: 1}}, report.Collapsed)
+	assert.Equal(t, []string{day + "inbox-1-50"}, report.Kept)
+	require.Len(t, report.Failed, 2)
+	assert.Equal(t, day+"inbox-2-50", report.Failed[0].Folder)
+	assert.Contains(t, report.Failed[0].Error, "delete refused")
+	assert.Equal(t, day+"inbox-7-1", report.Failed[1].Folder)
+	assert.Contains(t, report.Failed[1].Error, "storage unavailable")
+	assert.Equal(t, day+"inbox-7-1", lib.files["r1"].Folder, "a folder whose move failed stays where it was")
+	assert.Equal(t, RepairVersion, store.versions["inbox"], "a pass with failed folders is recorded")
+	assert.Equal(t, report, store.done["inbox"])
 }

@@ -74,7 +74,7 @@ func TestGetAssetVersionContentWholeBinaryIsReadByRange(t *testing.T) {
 func TestSignedContentWholeBinaryIsReadByRange(t *testing.T) {
 	s3 := &mockS3Client{getData: []byte(rangedBytes)}
 	h := contentURLHandler(&mockAssetStore{getAsset: rangedAsset()}, &mockVersionStore{getVersion: rangedVersion()}, s3, nil)
-	token := contenturl.Sign(testContentURLKey, contenturl.Target{AssetID: "a1", Version: 1, Expires: time.Now().Add(time.Minute)})
+	token := contenturl.Sign(testContentURLKey, contenturl.Target{ID: "a1", Version: 1, Expires: time.Now().Add(time.Minute)})
 
 	assertStreamed(t, rangedGet(h, contenturl.Path+token, nil), s3)
 }

@@ -37,6 +37,14 @@ opens internal/platform/knowledgebuiltin/pages/<page>.md by path and holds a
 string literal the page held before the diff and no longer holds fails, as
 #2558's apex criterion did when #2692 rewrote the page's recipe.
 
+A criterion may assert text the platform composes at run time, which no
+literal holds: toolwrite names a call as tool + " " + arg + "=" + verb, so
+"manage_resource action=create" is no literal once the last refusal spelling
+it out is gone (#2844). scripts/acceptance-copy-exempt.txt lists such a text,
+one per line, a tab and the reason after it; a listed text is not reported,
+and a listed text no criterion asserts any longer fails, so the list cannot
+outlive what it excuses.
+
 Each finding names the acceptance file and line and the production file the
 text left. A criterion line the diff itself changed is the author's update and
 is not reported. A base branch that cannot be resolved fails.
@@ -303,8 +311,33 @@ class Judge:
         return written == blamed(self.base, source[1], source[2])
 
 
+# The texts a criterion asserts that the platform composes at run time.
+EXEMPT = "scripts/acceptance-copy-exempt.txt"
+
+
+def exempt_texts() -> dict[str, str]:
+    """The exempt texts and the reason given for each."""
+    path = Path(EXEMPT)
+    if not path.exists():
+        return {}
+    out: dict[str, str] = {}
+    for raw in path.read_text().splitlines():
+        if not raw.strip() or raw.startswith("#"):
+            continue
+        text, _, reason = raw.partition("\t")
+        out[text] = reason.strip()
+    return out
+
+
+def stale_exemptions(exempt: dict[str, str]) -> list[str]:
+    """Exempt texts no acceptance criterion holds as a literal any longer."""
+    held = {lit for rel in acceptance_files() for _, lit in literals(work_text(rel))}
+    return [f'  {EXEMPT}: "{text}" is asserted by no acceptance criterion; remove it' for text in exempt if text not in held]
+
+
 def findings(base: str, before: list[Literal], after: list[Literal]) -> list[str]:
     removed = removed_texts(before, after)
+    exempt = exempt_texts()
     judge = Judge(base, before, after)
     added = added_lines(base)
     out: list[str] = []
@@ -314,7 +347,7 @@ def findings(base: str, before: list[Literal], after: list[Literal]) -> list[str
         src = work_text(rel)
         lines = src.splitlines()
         for lineno, literal in literals(src):
-            if not wordy(literal) or lineno in (added.get(rel) or ()):
+            if not wordy(literal) or literal in exempt or lineno in (added.get(rel) or ()):
                 continue
             if lineno > len(lines) or not POSITIVE.search(lines[lineno - 1]):
                 continue
@@ -363,6 +396,11 @@ def main() -> int:
     base = merge_base(os.environ.get("BASE_BRANCH", "main"))
     files = changed_files(base)
     page_failed = page_findings(base, files)
+    stale = stale_exemptions(exempt_texts())
+    if stale:
+        print("FAIL acceptance-copy-check: an exemption names text no criterion asserts.", file=sys.stderr)
+        print("\n".join(stale), file=sys.stderr)
+        page_failed = page_failed + stale
     if page_failed:
         print("FAIL acceptance-copy-check: an acceptance criterion reads text this diff removed from a built-in page.", file=sys.stderr)
         print("\n".join(page_failed), file=sys.stderr)

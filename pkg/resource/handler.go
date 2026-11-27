@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 
@@ -124,6 +125,11 @@ type Deps struct {
 	// Absent on a deployment with no database, which records nothing and
 	// leaves the writes themselves unaffected.
 	Producers producedby.Store
+	// DownloadLink mints the short-lived link anybody holding it downloads a
+	// file from (#2847), the portal's Copy link: its URL and expiry, of the
+	// kind expires names (single_download or 6h; empty is single_download).
+	// Nil on a deployment that cannot sign or name one, which answers 503.
+	DownloadLink func(res *Resource, expires string) (url string, expiresAt time.Time, err error)
 }
 
 // ClaimsExtractor extracts resource Claims from an HTTP request.
@@ -229,6 +235,7 @@ func (h *Handler) registerRoutesOn(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/resources", h.handleList)
 	mux.HandleFunc("GET /api/v1/resources/{id}", h.handleGet)
 	mux.HandleFunc("GET /api/v1/resources/{id}/content", h.handleGetContent)
+	mux.HandleFunc("GET /api/v1/resources/{id}/download-link", h.handleDownloadLink)
 	mux.HandleFunc("PATCH /api/v1/resources/{id}", h.handleUpdate)
 	mux.HandleFunc("DELETE /api/v1/resources/{id}", h.handleDelete)
 	h.registerContentRoutes(mux)

@@ -138,6 +138,19 @@ func TestAcceptanceCopyCheck(t *testing.T) {
 			exp: expect{pass: true, want: []string{"no text removed from production Go against main"}, mustNot: []string{fail}},
 		},
 		{
+			name: "a text the platform composes at run time, listed as exempt, is not reported (#2844)",
+			files: map[string]string{
+				"internal/endpoint/epbinding/epbinding.go": nameRefusal,
+				"scripts/acceptance-copy-exempt.txt":       "only an administrator\tcomposed at run time\n",
+			},
+			exp: expect{pass: true, mustNot: []string{fail}},
+		},
+		{
+			name:  "an exemption no criterion asserts any longer fails",
+			files: map[string]string{"scripts/acceptance-copy-exempt.txt": "# header\n\nno criterion says this\tgone\n"},
+			exp:   expect{want: []string{"FAIL acceptance-copy-check: an exemption names text no criterion asserts", `"no criterion says this" is asserted by no acceptance criterion`}},
+		},
+		{
 			name: "a base branch that cannot be resolved fails rather than skipping",
 			env:  []string{"BASE_BRANCH=no-such-branch"},
 			exp:  expect{want: []string{"FAIL acceptance-copy-check: cannot resolve base branch 'no-such-branch'"}},

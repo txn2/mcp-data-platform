@@ -21,17 +21,19 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
-// memStore keeps links by hash, as the table does.
+// memStore keeps links by hash, as the table does: a place taken per claim,
+// given back by a finish that filed nothing.
 type memStore struct {
 	mu       sync.Mutex
 	links    map[string]*link
-	used     map[string]bool
+	used     map[string]int
+	revoked  map[string]bool
 	finished map[string][2]string
 	err      error
 }
 
 func newMemStore() *memStore {
-	return &memStore{links: map[string]*link{}, used: map[string]bool{}, finished: map[string][2]string{}}
+	return &memStore{links: map[string]*link{}, used: map[string]int{}, revoked: map[string]bool{}, finished: map[string][2]string{}}
 }
 
 func (m *memStore) insert(_ context.Context, l link, sum string) error {
@@ -46,16 +48,51 @@ func (m *memStore) claim(_ context.Context, sum string, now time.Time) (*link, e
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	l := m.links[sum]
-	if l == nil || m.used[sum] || !l.ExpiresAt.After(now) {
+	if l == nil || m.revoked[l.ID] || m.used[sum] >= max(l.MaxFiles, 1) || !l.ExpiresAt.After(now) {
 		return nil, ErrNoLink
 	}
-	m.used[sum] = true
-	return l, nil
+	m.used[sum]++
+	c := *l
+	c.FilesUsed = m.used[sum]
+	return &c, nil
 }
 
 func (m *memStore) finish(_ context.Context, id, resourceID, failure string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.finished[id] = [2]string{resourceID, failure}
+	if resourceID == "" {
+		for sum, l := range m.links {
+			if l.ID == id {
+				m.used[sum]--
+			}
+		}
+	}
 	return nil
+}
+
+func (m *memStore) open(_ context.Context, userID, email string, now time.Time) ([]Open, error) {
+	out := []Open{}
+	for sum, l := range m.links {
+		if (l.UserID == userID || (email != "" && l.UserEmail == email)) && !m.revoked[l.ID] &&
+			m.used[sum] < max(l.MaxFiles, 1) && l.ExpiresAt.After(now) {
+			out = append(out, Open{ID: l.ID, Path: l.Path, MaxFiles: l.MaxFiles, FilesUsed: m.used[sum], ExpiresAt: l.ExpiresAt})
+		}
+	}
+	return out, m.err
+}
+
+func (m *memStore) revoke(_ context.Context, id string, by resource.Claims, _ time.Time) error {
+	if m.err != nil {
+		return m.err
+	}
+	for _, l := range m.links {
+		if l.ID == id && !m.revoked[id] && (by.IsAdmin || l.UserID == by.Sub || (by.Email != "" && l.UserEmail == by.Email)) {
+			m.revoked[id] = true
+			return nil
+		}
+	}
+	return ErrNoLink
 }
 
 func (*memStore) sweep(context.Context, time.Time) error { return nil }
@@ -118,6 +155,16 @@ func request(maxBytes int64) IssueRequest {
 	return IssueRequest{Scope: resource.ScopeUser, ScopeID: "u-1", Path: "sources", Filename: "site.zip", ContentType: "application/zip", MaxBytes: maxBytes}
 }
 
+func withTTL(in IssueRequest, ttl time.Duration) IssueRequest {
+	in.TTL = ttl
+	return in
+}
+
+func withFiles(in IssueRequest, n int) IssueRequest {
+	in.MaxFiles = n
+	return in
+}
+
 func tokenOf(t *testing.T, url string) string {
 	t.Helper()
 	tok, ok := strings.CutPrefix(url, "https://platform.example.com"+RoutePrefix)
@@ -153,8 +200,15 @@ func TestIssue(t *testing.T) {
 	}{
 		"no size":           {request(0), person, "size_bytes is required"},
 		"over the limit":    {request(2 << 20), person, "over this deployment's upload limit"},
-		"a long life":       {IssueRequest{Scope: resource.ScopeUser, ScopeID: "u-1", Filename: "a", MaxBytes: 1, TTL: 2 * time.Hour}, person, "at most 3600 seconds"},
-		"another's library": {IssueRequest{Scope: resource.ScopeUser, ScopeID: "u-2", Filename: "a", MaxBytes: 1}, person, "cannot write to that library"},
+		"a long life":       {withTTL(request(1), 25*time.Hour), person, "at most 86400 seconds"},
+		"another's library": {IssueRequest{Scope: resource.ScopeUser, ScopeID: "u-2", Path: "p", Filename: "a", ContentType: "text/plain", MaxBytes: 1}, person, "cannot write to that library"},
+		"too many files":    {withFiles(request(1), 101), person, "1 to 100"},
+		"a name and files":  {withFiles(request(1), 2), person, "takes no filename"},
+		"no content type":   {IssueRequest{Scope: resource.ScopeUser, ScopeID: "u-1", Path: "p", Filename: "a", MaxBytes: 1}, person, "content_type is required"},
+		"a bad path":        {IssueRequest{Scope: resource.ScopeUser, ScopeID: "u-1", Path: "../x", ContentType: "text/plain", MaxBytes: 1}, person, "path"},
+		"a bad if_exists":   {IssueRequest{Scope: resource.ScopeUser, ScopeID: "u-1", Path: "p", ContentType: "text/plain", MaxBytes: 1, IfExists: "merge"}, person, "if_exists"},
+		"no filename left":  {IssueRequest{Scope: resource.ScopeUser, ScopeID: "u-1", Path: "p", Filename: "///", ContentType: "text/plain", MaxBytes: 1}, person, "plain file name"},
+		"a bad scope":       {IssueRequest{Scope: "nowhere", ContentType: "text/plain", MaxBytes: 1}, person, "scope"},
 	} {
 		_, err := svc.Issue(context.Background(), c.in, c.claims, "u-1")
 		require.ErrorIs(t, err, ErrRefused, label)
@@ -179,7 +233,7 @@ func TestUpload(t *testing.T) {
 	require.NoError(t, err)
 	tok := tokenOf(t, issued.URL)
 	body := zipBytes(80)
-	res, err := svc.Upload(context.Background(), tok, bytes.NewReader(body), int64(len(body)))
+	res, _, err := svc.Upload(context.Background(), tok, "", bytes.NewReader(body), int64(len(body)))
 	require.NoError(t, err)
 	assert.Equal(t, "r-new", res.ID)
 	assert.Equal(t, body, w.body)
@@ -188,25 +242,25 @@ func TestUpload(t *testing.T) {
 	assert.Equal(t, "sources", w.created[0].Path)
 	assert.Equal(t, "application/zip", w.created[0].MIMEType)
 
-	_, err = svc.Upload(context.Background(), tok, bytes.NewReader(body), int64(len(body)))
+	_, _, err = svc.Upload(context.Background(), tok, "", bytes.NewReader(body), int64(len(body)))
 	require.ErrorIs(t, err, ErrNoLink, "a link is good for one upload")
-	_, err = svc.Upload(context.Background(), "unknown", bytes.NewReader(body), -1)
+	_, _, err = svc.Upload(context.Background(), "unknown", "", bytes.NewReader(body), -1)
 	require.ErrorIs(t, err, ErrNoLink)
-	_, err = svc.Upload(context.Background(), strings.Repeat("x", 200), bytes.NewReader(body), -1)
+	_, _, err = svc.Upload(context.Background(), strings.Repeat("x", 200), "", bytes.NewReader(body), -1)
 	require.ErrorIs(t, err, ErrNoLink, "a token no link could have is refused before a read")
 
 	stale, err := svc.Issue(context.Background(), request(100), person, "u-1")
 	require.NoError(t, err)
 	*now = now.Add(DefaultTTL)
-	_, err = svc.Upload(context.Background(), tokenOf(t, stale.URL), bytes.NewReader(body), -1)
+	_, _, err = svc.Upload(context.Background(), tokenOf(t, stale.URL), "", bytes.NewReader(body), -1)
 	require.ErrorIs(t, err, ErrNoLink, "an expired link")
 
 	*now = at
 	said, _ := svc.Issue(context.Background(), request(10), person, "u-1")
-	_, err = svc.Upload(context.Background(), tokenOf(t, said.URL), bytes.NewReader(body), int64(len(body)))
+	_, _, err = svc.Upload(context.Background(), tokenOf(t, said.URL), "", bytes.NewReader(body), int64(len(body)))
 	require.ErrorIs(t, err, ErrTooLarge, "a declared length past the size")
 	quiet, _ := svc.Issue(context.Background(), request(10), person, "u-1")
-	_, err = svc.Upload(context.Background(), tokenOf(t, quiet.URL), bytes.NewReader(body), -1)
+	_, _, err = svc.Upload(context.Background(), tokenOf(t, quiet.URL), "", bytes.NewReader(body), -1)
 	require.ErrorIs(t, err, ErrTooLarge, "a stream past the size")
 	failures := 0
 	for _, f := range st.finished {
@@ -227,7 +281,7 @@ func TestUpload_ReplacesWhenTold(t *testing.T) {
 	in.IfExists = "replace"
 	issued, err := svc.Issue(context.Background(), in, person, "u-1")
 	require.NoError(t, err)
-	res, err := svc.Upload(context.Background(), tokenOf(t, issued.URL), bytes.NewReader(zipBytes(50)), 50)
+	res, _, err := svc.Upload(context.Background(), tokenOf(t, issued.URL), "", bytes.NewReader(zipBytes(50)), 50)
 	require.NoError(t, err)
 	assert.Equal(t, "r-old", res.ID)
 	assert.Equal(t, []string{"r-old"}, w.replaced)
@@ -302,14 +356,14 @@ func TestUpload_ReadsTheGrantAtTheUpload(t *testing.T) {
 		l.Claims = resource.Claims{Sub: l.Claims.Sub, Email: l.Claims.Email, Personas: l.Claims.Personas}
 	}
 	body := zipBytes(40)
-	_, err = f.svc.Upload(context.Background(), tokenOf(t, issued.URL), bytes.NewReader(body), int64(len(body)))
+	_, _, err = f.svc.Upload(context.Background(), tokenOf(t, issued.URL), "", bytes.NewReader(body), int64(len(body)))
 	require.NoError(t, err)
 	assert.True(t, f.w.claims.CanWriteFolder(resource.ScopeGlobal, "", "reports/q3"), "the upload is written under the grant read at the upload")
 
 	again, err := f.svc.Issue(context.Background(), in, person.WithFolderGrants(context.Background()), "u-1")
 	require.NoError(t, err)
 	src.folders = nil
-	_, err = f.svc.Upload(context.Background(), tokenOf(t, again.URL), bytes.NewReader(body), int64(len(body)))
+	_, _, err = f.svc.Upload(context.Background(), tokenOf(t, again.URL), "", bytes.NewReader(body), int64(len(body)))
 	require.NoError(t, err)
 	assert.False(t, f.w.claims.CanWriteFolder(resource.ScopeGlobal, "", "reports/q3"), "a grant revoked before the upload no longer covers it")
 }

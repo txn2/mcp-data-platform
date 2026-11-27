@@ -693,4 +693,41 @@ describe("the attachment repair (#2836)", () => {
     const { container } = render(<AttachmentRepair source="inbox" repair={{ ...repair, moved: 0, removed: 0, collapsed: 0, kept: 0 }} />);
     expect(container.textContent).toBe("");
   });
+
+  it("lists the folders it left unmoved and the ones that failed, with what failed (#2845)", () => {
+    render(
+      <AttachmentRepair
+        source="inbox"
+        repair={{
+          ...repair,
+          unmoved: 1,
+          failed: 1,
+          report: {
+            ...repair.report,
+            unmoved: ["webhooks/inbox/attachments/2026-01-21/sent-items-5-16690"],
+            failed: [{ folder: "webhooks/inbox/attachments/2026-02-03/inbox-5-20114", error: "moving to x: storage unavailable" }],
+          },
+        }}
+      />,
+    );
+    const line = screen.getByTestId("attachment-repair");
+    expect(line.textContent).toContain("1 folder not moved (a message filed twice, whose folder already holds the first copy)");
+    expect(line.textContent).toContain("1 folder that couldn't be repaired");
+    expect(within(line).getByText("Not moved")).toBeTruthy();
+    expect(within(line).getByText("2026-01-21/sent-items-5-16690")).toBeTruthy();
+    expect(within(line).getByText("moving to x: storage unavailable")).toBeTruthy();
+  });
+
+  it("shows a pass that only left folders unmoved, and reads a record from before #2845", () => {
+    render(
+      <AttachmentRepair
+        source="inbox"
+        repair={{ ...repair, moved: 0, removed: 0, collapsed: 0, kept: 0, unmoved: 2, report: { ...repair.report, unmoved: ["a", "b"] } }}
+      />,
+    );
+    expect(screen.getByTestId("attachment-repair").textContent).toContain("2 folders not moved");
+    cleanup();
+    render(<AttachmentRepair source="inbox" repair={repair} />);
+    expect(screen.getByTestId("attachment-repair").textContent).not.toContain("not moved");
+  });
 });

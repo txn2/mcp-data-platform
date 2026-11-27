@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from "react";
 import { useExternalFolders, usePeople } from "@/api/resources/hooks";
 import { useMyFolderGrants } from "@/api/resources/folderGrants";
+import { fetchDownloadLink, useUploadLinks, type DownloadExpiry } from "@/api/resources/links";
 import type { ViewMode } from "@/components/listView";
 import { useAuthStore, type UserProfile } from "@/stores/auth";
 import type { Resource } from "@/api/resources/types";
@@ -222,6 +223,8 @@ function useCore({ admin, user, personaNames, basePath, location, onNavigate }: 
     show(`Copied ${r.uri}`);
   };
 
+  const links = useLinks(root, path, setDialog, show);
+
   return {
     admin,
     user,
@@ -259,6 +262,31 @@ function useCore({ admin, user, personaNames, basePath, location, onNavigate }: 
     uploadAndShare,
     canShare,
     copyURI,
+    ...links,
+  };
+}
+
+/**
+ * Links to and from the library: Copy link, a download link anybody holding it
+ * fetches the file by, a single download or for six hours (#2847); and upload
+ * links for a service, one for the folder in view and the caller's open ones
+ * (#2844).
+ */
+function useLinks(root: ResourceRoot, path: string, setDialog: (d: FmDialog) => void, show: (message: string) => void) {
+  const open = useUploadLinks();
+  const copyLink = (r: Resource, expires: DownloadExpiry = "single_download") => {
+    fetchDownloadLink(r.id, expires)
+      .then((link) => {
+        void navigator.clipboard?.writeText(link.url).catch(() => undefined);
+        show(expires === "6h" ? "Copied a link that works for 6 hours" : "Copied a link for a single download");
+      })
+      .catch((err: Error) => show(`The link couldn't be made: ${err.message}`));
+  };
+  return {
+    copyLink,
+    uploadLink: (folder = path) => setDialog({ kind: "newLink", folder, root }),
+    openLinks: () => setDialog({ kind: "links" }),
+    openLinkCount: open.data?.length ?? 0,
   };
 }
 
@@ -383,12 +411,18 @@ function spaceItems(fm: ReturnType<typeof useFileManager>): MenuItem[] {
   return [
     { id: "new", label: "New folder", run: fm.startNewFolder },
     { id: "upload", label: "Upload here", run: () => fm.upload(true) },
+    { id: "uploadLink", label: "Upload link here...", run: () => fm.uploadLink() },
   ];
 }
 
 /** The items only one row has: a file's URI, a folder's description (#2111), a Global folder's Permissions (#2684). */
 function singleItems(fm: ReturnType<typeof useFileManager>, first: Entry): MenuItem[] {
-  if (first.kind === "file") return [{ id: "copy", label: "Copy URI", run: () => fm.copyURI(first.resource) }];
+  if (first.kind === "file") {
+    return [
+      { id: "copy", label: "Copy URI", run: () => fm.copyURI(first.resource) },
+      { id: "copyLink", label: "Copy link", run: () => fm.copyLink(first.resource) },
+    ];
+  }
   const items: MenuItem[] = [];
   if (fm.canWrite || fm.granted(fm.root, first.path)) {
     items.push({ id: "describe", label: "Describe...", run: () => fm.setDialog({ kind: "describe", folder: first.path }) });

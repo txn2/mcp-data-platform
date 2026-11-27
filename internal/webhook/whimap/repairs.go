@@ -37,8 +37,9 @@ func (r *Repairs) RepairedVersion(ctx context.Context, source string) (int, erro
 
 // RecordRepair records that source's repair by version ran and what it did.
 // A source repaired before keeps what the earlier pass did (#2842): the
-// moves, removals and collapses are added to it, and kept is replaced, since
-// a second pass reads exactly the folders the first kept.
+// moves, removals and collapses are added to it, and kept, unmoved and failed
+// are replaced, since a second pass reads exactly the folders the first left
+// in the old form.
 func (r *Repairs) RecordRepair(ctx context.Context, source string, version int, rep RepairReport) error {
 	body, err := json.Marshal(rep)
 	if err != nil {
@@ -58,7 +59,9 @@ func (r *Repairs) RecordRepair(ctx context.Context, source string, version int, 
 		     'moved', COALESCE(webhook_imap_repairs.report->'moved', '[]'::jsonb) || COALESCE(EXCLUDED.report->'moved', '[]'::jsonb),
 		     'removed', COALESCE(webhook_imap_repairs.report->'removed', '[]'::jsonb) || COALESCE(EXCLUDED.report->'removed', '[]'::jsonb),
 		     'collapsed', COALESCE(webhook_imap_repairs.report->'collapsed', '[]'::jsonb) || COALESCE(EXCLUDED.report->'collapsed', '[]'::jsonb),
-		     'kept', COALESCE(EXCLUDED.report->'kept', '[]'::jsonb))`,
+		     'kept', COALESCE(EXCLUDED.report->'kept', '[]'::jsonb),
+		     'unmoved', COALESCE(EXCLUDED.report->'unmoved', '[]'::jsonb),
+		     'failed', COALESCE(EXCLUDED.report->'failed', '[]'::jsonb))`,
 		source, version, len(rep.Moved), len(rep.Removed), rep.RemovedFiles(),
 		len(rep.Collapsed), rep.CollapsedFiles(), len(rep.Kept), body)
 	if err != nil {
@@ -81,10 +84,15 @@ type RepairRecord struct {
 	RemovedFiles int       `json:"removed_files"`
 	// Collapsed and CollapsedFiles are the copies of a message no event names
 	// deleted into the folder that stays, and the files they held (#2842).
-	Collapsed      int          `json:"collapsed"`
-	CollapsedFiles int          `json:"collapsed_files"`
-	Kept           int          `json:"kept"`
-	Report         RepairReport `json:"report"`
+	Collapsed      int `json:"collapsed"`
+	CollapsedFiles int `json:"collapsed_files"`
+	Kept           int `json:"kept"`
+	// Unmoved and Failed are how many folders the last pass left where they
+	// were because the message's folder already held files, and because a
+	// move or removal failed (#2845).
+	Unmoved int          `json:"unmoved"`
+	Failed  int          `json:"failed"`
+	Report  RepairReport `json:"report"`
 }
 
 // Get returns source's repair, nil when it has not run.
@@ -113,5 +121,15 @@ func (r *Repairs) Get(ctx context.Context, source string) (*RepairRecord, error)
 	}
 	rec.Report.Collapsed = rec.Report.Collapsed[:min(len(rec.Report.Collapsed), repairListLimit)]
 	rec.Report.Kept = rec.Report.Kept[:min(len(rec.Report.Kept), repairListLimit)]
+	// A row written before #2845 has neither list.
+	rec.Unmoved, rec.Failed = len(rec.Report.Unmoved), len(rec.Report.Failed)
+	if rec.Report.Unmoved == nil {
+		rec.Report.Unmoved = []string{}
+	}
+	if rec.Report.Failed == nil {
+		rec.Report.Failed = []FailedFolder{}
+	}
+	rec.Report.Unmoved = rec.Report.Unmoved[:min(len(rec.Report.Unmoved), repairListLimit)]
+	rec.Report.Failed = rec.Report.Failed[:min(len(rec.Report.Failed), repairListLimit)]
 	return &rec, nil
 }

@@ -427,18 +427,33 @@ stays where it is, and the others are deleted. Each deleted copy's files hand
 their addresses (their own `uri` and any alias an earlier move left on them) to
 the file of the same name that stays, so a reference to a copy still resolves.
 A folder no event names that is a copy of nothing is kept, since its files may
-be all that is left of the message. What the repair moved, deleted as later
-copies, deleted as renumbered copies (`collapsed`) and kept is listed on the
-source's page in the portal, Admin > Webhooks, and returned as
-`attachment_repair` by `GET /api/v1/admin/webhooks/sources/{name}`. A repair
-that fails is logged and tried again before the next poll, and the source's mail
-is filed either way.
+be all that is left of the message.
+
+A folder an event names whose message folder already holds files is left where
+it is and listed as `unmoved` (#2845). That is a message filed twice, its two
+kept events each naming their own files: the first folder to reach the message's
+address took it, in this pass or an earlier one, and moving the second there
+would either be refused (a file of the same name) or merge two events' files
+into one folder. It is not deleted as a copy either, because its event names its
+files by `resource_id` and a handover moves addresses, not ids.
+
+A folder whose move or removal fails is listed in `failed` with the error and
+left where it is, and the repair goes on to every other folder and is recorded,
+so a refusal that repeats does not run the whole repair again on every poll. A
+folder left in the old form still answers at its address. What the repair moved,
+deleted as later copies, deleted as renumbered copies (`collapsed`), kept, left
+unmoved and failed on is listed on the source's page in the portal, Admin >
+Webhooks, and returned as `attachment_repair` by
+`GET /api/v1/admin/webhooks/sources/{name}`. A repair that cannot list the
+source's attachments or read its events is logged and tried again before the
+next poll, and the source's mail is filed either way.
 
 The repair is recorded with its version. A source the first version (#2836)
 repaired is repaired again, once, by the second (#2842): what the first pass
 moved is of the new form and untouched, so the second reads only the folders
 the first kept. Its moves, removals and collapses are added to the counts
-already recorded, and `kept` is replaced by what is left.
+already recorded, and `kept`, `unmoved` and `failed` are replaced by what is
+left.
 
 Attachments are not removed by `compacted_retention_days`: an expired window's
 own file goes, and the attachments its events named stay until someone deletes

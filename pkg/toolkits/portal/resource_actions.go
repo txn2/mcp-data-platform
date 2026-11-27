@@ -123,6 +123,10 @@ type manageResourceInput struct {
 	// (#2639).
 	SizeBytes  int64 `json:"size_bytes,omitempty"`
 	TTLSeconds int   `json:"ttl_seconds,omitempty"`
+	// MaxFiles is how many files an upload link takes (#2844).
+	MaxFiles int `json:"max_files,omitempty"`
+	// Expires is a download link's kind (#2847): single_download or 6h.
+	Expires string `json:"expires,omitempty"`
 }
 
 // resourceOutput is what the two content-writing actions report. It leads with
@@ -188,9 +192,11 @@ func (t *Toolkit) handleManageResource(
 		return t.handleUpdateResource(ctx, input)
 	case resourceActionUploadLink:
 		return t.handleUploadLink(ctx, input)
+	case resourceActionDownloadLink:
+		return t.handleDownloadLink(ctx, input)
 	default:
 		return toolkit.ErrorResult(fmt.Sprintf(
-			"invalid action %q: must be one of: create, replace_content, update, get, list, delete, extract, upload_link",
+			"invalid action %q: must be one of: create, replace_content, update, get, list, delete, extract, upload_link, download_link",
 			input.Action)), nil, nil
 	}
 }
@@ -417,6 +423,20 @@ func resolveResourceScope(input manageResourceInput, claims resource.Claims) (sc
 // validateResourcePlacement checks the fields a create needs beyond its
 // content, reporting the first problem in the caller's own vocabulary.
 func validateResourcePlacement(scope resource.Scope, scopeID string, input manageResourceInput) error {
+	if err := resource.ValidateDisplayName(input.DisplayName); err != nil {
+		return fmt.Errorf(validationFmt, err)
+	}
+	if err := resource.ValidateDescription(input.Description); err != nil {
+		return fmt.Errorf(validationFmt, err)
+	}
+	return validatePlacement(scope, scopeID, input)
+}
+
+// validatePlacement checks a write's library, folder, tags and index policy,
+// and a display name and description when given: an upload link names each
+// file for itself and describes it as filed through the link when the caller
+// gives neither (#2844).
+func validatePlacement(scope resource.Scope, scopeID string, input manageResourceInput) error {
 	if err := resource.ValidateScope(scope, scopeID); err != nil {
 		return fmt.Errorf(validationFmt, err)
 	}
@@ -424,11 +444,15 @@ func validateResourcePlacement(scope resource.Scope, scopeID string, input manag
 		return fmt.Errorf("%w. A path is the folder chain the file is filed under inside the library, "+
 			"for example \"datasets\" or \"datasets/media-manager/shows\"", err)
 	}
-	if err := resource.ValidateDisplayName(input.DisplayName); err != nil {
-		return fmt.Errorf(validationFmt, err)
+	if strings.TrimSpace(input.DisplayName) != "" {
+		if err := resource.ValidateDisplayName(input.DisplayName); err != nil {
+			return fmt.Errorf(validationFmt, err)
+		}
 	}
-	if err := resource.ValidateDescription(input.Description); err != nil {
-		return fmt.Errorf(validationFmt, err)
+	if strings.TrimSpace(input.Description) != "" {
+		if err := resource.ValidateDescription(input.Description); err != nil {
+			return fmt.Errorf(validationFmt, err)
+		}
 	}
 	if err := resource.ValidateTags(normalizeTags(input.Tags)); err != nil {
 		return fmt.Errorf(validationFmt, err)

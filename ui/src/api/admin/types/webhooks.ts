@@ -119,11 +119,17 @@ export interface WebhookAttachmentRepair {
   collapsed: number;
   collapsed_files: number;
   kept: number;
+  /** Folders a message names left where they were: its folder already held its files (#2845). Absent before #2845. */
+  unmoved?: number;
+  /** Folders a move or removal failed on, left where they were (#2845). Absent before #2845. */
+  failed?: number;
   report: {
     moved: { from: string; to: string }[];
     removed: { folder: string; files: number }[];
     collapsed: { folder: string; files: number }[];
     kept: string[];
+    unmoved?: string[];
+    failed?: { folder: string; error: string }[];
   };
 }
 

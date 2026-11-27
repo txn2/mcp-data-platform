@@ -338,6 +338,25 @@ func TestPoll_RunsTheRepairOnceBeforePolling(t *testing.T) {
 		Lock: f.lock, Replica: "r1", Repair: &Repairer{Store: &fakeRepairs{readErr: errors.New("db down")}},
 	})
 	require.NoError(t, failing.pollLocked(context.Background(), src))
+
+	// A folder that fails is recorded with the pass and the mail is polled
+	// (#2845): the source is not owed again.
+	day := "webhooks/" + src.Name + "/attachments/2026-11-04/"
+	broken := &fakeRepairs{}
+	withFailure := New(Config{
+		Sources: f, Objects: f, Bucket: "resources", Recorder: f, RawWindows: f, Marks: f, Files: f,
+		Lock: f.lock, Replica: "r1",
+		Repair: &Repairer{
+			Library: &fakeLibrary{
+				files:      map[string]StoredFile{"a": {ID: "a", Folder: day + "inbox-1-7", Name: "x", Size: 1}, "b": {ID: "b", Folder: day + "inbox-2-7", Name: "x", Size: 1}},
+				removeErrs: map[string]error{"b": errors.New("delete refused")},
+			},
+			Events: &fakeEvents{}, Store: broken,
+		},
+	})
+	require.NoError(t, withFailure.pollLocked(context.Background(), src))
+	require.Len(t, broken.done[src.Name].Failed, 1)
+	assert.Equal(t, RepairVersion, broken.versions[src.Name])
 }
 
 func attachmentURIs(t *testing.T, evs []whevent.Stored) []string {

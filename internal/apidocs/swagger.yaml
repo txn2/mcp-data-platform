@@ -13853,6 +13853,17 @@ definitions:
           stored column: the detail read fills it from the audit rollup, and it is
           absent everywhere the rollup was not consulted.
     type: object
+  resource.downloadLinkResponse:
+    properties:
+      expires:
+        example: single_download
+        type: string
+      expires_at:
+        type: string
+      url:
+        example: https://data.example.com/api/v1/resources/downloads/eyJ...Q/report.pdf
+        type: string
+    type: object
   resource.errorResponse:
     properties:
       error:
@@ -14177,6 +14188,110 @@ definitions:
       shared_by:
         type: string
       via_persona:
+        type: string
+    type: object
+  resourceupload.Issued:
+    properties:
+      expires_at:
+        type: string
+      id:
+        type: string
+      max_bytes:
+        type: integer
+      max_files:
+        type: integer
+      method:
+        type: string
+      name_in_url:
+        description: NameInURL says each file is named by the path segment after URL.
+        type: boolean
+      upload_url:
+        type: string
+    type: object
+  resourceupload.Open:
+    properties:
+      content_type:
+        type: string
+      created_at:
+        type: string
+      expires_at:
+        type: string
+      filename:
+        type: string
+      files_used:
+        type: integer
+      id:
+        type: string
+      max_bytes:
+        type: integer
+      max_files:
+        type: integer
+      path:
+        type: string
+      scope:
+        type: string
+      scope_id:
+        type: string
+    type: object
+  resourceupload.issueBody:
+    properties:
+      content_type:
+        example: image/png
+        type: string
+      filename:
+        example: report.pdf
+        type: string
+      if_exists:
+        example: fail
+        type: string
+      max_files:
+        example: 4
+        type: integer
+      path:
+        example: renders
+        type: string
+      scope:
+        example: user
+        type: string
+      scope_id:
+        type: string
+      size_bytes:
+        example: 20971520
+        type: integer
+      ttl_seconds:
+        example: 7200
+        type: integer
+    type: object
+  resourceupload.openList:
+    properties:
+      links:
+        items:
+          $ref: '#/definitions/resourceupload.Open'
+        type: array
+    type: object
+  resourceupload.uploadedFile:
+    properties:
+      content_type:
+        example: application/zip
+        type: string
+      filename:
+        example: site.zip
+        type: string
+      files_remaining:
+        description: FilesRemaining is how many more files the link takes (#2844).
+        example: 3
+        type: integer
+      reference:
+        example: mcp:resource:0b9c6a3e-2f1d-4c8e-9a7b-5d4e3f2a1b0c
+        type: string
+      resource_id:
+        example: 0b9c6a3e-2f1d-4c8e-9a7b-5d4e3f2a1b0c
+        type: string
+      size_bytes:
+        example: 209715200
+        type: integer
+      uri:
+        example: mcp://user/u-1/site-sources/site.zip
         type: string
     type: object
   reviewalert.SettingsInput:
@@ -21044,6 +21159,13 @@ definitions:
       updated_by:
         type: string
     type: object
+  whimap.FailedFolder:
+    properties:
+      error:
+        type: string
+      folder:
+        type: string
+    type: object
   whimap.FolderMove:
     properties:
       from:
@@ -21089,6 +21211,8 @@ definitions:
         type: integer
       collapsed_files:
         type: integer
+      failed:
+        type: integer
       kept:
         type: integer
       moved:
@@ -21101,6 +21225,12 @@ definitions:
         type: string
       report:
         $ref: '#/definitions/whimap.RepairReport'
+      unmoved:
+        description: |-
+          Unmoved and Failed are how many folders the last pass left where they
+          were because the message's folder already held files, and because a
+          move or removal failed (#2845).
+        type: integer
     type: object
   whimap.RepairReport:
     properties:
@@ -21110,6 +21240,13 @@ definitions:
           one that stays (#2842), each with how many files it held.
         items:
           $ref: '#/definitions/whimap.RemovedFolder'
+        type: array
+      failed:
+        description: |-
+          Failed are the folders a move or removal failed on, each with what the
+          library said, left where they were (#2845).
+        items:
+          $ref: '#/definitions/whimap.FailedFolder'
         type: array
       kept:
         description: |-
@@ -21128,6 +21265,13 @@ definitions:
           it held.
         items:
           $ref: '#/definitions/whimap.RemovedFolder'
+        type: array
+      unmoved:
+        description: |-
+          Unmoved are the folders an event names left where they are because the
+          message's folder already held files (#2845).
+        items:
+          type: string
         type: array
     type: object
   whpgstate.State:
@@ -45515,6 +45659,52 @@ paths:
       summary: Replace resource content
       tags:
       - Resources
+  /resources/{id}/download-link:
+    get:
+      description: Returns a short-lived link anybody holding it can download the
+        file from with no sign-in (#2847), for handing a file to a connection or service
+        that takes one by URL. expires is single_download (the default), which ends
+        after the first full download or an hour, or 6h, which works for six hours.
+        The caller must be able to read the file.
+      parameters:
+      - description: Resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: single_download (default) or 6h
+        in: query
+        name: expires
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/resource.downloadLinkResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get a download link
+      tags:
+      - Resources
   /resources/{id}/pdf:
     get:
       description: Prints the HTML document the route's .../content sibling serves,
@@ -46128,6 +46318,44 @@ paths:
       summary: Restore a resource version
       tags:
       - Resources
+  /resources/downloads/{token}/{filename}:
+    get:
+      description: 'Serves the managed resource a download link names (manage_resource
+        action=download_link or the portal''s Copy link, #2847), as a download, with
+        no session or key. A single-download link ends after its first full download
+        (a GET without Range; a HEAD or a byte-range read does not count) or after
+        an hour, a six-hour link after six hours. An expired, used or altered link
+        answers 403; a file since deleted, or a name that is not the file''s, answers
+        404.'
+      parameters:
+      - description: The link's signed token
+        in: path
+        name: token
+        required: true
+        type: string
+      - description: The file's name
+        in: path
+        name: filename
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      summary: Download a file through a download link
+      tags:
+      - Resources
   /resources/external-folders:
     get:
       description: The personal folder of every person whose role resolves to an external
@@ -46527,17 +46755,110 @@ paths:
       summary: Files shared with me
       tags:
       - Resources
+  /resources/upload-links:
+    get:
+      description: 'The upload links the caller made (from the portal or manage_resource
+        action=upload_link, #2844) that can still take a file: not expired, not revoked
+        and not full. A link''s token is never listed.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/resourceupload.openList'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List my open upload links
+      tags:
+      - Resources
+    post:
+      consumes:
+      - application/json
+      description: Makes a link an external service PUTs files to (#2844), filed in
+        the folder named as the caller, with the checks a portal upload gets. Without
+        a filename each file is PUT to upload_url/<filename>; max_files (1 to 100)
+        is how many files it takes, size_bytes the most each may be, ttl_seconds how
+        long it lives (default 900, at most 86400). The link is shown once.
+      parameters:
+      - description: The link
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/resourceupload.issueBody'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/resourceupload.Issued'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Make an upload link
+      tags:
+      - Resources
+  /resources/upload-links/{id}/revoke:
+    post:
+      description: 'Ends an upload link before it expires (#2844): a PUT to it answers
+        404 from then on. The person who made it, or an administrator, may.'
+      parameters:
+      - description: The link's id
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Revoke an upload link
+      tags:
+      - Resources
   /resources/uploads/{token}:
     put:
       consumes:
       - application/octet-stream
-      description: 'Files the request body as the managed resource the link was issued
-        for (manage_resource action=upload_link, #2639), as the person who asked for
-        it, with the checks a portal upload gets: the deployment''s upload limit,
-        the denied types and the link''s if_exists. The link is the credential: it
-        takes no session or key, is good for one PUT, and expires minutes after it
-        was issued. A body past the size the link was issued for is refused. An unknown,
-        used or expired link answers 404, the three told apart to no one.'
+      description: 'Files the request body as a managed resource in the folder the
+        link was issued for (manage_resource action=upload_link or the portal''s Resources
+        page, #2639, #2844), as the person who asked for it, with the checks a portal
+        upload gets: the deployment''s upload limit, the denied types and the link''s
+        if_exists. The link is the credential: it takes no session or key, takes as
+        many files as it was issued for (max_files), and expires when it was issued
+        to (at most a day). A link issued with a filename is PUT to as it is; one
+        issued without is PUT to with each file''s name after the token (/resources/uploads/{token}/{filename}).
+        A PUT that files nothing (a body past the size, a refused type) gives its
+        place back, so it can be sent again. An unknown, full, revoked or expired
+        link answers 404, told apart to no one.'
       parameters:
       - description: The link's token
         in: path
@@ -46548,11 +46869,13 @@ paths:
       - application/json
       responses:
         "201":
-          description: resource_id, reference, uri, filename, content_type and size_bytes
-            of the file filed
+          description: Created
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/resourceupload.uploadedFile'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
           description: Not Found
           schema:
@@ -46566,6 +46889,50 @@ paths:
           schema:
             $ref: '#/definitions/httpjson.ProblemDetail'
       summary: Upload a file to an upload link
+      tags:
+      - Resources
+  /resources/uploads/{token}/{filename}:
+    put:
+      consumes:
+      - application/octet-stream
+      description: 'The form of PUT /resources/uploads/{token} for a link issued with
+        no filename (#2844): the file is filed under the name after the token, which
+        must be a plain file name.'
+      parameters:
+      - description: The link's token
+        in: path
+        name: token
+        required: true
+        type: string
+      - description: The file's name
+        in: path
+        name: filename
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/resourceupload.uploadedFile'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      summary: Upload a named file to an upload link
       tags:
       - Resources
   /table-connections:

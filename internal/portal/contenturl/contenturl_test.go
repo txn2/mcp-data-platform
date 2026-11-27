@@ -3,6 +3,7 @@ package contenturl
 import (
 	"encoding/base64"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -15,7 +16,7 @@ var key = []byte("0123456789abcdef0123456789abcdef")
 
 func TestSignVerify(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
-	target := Target{AssetID: "asset-1", Version: 3, Expires: now.Add(time.Minute)}
+	target := Target{ID: "asset-1", Version: 3, Expires: now.Add(time.Minute)}
 	tok := Sign(key, target)
 
 	got, err := Verify(key, tok, now)
@@ -64,7 +65,7 @@ func TestMinter(t *testing.T) {
 	assert.WithinDuration(t, before.Add(DefaultTTL), expires, 2*time.Second)
 	got, err := Verify(key, strings.TrimPrefix(link, "https://portal.example.com"+Path), before)
 	require.NoError(t, err)
-	assert.Equal(t, "asset-1", got.AssetID)
+	assert.Equal(t, "asset-1", got.ID)
 	assert.Equal(t, 3, got.Version)
 }
 
@@ -81,4 +82,18 @@ func TestParams(t *testing.T) {
 		_, _, err := Params(q, 1)
 		assert.Error(t, err, q.Encode())
 	}
+}
+
+// TestSignVerify_Once: a token good for one use carries its id, signed, and
+// an unsigned or empty one is refused (#2847).
+func TestSignVerify_Once(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	target := Target{ID: "r1", Expires: now.Add(time.Hour), Once: "n1"}
+	got, err := Verify(key, Sign(key, target), now)
+	require.NoError(t, err)
+	assert.Equal(t, target, got)
+	enc := base64.RawURLEncoding.EncodeToString
+	empty := "r1|0|" + strconv.FormatInt(now.Add(time.Hour).Unix(), 10) + "|"
+	_, err = Verify(key, enc([]byte(empty))+"."+enc(mac(key, empty)), now)
+	require.ErrorIs(t, err, ErrInvalid, "an empty once id")
 }

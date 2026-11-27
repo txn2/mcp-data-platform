@@ -1,15 +1,23 @@
 import { useState, type ReactNode } from "react";
-import { Folder } from "lucide-react";
+import { ChevronDown, Folder } from "lucide-react";
 import { TileImg } from "@/components/thumbnail/TileImg";
 import { DownloadControl } from "@/components/download/DownloadControl";
 import type { Download } from "@/components/download/useDownload";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { formatBytes } from "@/lib/format";
 import { markdownToPlainText } from "@/lib/markdownText";
 import { resourceThumbnailSrc } from "@/lib/thumbnailSupport";
 import { cn } from "@/lib/utils";
 import { useResolvedDark } from "@/stores/theme";
 import type { Resource } from "@/api/resources/types";
+import type { DownloadExpiry } from "@/api/resources/links";
 import { displayPath, type ResourceRoot } from "../scopes";
 import { ExtBadge } from "./ExtBadge";
 import { plural, shortDate, type Entry } from "./model";
@@ -19,6 +27,8 @@ export interface PaneActions {
   onOpen: (entry: Entry) => void;
   onDownload: (r: Resource) => void;
   onCopyURI: (r: Resource) => void;
+  /** Copies a download link to the file (#2847). */
+  onCopyLink: (r: Resource, expires: DownloadExpiry) => void;
   onRename: () => void;
   onMove: () => void;
   onTag: () => void;
@@ -128,6 +138,7 @@ function OneFile({
           <Button size="xs" variant="outline" onClick={() => actions.onCopyURI(r)}>
             Copy URI
           </Button>
+          <CopyLinkMenu onCopy={(expires) => actions.onCopyLink(r, expires)} />
         </div>
         <Facts>
           <Fact label="Location" mono>
@@ -251,5 +262,28 @@ function FileDownload({ r, download, onDownload }: { r: Resource; download?: Dow
       title={other ? `${download?.name} is downloading` : undefined}
       onClick={onDownload}
     />
+  );
+}
+
+/** Copy link: a download link to the file, a single download or for six hours (#2847). */
+function CopyLinkMenu({ onCopy }: { onCopy: (expires: DownloadExpiry) => void }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button size="xs" variant="outline">
+          Copy link
+          <ChevronDown className="opacity-70" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuItem onSelect={() => onCopy("single_download")}>Single download</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => onCopy("6h")}>For 6 hours</DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <p className="px-2 py-1 text-[11.5px] leading-snug text-muted-foreground">
+          Anyone with the link can download this file with no sign-in. A single download ends after the first download, or in
+          an hour.
+        </p>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
