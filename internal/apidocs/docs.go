@@ -2787,7 +2787,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns audit event counts grouped by a dimension.",
+                "description": "Returns audit event counts grouped by a dimension. Counts are exact over the window, never capped. With success=false they are the failures: by error_category (the category a call was refused or failed with, such as search_required, schema_required or invalid_arguments), by source (mcp, script, portal, endpoint) or by persona.",
                 "produces": [
                     "application/json"
                 ],
@@ -2798,10 +2798,16 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Dimension: tool_name, user_id, persona, toolkit_kind, connection, event_kind",
+                        "description": "Dimension: tool_name, user_id, persona, toolkit_kind, connection, event_kind, error_category, source",
                         "name": "group_by",
                         "in": "query",
                         "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Count only the calls that succeeded (true) or failed (false)",
+                        "name": "success",
+                        "in": "query"
                     },
                     {
                         "type": "integer",
@@ -63174,6 +63180,16 @@ const docTemplate = `{
                         "disabled"
                     ]
                 },
+                "input": {
+                    "description": "Input is what feeds the source (#2792): posted to (http), a polled\nmailbox (imap), a form's submissions (form) or an application\ndatabase's notifications (postgres). The overview filters by it.",
+                    "type": "string",
+                    "enum": [
+                        "http",
+                        "imap",
+                        "form",
+                        "postgres"
+                    ]
+                },
                 "last_day": {
                     "type": "object",
                     "additionalProperties": {
@@ -63623,6 +63639,13 @@ const docTemplate = `{
         "whimap.RepairRecord": {
             "type": "object",
             "properties": {
+                "collapsed": {
+                    "description": "Collapsed and CollapsedFiles are the copies of a message no event names\ndeleted into the folder that stays, and the files they held (#2842).",
+                    "type": "integer"
+                },
+                "collapsed_files": {
+                    "type": "integer"
+                },
                 "kept": {
                     "type": "integer"
                 },
@@ -63646,8 +63669,15 @@ const docTemplate = `{
         "whimap.RepairReport": {
             "type": "object",
             "properties": {
+                "collapsed": {
+                    "description": "Collapsed are the copies of a folder no event names, deleted into the\none that stays (#2842), each with how many files it held.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/whimap.RemovedFolder"
+                    }
+                },
                 "kept": {
-                    "description": "Kept are the folders of the old form no event names and no named folder\nmatches.",
+                    "description": "Kept are the folders of the old form no event names that are a copy of\nnothing.",
                     "type": "array",
                     "items": {
                         "type": "string"

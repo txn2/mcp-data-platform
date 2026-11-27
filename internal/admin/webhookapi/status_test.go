@@ -58,7 +58,13 @@ func TestStatusReportsEverySource(t *testing.T) {
 					},
 				},
 			},
-			{Source: whsource.Source{Name: "quiet", Enabled: true, Auth: whsource.Auth{Mode: whsource.AuthBasic}}, Health: whadmin.HealthSilent},
+			{
+				Source: whsource.Source{
+					Name: "quiet", Enabled: true, Auth: whsource.Auth{Mode: whsource.AuthBasic},
+					Config: whsource.Config{Input: whsource.InputForm},
+				},
+				Health: whadmin.HealthSilent,
+			},
 		},
 		Volume: []whstore.VolumePoint{{Source: "esp", At: now.Add(-15 * time.Minute), Outcome: "accepted", Count: 9}},
 		Rejections: []whstore.Rejection{
@@ -82,6 +88,7 @@ func TestStatusReportsEverySource(t *testing.T) {
 	assert.Equal(t, "failing", esp.Health)
 	assert.Equal(t, whsource.AuthHMAC, esp.AuthMode)
 	assert.Equal(t, "webhook_esp", esp.Table)
+	assert.Equal(t, whsource.InputHTTP, esp.Input, "a source stored with no input is posted to")
 	assert.Equal(t, 1, esp.Failing)
 	assert.Equal(t, 2, esp.Pending)
 	assert.Equal(t, "segment k: not gzip", esp.LastError)
@@ -94,6 +101,7 @@ func TestStatusReportsEverySource(t *testing.T) {
 
 	quiet := got.Sources[1]
 	assert.Equal(t, "silent", quiet.Health)
+	assert.Equal(t, whsource.InputForm, quiet.Input, "what feeds the source, for the overview's filter (#2792)")
 	assert.Nil(t, quiet.LastEventAt)
 	assert.Contains(t, rec.Body.String(), `"last_hour":{}`, "a source with no counts has an empty map, never null")
 

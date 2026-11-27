@@ -25,8 +25,10 @@ type AttachmentLibrary interface {
 	// MoveFolder renames a folder of the source's library, aliasing each
 	// file's old address.
 	MoveFolder(ctx context.Context, src whsource.Source, from, to string) error
-	// DeleteFile removes one file and its versions.
-	DeleteFile(ctx context.Context, src whsource.Source, id string) error
+	// RemoveCopy removes the file id and its versions, after handing its
+	// addresses to the file keep, so a reference to the copy resolves to the
+	// file that stays (#2842).
+	RemoveCopy(ctx context.Context, src whsource.Source, id, keep string) error
 	// DeleteFolder removes an emptied folder and the folders beneath it.
 	DeleteFolder(ctx context.Context, src whsource.Source, folder string) error
 }
@@ -40,6 +42,9 @@ type EventReader interface {
 
 // RepairStore records each source's repair.
 type RepairStore interface {
-	Repaired(ctx context.Context, source string) (bool, error)
-	RecordRepair(ctx context.Context, source string, r RepairReport) error
+	// RepairedVersion is the version of the last repair recorded for source, 0
+	// when none has run.
+	RepairedVersion(ctx context.Context, source string) (int, error)
+	// RecordRepair records a repair of source by version.
+	RecordRepair(ctx context.Context, source string, version int, r RepairReport) error
 }

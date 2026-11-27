@@ -22,6 +22,7 @@ import { TimeRangePicker } from "../TimeRangePicker";
 import { KPIRow } from "./overview/KPIRow";
 import { ToolBreakdownTable } from "./overview/ToolBreakdownTable";
 import { OtherEventsPanel } from "./overview/OtherEventsPanel";
+import { FailuresPanel } from "./overview/FailuresPanel";
 import { InsightStatsPanel, PendingReviewPanel } from "./overview/KnowledgePanels";
 
 // MCP_EVENT_KIND scopes the MCP dashboard and the events table to
@@ -63,6 +64,10 @@ export function OverviewTab({
   // Every event kind, so what is recorded beside tool calls is counted apart
   // from them (#2819).
   const kindBreakdown = useAuditBreakdown({ groupBy: "event_kind", limit: 20, startTime, endTime });
+  // The failed calls counted by category, source and persona, exactly (#2795).
+  const failuresByCategory = useAuditBreakdown({ groupBy: "error_category", success: false, limit: 100, eventKind: MCP_EVENT_KIND, startTime, endTime });
+  const failuresBySource = useAuditBreakdown({ groupBy: "source", success: false, limit: 20, eventKind: MCP_EVENT_KIND, startTime, endTime });
+  const failuresByPersona = useAuditBreakdown({ groupBy: "persona", success: false, limit: 10, eventKind: MCP_EVENT_KIND, startTime, endTime });
   const recentErrors = useAuditEvents({ perPage: 5, success: false, eventKind: MCP_EVENT_KIND });
   const performance = useAuditPerformance({ eventKind: MCP_EVENT_KIND, startTime, endTime });
 
@@ -171,6 +176,18 @@ export function OverviewTab({
           />
         </SectionCard>
       </div>
+
+      <SectionCard
+        title="Failures"
+        action={<span className="text-xs text-muted-foreground">tool calls only · exact counts</span>}
+      >
+        <FailuresPanel
+          byCategory={failuresByCategory.data}
+          bySource={failuresBySource.data}
+          byPersona={failuresByPersona.data}
+          isLoading={failuresByCategory.isLoading || failuresBySource.isLoading || failuresByPersona.isLoading}
+        />
+      </SectionCard>
 
       {/* Bottom Row */}
       <div className="grid gap-6 lg:grid-cols-2">

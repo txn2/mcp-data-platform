@@ -70,6 +70,16 @@ const (
 	// BreakdownByEventKind groups by event kind: tool calls apart from
 	// resource reads, prompts served, script runs and the rest (#2819).
 	BreakdownByEventKind BreakdownDimension = "event_kind"
+
+	// BreakdownByErrorCategory groups by the bounded category a failed call
+	// was refused or failed with (search_required, schema_required,
+	// purpose_required, invalid_arguments, upstream_4xx, ...); empty on a
+	// success. With Success false it is the failures by category (#2795).
+	BreakdownByErrorCategory BreakdownDimension = "error_category"
+
+	// BreakdownBySource groups by where a call came from: an agent session
+	// (mcp), a script run (script), the portal, an endpoint (#2795).
+	BreakdownBySource BreakdownDimension = "source"
 )
 
 // ValidBreakdownDimensions is the set of allowed group-by values.
@@ -80,6 +90,9 @@ var ValidBreakdownDimensions = map[BreakdownDimension]bool{
 	BreakdownByToolkitKind: true,
 	BreakdownByConnection:  true,
 	BreakdownByEventKind:   true,
+
+	BreakdownByErrorCategory: true,
+	BreakdownBySource:        true,
 }
 
 // BreakdownDimensionNames names every valid group-by, sorted and joined, for
@@ -111,6 +124,9 @@ type BreakdownFilter struct {
 	// Lets the portal MCP view exclude apigateway noise without
 	// modifying the breakdown call sites.
 	EventKind string
+	// Success, when set, counts only the calls that succeeded (true) or
+	// failed (false): the failures by category, source or persona (#2795).
+	Success *bool
 }
 
 // MetricsFilter provides common filtering for aggregate metric queries.

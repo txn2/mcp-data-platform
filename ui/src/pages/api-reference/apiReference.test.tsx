@@ -3,38 +3,35 @@ import { cleanup, render, screen } from "@testing-library/react";
 
 import { adminNavItems, portalNavItems } from "@/components/layout/sidebar/navItems";
 import { isKnownRoute } from "@/lib/portalRoutes";
-import { useThemeStore } from "@/stores/theme";
-import { ApiReferencePage } from "./ApiReferencePage";
+import { ApiReferencePage, REFERENCE_BASE_PATH } from "./ApiReferencePage";
 import { redocOptions } from "./redocTheme";
 
 // ReDoc stands in for itself here: what this page decides is which document it
-// is pointed at and which palette it is handed, and both travel as props. The
-// real component would pull a 1 MB bundle into every run of this file to prove
-// the same two things.
+// is pointed at, where ReDoc's own addresses start and what it is told about
+// telemetry, and all three travel as props. The real component would pull a
+// 1 MB bundle into every run of this file to prove the same things.
 vi.mock("redoc", () => ({
   RedocStandalone: ({
     specUrl,
+    basePath,
     options,
   }: {
     specUrl?: string;
-    options?: { theme?: { colors?: { text?: { primary?: string } } } };
+    basePath?: string;
+    options?: { disableTelemetry?: boolean };
   }) => (
     <div
       data-testid="redoc"
       data-spec-url={specUrl}
-      data-text-color={options?.theme?.colors?.text?.primary ?? ""}
+      data-base-path={basePath}
+      data-telemetry={options?.disableTelemetry ? "off" : "on"}
     />
   ),
 }));
 
 afterEach(() => {
   cleanup();
-  useThemeStore.getState().setTheme("light");
 });
-
-function textColor(): string {
-  return screen.getByTestId("redoc").getAttribute("data-text-color") ?? "";
-}
 
 describe("the API reference page", () => {
   it("renders the document the platform serves, from the platform's own origin", () => {
@@ -46,22 +43,22 @@ describe("the API reference page", () => {
     );
   });
 
-  it("reads in the reader's theme rather than ReDoc's own", () => {
-    // ReDoc ships one light theme. Handed it unchanged, a reader on the dark
-    // theme gets near-black body copy on a near-black page.
+  it("writes ReDoc's addresses under its own page, not from the site's root", () => {
+    // ReDoc 3 gives every tag and operation an address. From "/", a reader
+    // clicking "Gateway" would leave the portal for /gateway (#2769).
     render(<ApiReferencePage />);
-    const light = textColor();
-    cleanup();
+    expect(screen.getByTestId("redoc")).toHaveAttribute(
+      "data-base-path",
+      "/portal/admin/api-reference",
+    );
+    expect(REFERENCE_BASE_PATH).toBe("/portal/admin/api-reference");
+  });
 
-    useThemeStore.getState().setTheme("dark");
+  it("sends Redocly no telemetry", () => {
+    // ReDoc 3 traces every page view to Redocly's collector unless told not to.
     render(<ApiReferencePage />);
-    const dark = textColor();
-
-    expect(light).not.toBe(dark);
-    // Body copy has to be the light end of the ramp on the dark page and the
-    // dark end on the light one, or the page is unreadable in one of them.
-    expect(light).toBe(redocOptions(false).theme?.colors?.text?.primary);
-    expect(dark).toBe(redocOptions(true).theme?.colors?.text?.primary);
+    expect(screen.getByTestId("redoc")).toHaveAttribute("data-telemetry", "off");
+    expect(redocOptions().disableTelemetry).toBe(true);
   });
 
   it("offers the interactive reader beside it, in a tab of its own", () => {
@@ -84,5 +81,11 @@ describe("where the reference is reached from", () => {
     // A path the shell does not recognize renders the not-found page, however
     // many nav items point at it.
     expect(isKnownRoute("/admin/api-reference")).toBe(true);
+    // Each tag and operation ReDoc 3 links to is an address under the page,
+    // opened directly from a bookmark or a reload (#2769).
+    expect(isKnownRoute("/admin/api-reference/gateway")).toBe(true);
+    expect(
+      isKnownRoute("/admin/api-reference/gateway/paths/~1gateway~1%7Bconnection%7D~1invoke/post"),
+    ).toBe(true);
   });
 });

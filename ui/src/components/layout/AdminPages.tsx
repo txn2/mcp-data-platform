@@ -209,7 +209,6 @@ const EXACT_PAGES: ReadonlyMap<string, (p: PageContext) => ReactNode> = new Map(
       ),
     ],
     ["/admin/api-catalogs", () => <CatalogsPanel />],
-    ["/admin/api-reference", () => <ApiReferencePage />],
     ["/admin/apis", () => <ApisPage scope="admin" />],
     [
       "/admin/catalog",
@@ -325,6 +324,10 @@ function SubtreeSections({
 }) {
   return (
     <>
+      {/* ReDoc 3 routes by path: each tag and operation it renders is an
+          address under the page (#2769), so the page owns its subtree and
+          stays mounted while the reader moves through it. */}
+      {isInSection(route, "/admin/api-reference") && <ApiReferencePage />}
       {isInSection(route, "/admin/collections") && (
         <AdminCollectionRoutes route={route} onNavigate={navigate} />
       )}

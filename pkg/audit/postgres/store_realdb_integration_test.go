@@ -181,3 +181,54 @@ func TestMetrics_RealDB_HoldsAreNeitherSuccessNorFailure(t *testing.T) {
 	assert.Equal(t, 1, byKind[string(audit.EventTypeResourceRead)])
 	assert.Equal(t, 5, byKind[string(audit.EventTypeMCPToolCall)])
 }
+
+// TestBreakdown_RealDB_FailuresByCategorySourceAndPersonaAreExact is #2795:
+// over a window holding more than the event list's 10,000-row count cap, the
+// failures grouped by category, by source and by persona are exact, and so is
+// the window's total.
+func TestBreakdown_RealDB_FailuresByCategorySourceAndPersonaAreExact(t *testing.T) {
+	db := testdb.New(t)
+	store := New(db, Config{RetentionDays: 30})
+	ctx := context.Background()
+	// 10,050 successes in one statement, then the failures one by one.
+	_, err := db.ExecContext(ctx, `INSERT INTO audit_logs (id, timestamp, duration_ms, user_id, persona, tool_name, success, source, event_kind, created_date)
+		SELECT 'bulk-' || g, now(), 1, 'u', 'analyst', 'search', true, 'mcp', 'mcp_tool_call', CURRENT_DATE
+		  FROM generate_series(1, 10050) AS g`)
+	require.NoError(t, err)
+	fail := func(source, persona, category string) {
+		t.Helper()
+		ev := audit.NewEvent("trino_query").WithEventKind(audit.EventTypeMCPToolCall).WithPersona(persona).
+			WithTransport("http", source).WithResult(false, "refused", 1).WithErrorCategory(category)
+		require.NoError(t, store.Log(ctx, *ev))
+	}
+	fail("mcp", "analyst", "schema_required")
+	fail("mcp", "analyst", "schema_required")
+	fail("mcp", "engineer", "search_required")
+	fail("script", "engineer", "upstream_5xx")
+
+	failed := false
+	count := func(dim audit.BreakdownDimension) map[string]int {
+		t.Helper()
+		rows, err := store.Breakdown(ctx, audit.BreakdownFilter{GroupBy: dim, Success: &failed})
+		require.NoError(t, err)
+		out := map[string]int{}
+		for _, r := range rows {
+			out[r.Dimension] = r.Count
+		}
+		return out
+	}
+	assert.Equal(t, map[string]int{"schema_required": 2, "search_required": 1, "upstream_5xx": 1}, count(audit.BreakdownByErrorCategory))
+	assert.Equal(t, map[string]int{"mcp": 3, "script": 1}, count(audit.BreakdownBySource))
+	assert.Equal(t, map[string]int{"analyst": 2, "engineer": 2}, count(audit.BreakdownByPersona))
+
+	all, err := store.Breakdown(ctx, audit.BreakdownFilter{GroupBy: audit.BreakdownBySource})
+	require.NoError(t, err)
+	total := 0
+	for _, r := range all {
+		total += r.Count
+	}
+	assert.Equal(t, 10054, total, "every call in the window, past the event list's cap")
+	o, err := store.Overview(ctx, audit.MetricsFilter{})
+	require.NoError(t, err)
+	assert.Equal(t, 10054, o.TotalCalls)
+}

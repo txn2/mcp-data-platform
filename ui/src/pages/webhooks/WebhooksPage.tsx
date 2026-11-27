@@ -32,6 +32,8 @@ import {
   volumeSeries,
 } from "./webhookOverview";
 import { sortNames } from "@/lib/sortByName";
+import { NO_FILTER, filterSources } from "./sourceFilter";
+import { SourceFilters, useSourceFilter } from "./SourceFilters";
 
 // WebhooksPage is the overview of every inbound webhook source (#1870, #1979),
 // read in one request: the request volume by outcome, each source's health,
@@ -151,7 +153,7 @@ function Overview({
         onSource={setSource}
       />
       {range === "custom" && <CustomRange draft={r.draft} onDraft={r.setDraft} onApply={r.apply} />}
-      <SourcesTable sources={data?.sources} isLoading={isLoading} onOpen={open} />
+      <SourcesSection sources={data?.sources} isLoading={isLoading} onOpen={open} />
       <SpoolSection spools={data?.spools} />
       <WebhookHistory data={data} source={chosen} isLoading={isLoading || waiting} />
       <RejectionsSection
@@ -282,7 +284,8 @@ function VolumeSection({
   );
 }
 
-function SourcesTable({
+/** SourcesSection is the sources table under its search box and filters. */
+function SourcesSection({
   sources,
   isLoading,
   onOpen,
@@ -290,6 +293,36 @@ function SourcesTable({
   sources: WebhookSourceStatus[] | undefined;
   isLoading: boolean;
   onOpen: (name: string) => void;
+}) {
+  const [filter, setFilter] = useSourceFilter();
+  const all = sources ?? [];
+  const shown = filterSources(all, filter);
+  return (
+    <div className="space-y-2">
+      <SourceFilters filter={filter} onChange={setFilter} all={all} shown={shown.length} isLoading={isLoading} />
+      <SourcesTable
+        sources={shown}
+        isLoading={isLoading}
+        onOpen={onOpen}
+        noMatch={!isLoading && all.length > 0 && shown.length === 0}
+        onClear={() => setFilter(NO_FILTER)}
+      />
+    </div>
+  );
+}
+
+function SourcesTable({
+  sources,
+  isLoading,
+  onOpen,
+  noMatch,
+  onClear,
+}: {
+  sources: WebhookSourceStatus[] | undefined;
+  isLoading: boolean;
+  onOpen: (name: string) => void;
+  noMatch: boolean;
+  onClear: () => void;
 }) {
   return (
     <div className="rounded-md border">
@@ -312,6 +345,15 @@ function SourcesTable({
             <TableRow>
               <TableCell colSpan={9} className="py-6 text-center text-sm text-muted-foreground">
                 Loading...
+              </TableCell>
+            </TableRow>
+          ) : noMatch ? (
+            <TableRow>
+              <TableCell colSpan={9} className="py-6 text-center text-sm text-muted-foreground">
+                No sources match.{" "}
+                <button type="button" className="text-primary hover:underline" onClick={onClear}>
+                  Clear the search and filters
+                </button>
               </TableCell>
             </TableRow>
           ) : (

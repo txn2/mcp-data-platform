@@ -80,10 +80,11 @@ func (h *handler) getAuditTimeseries(w http.ResponseWriter, r *http.Request) {
 // getAuditBreakdown handles GET /api/v1/admin/audit/metrics/breakdown.
 //
 // @Summary      Get audit breakdown
-// @Description  Returns audit event counts grouped by a dimension.
+// @Description  Returns audit event counts grouped by a dimension. Counts are exact over the window, never capped. With success=false they are the failures: by error_category (the category a call was refused or failed with, such as search_required, schema_required or invalid_arguments), by source (mcp, script, portal, endpoint) or by persona.
 // @Tags         Audit
 // @Produce      json
-// @Param        group_by    query  string  true   "Dimension: tool_name, user_id, persona, toolkit_kind, connection, event_kind"
+// @Param        group_by    query  string  true   "Dimension: tool_name, user_id, persona, toolkit_kind, connection, event_kind, error_category, source"
+// @Param        success     query  boolean false  "Count only the calls that succeeded (true) or failed (false)"
 // @Param        limit       query  integer false  "Max entries (default: 10, max: 100)"
 // @Param        start_time  query  string  false  "Start time (RFC 3339)"
 // @Param        end_time    query  string  false  "End time (RFC 3339)"
@@ -116,6 +117,14 @@ func (h *handler) getAuditBreakdown(w http.ResponseWriter, r *http.Request) {
 		StartTime: httpjson.ParseTimeParam(q, paramStartTime),
 		EndTime:   httpjson.ParseTimeParam(q, paramEndTime),
 		EventKind: q.Get(paramEventKind),
+	}
+	if v := q.Get("success"); v != "" {
+		ok, err := strconv.ParseBool(v)
+		if err != nil {
+			httpjson.WriteError(w, http.StatusBadRequest, "invalid success: must be true or false")
+			return
+		}
+		filter.Success = &ok
 	}
 
 	entries, err := h.cfg.Metrics.Breakdown(r.Context(), filter)

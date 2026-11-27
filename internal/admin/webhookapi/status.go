@@ -8,6 +8,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whadmin"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
 )
 
 // statusPath is the overview route.
@@ -171,7 +172,7 @@ func overviewOf(rangeName string, ov whadmin.Overview) StatusOverview {
 	for _, s := range ov.Sources {
 		out.Sources = append(out.Sources, SourceStatus{
 			Name: s.Source.Name, Enabled: s.Source.Enabled, Health: string(s.Health),
-			AuthMode: s.Source.Auth.Mode, Connection: s.Source.Connection, Table: s.Source.TableName(),
+			AuthMode: s.Source.Auth.Mode, Input: inputOf(s.Source), Connection: s.Source.Connection, Table: s.Source.TableName(),
 			LastEventAt: s.Summary.LastSegmentAt,
 			LastHour:    counts(s.Summary.LastHour), LastDay: counts(s.Summary.LastDay),
 			Pending: s.Summary.Pending, Failing: s.Summary.Failing, LastError: s.Summary.LastError,
@@ -190,6 +191,15 @@ func overviewOf(rangeName string, ov whadmin.Overview) StatusOverview {
 	}
 	out.History = historyOf(ov)
 	return out
+}
+
+// inputOf is what feeds src: its configured input, or http, the default a
+// source stored without one is read as.
+func inputOf(src whsource.Source) string {
+	if src.Config.Input == "" {
+		return whsource.InputHTTP
+	}
+	return src.Config.Input
 }
 
 // counts returns m, or an empty map in place of nil.

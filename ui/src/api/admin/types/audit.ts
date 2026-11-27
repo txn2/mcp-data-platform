@@ -105,7 +105,9 @@ export type BreakdownDimension =
   | "persona"
   | "toolkit_kind"
   | "connection"
-  | "event_kind";
+  | "event_kind"
+  | "error_category"
+  | "source";
 
 export interface AuditStatsResponse {
   total: number;

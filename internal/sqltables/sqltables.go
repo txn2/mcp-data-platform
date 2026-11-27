@@ -76,7 +76,7 @@ func (c *tableCollector) add(ref Ref) {
 }
 
 func (c *tableCollector) isCTE(ref Ref) bool {
-	return ref.Catalog == "" && ref.Schema == "" && c.cteNames[ref.Table]
+	return ref.Catalog == "" && ref.Schema == "" && c.cteNames[cteKey(ref.Table)]
 }
 
 // extractCTENames extracts CTE (Common Table Expression) names from SQL.
@@ -85,10 +85,18 @@ func extractCTENames(sql string) map[string]bool {
 	matches := cteNamePattern.FindAllStringSubmatch(sql, -1)
 	for _, match := range matches {
 		if len(match) >= 2 {
-			names[match[1]] = true
+			names[cteKey(match[1])] = true
 		}
 	}
 	return names
+}
+
+// cteKey is the form a CTE name and an unqualified table reference are
+// compared in: without the double quotes, and folded to lower case, the way
+// both engines fold an unquoted name (a reference written `B` to a CTE
+// defined as `b` names the CTE, not a table).
+func cteKey(name string) string {
+	return strings.ToLower(strings.Trim(name, `"`))
 }
 
 // Regex patterns for SQL table extraction.
@@ -98,8 +106,12 @@ var (
 	indexParamPattern  = regexp.MustCompile(`(?i)index\s*=>\s*'([^']+)'`)
 	schemaParamPattern = regexp.MustCompile(`(?i)schema\s*=>\s*'([^']+)'`)
 
-	// CTE name pattern - matches "WITH name AS" or ", name AS" for chained CTEs.
-	cteNamePattern = regexp.MustCompile(`(?i)(?:WITH|,)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+AS\s*\(`)
+	// cteNamePattern matches each name a WITH clause defines: "WITH name AS (",
+	// ", name AS (" for the next one, and the forms PostgreSQL and Trino add
+	// between the name and the body (#2840): WITH RECURSIVE, a column list
+	// ("name (a, b) AS ("), [NOT] MATERIALIZED, and a double-quoted name. A
+	// form it missed left the CTE reported as a table the statement reads.
+	cteNamePattern = regexp.MustCompile(`(?i)(?:\bWITH(?:\s+RECURSIVE)?|,)\s+("[^"]+"|[a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\([^()]*\)\s*)?AS\s*(?:(?:NOT\s+)?MATERIALIZED\s*)?\(`)
 
 	// tableRefPattern matches what FROM and JOIN name: a Trino table
 	// reference of up to three parts, and whether an opening parenthesis
