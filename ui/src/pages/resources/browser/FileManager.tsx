@@ -1,4 +1,6 @@
 import { Loader2 } from "lucide-react";
+import { useFacets } from "@/api/resources/hooks";
+import type { Folder } from "@/api/resources/types";
 import { DownloadStatus } from "@/components/download/DownloadStatus";
 import { type Download, useDownload } from "@/components/download/useDownload";
 import { InfiniteFooter } from "@/components/InfiniteFooter";
@@ -18,6 +20,20 @@ import { contextItems, useFileManager, type FileManagerProps } from "./useFileMa
 
 type FM = ReturnType<typeof useFileManager>;
 
+const NO_FOLDERS: Folder[] = [];
+
+/**
+ * useDialogFolders is every folder of the library in view a dialog offers (a
+ * destination, a folder to upload into), the ones a grantee may write when
+ * they write only by grant. The whole tree is read while a dialog is open,
+ * not for every folder the page shows (#2837).
+ */
+function useDialogFolders(fm: FM): Folder[] {
+  const tree = useFacets(fm.root.params, fm.dialog !== null && !fm.root.shared);
+  const all = tree.data?.folders ?? NO_FOLDERS;
+  return fm.grantOnly ? all.filter((f) => fm.granted(fm.root, f.path)) : all;
+}
+
 /**
  * The Resources page as a file manager (#1872): a folder tree on the left, one
  * listing of the folder in view, a preview pane on the right, and the
@@ -27,6 +43,7 @@ type FM = ReturnType<typeof useFileManager>;
 export function FileManager(props: FileManagerProps) {
   const fm = useFileManager(props);
   const download = useDownload();
+  const dialogFolders = useDialogFolders(fm);
   return (
     <div
       data-testid="file-manager"
@@ -65,7 +82,7 @@ export function FileManager(props: FileManagerProps) {
         dialog={fm.dialog}
         root={fm.root}
         path={fm.path}
-        folders={fm.grantOnly ? fm.data.folders.filter((f) => fm.granted(fm.root, f.path)) : fm.data.folders}
+        folders={dialogFolders}
         admin={fm.admin}
         personaNames={fm.personaNames}
         actions={fm.actions}

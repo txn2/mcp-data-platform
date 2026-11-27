@@ -51,6 +51,7 @@ vi.mock("@/api/tables/hooks", async (importOriginal) => {
 });
 
 import { AdminWebhookRoutes } from "./AdminWebhookRoutes";
+import { AttachmentRepair } from "./MailboxSection";
 import { WebhookDetailPage } from "./WebhookDetailPage";
 import { WebhookEditor } from "./WebhookEditor";
 import { WebhooksPage } from "./WebhooksPage";
@@ -598,5 +599,41 @@ describe("a database source (#2408)", () => {
     render(<WebhookDetailPage name={outbox.name} onBack={vi.fn()} onNavigate={vi.fn()} />);
     expect(screen.getByText("Listening on platform-0.")).toBeInTheDocument();
     expect(screen.queryByText("Give this to the sender")).not.toBeInTheDocument();
+  });
+});
+
+describe("the attachment repair (#2836)", () => {
+  const repair = {
+    repaired_at: "2026-11-26T09:12:00Z",
+    moved: 20114,
+    removed: 2,
+    removed_files: 3,
+    kept: 1,
+    report: {
+      moved: [],
+      removed: [
+        { folder: "webhooks/inbox/attachments/2026-11-04/inbox-9-3", files: 2 },
+        { folder: "webhooks/inbox/attachments/2026-11-04/inbox-9-4", files: 1 },
+      ],
+      kept: ["webhooks/inbox/attachments/2026-09-01/inbox-3-10"],
+    },
+  };
+
+  it("says what it moved, removed and kept, with the folders behind a disclosure", () => {
+    render(<AttachmentRepair source="inbox" repair={repair} />);
+    const line = screen.getByTestId("attachment-repair");
+    expect(line.textContent).toContain("20,114 message folders moved to their new addresses");
+    expect(line.textContent).toContain("2 later copies removed (3 files)");
+    expect(line.textContent).toContain("1 folder kept (no message names them)");
+    expect(within(line).getByText("2026-11-04/inbox-9-3 (2 files)")).toBeTruthy();
+    expect(within(line).getByText("2026-09-01/inbox-3-10")).toBeTruthy();
+  });
+
+  it("says how many more a long list holds, and nothing when it did nothing", () => {
+    render(<AttachmentRepair source="inbox" repair={{ ...repair, removed: 19960 }} />);
+    expect(screen.getByText("and 19,958 more")).toBeTruthy();
+    cleanup();
+    const { container } = render(<AttachmentRepair source="inbox" repair={{ ...repair, moved: 0, removed: 0, kept: 0 }} />);
+    expect(container.textContent).toBe("");
   });
 });

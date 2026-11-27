@@ -17,11 +17,16 @@ type fakeMailbox struct {
 	checked []string
 	refuse  error
 	marks   []whimap.Mark
+	repair  *whimap.RepairRecord
 }
 
 func (f *fakeMailbox) Check(_ context.Context, src whsource.Source) error {
 	f.checked = append(f.checked, src.Config.IMAP.Host)
 	return f.refuse
+}
+
+func (f *fakeMailbox) Repair(context.Context, string) (*whimap.RepairRecord, error) {
+	return f.repair, nil
 }
 
 func (f *fakeMailbox) Marks(context.Context, string) ([]whimap.Mark, error) {
@@ -113,8 +118,16 @@ func TestDelete_RemovesAMailboxSourcesAttachments(t *testing.T) {
 	require.NoError(t, err, "a source whose attachments are not gone is kept, so the delete can be retried")
 
 	r.resources.attachErr = nil
+	r.resources.folderErr = errBoom
+	require.ErrorIs(t, r.svc.Delete(ctx, "inbox"), errBoom)
+	_, _, err = r.svc.Get(ctx, "inbox")
+	require.NoError(t, err, "#2836: a source whose folders are not gone is kept, so the delete can be retried")
+
+	r.resources.folderErr = nil
 	require.NoError(t, r.svc.Delete(ctx, "inbox"))
-	assert.Equal(t, []string{"inbox", "inbox"}, r.resources.attachments)
+	assert.Equal(t, []string{"inbox", "inbox", "inbox"}, r.resources.attachments)
+	assert.Equal(t, []string{"esp", "inbox", "inbox"}, r.resources.folders,
+		"#2836: every deleted source's stored folders go, an http source's day folders too")
 }
 
 func TestUpdate_KeepsTheInput(t *testing.T) {
@@ -136,4 +149,18 @@ func TestUpdate_KeepsTheInput(t *testing.T) {
 	src, err := r.svc.Update(ctx, "inbox", Update{Auth: whsource.Auth{Mode: whsource.AuthIMAP, Username: "platform"}, Config: cfg})
 	require.NoError(t, err)
 	assert.Equal(t, whsource.InputIMAP, src.Config.Input, "an update that leaves the input out keeps the mailbox")
+}
+
+// TestAttachmentRepair: the service reads a source's repair through its
+// mailbox, and a deployment with no mailbox input has none (#2836).
+func TestAttachmentRepair(t *testing.T) {
+	r := newRig()
+	got, err := r.svc.AttachmentRepair(ctx, "inbox")
+	require.NoError(t, err)
+	assert.Nil(t, got)
+	want := &whimap.RepairRecord{Moved: 3}
+	r.svc.deps.Mailbox = &fakeMailbox{repair: want}
+	got, err = r.svc.AttachmentRepair(ctx, "inbox")
+	require.NoError(t, err)
+	assert.Same(t, want, got)
 }

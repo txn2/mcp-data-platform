@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useFacets, useInfiniteResources } from "@/api/resources/hooks";
+import { useFolderLevel, useInfiniteResources } from "@/api/resources/hooks";
 import type { Folder, ResourceSort } from "@/api/resources/types";
 import type { ResourceRoot } from "../scopes";
 import { fileEntries, folderEntries, sortFolders, type Entry } from "./model";
@@ -12,8 +12,9 @@ export interface Narrowing {
 }
 
 /**
- * useFolderData is what the folder in view holds: its folders from the facets,
- * which count every depth, and its own files from the listing, paged (#1837).
+ * useFolderData is what the folder in view holds: its folders from one level
+ * of the facets (#2837), which count every depth, and its own files from the
+ * listing, paged (#1837).
  *
  * A search or a tag replaces the folder with hits, each carrying where it is
  * (#1530). A search looks in every library the caller reads, because search is
@@ -26,7 +27,7 @@ export function useFolderData(root: ResourceRoot, path: string, narrowing: Narro
   const { query, tag } = narrowing;
   // The files shared with the caller have no folders to read; their view
   // lists the shares (#2258).
-  const facets = useFacets(root.params, !root.shared);
+  const facets = useFolderLevel(root.params, path, !root.shared);
   const flat = query !== "" || tag !== "";
   const listing = listsFiles(root, path, flat, searchesEverywhere(narrowing));
   const list = useInfiniteResources(listingParams(root, path, narrowing, sort), listing);
@@ -41,7 +42,6 @@ export function useFolderData(root: ResourceRoot, path: string, narrowing: Narro
 
   return {
     entries,
-    folders,
     flat,
     /** How many files are at and beneath the folder in view. */
     here,

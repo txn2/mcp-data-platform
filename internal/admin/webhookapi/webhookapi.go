@@ -43,6 +43,7 @@ type Service interface {
 	SyncPartitions(ctx context.Context, name string) error
 	Warnings(ctx context.Context, src whsource.Source) []string
 	Marks(ctx context.Context, name string) ([]whimap.Mark, error)
+	AttachmentRepair(ctx context.Context, name string) (*whimap.RepairRecord, error)
 	Listener(ctx context.Context, name string) (whpgstate.State, error)
 }
 
@@ -131,6 +132,10 @@ func (h *handler) get(w http.ResponseWriter, r *http.Request) {
 	detail := SourceDetail{Source: viewOf(src), Status: st}
 	if src.IsIMAP() {
 		if detail.IMAP, err = h.cfg.Service.Marks(r.Context(), src.Name); err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		if detail.AttachmentRepair, err = h.cfg.Service.AttachmentRepair(r.Context(), src.Name); err != nil {
 			writeServiceError(w, err)
 			return
 		}

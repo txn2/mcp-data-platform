@@ -66,4 +66,5 @@ type Database interface {
 type Mailbox interface {
 	Check(ctx context.Context, src whsource.Source) error
 	Marks(ctx context.Context, source string) ([]whimap.Mark, error)
+	Repair(ctx context.Context, source string) (*whimap.RepairRecord, error)
 }

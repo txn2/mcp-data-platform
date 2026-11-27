@@ -289,6 +289,27 @@ func (w *Worker) compact(ctx context.Context, src whsource.Source, h whstore.Win
 	return nil
 }
 
+// WindowEvents returns a window's events as its compaction keeps them, or
+// would: its last Parquet file and every raw segment it holds, one event per
+// event id, the earliest (#2836).
+func (w *Worker) WindowEvents(ctx context.Context, _ whsource.Source, h whstore.Window) ([]whevent.Stored, error) {
+	listed, err := w.deps.Objects.ListKeys(ctx, w.deps.Bucket, whlayout.WindowPrefix(h.Source, h.Start))
+	if err != nil {
+		return nil, fmt.Errorf("listing the window's segments: %w", err)
+	}
+	events, _, err := w.gather(ctx, h, eventKeys(listed))
+	if err != nil {
+		return nil, err
+	}
+	kept, _ := dedup(events)
+	return kept, nil
+}
+
+// Live returns the windows of a source not yet expired.
+func (w *Worker) Live(ctx context.Context, source string) ([]whstore.Window, error) {
+	return w.deps.Windows.Live(ctx, source) //nolint:wrapcheck // the store names itself
+}
+
 // recordRun keeps one compaction's figures for the webhooks page and reports
 // them as metrics (#2150). A failure to keep them is logged; the window was
 // compacted.

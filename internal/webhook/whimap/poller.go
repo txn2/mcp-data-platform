@@ -56,8 +56,11 @@ type Config struct {
 	Rejections Rejections
 	Metrics    Metrics
 	Lock       Lock
-	Replica    string
-	Logger     *slog.Logger
+	// Repair is the one-time repair of a source's attachments (#2836), run
+	// before a source's first poll after the upgrade; nil runs none.
+	Repair  *Repairer
+	Replica string
+	Logger  *slog.Logger
 	// Open opens a session; nil is imapmail.Open.
 	Open func(ctx context.Context, a imapmail.Account) (*imapmail.Session, error)
 	Now  func() time.Time
@@ -174,7 +177,29 @@ func (p *Poller) pollLocked(ctx context.Context, src whsource.Source) error {
 	}
 	defer release()
 	p.polled(src.Name)
+	p.repair(ctx, src)
 	return p.Poll(ctx, src)
+}
+
+// repair runs src's attachment repair while it is owed. A failure is logged
+// and the poll goes ahead: a source's mail is not held up by it, and the next
+// poll tries again.
+func (p *Poller) repair(ctx context.Context, src whsource.Source) {
+	if p.cfg.Repair == nil {
+		return
+	}
+	owed, err := p.cfg.Repair.Owed(ctx, src)
+	if err == nil && owed {
+		var r RepairReport
+		if r, err = p.cfg.Repair.Repair(ctx, src); err == nil {
+			p.cfg.Logger.InfoContext(ctx, "webhooks: imap attachments repaired", "source", logsan.SanitizeForLog(src.Name),
+				"moved", len(r.Moved), "removed_folders", len(r.Removed), "removed_files", r.RemovedFiles(), "kept", len(r.Kept))
+		}
+	}
+	if err != nil {
+		p.cfg.Logger.WarnContext(ctx, "webhooks: imap attachment repair failed; polling anyway", "source", logsan.SanitizeForLog(src.Name),
+			"error", logsan.SanitizeForLog(err.Error()))
+	}
 }
 
 // Poll reads every folder of one source once.

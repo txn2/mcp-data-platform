@@ -53,6 +53,29 @@ function resourceParams(params: ResourceQuery | undefined): URLSearchParams {
 }
 
 /**
+ * useFolderLevel is one level of a library's folders (#2837): the folders
+ * directly inside parent ("" is the root), each with its count at every depth
+ * and how many folders it holds, and parent itself first. The folder tree and
+ * the listing draw from it, one request per folder opened, because the whole
+ * tree of a library with tens of thousands of folders took seconds to read and
+ * megabytes to send, again after every write.
+ */
+export function useFolderLevel(params: { scope?: string; scope_id?: string } | undefined, parent: string, enabled = true) {
+  const sp = new URLSearchParams();
+  if (params?.scope) sp.set("scope", params.scope);
+  if (params?.scope_id) sp.set("scope_id", params.scope_id);
+  sp.set("parent", parent);
+  const qs = sp.toString();
+  // Under the "resources" key, so every write that invalidates the listing
+  // redraws the levels on screen too.
+  return useQuery({
+    queryKey: ["resources", "facets", "level", qs],
+    queryFn: () => resourceFetch<FacetsResponse>(`/facets?${qs}`),
+    enabled,
+  });
+}
+
+/**
  * useFacets is what the library in view holds: its folders with exact counts,
  * and the tags its resources carry.
  *

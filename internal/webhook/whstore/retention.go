@@ -56,6 +56,17 @@ func (s *Store) Expirable(ctx context.Context, source string, cutoff time.Time) 
 		source, cutoff.UTC())
 }
 
+// Live returns every window of source not yet expired, oldest first: the
+// windows whose events the source's table serves (#2836).
+func (s *Store) Live(ctx context.Context, source string) ([]Window, error) {
+	return s.windows(ctx,
+		`SELECT source, window_start, window_seconds, generation, resource_id, location, attempts
+		   FROM webhook_windows
+		  WHERE source = $1 AND expired_at IS NULL
+		  ORDER BY window_start`,
+		source)
+}
+
 // DeleteExpired removes the records of windows expired before before, and
 // reports how many it removed. An expired window's partition, file and raw
 // segments are already gone; the record is kept until then only so a pass can

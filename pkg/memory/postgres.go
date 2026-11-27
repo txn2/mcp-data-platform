@@ -12,6 +12,7 @@ import (
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/pgvector/pgvector-go"
+	"github.com/txn2/mcp-data-platform/internal/ftsquery"
 )
 
 // tableName is the PostgreSQL table backing memory records.
@@ -410,7 +411,7 @@ const ftsRankNormalization = 1 | 32
 // ftsQuery is the parameterized tsquery the lexical predicate compares
 // against. $2 is the user's query text in HybridSearch; LexicalSearch
 // rebinds it to $1 (it has no vector parameter).
-const ftsQuery = "plainto_tsquery('english', $2)"
+var ftsQuery = ftsquery.AllWords("$2")
 
 // Scope-filter starting parameter indices. HybridSearch binds $1=vector
 // and $2=query, so its optional created_by/dimension/persona/status
@@ -566,8 +567,9 @@ func (s *postgresStore) LexicalSearch(ctx context.Context, query LexicalQuery) (
 	args = append(args, filterArgs...)
 
 	// Lexical-only: the tsquery binds to $1 (no vector parameter), so use
-	// a $1-bound full-text expression rather than the $2-bound ftsQuery.
-	const lexQuery = "plainto_tsquery('english', $1)"
+	// a $1-bound full-text expression rather than the $2-bound ftsQuery, and
+	// it matches any word of the query (#2838).
+	lexQuery := ftsquery.AnyWord("$1")
 	// #nosec G201 -- tableName/cols/exprs are constants; query text,
 	// persona, status are parameterized; limit is a sanitized int.
 	sqlStr := fmt.Sprintf(

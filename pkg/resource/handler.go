@@ -754,6 +754,7 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 // @Produce      json
 // @Param        scope    query  string  false  "Filter by scope"  Enums(global, persona, user)
 // @Param        scope_id query  string  false  "Filter by scope ID (persona name or user sub)"
+// @Param        parent   query  string  false  "Read one level (#2837): only the folders directly inside this folder, each with its subfolders count, the folder itself first; empty is the library's root. Tags are not read."
 // @Success      200  {object}  resource.facetsResponse
 // @Failure      401  {object}  resource.errorResponse
 // @Failure      500  {object}  resource.errorResponse
@@ -769,6 +770,11 @@ func (h *Handler) handleFacets(w http.ResponseWriter, r *http.Request) {
 	scopes, allScopes := ListScopes(*claims, r.URL.Query().Get("scope"), r.URL.Query().Get("scope_id"))
 
 	filter := Filter{Scopes: scopes, AllScopes: allScopes}
+
+	if r.URL.Query().Has("parent") {
+		h.writeFolderLevel(w, r, filter, r.URL.Query().Get("parent"))
+		return
+	}
 
 	folders, err := h.deps.Store.Folders(r.Context(), filter)
 	if err != nil {
@@ -791,6 +797,30 @@ func (h *Handler) handleFacets(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"folders": folders, "tags": tags})
+}
+
+// writeFolderLevel answers a facets read of one level (#2837): the folders
+// directly inside parent, read by the store when it can and derived from the
+// whole tree when it cannot.
+func (h *Handler) writeFolderLevel(w http.ResponseWriter, r *http.Request, filter Filter, parent string) {
+	var (
+		folders []Folder
+		err     error
+	)
+	if lv, ok := h.deps.Store.(folderLevelStore); ok {
+		folders, err = lv.FolderLevel(r.Context(), filter, parent)
+	} else if folders, err = h.deps.Store.Folders(r.Context(), filter); err == nil {
+		folders = treeLevel(folders, parent)
+	}
+	if err != nil {
+		slog.Error("resource folder level failed", msgError, logsan.SanitizeForLog(err.Error()))
+		writeError(w, http.StatusInternalServerError, "listing folders")
+		return
+	}
+	if folders == nil {
+		folders = []Folder{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"folders": folders, "tags": []string{}})
 }
 
 // --- Get ---

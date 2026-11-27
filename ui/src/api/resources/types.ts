@@ -113,6 +113,9 @@ export interface Folder {
   count: number;
   // updated_at is the latest change beneath the folder.
   updated_at?: string;
+  // subfolders is how many folders are directly inside this one, on a level
+  // read (useFolderLevel, #2837); absent on the whole-tree read.
+  subfolders?: number;
 }
 
 // Person is one person's resources, as the administrator's People folder

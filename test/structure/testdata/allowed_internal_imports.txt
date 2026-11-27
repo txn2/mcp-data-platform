@@ -1218,6 +1218,7 @@ internal/platform/callindex -> internal/platform/callrecord
 internal/platform/callindex -> pkg/indexjobs
 internal/platform/callrecord -> internal/advisorylock
 internal/platform/callrecord -> internal/bgloop
+internal/platform/callrecord -> internal/ftsquery
 internal/platform/callrecord -> internal/gqlschema
 internal/platform/callrecord -> internal/httpjson
 internal/platform/callrecord -> internal/logsan
@@ -1325,6 +1326,7 @@ internal/platform/connstored -> internal/logsan
 internal/platform/connstored -> internal/platform/cfgmap
 internal/platform/connstored -> pkg/connview
 internal/platform/connstored -> pkg/toolkits/apigateway/catalog
+internal/platform/datasetindex -> internal/ftsquery
 internal/platform/datasetindex -> pkg/catalog
 internal/platform/datasetindex -> pkg/indexjobs
 internal/platform/datasetindex -> pkg/knowledge
@@ -1943,6 +1945,7 @@ internal/platform/scriptstmt -> internal/platform/scriptsession
 internal/platform/scriptstmt -> internal/platform/scriptsql
 internal/platform/scriptstmt -> internal/runstate
 internal/platform/scriptstore -> internal/endpoint/epform
+internal/platform/scriptstore -> internal/ftsquery
 internal/platform/scriptstore -> internal/libraryuse
 internal/platform/scriptstore -> internal/openrun
 internal/platform/scriptstore -> internal/platform/scriptindex
@@ -2508,6 +2511,7 @@ internal/soap -> internal/xmltree
 internal/sourcecheck -> internal/refscheme
 internal/sourcecheck -> pkg/contenttype
 internal/sqlprotect -> internal/sqltables
+internal/sqlrank -> internal/ftsquery
 internal/sqlrank -> internal/opranking
 internal/sqlrank -> internal/portal/portaldomain
 internal/standalone -> internal/refscheme
@@ -2776,6 +2780,7 @@ pkg/knowledge/federation -> pkg/toolkit
 pkg/knowledge/federation -> pkg/toolkits/apigateway
 pkg/knowledge/federation -> pkg/toolkits/graphql
 pkg/memory -> internal/bgloop
+pkg/memory -> internal/ftsquery
 pkg/memory -> pkg/catalog
 pkg/memory -> pkg/semantic
 pkg/middleware -> internal/auditredact
@@ -3041,6 +3046,7 @@ pkg/portal -> pkg/ratelimit
 pkg/portal -> pkg/registry
 pkg/portal -> pkg/resource
 pkg/portal -> pkg/toolkits/knowledge
+pkg/portal/knowledgepage -> internal/ftsquery
 pkg/portal/knowledgepage -> internal/refscheme
 pkg/portal/knowledgepage -> internal/textchunk
 pkg/portal/knowledgepage -> pkg/catalog
@@ -3057,6 +3063,7 @@ pkg/prompt/attachserve -> pkg/portal/knowledgepage
 pkg/prompt/attachserve -> pkg/prompt
 pkg/prompt/attachserve -> pkg/resource
 pkg/prompt/attachserve -> pkg/script
+pkg/prompt/postgres -> internal/ftsquery
 pkg/prompt/postgres -> pkg/indexjobs
 pkg/prompt/postgres -> pkg/prompt
 pkg/query/trino -> internal/sqltables
@@ -3072,6 +3079,7 @@ pkg/registry -> pkg/toolkits/postgres
 pkg/registry -> pkg/toolkits/s3
 pkg/registry -> pkg/toolkits/trino
 pkg/resource -> internal/exporttrunc
+pkg/resource -> internal/ftsquery
 pkg/resource -> internal/grantsource
 pkg/resource -> internal/httpjson
 pkg/resource -> internal/indexpolicy

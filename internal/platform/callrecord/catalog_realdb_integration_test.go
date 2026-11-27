@@ -891,6 +891,13 @@ func TestCallCatalogRealDBSearchFindsAQueryByItsPurpose(t *testing.T) {
 	assert.Equal(t, callrecord.OutcomeSatisfied, hits[0].Record.Outcome,
 		"a hit carries its standing so an agent can prefer a query that answered something")
 
+	// Ranked by words alone, a question the record holds only some words of
+	// still finds it (#2838): "region" is in its statement and purpose.
+	partial, err := r.calls.Search(ctx, callrecord.SearchQuery{Text: "how many orders shipped by region last quarter", UserID: analystID})
+	require.NoError(t, err)
+	require.NotEmpty(t, partial, "a record holding some words of the question must be found")
+	assert.Equal(t, revenueSQL, partial[0].Record.Statement)
+
 	// A search with no caller returns nothing rather than everyone's calls.
 	anonymous, err := r.calls.Search(ctx, callrecord.SearchQuery{Text: "revenue"})
 	require.NoError(t, err)

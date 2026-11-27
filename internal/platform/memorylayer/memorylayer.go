@@ -64,6 +64,11 @@ type Config struct {
 	// Ollama configures the Ollama embedder; used only when EmbeddingProvider
 	// is "ollama".
 	Ollama embedding.OllamaConfig
+	// InteractiveURL, when set, is the Ollama server the interactive embeds
+	// go to, serving the same model as Ollama.URL (#2839). The index worker
+	// then has the other server to itself, so neither side of the gate waits
+	// on or preempts the other.
+	InteractiveURL string
 	// Metrics counts every embedding call under its model (#1895); nil
 	// records nothing.
 	Metrics *observability.Metrics
@@ -94,7 +99,10 @@ type Handle struct {
 	// gate puts interactive embeds ahead of the index worker's, across every
 	// replica sharing the database (#1988): EmbeddingProvider is its
 	// interactive side, Background its background side.
-	gate             *embedding.Gate
+	gate *embedding.Gate
+	// separate is whether interactive embeds go to a server of their own
+	// (Config.InteractiveURL), in which case the gate is not used.
+	separate         bool
 	adapter          middleware.MemoryProvider
 	stalenessWatcher *memory.StalenessWatcher
 }
@@ -138,6 +146,7 @@ func New(db *sql.DB, semanticProvider semantic.Provider, cfg Config) (*Handle, e
 		toolkit:  tk,
 		producer: producer,
 		gate:     sharedGate(db),
+		separate: cfg.EmbeddingProvider == providerOllama && cfg.InteractiveURL != "",
 		// Middleware adapter for cross-enrichment.
 		adapter: &middlewareBridge{store: store},
 	}
@@ -170,7 +179,11 @@ func (h *Handle) Start() {
 // persist Embedding: nil (the toolkit guards see Kind() == KindNoop) (#429).
 func buildEmbedder(cfg Config) embedding.Provider {
 	if cfg.EmbeddingProvider == providerOllama {
-		return embedding.WithMetrics(embedding.NewOllamaProvider(cfg.Ollama), cfg.Metrics)
+		oc := cfg.Ollama
+		if cfg.InteractiveURL != "" {
+			oc.URL = cfg.InteractiveURL
+		}
+		return embedding.WithMetrics(embedding.NewOllamaProvider(oc), cfg.Metrics)
 	}
 	configwarn.Warn(context.Background(), configwarn.CodeMemoryNoEmbedding, "memory.embedding.provider not configured; semantic ranking disabled (set memory.embedding.provider to 'ollama' to enable)",
 		"config_key", "memory.embedding.provider",
@@ -197,19 +210,25 @@ func (h *Handle) MemoryStore() memory.Store {
 // EmbeddingProvider returns the embedding provider the layer built, as the
 // interactive side of the embed gate, or nil on a nil Handle. Platform stores
 // this as its own field and passes it to the other subsystems (portalstore,
-// api-gateway, search/knowledge) whose embeds a caller waits on.
+// api-gateway, search/knowledge) whose embeds a caller waits on. With an
+// interactive server of its own it is that server's provider, ungated.
 func (h *Handle) EmbeddingProvider() embedding.Provider {
 	if h == nil {
 		return nil
+	}
+	if h.separate {
+		return h.embedder
 	}
 	return h.gate.Interactive(h.embedder)
 }
 
 // Background wraps an index worker's provider in the background side of the
-// embed gate, so it yields to interactive embeds on every replica (#1988). On
-// a nil Handle it returns p unchanged.
+// embed gate, so it yields to interactive embeds on every replica (#1988) and
+// is preempted by one that begins while it is at the server (#2839). On a
+// nil Handle, or when interactive embeds have a server of their own, it
+// returns p unchanged.
 func (h *Handle) Background(p embedding.Provider) embedding.Provider {
-	if h == nil {
+	if h == nil || h.separate {
 		return p
 	}
 	return h.gate.Background(p)

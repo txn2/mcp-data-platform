@@ -78,6 +78,13 @@ type WorkerConfig struct {
 	// DefaultEmbedBatchSize.
 	BatchSize int
 
+	// BatchBytes caps the text one EmbedBatch call carries, summed over
+	// its texts: a call holds the embedding server for as long as its
+	// texts take, and an interactive embed that preempts it loses what
+	// it had done (#2839). A call always carries at least one text.
+	// Zero or negative leaves the count alone to bound it.
+	BatchBytes int
+
 	// Observer receives each job's start, outcome, duration, item plan and
 	// embed calls. Nil records nothing.
 	Observer Observer
@@ -273,6 +280,7 @@ func (w *Worker) execute(ctx context.Context, job *Job) string {
 		items:        items,
 		existing:     existing,
 		batchSize:    w.cfg.BatchSize,
+		batchBytes:   w.cfg.BatchBytes,
 		progress:     w.progressFn(ctx, job),
 		persistBatch: w.persistBatchFn(ctx, key, sink),
 		observePlan: func(embedded, reused int) {

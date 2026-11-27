@@ -161,6 +161,19 @@ func (f *fakeWindows) Expirable(_ context.Context, source string, cutoff time.Ti
 	return out, nil
 }
 
+func (f *fakeWindows) Live(_ context.Context, source string) ([]whstore.Window, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []whstore.Window
+	for _, r := range f.rows {
+		if r.Source == source && !r.expired {
+			out = append(out, r.Window)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Start.Before(out[j].Start) })
+	return out, nil
+}
+
 func (f *fakeWindows) RawRegistrable(_ context.Context, source string, since time.Time) ([]whstore.Window, error) {
 	if err := f.err["rawregistrable"]; err != nil {
 		return nil, err
@@ -524,6 +537,54 @@ func TestCompactDedupsAcrossReplicas(t *testing.T) {
 		"the window's partition is registered at its resource's directory")
 	assert.Equal(t, 1, r.metrics.results[ResultCompacted])
 	assert.Equal(t, int64(1), r.metrics.dropped)
+}
+
+// TestWindowEventsReadsWhatCompactionKeeps: a window's events as the
+// attachment repair reads them (#2836) are its last Parquet file and its raw
+// segments since, one per event id, the earliest; Live lists the windows.
+func TestWindowEventsReadsWhatCompactionKeeps(t *testing.T) {
+	r := newRig(t)
+	row := r.windows.add("esp", window, 1)
+	r.segment(t, window, segAt{"a", 1, 0}, "a", "b")
+	r.w.Pass(ctx)
+	require.True(t, row.compacted)
+	r.segment(t, window, segAt{"b", 1, 30}, "b", "c")
+
+	live, err := r.w.Live(ctx, "esp")
+	require.NoError(t, err)
+	require.Len(t, live, 1)
+	evs, err := r.w.WindowEvents(ctx, esp, live[0])
+	require.NoError(t, err)
+	ids := make([]string, 0, len(evs))
+	for _, e := range evs {
+		ids = append(ids, e.EventID)
+	}
+	assert.Equal(t, []string{"a", "b", "c"}, ids, "the compacted events and the later segment, each id once")
+
+	r.objects.err["list"] = errBoom
+	_, err = r.w.WindowEvents(ctx, esp, live[0])
+	require.ErrorIs(t, err, errBoom)
+}
+
+// TestRetentionLeavesAttachments states what compacted retention does to the
+// files an imap source saved (#2836): nothing. An expired window's own file
+// goes; an attachment its events named stays in the library until someone
+// deletes it or the source is deleted, as docs/server/webhooks.md says.
+func TestRetentionLeavesAttachments(t *testing.T) {
+	r := newRig(t)
+	old := window.Add(-500 * 24 * time.Hour)
+	row := r.windows.add("esp", old, 1)
+	r.segment(t, old, segAt{"a", 1, 0}, "a")
+	r.clock = old.Add(3 * time.Hour)
+	r.w.Pass(ctx)
+	require.True(t, row.compacted)
+	r.resources.keys["attachment-1"] = "resources/attachment-1/minutes.pdf"
+	r.clock = now
+
+	require.NoError(t, r.w.Retention(ctx))
+	assert.True(t, row.expired)
+	assert.Equal(t, map[string]string{"attachment-1": "resources/attachment-1/minutes.pdf"}, r.resources.keys,
+		"the window's file is gone and the attachment is kept")
 }
 
 func TestDedupKeepsEarliest(t *testing.T) {

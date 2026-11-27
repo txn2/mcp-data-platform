@@ -3624,12 +3624,23 @@ export const handlers = [
     // Folders are stored (#1872): an empty one is listed with a zero count.
     for (const f of mockResourceFolders.filter(inScope)) touch(f.path, 0, f.created_at);
 
-    return HttpResponse.json({
-      folders: [...counts.entries()]
-        .map(([path, c]) => ({ path, ...c }))
-        .sort((a, b) => a.path.localeCompare(b.path)),
-      tags: [...tags].sort(),
-    });
+    const folders = [...counts.entries()]
+      .map(([path, c]) => ({ path, ...c }))
+      .sort((a, b) => a.path.localeCompare(b.path));
+    // One level (#2837): the folder itself first, then the folders directly
+    // inside it, each with how many folders it holds; no tags.
+    if (url.searchParams.has("parent")) {
+      const parent = url.searchParams.get("parent") ?? "";
+      const parentOf = (p: string) => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
+      const subs = new Map<string, number>();
+      for (const f of folders) subs.set(parentOf(f.path), (subs.get(parentOf(f.path)) ?? 0) + 1);
+      const level = folders
+        .filter((f) => f.path === parent || parentOf(f.path) === parent)
+        .map((f) => ({ ...f, subfolders: subs.get(f.path) ?? 0 }));
+      level.sort((a, b) => (a.path === parent ? -1 : b.path === parent ? 1 : 0));
+      return HttpResponse.json({ folders: level, tags: [] });
+    }
+    return HttpResponse.json({ folders, tags: [...tags].sort() });
   }),
 
   // Stored folders (#1872): create an empty one, delete one once nothing is

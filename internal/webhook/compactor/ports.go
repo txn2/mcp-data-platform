@@ -29,6 +29,7 @@ type WindowStore interface {
 	RollupTelemetry(ctx context.Context, before time.Time) error
 	RecordCompactionRun(ctx context.Context, run whstore.CompactionRun) error
 	DeleteExpired(ctx context.Context, before time.Time) (int64, error)
+	Live(ctx context.Context, source string) ([]whstore.Window, error)
 }
 
 // Sources reads source definitions. whsource.Store satisfies it.

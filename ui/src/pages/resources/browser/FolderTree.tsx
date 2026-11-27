@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 import { ChevronRight, Folder, FolderOpen, Users } from "lucide-react";
-import { useExternalFolders, useFacets, usePeople } from "@/api/resources/hooks";
+import { useExternalFolders, useFolderLevel, usePeople } from "@/api/resources/hooks";
 import type { Folder as FolderRow } from "@/api/resources/types";
 import { cn } from "@/lib/utils";
 import { EXTERNAL_FILES_LABEL, EXTERNAL_PREFIX, externalRoot, PEOPLE_LABEL, personRoot, type ResourceRoot } from "../scopes";
-import { folderEntries } from "./model";
+import { folderEntries, hasSubfolders } from "./model";
+import { useProgressive } from "./progressive";
 import { byName } from "@/lib/sortByName";
 
 /** Where the page is standing: a top-level folder and a path inside it. */
@@ -134,8 +135,9 @@ function RootNode({
   const isOpen = ctx.open.has(id);
   const here = ctx.current.root === root.key;
   // The files shared with the caller have no folders: the node opens their
-  // list and holds nothing beneath it (#2258).
-  const facets = useFacets(root.params, !root.shared && Boolean(eager || isOpen || here));
+  // list and holds nothing beneath it (#2258). Its first level is read for
+  // the count beside it; each folder opened reads its own (#2837).
+  const facets = useFolderLevel(root.params, "", !root.shared && Boolean(eager || isOpen || here));
   const { folders, total } = rootFolders(root, facets.data?.folders, count);
   return (
     <>
@@ -148,7 +150,7 @@ function RootNode({
         hasChildren={folders === undefined || folderEntries(folders, "").length > 0}
         ctx={ctx}
       />
-      {isOpen && folders && <Children root={root} folders={folders} at="" depth={depth + 1} ctx={ctx} />}
+      {isOpen && folders && <Kids root={root} folders={folders} at="" depth={depth + 1} ctx={ctx} />}
     </>
   );
 }
@@ -165,7 +167,19 @@ function topCount(folders: FolderRow[] | undefined): number | undefined {
   return folders.filter((f) => !f.path.includes("/")).reduce((n, f) => n + f.count, 0);
 }
 
-function Children({
+/** The folders inside one open folder, read as one level of the library. */
+function Children({ root, at, depth, ctx }: { root: ResourceRoot; at: string; depth: number; ctx: NodeContext }) {
+  const level = useFolderLevel(root.params, at);
+  if (!level.data) return null;
+  return <Kids root={root} folders={level.data.folders} at={at} depth={depth} ctx={ctx} />;
+}
+
+/**
+ * Kids draws the folders directly inside at from a level that holds them,
+ * a step at a time, so a folder holding thousands of folders opens with the
+ * first rows drawn (#2837).
+ */
+function Kids({
   root,
   folders,
   at,
@@ -178,14 +192,11 @@ function Children({
   depth: number;
   ctx: NodeContext;
 }) {
-  const kids = useMemo(
-    () =>
-      folderEntries(folders, at).sort(byName((e) => e.name)),
-    [folders, at],
-  );
+  const kids = useMemo(() => folderEntries(folders, at).sort(byName((e) => e.name)), [folders, at]);
+  const { limit, more, sentinel } = useProgressive(kids.length);
   return (
     <>
-      {kids.map((k) => {
+      {kids.slice(0, limit).map((k) => {
         if (k.kind !== "folder") return null;
         const isOpen = ctx.open.has(nodeID(root.key, k.path));
         return (
@@ -196,13 +207,14 @@ function Children({
               name={k.name}
               depth={depth}
               count={k.count}
-              hasChildren={folderEntries(folders, k.path).length > 0}
+              hasChildren={hasSubfolders(folders, k.path, k.subfolders)}
               ctx={ctx}
             />
-            {isOpen && <Children root={root} folders={folders} at={k.path} depth={depth + 1} ctx={ctx} />}
+            {isOpen && <Children root={root} at={k.path} depth={depth + 1} ctx={ctx} />}
           </div>
         );
       })}
+      {more && <div role="none" ref={sentinel} className="h-px" data-testid="tree-more" />}
     </>
   );
 }

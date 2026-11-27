@@ -14,9 +14,10 @@ type Objects interface {
 	DeleteObject(ctx context.Context, bucket, key string) error
 }
 
-// Resources deletes a compacted window's resource, and the attachments an
-// imap source saved (#2247).
+// Resources deletes a compacted window's resource, the attachments an imap
+// source saved (#2247), and the stored folders a source's files left (#2836).
 type Resources interface {
 	Delete(ctx context.Context, id string) error
 	DeleteAttachments(ctx context.Context, src whsource.Source) error
+	DeleteSourceFolder(ctx context.Context, src whsource.Source) error
 }

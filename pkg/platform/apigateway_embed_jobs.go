@@ -73,6 +73,7 @@ func (p *Platform) WireAPIGatewayEmbedJobsFromDB() {
 		ModelName:     embedding.ModelName(p.embeddingProv),
 		LeaseDuration: lease,
 		BatchSize:     batch,
+		BatchBytes:    p.embedJobsBatchBytes(),
 		Workers:       p.config.APIGateway.EmbedJobs.Workers,
 		RetentionDays: p.config.APIGateway.EmbedJobs.retentionDays(),
 		FailedRetentionDays: retention.Days(p.config.APIGateway.EmbedJobs.FailedRetentionDays,
@@ -135,6 +136,21 @@ func (p *Platform) indexJobsPreconditions() bool {
 		return false
 	}
 	return true
+}
+
+// embedJobsBatchBytes is the most text one background embed request carries
+// (#2839): api_gateway.embed_jobs.batch_bytes, defaulting to the embedder's
+// input cap, so a request holds the server for about one full-size input or
+// several short ones, and a search that preempts it loses at most that.
+// Negative sends whole count-bounded batches, as before.
+func (p *Platform) embedJobsBatchBytes() int {
+	if b := p.config.APIGateway.EmbedJobs.BatchBytes; b != 0 {
+		return b
+	}
+	if b := p.config.Memory.Embedding.Ollama.MaxInputBytes; b > 0 {
+		return b
+	}
+	return embedding.DefaultMaxInputBytes
 }
 
 // resolveEmbedJobsTuning returns the worker lease duration and batch

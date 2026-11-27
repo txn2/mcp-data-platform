@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"path"
 	"strings"
 	"time"
 
@@ -153,8 +154,9 @@ func (m message) readBody(ctx context.Context, files Files, p *Payload, arrived 
 		return nil //nolint:nilerr // an unreadable message is filed with the reason, not retried forever
 	}
 	p.BodyFormat, p.External.Body = body.Format, body.Text
+	names := newFileNames()
 	for _, a := range body.Attachments {
-		att, err := m.save(ctx, files, a, arrived)
+		att, err := m.save(ctx, files, a, names.next(a.Name), arrived)
 		if err != nil {
 			return err
 		}
@@ -164,8 +166,9 @@ func (m message) readBody(ctx context.Context, files Files, p *Payload, arrived 
 }
 
 // save writes one attachment as a resource under the source's attachments
-// folder, in a folder of the message's own.
-func (m message) save(ctx context.Context, files Files, a imapmail.Attachment, arrived time.Time) (Attachment, error) {
+// folder, in a folder of the message's own, as name: the attachment's own
+// name, made distinct within the message.
+func (m message) save(ctx context.Context, files Files, a imapmail.Attachment, name string, arrived time.Time) (Attachment, error) {
 	out := Attachment{Name: a.Name, ContentType: a.ContentType, Size: a.Size}
 	if a.Size > m.src.Config.IMAP.MaxAttachmentBytes {
 		out.Skipped = "over the source's max_attachment_bytes"
@@ -177,8 +180,8 @@ func (m message) save(ctx context.Context, files Files, a imapmail.Attachment, a
 		return out, nil //nolint:nilerr // an unreadable attachment is listed with the reason, the message still filed
 	}
 	dt, _, _ := whlayout.PartitionValues(arrived)
-	folder := AttachmentsFolder(m.src.Name) + "/" + dt + "/" + m.folderKey()
-	out.URI, out.ResourceID, err = files.PutFile(ctx, m.src, File{Folder: folder, Name: a.Name, ContentType: a.ContentType, Data: data})
+	folder := AttachmentsFolder(m.src.Name) + "/" + dt + "/" + MessageFolder(m.id())
+	out.URI, out.ResourceID, err = files.PutFile(ctx, m.src, File{Folder: folder, Name: name, ContentType: a.ContentType, Data: data})
 	if err != nil {
 		return out, fmt.Errorf("saving attachment %q: %w", a.Name, err)
 	}
@@ -191,23 +194,50 @@ func AttachmentsFolder(source string) string {
 	return "webhooks/" + source + "/attachments"
 }
 
-// folderKey names the folder a message's attachments are saved in: its UID
-// validity and UID, which are the server's and contain nothing a sender wrote.
-func (m message) folderKey() string {
-	return fmt.Sprintf("%s-%d-%d", safeSegment(m.folder), m.validity, m.env.UID)
+// messageFolderLen is how many hex characters of the identity's hash name a
+// message's folder: 64 bits, so two messages of one day never share one.
+const messageFolderLen = 16
+
+// MessageFolder names the folder a message's attachments are saved in, from
+// the message's event id (#2836): its Message-ID, or where it is for one with
+// none. The server's numbering is not part of it, so a renumbered folder read
+// again finds each attachment at the address it was saved at and records a
+// new version there, instead of filing a second copy of the mailbox. It is a
+// hash, so nothing a sender wrote reaches the path.
+func MessageFolder(eventID string) string {
+	sum := sha256.Sum256([]byte(eventID))
+	return hex.EncodeToString(sum[:])[:messageFolderLen]
 }
 
-func safeSegment(s string) string {
-	var b strings.Builder
-	for _, r := range strings.ToLower(s) {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-':
-			_, _ = b.WriteRune(r)
-		default:
-			_ = b.WriteByte('-')
+// fileNames makes the names of one message's attachments distinct: the second
+// "report.pdf" is "report-2.pdf", the third "report-3.pdf", and a name already
+// taken moves on to the next number. A message is read the same way each time,
+// so each attachment keeps its name across re-reads.
+type fileNames struct {
+	seen map[string]int
+	used map[string]bool
+}
+
+func newFileNames() *fileNames {
+	return &fileNames{seen: map[string]int{}, used: map[string]bool{}}
+}
+
+// next is the name the next attachment called name is saved as.
+func (f *fileNames) next(name string) string {
+	for n := f.seen[name] + 1; ; n++ {
+		candidate := name
+		if n > 1 {
+			ext := path.Ext(name)
+			if ext == name {
+				ext = ""
+			}
+			candidate = fmt.Sprintf("%s-%d%s", strings.TrimSuffix(name, ext), n, ext)
+		}
+		if !f.used[candidate] {
+			f.seen[name], f.used[candidate] = n, true
+			return candidate
 		}
 	}
-	return strings.Trim(b.String(), "-")
 }
 
 func lines(in []string) []string {

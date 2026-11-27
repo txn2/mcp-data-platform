@@ -138,6 +138,15 @@ func (s *Service) Marks(ctx context.Context, name string) ([]whimap.Mark, error)
 	return s.deps.Mailbox.Marks(ctx, name) //nolint:wrapcheck // the store names itself
 }
 
+// AttachmentRepair is what the one-time repair of an imap source's
+// attachments did (#2836), nil until it has run.
+func (s *Service) AttachmentRepair(ctx context.Context, name string) (*whimap.RepairRecord, error) {
+	if s.deps.Mailbox == nil {
+		return nil, nil //nolint:nilnil // no mailbox input, no repair
+	}
+	return s.deps.Mailbox.Repair(ctx, name) //nolint:wrapcheck // the store names itself
+}
+
 // Listener reports how a postgres source's listener stands; another source
 // has none.
 func (s *Service) Listener(ctx context.Context, name string) (whpgstate.State, error) {
@@ -434,6 +443,11 @@ func (s *Service) Delete(ctx context.Context, name string) error {
 		if err := s.deps.Resources.DeleteAttachments(ctx, src); err != nil {
 			return fmt.Errorf("deleting the source's attachments: %w", err)
 		}
+	}
+	// A folder keeps its place once emptied (#1872), so the day folders the
+	// windows and attachments sat in stay listed until they are removed.
+	if err := s.deps.Resources.DeleteSourceFolder(ctx, src); err != nil {
+		return fmt.Errorf("deleting the source's folders: %w", err)
 	}
 	if err := s.deps.Sources.Delete(ctx, name); err != nil {
 		return err //nolint:wrapcheck // ErrNotFound is what a surface renders

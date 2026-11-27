@@ -19,6 +19,7 @@ import (
 
 	"github.com/pgvector/pgvector-go"
 
+	"github.com/txn2/mcp-data-platform/internal/ftsquery"
 	"github.com/txn2/mcp-data-platform/internal/opranking"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 )
@@ -61,7 +62,10 @@ func BuildRanked(r Ranking) (query string, args []any) {
 	limit, offset := portaldomain.RankedPage(r.Limit, r.Offset)
 	textPos := len(r.Args) + 1
 	args = append(append([]any{}, r.Args...), r.QueryText)
-	tsq := fmt.Sprintf("plainto_tsquery('english', $%d)", textPos)
+	// A ranking with an embedding keeps the rows holding every word beside the
+	// rows near the query; one by words alone keeps the rows holding any of
+	// them, best covered first (#2838).
+	tsq := ftsquery.For(fmt.Sprintf("$%d", textPos), len(r.Embedding) > 0)
 
 	var score, keep string
 	if len(r.Embedding) > 0 {

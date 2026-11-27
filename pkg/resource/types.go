@@ -190,6 +190,11 @@ type Folder struct {
 	// UpdatedAt is the latest change beneath the folder: the newest update
 	// of a file in it, or when it was created if that is later.
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+	// Subfolders is how many folders are directly inside this one. A level
+	// read (the facets route's parent, #2837) reports it, so a tree drawn one
+	// level at a time knows which folders open without reading beneath them;
+	// the whole-tree read leaves it out.
+	Subfolders *int `json:"subfolders,omitempty" example:"3"`
 }
 
 // ScopeFilter identifies a single scope+id pair for visibility filtering.

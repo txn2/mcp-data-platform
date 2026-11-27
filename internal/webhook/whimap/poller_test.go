@@ -299,6 +299,58 @@ func TestPoll_RenumberedFolderIsReadAgain(t *testing.T) {
 	f.marks["vendor-mail/Platform"] = Mark{Source: src.Name, Folder: "Platform", UIDValidity: 987654, LastUID: 99}
 	require.NoError(t, newPoller(f).Poll(context.Background(), src))
 	assert.Len(t, f.events(t), 1, "another UIDVALIDITY voids the watermark")
+
+	// #2836: read again under yet another numbering, the attachment is saved
+	// at the address it was saved at the first time, so the library holds it
+	// once (as a new version) rather than a second copy.
+	first := attachmentURIs(t, f.events(t))
+	require.Len(t, first, 1)
+	assert.Contains(t, first[0], "/"+MessageFolder("inv-4411@vendor.example")+"/lines.csv")
+	f.marks["vendor-mail/Platform"] = Mark{Source: src.Name, Folder: "Platform", UIDValidity: 123, LastUID: 99}
+	f.objects = map[string][]byte{}
+	require.NoError(t, newPoller(f).Poll(context.Background(), src))
+	assert.Equal(t, first, attachmentURIs(t, f.events(t)), "the re-read names the same address")
+	assert.Len(t, f.files, 1, "one file in the library, not one per numbering")
+}
+
+// TestPoll_RunsTheRepairOnceBeforePolling: the attachment repair runs under
+// the source's lock before its first poll, and not again once recorded.
+func TestPoll_RunsTheRepairOnceBeforePolling(t *testing.T) {
+	srv := startServer(t, invoice)
+	src := srv.source("app-pw")
+	f := newFakes(src)
+	store := &fakeRepairs{}
+	p := New(Config{
+		Sources: f, Objects: f, Bucket: "resources", Recorder: f, RawWindows: f, Marks: f, Files: f,
+		Lock: f.lock, Replica: "r1",
+		Repair: &Repairer{Library: &fakeLibrary{files: map[string]StoredFile{}}, Events: &fakeEvents{}, Store: store},
+	})
+	require.NoError(t, p.pollLocked(context.Background(), src))
+	require.Contains(t, store.done, src.Name)
+	assert.Len(t, f.events(t), 1, "the poll ran after the repair")
+	store.done[src.Name] = RepairReport{Kept: []string{"sentinel"}}
+	require.NoError(t, p.pollLocked(context.Background(), src))
+	assert.Equal(t, []string{"sentinel"}, store.done[src.Name].Kept, "a recorded repair is not run again")
+
+	// A repair that cannot be read does not hold the mail up.
+	failing := New(Config{
+		Sources: f, Objects: f, Bucket: "resources", Recorder: f, RawWindows: f, Marks: f, Files: f,
+		Lock: f.lock, Replica: "r1", Repair: &Repairer{Store: &fakeRepairs{readErr: errors.New("db down")}},
+	})
+	require.NoError(t, failing.pollLocked(context.Background(), src))
+}
+
+func attachmentURIs(t *testing.T, evs []whevent.Stored) []string {
+	t.Helper()
+	out := make([]string, 0, len(evs))
+	for _, e := range evs {
+		var pl Payload
+		require.NoError(t, json.Unmarshal(e.Payload, &pl))
+		for _, a := range pl.Attachments {
+			out = append(out, a.URI)
+		}
+	}
+	return out
 }
 
 func TestPoll_LimitsAndFailures(t *testing.T) {
@@ -377,7 +429,7 @@ func TestNew_StartStopAndLockKey(t *testing.T) {
 
 func TestMailbox_CheckAndMarks(t *testing.T) {
 	srv := startServer(t)
-	mb := NewMailbox(nil)
+	mb := NewMailbox(nil, nil)
 	require.NoError(t, mb.Check(context.Background(), srv.source("app-pw")))
 	assert.ErrorContains(t, mb.Check(context.Background(), srv.source("wrong")), "did not accept the source's login")
 	missing := srv.source("app-pw")
@@ -388,9 +440,24 @@ func TestMailbox_CheckAndMarks(t *testing.T) {
 	assert.Empty(t, marks)
 }
 
-func TestSafeSegment(t *testing.T) {
-	assert.Equal(t, "inbox-vendors", safeSegment("INBOX/Vendors"))
-	assert.Equal(t, "a-b", safeSegment("  a.b  "))
+// TestAttachmentNamesAreDistinctAndStable is #2836's second criterion at the
+// unit: a message's attachments of one name each keep a name of their own,
+// the same on every read, and a numbered name already taken is skipped.
+func TestAttachmentNamesAreDistinctAndStable(t *testing.T) {
+	for range 2 {
+		f := newFileNames()
+		got := []string{f.next("report.pdf"), f.next("report.pdf"), f.next("report-2.pdf"), f.next("notes"), f.next("notes"), f.next(".env"), f.next(".env")}
+		assert.Equal(t, []string{"report.pdf", "report-2.pdf", "report-2-2.pdf", "notes", "notes-2", ".env", ".env-2"}, got)
+	}
+}
+
+// TestMessageFolderIsTheMessagesIdentity: the folder depends on the event id
+// alone, is a fixed-length hex name, and differs between messages.
+func TestMessageFolderIsTheMessagesIdentity(t *testing.T) {
+	a := MessageFolder("<abc@example.com>")
+	assert.Equal(t, a, MessageFolder("<abc@example.com>"))
+	assert.NotEqual(t, a, MessageFolder("<abd@example.com>"))
+	assert.Regexp(t, `^[0-9a-f]{16}$`, a)
 }
 
 func firstValue(m map[string][]byte) []byte {

@@ -35053,6 +35053,12 @@
                         "description": "Filter by scope ID (persona name or user sub)",
                         "name": "scope_id",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Read one level (#2837): only the folders directly inside this folder, each with its subfolders count, the folder itself first; empty is the library's root. Tags are not read.",
+                        "name": "parent",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -54497,6 +54503,11 @@
                     "type": "string",
                     "example": "data/media-manager"
                 },
+                "subfolders": {
+                    "description": "Subfolders is how many folders are directly inside this one. A level\nread (the facets route's parent, #2837) reports it, so a tree drawn one\nlevel at a time knows which folders open without reading beneath them;\nthe whole-tree read leaves it out.",
+                    "type": "integer",
+                    "example": 3
+                },
                 "updated_at": {
                     "description": "UpdatedAt is the latest change beneath the folder: the newest update\nof a file in it, or when it was created if that is later.",
                     "type": "string"
@@ -63018,6 +63029,14 @@
         "webhookapi.SourceDetail": {
             "type": "object",
             "properties": {
+                "attachment_repair": {
+                    "description": "AttachmentRepair is what the one-time repair of an imap source's\nattachments did (#2836): when it ran, the folders it moved to their\nnew addresses, the later copies it deleted and the folders it kept.\nAbsent until it has run.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/whimap.RepairRecord"
+                        }
+                    ]
+                },
                 "imap": {
                     "description": "IMAP is each folder of an imap source as its polls left it: the\nwatermark, the messages stored and withheld, the last poll's error.",
                     "type": "array",
@@ -63543,6 +63562,17 @@
                 }
             }
         },
+        "whimap.FolderMove": {
+            "type": "object",
+            "properties": {
+                "from": {
+                    "type": "string"
+                },
+                "to": {
+                    "type": "string"
+                }
+            }
+        },
         "whimap.Mark": {
             "type": "object",
             "properties": {
@@ -63570,6 +63600,66 @@
                 },
                 "uid_validity": {
                     "type": "integer"
+                }
+            }
+        },
+        "whimap.RemovedFolder": {
+            "type": "object",
+            "properties": {
+                "files": {
+                    "type": "integer"
+                },
+                "folder": {
+                    "type": "string"
+                }
+            }
+        },
+        "whimap.RepairRecord": {
+            "type": "object",
+            "properties": {
+                "kept": {
+                    "type": "integer"
+                },
+                "moved": {
+                    "type": "integer"
+                },
+                "removed": {
+                    "type": "integer"
+                },
+                "removed_files": {
+                    "type": "integer"
+                },
+                "repaired_at": {
+                    "type": "string"
+                },
+                "report": {
+                    "$ref": "#/definitions/whimap.RepairReport"
+                }
+            }
+        },
+        "whimap.RepairReport": {
+            "type": "object",
+            "properties": {
+                "kept": {
+                    "description": "Kept are the folders of the old form no event names and no named folder\nmatches.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "moved": {
+                    "description": "Moved are the folders moved to the new form.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/whimap.FolderMove"
+                    }
+                },
+                "removed": {
+                    "description": "Removed are the later copies deleted, each with how many files it held.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/whimap.RemovedFolder"
+                    }
                 }
             }
         },

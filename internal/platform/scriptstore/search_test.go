@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/ftsquery"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -43,7 +44,7 @@ func TestSearch_NoQueryTextIsNoQuery(t *testing.T) {
 // superseded) out as a predicate rather than post-processing.
 func TestSearch_RanksEveryReadersScriptsWithTheLifecycleInSQL(t *testing.T) {
 	s, mock := newMock(t)
-	mock.ExpectQuery(regexp.QuoteMeta("AND search_fts @@ plainto_tsquery")).
+	mock.ExpectQuery(regexp.QuoteMeta("AND search_fts @@ "+ftsquery.AnyWord("$1"))).
 		WithArgs("sales report", sqlmock.AnyArg(), script.DefaultSearchLimit).
 		WillReturnRows(sqlmock.NewRows(scoredSelectColumns).
 			AddRow(scoredRow(rowSpec{

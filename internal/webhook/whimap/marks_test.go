@@ -3,6 +3,7 @@ package whimap
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -62,10 +63,69 @@ func TestMarks(t *testing.T) {
 	_, err = m.List(ctx, "s")
 	assert.ErrorContains(t, err, "iterating imap marks")
 
-	mb := NewMailbox(m)
+	mb := NewMailbox(m, nil)
+	none, err := mb.Repair(context.Background(), "s")
+	require.NoError(t, err)
+	assert.Nil(t, none, "no store, no repair")
 	mock.ExpectQuery("ORDER BY folder").WillReturnRows(sqlmock.NewRows(append([]string{"folder"}, cols...)))
 	marks, err := mb.Marks(ctx, "s")
 	require.NoError(t, err)
 	assert.Empty(t, marks)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestRepairsStore(t *testing.T) {
+	assert.Nil(t, NewRepairs(nil))
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test
+	r := NewRepairs(db)
+	ctx := context.Background()
+
+	mock.ExpectQuery("FROM webhook_imap_repairs WHERE source").WillReturnError(sql.ErrNoRows)
+	done, err := r.Repaired(ctx, "inbox")
+	require.NoError(t, err)
+	assert.False(t, done)
+	mock.ExpectQuery("FROM webhook_imap_repairs WHERE source").WillReturnRows(sqlmock.NewRows([]string{"one"}).AddRow(1))
+	done, err = r.Repaired(ctx, "inbox")
+	require.NoError(t, err)
+	assert.True(t, done)
+	mock.ExpectQuery("FROM webhook_imap_repairs WHERE source").WillReturnError(errors.New("down"))
+	_, err = r.Repaired(ctx, "inbox")
+	require.Error(t, err)
+
+	rep := RepairReport{Moved: []FolderMove{{From: "a", To: "b"}}, Removed: []RemovedFolder{{Folder: "c", Files: 3}}, Kept: []string{}}
+	mock.ExpectExec("INSERT INTO webhook_imap_repairs").WithArgs("inbox", 1, 1, 3, 0, sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+	require.NoError(t, r.RecordRepair(ctx, "inbox", rep))
+	mock.ExpectExec("INSERT INTO webhook_imap_repairs").WillReturnError(errors.New("down"))
+	require.Error(t, r.RecordRepair(ctx, "inbox", rep))
+
+	cols := []string{"repaired_at", "moved", "removed", "removed_files", "kept", "report"}
+	mock.ExpectQuery("FROM webhook_imap_repairs WHERE source").WillReturnError(sql.ErrNoRows)
+	none, err := r.Get(ctx, "inbox")
+	require.NoError(t, err)
+	assert.Nil(t, none)
+	mock.ExpectQuery("FROM webhook_imap_repairs WHERE source").
+		WillReturnRows(sqlmock.NewRows(cols).AddRow(time.Now(), 1, 1, 3, 0, []byte(`{"moved":[{"from":"a","to":"b"}],"removed":[{"folder":"c","files":3}],"kept":[]}`)))
+	got, err := r.Get(ctx, "inbox")
+	require.NoError(t, err)
+	assert.Equal(t, rep, got.Report)
+	long := RepairReport{Kept: make([]string, 150)}
+	for i := range long.Kept {
+		long.Kept[i] = "k"
+	}
+	body, err := json.Marshal(long)
+	require.NoError(t, err)
+	mock.ExpectQuery("FROM webhook_imap_repairs WHERE source").WillReturnRows(sqlmock.NewRows(cols).AddRow(time.Now(), 0, 0, 0, 150, body))
+	got, err = r.Get(ctx, "inbox")
+	require.NoError(t, err)
+	assert.Equal(t, 150, got.Kept, "the count is the whole")
+	assert.Len(t, got.Report.Kept, repairListLimit, "the list read is the first hundred")
+	mock.ExpectQuery("FROM webhook_imap_repairs WHERE source").WillReturnRows(sqlmock.NewRows(cols).AddRow(time.Now(), 0, 0, 0, 0, []byte(`{`)))
+	_, err = r.Get(ctx, "inbox")
+	require.Error(t, err)
+	mock.ExpectQuery("FROM webhook_imap_repairs WHERE source").WillReturnError(errors.New("down"))
+	_, err = r.Get(ctx, "inbox")
+	require.Error(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }

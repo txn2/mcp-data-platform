@@ -23,19 +23,21 @@ import (
 )
 
 type fakeService struct {
-	sources  map[string]whsource.Source
-	err      error
-	created  whsource.Source
-	updated  whadmin.Update
-	overview whadmin.Overview
-	source   string
-	span     time.Duration
-	step     time.Duration
-	asked    whadmin.Span
-	marks    []whimap.Mark
-	marksErr error
-	listener whpgstate.State
-	listErr  error
+	sources   map[string]whsource.Source
+	err       error
+	created   whsource.Source
+	updated   whadmin.Update
+	overview  whadmin.Overview
+	source    string
+	span      time.Duration
+	step      time.Duration
+	asked     whadmin.Span
+	marks     []whimap.Mark
+	marksErr  error
+	repair    *whimap.RepairRecord
+	repairErr error
+	listener  whpgstate.State
+	listErr   error
 }
 
 func (f *fakeService) Listener(_ context.Context, _ string) (whpgstate.State, error) {
@@ -44,6 +46,10 @@ func (f *fakeService) Listener(_ context.Context, _ string) (whpgstate.State, er
 
 func (f *fakeService) Marks(_ context.Context, _ string) ([]whimap.Mark, error) {
 	return f.marks, f.marksErr
+}
+
+func (f *fakeService) AttachmentRepair(_ context.Context, _ string) (*whimap.RepairRecord, error) {
+	return f.repair, f.repairErr
 }
 
 func (f *fakeService) Overview(_ context.Context, source string, span whadmin.Span) (whadmin.Overview, error) {
@@ -294,6 +300,26 @@ func TestGet_IMAPSourceCarriesItsFolders(t *testing.T) {
 		"hidden_not_allowed": float64(2), "hidden_unauthenticated": float64(0),
 	}, folders[0])
 	assert.NotContains(t, rec.Body.String(), `"pw"`, "the mailbox password is never read back")
+	assert.NotContains(t, rec.Body.String(), `"attachment_repair"`, "absent until the repair has run")
+
+	// #2836: once the repair has run, the page reads what it did.
+	svc.repair = &whimap.RepairRecord{
+		RepairedAt: time.Date(2026, 11, 26, 9, 0, 0, 0, time.UTC), Moved: 1, Removed: 1, RemovedFiles: 2,
+		Report: whimap.RepairReport{
+			Moved:   []whimap.FolderMove{{From: "a/inbox-7-3", To: "a/0123456789abcdef"}},
+			Removed: []whimap.RemovedFolder{{Folder: "a/inbox-9-3", Files: 2}}, Kept: []string{},
+		},
+	}
+	rec = do(mux, http.MethodGet, "/api/v1/admin/webhooks/sources/inbox", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &detail))
+	repair, ok := detail["attachment_repair"].(map[string]any)
+	require.True(t, ok, rec.Body.String())
+	assert.Equal(t, float64(2), repair["removed_files"])
+	svc.repairErr = errors.New("db down")
+	rec = do(mux, http.MethodGet, "/api/v1/admin/webhooks/sources/inbox", "")
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	svc.repairErr = nil
 
 	rec = do(mux, http.MethodGet, "/api/v1/admin/webhooks/sources/esp", "")
 	require.Equal(t, http.StatusOK, rec.Code)

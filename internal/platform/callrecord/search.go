@@ -8,6 +8,7 @@ import (
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/pgvector/pgvector-go"
+	"github.com/txn2/mcp-data-platform/internal/ftsquery"
 )
 
 // A recorded call is findable two ways: by the words its author wrote (the
@@ -104,24 +105,26 @@ func (s *PostgresStore) Search(ctx context.Context, q SearchQuery) ([]Scored, er
 	return s.searchHybrid(ctx, q)
 }
 
-// searchLexical ranks by full-text relevance alone.
+// searchLexical ranks by full-text relevance alone, matching any word of the
+// query (#2838).
 func (s *PostgresStore) searchLexical(ctx context.Context, q SearchQuery) ([]Scored, error) {
-	return s.lexicalArm(ctx, q, "ts_rank_cd("+ftsExpr+", plainto_tsquery('english', ?))", q.Text)
+	tsq := ftsquery.AnyWord("?")
+	return s.lexicalArm(ctx, q, tsq, "ts_rank_cd("+ftsExpr+", "+tsq+")", q.Text)
 }
 
-// lexicalArm is the records whose words match the query, best ts_rank_cd
-// first, each scored by scoreExpr: its ts_rank_cd alone, or in a hybrid
-// search its cosine to the query.
-func (s *PostgresStore) lexicalArm(ctx context.Context, q SearchQuery, scoreExpr string, scoreArgs ...any) ([]Scored, error) {
+// lexicalArm is the records whose words match the query by tsq, best
+// ts_rank_cd first, each scored by scoreExpr: its ts_rank_cd alone, or in a
+// hybrid search its cosine to the query.
+func (s *PostgresStore) lexicalArm(ctx context.Context, q SearchQuery, tsq, scoreExpr string, scoreArgs ...any) ([]Scored, error) {
 	if strings.TrimSpace(q.Text) == "" {
 		return nil, nil
 	}
 	limit := q.EffectiveLimit()
 	inner := paged(derived(Filter{}).
 		Column(scoreExpr+" AS score", scoreArgs...).
-		Where(ftsExpr+" @@ plainto_tsquery('english', ?)", q.Text).
+		Where(ftsExpr+" @@ "+tsq, q.Text).
 		Where(searchScope, q.UserID).
-		OrderByClause("ts_rank_cd("+ftsExpr+", plainto_tsquery('english', ?)) DESC", q.Text).
+		OrderByClause("ts_rank_cd("+ftsExpr+", "+tsq+") DESC", q.Text).
 		OrderBy("reuse_count DESC"), limit)
 
 	query, args, err := paged(psq.Select("o.*").
@@ -155,7 +158,7 @@ func (s *PostgresStore) searchHybrid(ctx context.Context, q SearchQuery) ([]Scor
 
 	// The lexical arm reads each match's own cosine, zero for a record not
 	// embedded yet, so the blend scores every record on one curve.
-	lexical, err := s.lexicalArm(ctx, q, "COALESCE(1 - (r.embedding <=> ?), 0)", vec)
+	lexical, err := s.lexicalArm(ctx, q, ftsquery.AllWords("?"), "COALESCE(1 - (r.embedding <=> ?), 0)", vec)
 	if err != nil {
 		return nil, err
 	}

@@ -390,16 +390,48 @@ Each attachment is saved as a managed resource in the source's library (the
 `persona`'s, or the administrators'), at
 
 ```
-webhooks/{source}/attachments/{YYYY-MM-DD}/{folder}-{uidvalidity}-{uid}/{filename}
+webhooks/{source}/attachments/{YYYY-MM-DD}/{message}/{filename}
 ```
 
+where `{YYYY-MM-DD}` is the day the mail server received the message and
+`{message}` is 16 hex characters of the SHA-256 of the event id (the
+`Message-ID`, or `imap:{folder}:{uidvalidity}:{uid}` for a message with none),
 tagged `webhook`, `mail` and the source's name, and indexed for search by the
 source's `index` setting. The event's `attachments` list names each one with its
-`uri` and `resource_id`, or with `skipped` saying why it was not saved. Reading
-the same message again replaces the file with a new version rather than adding a
-second one. Attachments are not removed by `compacted_retention_days`: they stay
-until someone deletes them or the source is deleted, which removes the whole
-attachments folder with the source's tables and windows.
+`uri` and `resource_id`, or with `skipped` saying why it was not saved. Two
+attachments of one message with the same name are both kept: the second
+`report.pdf` is saved as `report-2.pdf`, the same on every read.
+
+The folder is the message's identity, not the server's numbering (#2836), so
+reading a message again, whether a folder the server renumbered (a new
+UIDVALIDITY) or a retried poll, records a new version of each file at the
+address it was saved at, with the same `uri` and `resource_id`, rather than a
+second copy. Before #2836 the folder was `{folder}-{uidvalidity}-{uid}`, and a
+renumbered folder filed every attachment again.
+
+**The repair of a source's earlier attachments.** Each imap source is repaired
+once, before its first poll after the upgrade, under its poll lock. A folder of
+the old form that an event names (the kept event's `attachments` list one of
+its files) is moved to the message's new folder; each file keeps its
+`resource_id`, and its old `uri` stays an alias, so the events written before
+still resolve. A folder of the old form that no event names is a later copy
+when a folder an event names, received the same day, holds the same files
+(names and sizes): its files and its stored folder are deleted. Compaction
+keeps the first copy of each message's event, so the copy a renumbering filed
+is the one no event names. A folder no event names and nothing matches is kept,
+since its event may have expired and its files may be all that is left of the
+message. What the repair moved, deleted and kept is listed on the source's page
+in the portal, Admin > Webhooks, and returned as `attachment_repair` by
+`GET /api/v1/admin/webhooks/sources/{name}`. A repair that fails is logged and
+tried again before the next poll, and the source's mail is filed either way.
+
+Attachments are not removed by `compacted_retention_days`: an expired window's
+own file goes, and the attachments its events named stay until someone deletes
+them or the source is deleted. A source's library can therefore reach further
+back than its table. Deleting the source removes its attachments and every
+stored folder under `webhooks/{source}`, the day folders its windows were filed
+in included, with its tables and windows; a folder holding a file someone filed
+there themselves is left.
 
 ### A message the mail client cannot read
 

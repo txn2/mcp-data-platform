@@ -289,6 +289,7 @@ func assemble(pt parts) (*Webhooks, error) {
 			RawWindows: rawWindows{tables: pt.tables}, Marks: whimap.NewMarks(db), Files: pt.resources,
 			Rejections: windows, Metrics: pt.metrics,
 			Lock: imapLock(db), Replica: pt.replica, Logger: slog.Default(),
+			Repair: &whimap.Repairer{Library: pt.resources, Events: w.compactor, Store: whimap.NewRepairs(db)},
 		})
 		if pt.appdb != nil {
 			w.pgWriter = whwrite.New(whwrite.Config{
@@ -317,7 +318,7 @@ func assemble(pt parts) (*Webhooks, error) {
 		Windows: windows, Objects: pt.objects, Resources: pt.resources, Bucket: pt.bucket,
 		Changed: w.receiver.Reload, NewID: newRegistrationID, Logger: slog.Default(),
 		PersonaExists: pt.personaExists, MemoryLimit: procload.MemoryLimit,
-		Mailbox: whimap.NewMailbox(whimap.NewMarks(db)), NoEncryption: !encrypts(pt.encryptor),
+		Mailbox: whimap.NewMailbox(whimap.NewMarks(db), whimap.NewRepairs(db)), NoEncryption: !encrypts(pt.encryptor),
 		Database: adminDatabase(pt.appdb, db),
 	})
 	return w, nil

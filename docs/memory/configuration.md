@@ -13,6 +13,7 @@ memory:
     provider: ollama          # "ollama" or "noop"
     ollama:
       url: "http://localhost:11434"
+      # interactive_url: "http://ollama-search:11434"  # optional: search gets a server of its own
       model: "nomic-embed-text"
       timeout: 30s
       max_input_bytes: 6000     # cap per-text input before embedding (0 = default 6000)
@@ -27,6 +28,7 @@ memory:
 | `enabled` | bool | `true` (when database available) | Enable the memory layer. Set `false` to explicitly disable. |
 | `embedding.provider` | string | `noop` | Embedding provider: `ollama` for real embeddings. Anything else (including unset) selects the noop placeholder; memory writes persist with `Embedding: nil` and the apigateway embed-job queue refuses to start. Semantic features stay off until a real provider is wired. |
 | `embedding.ollama.url` | string | `http://localhost:11434` | Ollama API base URL |
+| `embedding.ollama.interactive_url` | string | unset | An Ollama server of their own for the embeds a person waits on (search, discovery, near-duplicate probes), serving the same model; the index worker keeps `url` (#2839). See [Server configuration](../server/configuration.md#memory-layer-configuration). |
 | `embedding.ollama.model` | string | `nomic-embed-text` | Ollama model name (768-dim) |
 | `embedding.ollama.timeout` | duration | `30s` | HTTP timeout for embedding API calls |
 | `embedding.ollama.max_input_bytes` | int | `6000` | Cap on the byte length of each text sent to Ollama. The platform truncates input itself (on a UTF-8 boundary) because Ollama's `truncate` flag is unreliable: content exceeding the model's context can return `400 the input length exceeds the context length` even with `truncate:true`. The default sits below `nomic-embed-text`'s ~2048-token boundary with margin. Raise it only for a larger-context model. Only the embedded text is trimmed; stored content is unaffected. Knowledge pages are not trimmed at all: this value sizes the chunks a page's content is embedded as. If the model refuses an input anyway -- token density varies by close to an order of magnitude between prose and dense content, so no fixed byte count is an exact token budget -- the provider halves what it sends and retries, down to a 256-byte floor, so a dense document converges on a bound the model accepts instead of failing identically on every attempt. The refusal is recognized by the wording of the response body, whatever status carries it: the same Ollama answers the condition with a 400 from its batch endpoint and a 500 from its single-input endpoint, body identical. The vector then covers a prefix of the text rather than all of it, and the shrink is logged with the model and the size refused; the lexical arm still matches the whole text, so the content stays findable while the operator lowers the cap. |
