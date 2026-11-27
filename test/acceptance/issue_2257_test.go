@@ -359,11 +359,13 @@ func TestIssue2257_ResourcesNoneRefusesRegisteringOverOwnFile(t *testing.T) {
 	})); status != http.StatusOK {
 		t.Fatalf("setting resources none: %d %v", status, out)
 	}
-	status, out := m.client.rest(http.MethodPost, "/api/v1/resources/"+fileID+"/tables",
-		jsonBody(t, map[string]any{"connection": "acme-scratch-resources"}))
-	if status != http.StatusForbidden || out["area"] != "resources" {
-		t.Fatalf("registering over its own file at resources none: %d %v, want 403 naming resources", status, out)
-	}
+	// The persona is saved on one replica; the other reads it when the reload
+	// bus reaches it, and the member's request may land on either.
+	waitFor(t, "a 403 naming resources for registering over its own file at resources none", func() (bool, string) {
+		status, out := m.client.rest(http.MethodPost, "/api/v1/resources/"+fileID+"/tables",
+			jsonBody(t, map[string]any{"connection": "acme-scratch-resources"}))
+		return status == http.StatusForbidden && out["area"] == "resources", fmt.Sprintf("%d %v", status, out)
+	})
 }
 
 // A persona with PDF export off is refused both PDF routes on items it reads.
