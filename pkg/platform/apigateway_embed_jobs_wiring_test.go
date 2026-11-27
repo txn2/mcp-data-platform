@@ -42,6 +42,29 @@ func TestResolveEmbedJobsTuning(t *testing.T) {
 	}
 }
 
+// TestEmbedJobsBatchBytes is #2839's default: one background embed request
+// carries at most the embedder's input cap of text unless batch_bytes says
+// otherwise, and a negative value turns the budget off.
+func TestEmbedJobsBatchBytes(t *testing.T) {
+	t.Parallel()
+	p := &Platform{config: &Config{}}
+	if got := p.embedJobsBatchBytes(); got != embedding.DefaultMaxInputBytes {
+		t.Errorf("default = %d, want the input cap %d", got, embedding.DefaultMaxInputBytes)
+	}
+	p.config.Memory.Embedding.Ollama.MaxInputBytes = 12000
+	if got := p.embedJobsBatchBytes(); got != 12000 {
+		t.Errorf("with max_input_bytes 12000 = %d, want 12000", got)
+	}
+	p.config.APIGateway.EmbedJobs.BatchBytes = 2000
+	if got := p.embedJobsBatchBytes(); got != 2000 {
+		t.Errorf("explicit = %d, want 2000", got)
+	}
+	p.config.APIGateway.EmbedJobs.BatchBytes = -1
+	if got := p.embedJobsBatchBytes(); got != -1 {
+		t.Errorf("negative = %d, want it passed through to turn the budget off", got)
+	}
+}
+
 // TestResolveRetentionDays covers the retention-window defaulting: unset
 // config falls back to the package default, an explicit positive value
 // flows through, and a negative value passes through to signal "disabled".

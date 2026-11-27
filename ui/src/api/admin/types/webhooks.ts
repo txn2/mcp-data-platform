@@ -105,6 +105,24 @@ export interface WebhookIMAPFolder {
   last_error?: string;
 }
 
+/**
+ * WebhookAttachmentRepair is what the one-time repair of an imap source's
+ * attachments did (#2836): the whole counts, and the first 100 folders of each
+ * list, as paths in the source's library.
+ */
+export interface WebhookAttachmentRepair {
+  repaired_at: string;
+  moved: number;
+  removed: number;
+  removed_files: number;
+  kept: number;
+  report: {
+    moved: { from: string; to: string }[];
+    removed: { folder: string; files: number }[];
+    kept: string[];
+  };
+}
+
 export interface WebhookAuthView extends WebhookAuthSenderFields {
   mode: WebhookAuthMode;
   secret_set: boolean;
@@ -228,6 +246,8 @@ export interface WebhookSourceDetail {
   status: WebhookStatus;
   /** An imap source's folders; absent for an http source. */
   imap?: WebhookIMAPFolder[];
+  /** What the one-time repair of an imap source's attachments did (#2836); absent until it ran. */
+  attachment_repair?: WebhookAttachmentRepair;
   /** A postgres source's listener; absent for any other source. */
   postgres?: WebhookListener;
 }

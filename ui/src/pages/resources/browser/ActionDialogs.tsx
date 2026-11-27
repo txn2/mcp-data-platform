@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Folder, Loader2, X } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ModalShell } from "@/components/ModalShell";
 import { parseTags } from "@/lib/tags";
 import { cn } from "@/lib/utils";
+import { useProgressive } from "./progressive";
 import type { Folder as FolderRow, Resource } from "@/api/resources/types";
 import { displayPath, type ResourceRoot } from "../scopes";
 import { isUnder } from "../parts/tree";
@@ -148,10 +149,17 @@ export function MoveDialog({
   const [target, setTarget] = useState(from);
   const run = useRun(() => onMove(target), onClose);
   // A folder cannot go inside itself, so its own subtree is not offered.
-  const choices = folders
-    .map((f) => f.path)
-    .filter((p) => !picked.folders.some((f) => isUnder(p, f)))
-    .sort(comparePaths);
+  const choices = useMemo(
+    () =>
+      folders
+        .map((f) => f.path)
+        .filter((p) => !picked.folders.some((f) => isUnder(p, f)))
+        .sort(comparePaths),
+    [folders, picked.folders],
+  );
+  // A library of tens of thousands of folders draws its first rows at once
+  // and the rest as the list scrolls (#2837).
+  const drawn = useProgressive(choices.length, choices.indexOf(target));
   const invalid = target === "";
   return (
     <Frame
@@ -168,7 +176,7 @@ export function MoveDialog({
         </Alert>
       )}
       <div className="max-h-64 overflow-auto rounded-md border p-1" role="listbox" aria-label="Destination folder" data-testid="move-picker">
-        {choices.map((p) => (
+        {choices.slice(0, drawn.limit).map((p) => (
           <button
             key={p}
             type="button"
@@ -185,6 +193,7 @@ export function MoveDialog({
             <span className="truncate">{p.slice(p.lastIndexOf("/") + 1)}</span>
           </button>
         ))}
+        {drawn.more && <div ref={drawn.sentinel} aria-hidden className="h-px" />}
       </div>
       <p className="text-xs text-muted-foreground" data-testid="move-destination">
         {invalid ? "Choose a folder: files are always filed in one." : `Destination: ${displayPath(root, target)}`}

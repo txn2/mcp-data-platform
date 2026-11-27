@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/pgvector/pgvector-go"
+	"github.com/txn2/mcp-data-platform/internal/ftsquery"
 )
 
 // Search result limits, mirroring the asset/prompt/memory ranked surfaces so
@@ -169,7 +170,7 @@ func buildHybridSearch(q SearchQuery) (query string, args []any) {
 	args = make([]any, 0, boundArgs+len(scopeArgs))
 	args = append(args, pgvector.NewVector(q.Embedding), q.QueryText)
 	args = append(args, scopeArgs...)
-	const tsQuery = "plainto_tsquery('english', $2)"
+	tsQuery := ftsquery.AllWords("$2")
 
 	// #nosec G201 -- column list and FTS expr are constants; the scope predicate
 	// uses only parameterized placeholders; limit is a sanitized int. No user
@@ -261,7 +262,8 @@ func buildLexicalSearch(q SearchQuery) (query string, args []any) {
 	args = make([]any, 0, boundArgs+len(scopeArgs))
 	args = append(args, q.QueryText)
 	args = append(args, scopeArgs...)
-	const tsQuery = "plainto_tsquery('english', $1)"
+	// Any word of the query matches (#2838).
+	tsQuery := ftsquery.AnyWord("$1")
 
 	// #nosec G201 -- column list and FTS expr are constants; the scope predicate
 	// uses only parameterized placeholders; limit and the normalization bitmask

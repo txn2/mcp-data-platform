@@ -406,3 +406,160 @@ func TestGate_ACallWithinTheLingerKeepsTheGateInteractive(t *testing.T) {
 	close(held.release)
 	<-done
 }
+
+// preemptedOnce is a provider whose first call holds until its context ends
+// (reporting that on cut) and whose later calls answer at once: a long
+// background batch at the server, and the same batch sent again.
+type preemptedOnce struct {
+	entered chan struct{}
+	cut     chan struct{}
+	calls   atomic.Int64
+}
+
+func newPreemptedOnce() *preemptedOnce {
+	return &preemptedOnce{entered: make(chan struct{}, 4), cut: make(chan struct{}, 4)}
+}
+
+func (p *preemptedOnce) Embed(ctx context.Context, _ string) ([]float32, error) {
+	n := p.calls.Add(1)
+	p.entered <- struct{}{}
+	if n > 1 {
+		return []float32{1}, nil
+	}
+	<-ctx.Done()
+	p.cut <- struct{}{}
+	return nil, fmt.Errorf("request canceled: %w", ctx.Err())
+}
+
+func (p *preemptedOnce) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+	v, err := p.Embed(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	out := make([][]float32, len(texts))
+	for i := range out {
+		out[i] = v
+	}
+	return out, nil
+}
+func (*preemptedOnce) Dimension() int { return 1 }
+func (*preemptedOnce) Kind() string   { return "test" }
+
+// TestGate_InteractiveEmbedPreemptsABackgroundCallAtTheServer is #2839's
+// rule: a background batch already at the server is canceled when an
+// interactive embed begins, and sent again once the interactive work is done,
+// so the person waiting is not queued behind the batch.
+func TestGate_InteractiveEmbedPreemptsABackgroundCallAtTheServer(t *testing.T) {
+	g := NewGate(time.Hour)
+	g.linger = 0
+	slow := newPreemptedOnce()
+	search := &countingProvider{}
+	bg, fg := g.Background(slow), g.Interactive(search)
+
+	done := make(chan error, 1)
+	go func() {
+		vecs, err := bg.EmbedBatch(context.Background(), []string{"a", "b"})
+		if err == nil && len(vecs) != 2 {
+			err = fmt.Errorf("got %d vectors", len(vecs))
+		}
+		done <- err
+	}()
+	<-slow.entered
+
+	if _, err := fg.Embed(context.Background(), "outbound orders count"); err != nil {
+		t.Fatalf("interactive: %v", err)
+	}
+	<-slow.cut
+	if err := <-done; err != nil {
+		t.Fatalf("background after preemption: %v", err)
+	}
+	if n := slow.calls.Load(); n != 2 {
+		t.Errorf("background reached the server %d times, want 2 (preempted, then sent again)", n)
+	}
+	if n := g.Preempted(); n != 1 {
+		t.Errorf("Preempted() = %d, want 1", n)
+	}
+}
+
+// TestGate_BackgroundIsNotPreemptedPastMaxYield: a background call that first
+// yielded more than maxYield ago runs to its end, so a steady stream of
+// searches cannot starve indexing.
+func TestGate_BackgroundIsNotPreemptedPastMaxYield(t *testing.T) {
+	g := NewGate(time.Nanosecond)
+	g.linger = 0
+	held := newBlocking()
+	bg, fg := g.Background(held), g.Interactive(&countingProvider{})
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := bg.EmbedBatch(context.Background(), []string{"a"})
+		done <- err
+	}()
+	<-held.entered
+	if _, err := fg.Embed(context.Background(), "q"); err != nil {
+		t.Fatalf("interactive: %v", err)
+	}
+	close(held.release)
+	if err := <-done; err != nil {
+		t.Fatalf("background: %v", err)
+	}
+	if n := g.Preempted(); n != 0 {
+		t.Errorf("Preempted() = %d, want 0 for a call past maxYield", n)
+	}
+}
+
+// TestGate_AnotherReplicasSearchPreemptsABackgroundCall: with the signal
+// shared, a background call at the server is preempted when another replica
+// reports an interactive embed, and sent again once it stops.
+func TestGate_AnotherReplicasSearchPreemptsABackgroundCall(t *testing.T) {
+	g := NewGate(time.Hour)
+	g.linger = 0
+	sig := &fakeSignal{}
+	g.Share(sig, time.Millisecond)
+	slow := newPreemptedOnce()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := g.Background(slow).Embed(context.Background(), "x")
+		done <- err
+	}()
+	<-slow.entered
+	sig.mu.Lock()
+	sig.others = true
+	sig.mu.Unlock()
+	<-slow.cut
+	sig.mu.Lock()
+	sig.others = false
+	sig.mu.Unlock()
+	if err := <-done; err != nil {
+		t.Fatalf("background: %v", err)
+	}
+	if n := slow.calls.Load(); n != 2 || g.Preempted() != 1 {
+		t.Errorf("calls = %d, preempted = %d; want 2 and 1", n, g.Preempted())
+	}
+}
+
+// TestGate_ABackgroundCallMadeWhileInteractiveIsPreemptedAtOnce: a call that
+// passed its yield just before an interactive embed began is cut before it
+// holds the server, and waits for the interactive work like any other.
+func TestGate_ABackgroundCallMadeWhileInteractiveIsPreemptedAtOnce(t *testing.T) {
+	g := NewGate(time.Hour)
+	g.linger = 0
+	g.mu.Lock()
+	g.active = true
+	g.idle = make(chan struct{})
+	g.mu.Unlock()
+	ctx, done := g.start(context.Background(), true)
+	if !errors.Is(context.Cause(ctx), errPreempted) {
+		t.Fatalf("a call started while interactive has cause %v, want errPreempted", context.Cause(ctx))
+	}
+	done()
+	if g.Preempted() != 1 {
+		t.Errorf("Preempted() = %d, want 1", g.Preempted())
+	}
+	plain, end := g.start(context.Background(), false)
+	if plain.Err() != nil {
+		t.Errorf("a call past its yield limit is never cut: %v", plain.Err())
+	}
+	end()
+}

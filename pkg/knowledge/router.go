@@ -64,6 +64,11 @@ type Result struct {
 	Groups   []SourceGroup
 	Coverage []SourceCoverage
 	Ranking  string
+	// RankingNote says, when the ranking is lexical, why and what that means
+	// for the answer (#2838): results hold any word of the intent and are
+	// ranked by words alone, so a thin answer is not "nothing exists". Empty
+	// for hybrid and entity rankings.
+	RankingNote string
 	// UnknownSources lists requested Sources names that match no known source (a
 	// typo or an unsupported source), so a caller is told why a narrowed search
 	// returned little or nothing instead of being silently given an empty result.
@@ -363,8 +368,27 @@ func (r *Router) Search(ctx context.Context, q Query) (Result, error) {
 		Groups:         groups,
 		Coverage:       coverage,
 		Ranking:        ranking,
+		RankingNote:    r.rankingNote(ranking, q.Intent),
 		UnknownSources: unknownSources(q.Sources),
 	}, nil
+}
+
+// rankingNote is Result.RankingNote: for a lexical ranking, whether it is
+// because no embedder is configured or because the one configured did not
+// answer, and that the results match any of the intent's words.
+func (r *Router) rankingNote(ranking, intent string) string {
+	if ranking != rankingLexical {
+		return ""
+	}
+	words := len(strings.Fields(intent))
+	if !embedding.IsConfigured(r.embedder) {
+		return fmt.Sprintf("lexical: no embedding provider is configured, so results are ranked by words alone "+
+			"and each matches at least one of the intent's %d words, more matches ranking higher.", words)
+	}
+	return fmt.Sprintf("lexical: the embedding provider did not answer in time, so results are ranked by words alone "+
+		"and each matches at least one of the intent's %d words, more matches ranking higher. A thin or empty answer "+
+		"does not mean nothing exists: search again in a minute for semantic ranking, or use the specific names "+
+		"you are looking for.", words)
 }
 
 // selectProviders returns the providers a query actually runs, in registration

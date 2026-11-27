@@ -118,6 +118,30 @@ type fakeWriter struct {
 	rows     map[string]*resource.Resource
 	err      map[string]error
 	claims   resource.Claims
+	// moves and deletedFolders record the folder operations, in order.
+	moves          []resource.FolderRename
+	deletedFolders []string
+}
+
+func (f *fakeWriter) MoveFolder(_ context.Context, move resource.FolderRename, _ resource.Claims) error {
+	if err := f.err["move"]; err != nil {
+		return err
+	}
+	f.moves = append(f.moves, move)
+	for _, r := range f.rows {
+		if r.Path == move.From {
+			r.Path = move.To
+		}
+	}
+	return nil
+}
+
+func (f *fakeWriter) DeleteFolder(_ context.Context, folder resource.NewFolder, _ resource.Claims) error {
+	if err := f.err["delete_folder"]; err != nil {
+		return err
+	}
+	f.deletedFolders = append(f.deletedFolders, folder.Path)
+	return nil
 }
 
 func (f *fakeWriter) Create(_ context.Context, in resource.NewResource, c resource.Claims) (*resource.Resource, error) {

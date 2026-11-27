@@ -89,6 +89,12 @@ func (q SearchQuery) effectiveLimit() int {
 // this caller made calls in, or it groups to no rows and disappears. The
 // scoping is the predicate itself, exactly as it is in Get and Timeline, so
 // another caller's session is indistinguishable from one that never existed.
+//
+// Sessions rank by words alone, so a session matches when its purposes or
+// assets hold any word of the query (#2838): the tsquery is
+// ftsquery.AnyWord("$2"), spelled out here so the statement is one constant
+// the statement gate can prepare; TestSearchQueryMatchesAnyWord holds the two
+// together.
 const searchQuery = `
 WITH candidates AS (
     SELECT DISTINCT a.session_id
@@ -97,14 +103,14 @@ WITH candidates AS (
        AND a.session_id <> ''
        AND a.purpose IS NOT NULL
        AND a.purpose <> ''
-       AND to_tsvector('english', a.purpose) @@ plainto_tsquery('english', $2)
+       AND to_tsvector('english', a.purpose) @@ replace(plainto_tsquery('english', $2)::text, ' & ', ' | ')::tsquery
     UNION
     SELECT DISTINCT p.session_id
       FROM portal_assets p
      WHERE p.owner_id = $1
        AND p.session_id <> ''
        AND p.deleted_at IS NULL
-       AND p.search_fts @@ plainto_tsquery('english', $2)
+       AND p.search_fts @@ replace(plainto_tsquery('english', $2)::text, ' & ', ' | ')::tsquery
 ),
 rolled AS (
     SELECT a.session_id,
@@ -147,7 +153,7 @@ SELECT r.session_id, r.started_at, r.last_active_at, r.call_count, r.failure_cou
            to_tsvector('english',
                array_to_string(r.purposes, ' ') || ' ' ||
                array_to_string(COALESCE(pr.asset_names, '{}'::text[]), ' ')),
-           plainto_tsquery('english', $2)) AS score
+           replace(plainto_tsquery('english', $2)::text, ' & ', ' | ')::tsquery) AS score
   FROM rolled r
   LEFT JOIN produced pr ON pr.session_id = r.session_id
  ORDER BY score DESC, r.last_active_at DESC

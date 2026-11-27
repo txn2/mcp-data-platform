@@ -1,7 +1,12 @@
 package memorylayer
 
 import (
+	"context"
 	"database/sql"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -141,4 +146,39 @@ func TestNew_WiresTheCaptureEmbedPath(t *testing.T) {
 	background := h.Background(worker)
 	assert.NotSame(t, worker, background, "the worker's provider is wrapped in the gate")
 	assert.Equal(t, "nomic-embed-text", embedding.ModelName(background))
+}
+
+// TestNew_InteractiveURLGivesSearchAServerOfItsOwn is #2839's optional
+// endpoint: with interactive_url set, the interactive provider embeds at that
+// server, and the index worker's provider is left ungated, since the two no
+// longer share a server.
+func TestNew_InteractiveURLGivesSearchAServerOfItsOwn(t *testing.T) {
+	var hits atomic.Int64
+	search := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		vec := make([]float64, embedding.DefaultDimension)
+		vec[0] = 1
+		_ = json.NewEncoder(w).Encode(map[string]any{"embedding": vec, "embeddings": [][]float64{vec}})
+	}))
+	t.Cleanup(search.Close)
+
+	h, err := New(dummyDB(t), nil, Config{
+		ToolkitName: "default", EmbeddingProvider: providerOllama,
+		Ollama:         embedding.OllamaConfig{URL: "http://127.0.0.1:1", Model: "nomic-embed-text"},
+		InteractiveURL: search.URL,
+	})
+	require.NoError(t, err)
+	_, err = h.EmbeddingProvider().Embed(context.Background(), "outbound orders count")
+	require.NoError(t, err, "the interactive embed goes to interactive_url, not the unreachable url")
+	assert.Equal(t, int64(1), hits.Load())
+
+	raw := embedding.NewNoopProvider(4)
+	assert.Same(t, raw, h.Background(raw), "a worker with its own server neither yields nor is preempted")
+
+	shared, err := New(dummyDB(t), nil, Config{
+		ToolkitName: "default", EmbeddingProvider: providerOllama,
+		Ollama: embedding.OllamaConfig{URL: search.URL, Model: "nomic-embed-text"},
+	})
+	require.NoError(t, err)
+	assert.NotSame(t, raw, shared.Background(raw), "sharing one server, the worker goes through the gate")
 }

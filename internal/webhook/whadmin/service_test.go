@@ -248,6 +248,14 @@ type fakeResources struct {
 	err         error
 	attachments []string
 	attachErr   error
+	// folders are the sources whose folder was removed, in order.
+	folders   []string
+	folderErr error
+}
+
+func (f *fakeResources) DeleteSourceFolder(_ context.Context, src whsource.Source) error {
+	f.folders = append(f.folders, src.Name)
+	return f.folderErr
 }
 
 func (f *fakeResources) DeleteAttachments(_ context.Context, src whsource.Source) error {

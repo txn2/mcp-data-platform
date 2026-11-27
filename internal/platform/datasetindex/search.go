@@ -8,6 +8,7 @@ import (
 
 	"github.com/pgvector/pgvector-go"
 
+	"github.com/txn2/mcp-data-platform/internal/ftsquery"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge"
 )
 
@@ -75,7 +76,7 @@ func effectiveLimit(limit int) int {
 // full-text top-k, including rows whose vector the sweep has not written yet,
 // which is how a freshly synced dataset is findable before it is embedded.
 func (s *Store) searchHybrid(ctx context.Context, q knowledge.CatalogIndexQuery, limit int) ([]knowledge.CatalogIndexHit, error) {
-	const tsQuery = "plainto_tsquery('english', $2)"
+	tsQuery := ftsquery.AllWords("$2")
 	// #nosec G201 -- the column list and FTS expression are constants and the
 	// query text is bound as $2; limit is a clamped int. No user input is
 	// concatenated into the SQL.
@@ -146,9 +147,13 @@ func collectHybrid(rows *sql.Rows, limit int) ([]knowledge.CatalogIndexHit, erro
 // graceful-degradation path for a query whose intent could not be embedded: no
 // vector parameter, and rows with no embedding rank exactly like the rest.
 func (s *Store) searchLexical(ctx context.Context, q knowledge.CatalogIndexQuery, limit int) ([]knowledge.CatalogIndexHit, error) {
-	const tsQuery = "plainto_tsquery('english', $1)"
-	// #nosec G201 -- the FTS expression is a constant, the query text is bound
-	// as $1, and limit plus the normalization bitmask are sanitized ints.
+	// Any word of the intent matches (#2838): this is the path an agent's
+	// sentence takes while the embedder is busy, and requiring every word of it
+	// in one dataset's text matched nothing.
+	tsQuery := ftsquery.AnyWord("$1")
+	// #nosec G201 -- the FTS expression and tsquery are constants, the query
+	// text is bound as $1, and limit plus the normalization bitmask are
+	// sanitized ints.
 	query := fmt.Sprintf(
 		"SELECT urn, name, description, ts_rank_cd(%s, %s, %d) AS lex_rank "+
 			"FROM catalog_datasets WHERE %s @@ %s ORDER BY lex_rank DESC LIMIT %d",

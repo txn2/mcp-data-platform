@@ -1,4 +1,4 @@
-import type { WebhookIMAP, WebhookIMAPFolder, WebhookSource } from "@/api/admin/types";
+import type { WebhookAttachmentRepair, WebhookIMAP, WebhookIMAPFolder, WebhookSource } from "@/api/admin/types";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { relativeTime } from "@/components/provenance/parts";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -12,11 +12,14 @@ export function MailboxSection({
   source,
   folders,
   lastFiledAt,
+  repair,
 }: {
   source: WebhookSource;
   folders: WebhookIMAPFolder[];
   /** When a message was last filed as an event; null when none has been. */
   lastFiledAt: string | null;
+  /** What the one-time attachment repair did (#2836), absent until it ran. */
+  repair?: WebhookAttachmentRepair;
 }) {
   const m = source.config.imap;
   if (!m) return null;
@@ -52,7 +55,58 @@ export function MailboxSection({
           ))}
         </TableBody>
       </Table>
+      {repair && <AttachmentRepair source={source.name} repair={repair} />}
     </SectionCard>
+  );
+}
+
+/**
+ * AttachmentRepair says what the one-time repair of the source's attachments
+ * did (#2836), when it did anything: the folders it moved to their new
+ * addresses, the later copies it removed and the folders it kept, with the
+ * first of each list behind a disclosure.
+ */
+export function AttachmentRepair({ source, repair }: { source: string; repair: WebhookAttachmentRepair }) {
+  if (repair.moved + repair.removed + repair.kept === 0) return null;
+  const n = (v: number) => v.toLocaleString();
+  const at = new Date(repair.repaired_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  const root = `webhooks/${source}/attachments/`;
+  const short = (p: string) => (p.startsWith(root) ? p.slice(root.length) : p);
+  const files = (k: number) => `${n(k)} file${k === 1 ? "" : "s"}`;
+  return (
+    <div className="mt-4 text-sm" data-testid="attachment-repair">
+      <p>
+        Attachments repaired {at}: {n(repair.moved)} message folder{repair.moved === 1 ? "" : "s"} moved to their new addresses,{" "}
+        {n(repair.removed)} later cop{repair.removed === 1 ? "y" : "ies"} removed ({files(repair.removed_files)}), {n(repair.kept)} folder
+        {repair.kept === 1 ? "" : "s"} kept (no message names them).
+      </p>
+      {repair.removed + repair.kept > 0 && (
+        <details className="mt-2">
+          <summary className="cursor-pointer text-xs text-muted-foreground">Show folders</summary>
+          <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 font-mono text-xs">
+            <RepairList label="Removed" total={repair.removed} items={repair.report.removed.map((r) => `${short(r.folder)} (${files(r.files)})`)} />
+            <RepairList label="Kept" total={repair.kept} items={repair.report.kept.map(short)} />
+          </dl>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function RepairList({ label, total, items }: { label: string; total: number; items: string[] }) {
+  if (total === 0) return null;
+  return (
+    <>
+      <dt className="font-sans text-muted-foreground">{label}</dt>
+      <dd>
+        {items.map((i) => (
+          <span key={i} className="block break-all">
+            {i}
+          </span>
+        ))}
+        {total > items.length && <span className="block font-sans text-muted-foreground">and {(total - items.length).toLocaleString()} more</span>}
+      </dd>
+    </>
   );
 }
 

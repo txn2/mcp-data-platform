@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/pgvector/pgvector-go"
+	"github.com/txn2/mcp-data-platform/internal/ftsquery"
 )
 
 // ScoredFolder is one folder's search entry ranked against a query (#2111): a
@@ -84,29 +85,32 @@ func buildFolderSearch(q SearchQuery) (query string, args []any) {
 	if len(q.Embedding) > 0 {
 		scopeWhere, scopeArgs, _ := scopeVisibilityWhere(q.Scopes, folderScopeArg)
 		args = append([]any{pgvector.NewVector(q.Embedding), q.QueryText}, scopeArgs...)
+		tsq := ftsquery.AllWords("$2")
 		// #nosec G201 -- constant expressions, a parameterized scope predicate, a sanitized limit.
 		vecArm := fmt.Sprintf(
 			"SELECT scope, COALESCE(scope_id, ''), path, description, summary_text, "+
-				"1 - (embedding <=> $1) AS vec_score, (%s @@ plainto_tsquery('english', $2)) AS lex_match "+
+				"1 - (embedding <=> $1) AS vec_score, (%s @@ %s) AS lex_match "+
 				"FROM resource_folders WHERE embedding IS NOT NULL AND %s "+
 				"ORDER BY embedding <=> $1 LIMIT %d",
-			folderFTS, scopeWhere, limit)
+			folderFTS, tsq, scopeWhere, limit)
 		// #nosec G201 -- constant expressions, a parameterized scope predicate, a sanitized limit.
 		lexArm := fmt.Sprintf(
 			"SELECT scope, COALESCE(scope_id, ''), path, description, summary_text, "+
 				"1 - (embedding <=> $1) AS vec_score, TRUE AS lex_match "+
-				"FROM resource_folders WHERE embedding IS NOT NULL AND %s @@ plainto_tsquery('english', $2) AND %s "+
-				"ORDER BY ts_rank_cd(%s, plainto_tsquery('english', $2)) DESC LIMIT %d",
-			folderFTS, scopeWhere, folderFTS, limit)
+				"FROM resource_folders WHERE embedding IS NOT NULL AND %s @@ %s AND %s "+
+				"ORDER BY ts_rank_cd(%s, %s) DESC LIMIT %d",
+			folderFTS, tsq, scopeWhere, folderFTS, tsq, limit)
 		return "(" + vecArm + ") UNION ALL (" + lexArm + ")", args
 	}
 	scopeWhere, scopeArgs, _ := scopeVisibilityWhere(q.Scopes, 2) //nolint:mnd // after $1 text
 	args = append([]any{q.QueryText}, scopeArgs...)
+	// Any word of the query matches (#2838).
+	tsq := ftsquery.AnyWord("$1")
 	// #nosec G201 -- constant expressions, a parameterized scope predicate, a sanitized limit.
 	return fmt.Sprintf(
 		"SELECT scope, COALESCE(scope_id, ''), path, description, summary_text, "+
 			"0::float8 AS vec_score, TRUE AS lex_match "+
-			"FROM resource_folders WHERE embedding IS NOT NULL AND %s @@ plainto_tsquery('english', $1) AND %s "+
-			"ORDER BY ts_rank_cd(%s, plainto_tsquery('english', $1)) DESC LIMIT %d",
-		folderFTS, scopeWhere, folderFTS, limit), args
+			"FROM resource_folders WHERE embedding IS NOT NULL AND %s @@ %s AND %s "+
+			"ORDER BY ts_rank_cd(%s, %s) DESC LIMIT %d",
+		folderFTS, tsq, scopeWhere, folderFTS, tsq, limit), args
 }

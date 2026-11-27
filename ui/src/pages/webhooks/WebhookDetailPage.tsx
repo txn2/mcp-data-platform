@@ -157,7 +157,12 @@ function SourceSections({ detail }: { detail: WebhookSourceDetail }) {
   if (source.config.input === "imap") {
     return (
       <>
-        <MailboxSection source={source} folders={detail.imap ?? []} lastFiledAt={status.last_segment_at} />
+        <MailboxSection
+          source={source}
+          folders={detail.imap ?? []}
+          lastFiledAt={status.last_segment_at}
+          repair={detail.attachment_repair}
+        />
         <StorageSection source={source} status={status} />
       </>
     );

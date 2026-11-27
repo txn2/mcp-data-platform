@@ -37,6 +37,8 @@ type resourceWriter interface {
 	Replace(ctx context.Context, id string, up resource.RevisionUpload, claims resource.Claims) (*resource.Resource, int, error)
 	Get(ctx context.Context, id string, claims resource.Claims) (*resource.Resource, error)
 	Delete(ctx context.Context, id string, claims resource.Claims) (*resource.Resource, error)
+	MoveFolder(ctx context.Context, move resource.FolderRename, claims resource.Claims) error
+	DeleteFolder(ctx context.Context, f resource.NewFolder, claims resource.Claims) error
 }
 
 // resourceIndex finds a resource by its address and lists a folder of a
@@ -243,12 +245,13 @@ func (h formFiles) PutFile(ctx context.Context, src whsource.Source, f epcollect
 // DeleteFile removes a saved file.
 func (h formFiles) DeleteFile(ctx context.Context, id string) error { return h.r.Delete(ctx, id) }
 
-// attachmentsPage is how many attachments one listing removes.
+// attachmentsPage is how many attachments one listing reads.
 const attachmentsPage = 200
 
 // DeleteAttachments removes every attachment an imap source saved, and every
 // file a form's submissions carried: the resources under its attachments
-// folder in its library (#2247, #2333). Each page is
+// folder in its library (#2247, #2333), and then the stored folders they sat
+// in (#2836), which a folder keeps since #1872 once emptied. Each page is
 // listed again from the start, since what the last one held is gone.
 func (h windowResources) DeleteAttachments(ctx context.Context, src whsource.Source) error {
 	scope, scopeID := h.libraryOf(src)
@@ -272,7 +275,69 @@ func (h windowResources) DeleteAttachments(ctx context.Context, src whsource.Sou
 			removed[r.ID] = true
 		}
 		if len(page) < attachmentsPage {
-			return nil
+			break
 		}
 	}
+	return h.DeleteFolder(ctx, src, whimap.AttachmentsFolder(src.Name))
+}
+
+// DeleteSourceFolder removes the stored folder src's windows and attachments
+// were filed under, webhooks/{source}, and every emptied folder beneath it
+// (#2836). One that still holds a file someone else filed there is left.
+func (h windowResources) DeleteSourceFolder(ctx context.Context, src whsource.Source) error {
+	err := h.DeleteFolder(ctx, src, "webhooks/"+src.Name)
+	if errors.Is(err, resource.ErrFolderNotEmpty) {
+		return nil
+	}
+	return err
+}
+
+// ListAttachments lists every file under src's attachments folder (#2836).
+func (h windowResources) ListAttachments(ctx context.Context, src whsource.Source) ([]whimap.StoredFile, error) {
+	scope, scopeID := h.libraryOf(src)
+	filter := resource.Filter{
+		Scopes: []resource.ScopeFilter{{Scope: scope, ScopeID: scopeID}},
+		Path:   whimap.AttachmentsFolder(src.Name), Limit: attachmentsPage, Sort: resource.SortUpdatedAsc,
+	}
+	out := []whimap.StoredFile{}
+	for {
+		page, _, err := h.byURI.List(ctx, filter)
+		if err != nil {
+			return nil, fmt.Errorf("listing the attachments of %s: %w", src.Name, err)
+		}
+		for _, r := range page {
+			out = append(out, whimap.StoredFile{ID: r.ID, Folder: r.Path, Name: r.Filename, Size: r.SizeBytes})
+		}
+		if len(page) < attachmentsPage {
+			return out, nil
+		}
+		filter.Offset += len(page)
+	}
+}
+
+// MoveFolder renames a folder of src's library, aliasing each file's old
+// address.
+func (h windowResources) MoveFolder(ctx context.Context, src whsource.Source, from, to string) error {
+	scope, scopeID := h.libraryOf(src)
+	return h.w.MoveFolder(ctx, resource.FolderRename{ //nolint:wrapcheck // the writer's message names the folder
+		Library: resource.ScopeFilter{Scope: scope, ScopeID: scopeID}, From: from, To: to,
+	}, systemClaims())
+}
+
+// DeleteFile removes one of src's files.
+func (h windowResources) DeleteFile(ctx context.Context, _ whsource.Source, id string) error {
+	return h.Delete(ctx, id)
+}
+
+// DeleteFolder removes an emptied folder of src's library and the folders
+// beneath it. A folder that was never stored is not an error.
+func (h windowResources) DeleteFolder(ctx context.Context, src whsource.Source, folder string) error {
+	scope, scopeID := h.libraryOf(src)
+	err := h.w.DeleteFolder(ctx, resource.NewFolder{
+		Library: resource.ScopeFilter{Scope: scope, ScopeID: scopeID}, Path: folder,
+	}, systemClaims())
+	if err == nil || errors.Is(err, resource.ErrFolderEmpty) || errors.Is(err, resource.ErrFoldersUnsupported) {
+		return nil
+	}
+	return err //nolint:wrapcheck // the writer's message names the folder
 }

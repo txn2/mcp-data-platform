@@ -1,5 +1,5 @@
 import type { Folder, Resource, ResourceSort } from "@/api/resources/types";
-import { isUnder, segments } from "../parts/tree";
+import { parentPath, segments } from "../parts/tree";
 import { compareNames, compareOrdinal } from "@/lib/sortByName";
 
 /**
@@ -8,7 +8,7 @@ import { compareNames, compareOrdinal } from "@/lib/sortByName";
  * selection, drag, the context menu, the keyboard -- acts on either.
  */
 export type Entry =
-  | { kind: "folder"; key: string; name: string; path: string; count: number; updatedAt?: string }
+  | { kind: "folder"; key: string; name: string; path: string; count: number; updatedAt?: string; subfolders?: number }
   | { kind: "file"; key: string; name: string; resource: Resource };
 
 /** The selection key of a folder row. A file's key is its resource id. */
@@ -21,24 +21,51 @@ export function folderOfKey(key: string): string | null {
   return key.startsWith("d:") ? key.slice(2) : null;
 }
 
+const indexes = new WeakMap<Folder[], Map<string, Folder[]>>();
+
+/**
+ * folderIndex groups a facets answer's folders by the folder holding each,
+ * once per answer (#2837). Every child row of the tree used to scan and split
+ * the whole array to learn whether it had children: rows shown times folders,
+ * millions of splits per render in a library of 20,000 folders. Reading the
+ * index makes it the rows shown.
+ */
+export function folderIndex(folders: Folder[]): Map<string, Folder[]> {
+  let index = indexes.get(folders);
+  if (index) return index;
+  index = new Map();
+  for (const f of folders) {
+    if (f.path === "") continue;
+    const parent = parentPath(f.path);
+    const kids = index.get(parent);
+    if (kids) kids.push(f);
+    else index.set(parent, [f]);
+  }
+  indexes.set(folders, index);
+  return index;
+}
+
 /** The folders directly inside a location, as rows. */
 export function folderEntries(folders: Folder[], at: string): Entry[] {
   const depth = segments(at).length;
-  const out: Entry[] = [];
-  for (const f of folders) {
-    if (f.path === at || !isUnder(f.path, at)) continue;
-    const parts = segments(f.path);
-    if (parts.length !== depth + 1) continue;
-    out.push({
-      kind: "folder",
-      key: folderKey(f.path),
-      name: parts[depth]!,
-      path: f.path,
-      count: f.count,
-      updatedAt: f.updated_at,
-    });
-  }
-  return out;
+  return (folderIndex(folders).get(at) ?? []).map((f) => ({
+    kind: "folder",
+    key: folderKey(f.path),
+    name: segments(f.path)[depth]!,
+    path: f.path,
+    count: f.count,
+    updatedAt: f.updated_at,
+    subfolders: f.subfolders,
+  }));
+}
+
+/**
+ * hasSubfolders reports whether a folder holds folders: what a level read
+ * says, or, on a whole tree, whether the index lists any inside it.
+ */
+export function hasSubfolders(folders: Folder[], path: string, subfolders?: number): boolean {
+  if (subfolders !== undefined) return subfolders > 0;
+  return (folderIndex(folders).get(path)?.length ?? 0) > 0;
 }
 
 /** The files a listing returned, as rows. */

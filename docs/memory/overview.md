@@ -119,7 +119,7 @@ When no embedding provider is configured (or it is down), `semantic` recall no l
 }
 ```
 
-Lexical search also surfaces rows whose embedding is `NULL` (saved during an outage) that vector search would skip entirely. Every recall response carries a `ranking` field (`hybrid`, `lexical`, `entity`, or `graph`).
+Lexical search also surfaces rows whose embedding is `NULL` (saved during an outage) that vector search would skip entirely. It matches a record holding any word of the query and ranks the records holding more of them first, where the hybrid arm matches a record holding every word (#2838); the same rule holds for every lexical-only search on the platform. Every recall response carries a `ranking` field (`hybrid`, `lexical`, `entity`, or `graph`).
 
 ## Embedding Backfill
 

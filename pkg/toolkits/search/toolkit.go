@@ -84,6 +84,9 @@ type searchOutput struct {
 	Coverage []knowledge.SourceCoverage `json:"coverage"`
 	Count    int                        `json:"count"`
 	Ranking  string                     `json:"ranking"`
+	// RankingNote is present when Ranking is lexical: why, and that each result
+	// matches at least one word of the intent (#2838).
+	RankingNote string `json:"ranking_note,omitempty"`
 	// UnknownSources echoes any requested `sources` names that match no known
 	// source, so a typo (e.g. "documnets") is reported instead of silently
 	// returning nothing.
@@ -404,6 +407,7 @@ func (t *Toolkit) handleSearch(ctx context.Context, _ *mcp.CallToolRequest, inpu
 		Coverage:       coverage,
 		Count:          shown,
 		Ranking:        res.Ranking,
+		RankingNote:    res.RankingNote,
 		UnknownSources: res.UnknownSources,
 		WithheldNotice: knowledge.WithheldNotice(coverage, caller.Persona),
 	})

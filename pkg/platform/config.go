@@ -389,9 +389,17 @@ type EmbeddingConfig struct {
 
 // OllamaEmbedConfig configures the Ollama embedding provider.
 type OllamaEmbedConfig struct {
-	URL     string        `yaml:"url"`
-	Model   string        `yaml:"model"`
-	Timeout time.Duration `yaml:"timeout"`
+	URL string `yaml:"url"`
+	// InteractiveURL, when set, is the Ollama server the embeds a person
+	// waits on (search, discovery, dedup probes) go to, while the index
+	// worker keeps URL (#2839). It must serve the same model, so the
+	// vectors it returns are in the index's space. A CPU-only embedder
+	// finishes the input it is computing before it answers anything
+	// else, so a search on the same server waits up to one input's time
+	// behind indexing; a second server gives it none.
+	InteractiveURL string        `yaml:"interactive_url"`
+	Model          string        `yaml:"model"`
+	Timeout        time.Duration `yaml:"timeout"`
 	// MaxInputBytes caps the byte length of each text sent to Ollama.
 	// Zero selects embedding.DefaultMaxInputBytes. Raise it only when
 	// running an embedding model with a larger context than
@@ -1711,6 +1719,15 @@ type APIGatewayEmbedJobsConfig struct {
 	// (e.g. 64) on GPU providers where per-call overhead
 	// dominates per-text compute. See #479.
 	BatchSize int `yaml:"batch_size"`
+
+	// BatchBytes caps the text one upstream EmbedBatch call carries,
+	// summed over its texts (#2839). A background call holds a
+	// CPU-only embedder for as long as its texts take, and a search
+	// that preempts it loses that work. Zero selects the embedder's
+	// input cap (memory.embedding.ollama.max_input_bytes, default
+	// 6000): one full-size input, or several shorter ones, per call.
+	// Negative bounds a call by batch_size alone.
+	BatchBytes int `yaml:"batch_bytes"`
 
 	// LeaseDuration is the lifetime a Claim stamps on a job and
 	// the cadence the worker's heartbeat goroutine renews it.

@@ -168,6 +168,45 @@ func TestRouter_LexicalWhenNoEmbedder(t *testing.T) {
 	if res.Ranking != rankingLexical {
 		t.Errorf("ranking = %q, want %q", res.Ranking, rankingLexical)
 	}
+	if !strings.Contains(res.RankingNote, "no embedding provider is configured") ||
+		!strings.Contains(res.RankingNote, "at least one of the intent's 1 words") {
+		t.Errorf("ranking note = %q, want it to say no embedder is configured and any word matches", res.RankingNote)
+	}
+}
+
+// TestRouter_LexicalFallbackSaysSo is #2838's second criterion: when the
+// embedder is configured but fails, the response says the ranking fell back,
+// that each result matches any of the intent's words, and that an empty answer
+// is not "nothing exists".
+func TestRouter_LexicalFallbackSaysSo(t *testing.T) {
+	r := NewRouter(downEmbedder{}, nil, &fakeProvider{name: "p", scope: ScopeShared})
+	res, err := r.Search(context.Background(), Query{Intent: "outbound orders count"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Ranking != rankingLexical {
+		t.Fatalf("ranking = %q, want %q", res.Ranking, rankingLexical)
+	}
+	for _, want := range []string{"did not answer in time", "at least one of the intent's 3 words", "does not mean nothing exists"} {
+		if !strings.Contains(res.RankingNote, want) {
+			t.Errorf("ranking note %q lacks %q", res.RankingNote, want)
+		}
+	}
+	hybrid, err := NewRouter(fakeEmbedder{}, nil, &fakeProvider{name: "p", scope: ScopeShared}).
+		Search(context.Background(), Query{Intent: "q"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if hybrid.RankingNote != "" {
+		t.Errorf("a hybrid ranking carries no note, got %q", hybrid.RankingNote)
+	}
+}
+
+// downEmbedder is a configured embedder that never answers.
+type downEmbedder struct{ fakeEmbedder }
+
+func (downEmbedder) Embed(context.Context, string) ([]float32, error) {
+	return nil, errors.New("embedder busy")
 }
 
 func TestRouter_HybridWithEmbedder(t *testing.T) {

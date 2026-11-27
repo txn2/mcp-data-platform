@@ -9,6 +9,7 @@ import (
 
 	"github.com/pgvector/pgvector-go"
 
+	"github.com/txn2/mcp-data-platform/internal/ftsquery"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 )
 
@@ -24,11 +25,12 @@ var _ prompt.Searcher = (*Store)(nil)
 const promptFTSExpr = `search_fts`
 
 // promptFTSQuery is the parameterized tsquery the lexical predicate compares
-// against. $2 is the query text in the hybrid arms; searchLexical rebinds it to
-// $1 (it has no vector parameter).
-const (
-	promptFTSQueryHybrid  = "plainto_tsquery('english', $2)"
-	promptFTSQueryLexical = "plainto_tsquery('english', $1)"
+// against. $2 is the query text in the hybrid arms, which match every word;
+// searchLexical rebinds it to $1 (it has no vector parameter) and matches any
+// word (#2838).
+var (
+	promptFTSQueryHybrid  = ftsquery.AllWords("$2")
+	promptFTSQueryLexical = ftsquery.AnyWord("$1")
 )
 
 // lexRankNormalization is the ts_rank_cd normalization bitmask for the lexical

@@ -81,6 +81,51 @@ func TestDeleteAttachments_RemovesTheFolder(t *testing.T) {
 	require.Len(t, asked, 2, "a full page is followed by another listing")
 	assert.Equal(t, "webhooks/inbox/attachments", asked[0].Path)
 	assert.Equal(t, []resource.ScopeFilter{{Scope: resource.ScopePersona, ScopeID: "analyst"}}, asked[0].Scopes)
+	assert.Equal(t, []string{"webhooks/inbox/attachments"}, w.deletedFolders, "#2836: the emptied folders go with the files")
+}
+
+// TestAttachmentLibrary is the repair's view of a source's library (#2836):
+// every file under the attachments folder, paged, and folder moves and deletes
+// in the source's library under the platform's authority.
+func TestAttachmentLibrary(t *testing.T) {
+	h, w := newWindowResources(fakeByURI{})
+	all := make([]resource.Resource, attachmentsPage+3)
+	for i := range all {
+		all[i] = resource.Resource{ID: fmt.Sprintf("r%03d", i), Path: "webhooks/inbox/attachments/2026-11-04/inbox-7-3", Filename: "a.pdf", SizeBytes: int64(i)}
+	}
+	var asked []resource.Filter
+	h.byURI = fakeByURI{list: func(f resource.Filter) ([]resource.Resource, error) {
+		asked = append(asked, f)
+		return all[f.Offset:min(f.Offset+f.Limit, len(all))], nil
+	}}
+	files, err := h.ListAttachments(ctx, inbox)
+	require.NoError(t, err)
+	require.Len(t, files, len(all))
+	assert.Equal(t, whimap.StoredFile{ID: "r002", Folder: "webhooks/inbox/attachments/2026-11-04/inbox-7-3", Name: "a.pdf", Size: 2}, files[2])
+	require.Len(t, asked, 2)
+	assert.Equal(t, attachmentsPage, asked[1].Offset)
+	assert.Equal(t, resource.SortUpdatedAsc, asked[0].Sort, "a stable order, so the pages neither skip nor repeat")
+
+	require.NoError(t, h.MoveFolder(ctx, inbox, "a/old", "a/new"))
+	assert.Equal(t, []resource.FolderRename{{Library: resource.ScopeFilter{Scope: resource.ScopePersona, ScopeID: "analyst"}, From: "a/old", To: "a/new"}}, w.moves)
+
+	w.rows["x"] = &resource.Resource{ID: "x"}
+	require.NoError(t, h.DeleteFile(ctx, inbox, "x"))
+	assert.NotContains(t, w.rows, "x")
+
+	require.NoError(t, h.DeleteSourceFolder(ctx, inbox))
+	assert.Contains(t, w.deletedFolders, "webhooks/inbox")
+	w.err["delete_folder"] = fmt.Errorf("deleting folder: %w", resource.ErrFolderNotEmpty)
+	require.NoError(t, h.DeleteSourceFolder(ctx, inbox), "a folder still holding someone's own file is left")
+	w.err["delete_folder"] = fmt.Errorf("deleting folder: %w", resource.ErrFolderEmpty)
+	require.NoError(t, h.DeleteFolder(ctx, inbox, "never/stored"), "a folder that was never stored is not an error")
+	w.err["delete_folder"] = errBoom
+	require.ErrorIs(t, h.DeleteSourceFolder(ctx, inbox), errBoom)
+	w.err["move"] = errBoom
+	require.ErrorIs(t, h.MoveFolder(ctx, inbox, "a", "b"), errBoom)
+	h.byURI = fakeByURI{list: func(resource.Filter) ([]resource.Resource, error) { return nil, errBoom }}
+	_, err = h.ListAttachments(ctx, inbox)
+	require.ErrorIs(t, err, errBoom)
 }
 
 func TestDeleteAttachments_Refusals(t *testing.T) {

@@ -13,6 +13,7 @@ import { neverRead } from "../parts/groups";
 import { ExtBadge } from "./ExtBadge";
 import { plural, shortDate, sortDirection, type Entry, type SORT_COLUMNS } from "./model";
 import type { FmSelection } from "./useFmSelection";
+import { useProgressive } from "./progressive";
 
 /** What a row does when it is clicked, opened, dragged or right-clicked. */
 export interface RowHandlers {
@@ -62,9 +63,21 @@ export function Listing(props: ListingProps) {
 
 const th = "sticky top-0 z-[1] h-[30px] border-b bg-card px-2 text-left text-xs font-medium whitespace-nowrap text-muted-foreground";
 
+/**
+ * drawn is the part of a long listing on screen (#2837): its rows a step at a
+ * time as the end scrolls into view, always reaching the row the keyboard is
+ * on, and from the first step again when the listing is another folder's.
+ */
+function useDrawn(entries: Entry[], selection: FmSelection) {
+  const reach = selection.focus === null ? -1 : entries.findIndex((e) => e.key === selection.focus);
+  const { limit, more, sentinel } = useProgressive(entries.length, reach, entries[0]?.key);
+  return { rows: limit < entries.length ? entries.slice(0, limit) : entries, more, sentinel };
+}
+
 function Rows({ entries, flat, root, rootOf, admin, selection, sort, onSort, edit, handlers }: ListingProps) {
   const keys = entries.map((e) => e.key);
   const all = keys.length > 0 && keys.every((k) => selection.has(k));
+  const drawn = useDrawn(entries, selection);
   return (
     <table role="grid" aria-label="Files" className="w-full table-fixed border-separate border-spacing-0 text-sm" data-testid="listing">
       <Columns flat={flat} admin={admin} />
@@ -88,7 +101,7 @@ function Rows({ entries, flat, root, rootOf, admin, selection, sort, onSort, edi
       </thead>
       <tbody>
         {edit?.key === "new" && <NewFolderRow edit={edit} flat={flat} admin={admin} />}
-        {entries.map((e) => (
+        {drawn.rows.map((e) => (
           <Row
             key={e.key}
             entry={e}
@@ -102,6 +115,11 @@ function Rows({ entries, flat, root, rootOf, admin, selection, sort, onSort, edi
             handlers={handlers}
           />
         ))}
+        {drawn.more && (
+          <tr ref={drawn.sentinel} aria-hidden data-testid="listing-more">
+            <td colSpan={8} className="h-px p-0" />
+          </tr>
+        )}
       </tbody>
     </table>
   );
@@ -378,6 +396,7 @@ function NewFolderRow({ edit, flat, admin }: { edit: NameEdit; flat: boolean; ad
 
 function Tiles({ entries, selection, edit, handlers }: ListingProps) {
   const isDark = useResolvedDark();
+  const drawn = useDrawn(entries, selection);
   return (
     <div
       className={cn("grid grid-cols-[repeat(auto-fill,minmax(128px,1fr))] gap-1 p-2.5", selection.keys.length > 0 && "selecting")}
@@ -389,7 +408,7 @@ function Tiles({ entries, selection, edit, handlers }: ListingProps) {
           <NameField edit={edit} />
         </TileFrame>
       )}
-      {entries.map((e) => (
+      {drawn.rows.map((e) => (
         <Tile
           key={e.key}
           entry={e}
@@ -401,6 +420,7 @@ function Tiles({ entries, selection, edit, handlers }: ListingProps) {
           handlers={handlers}
         />
       ))}
+      {drawn.more && <div ref={drawn.sentinel} aria-hidden className="col-span-full h-px" data-testid="tiles-more" />}
     </div>
   );
 }

@@ -83,6 +83,9 @@ func SQLSamples() map[string]string {
 	backlog, _ := buildThumbnailBacklog(1)
 	clear, _ := buildThumbnailClear(1, 1000)
 	foldersAll, _ := buildFolders(Filter{AllScopes: true})
+	// One level of a library's folders (#2837), at its root and inside a folder.
+	levelRoot, _ := buildFolderLevel(Filter{Scopes: scopes}, "")
+	levelIn, _ := buildFolderLevel(Filter{Scopes: scopes}, "webhooks/mail")
 	// A narrowed facet reads no stored folder, so the second arm is FALSE and
 	// binds nothing (#1872).
 	foldersTagged, _ := buildFolders(Filter{Scopes: scopes, Tag: "finance"})
@@ -123,6 +126,8 @@ func SQLSamples() map[string]string {
 		"recordThumbnailFailure":  recordThumbnailFailureQuery,
 		"holdThumbnailWork":       holdThumbnailWorkQuery,
 		"buildFolders/all":        foldersAll,
+		"buildFolderLevel/root":   levelRoot,
+		"buildFolderLevel/in":     levelIn,
 		"buildFolders/tagged":     foldersTagged,
 		"countUnder/resources":    resourcesUnder,
 		"countUnder/folders":      foldersUnder,

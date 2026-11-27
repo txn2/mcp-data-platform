@@ -62,6 +62,11 @@ type SourceDetail struct {
 	// IMAP is each folder of an imap source as its polls left it: the
 	// watermark, the messages stored and withheld, the last poll's error.
 	IMAP []whimap.Mark `json:"imap,omitempty"`
+	// AttachmentRepair is what the one-time repair of an imap source's
+	// attachments did (#2836): when it ran, the folders it moved to their
+	// new addresses, the later copies it deleted and the folders it kept.
+	// Absent until it has run.
+	AttachmentRepair *whimap.RepairRecord `json:"attachment_repair,omitempty"`
 	// Postgres is a postgres source's listener (#2408): the replica
 	// listening, what it filed and refused, its last failure.
 	Postgres *whpgstate.State `json:"postgres,omitempty"`

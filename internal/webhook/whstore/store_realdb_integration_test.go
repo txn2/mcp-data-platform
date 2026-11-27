@@ -546,3 +546,31 @@ func TestRawRegistrableRealDB(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, got, 1, "a segment landing after the release brings it back")
 }
+
+// TestLiveWindowsRealDB: Live lists a source's windows not yet expired,
+// oldest first, and nothing of another source (#2836).
+func TestLiveWindowsRealDB(t *testing.T) {
+	db := testdb.New(t)
+	st := New(db)
+	ctx := context.Background()
+	_, err := db.ExecContext(ctx, `INSERT INTO webhook_sources (name, connection_name) VALUES ('inbox', 'scratch'), ('other', 'scratch')`)
+	require.NoError(t, err)
+	a := time.Date(2026, 11, 4, 9, 0, 0, 0, time.UTC)
+	b := a.Add(time.Hour)
+	for _, start := range []time.Time{b, a} {
+		require.NoError(t, st.MarkSegment(ctx, "inbox", start, time.Hour, 10))
+	}
+	require.NoError(t, st.MarkSegment(ctx, "other", a, time.Hour, 10))
+
+	live, err := st.Live(ctx, "inbox")
+	require.NoError(t, err)
+	require.Len(t, live, 2)
+	assert.Equal(t, a, live[0].Start.UTC())
+	assert.Equal(t, b, live[1].Start.UTC())
+
+	require.NoError(t, st.MarkExpired(ctx, live[0]))
+	live, err = st.Live(ctx, "inbox")
+	require.NoError(t, err)
+	require.Len(t, live, 1, "an expired window serves no events")
+	assert.Equal(t, b, live[0].Start.UTC())
+}

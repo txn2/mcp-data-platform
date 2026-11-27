@@ -42,6 +42,10 @@ type embedRequest struct {
 	// embeds the whole remainder in one call.
 	batchSize int
 
+	// batchBytes caps the summed length of one call's texts; zero
+	// leaves batchSize alone to bound it.
+	batchBytes int
+
 	// progress is called at every chunk boundary with the
 	// cumulative count of items whose vectors are ready (reused +
 	// freshly embedded). nil disables.
@@ -96,6 +100,7 @@ func embedItems(ctx context.Context, req embedRequest) ([]Vector, error) {
 		toEmbedTexts: toEmbedTexts,
 		reusedBase:   reused,
 		batchSize:    req.batchSize,
+		batchBytes:   req.batchBytes,
 		progress:     req.progress,
 		persistBatch: req.persistBatch,
 		observeCall:  req.observeCall,
@@ -143,6 +148,7 @@ type fillRequest struct {
 	toEmbedTexts []string
 	reusedBase   int
 	batchSize    int
+	batchBytes   int
 	progress     func(completed int)
 	persistBatch func(rows []Vector) error
 	observeCall  func(texts int, err error, d time.Duration)
@@ -164,6 +170,7 @@ func fillFresh(ctx context.Context, req fillRequest) error {
 		embedder:    req.embedder,
 		texts:       req.toEmbedTexts,
 		batchSize:   batchSize,
+		batchBytes:  req.batchBytes,
 		observeCall: req.observeCall,
 		onChunk: func(start, end int, vectors [][]float32) error {
 			chunkIdx := req.toEmbedIdx[start:end]
@@ -196,12 +203,13 @@ type batchRun struct {
 	embedder    embedding.Provider
 	texts       []string
 	batchSize   int
+	batchBytes  int
 	onChunk     func(start, end int, vectors [][]float32) error
 	observeCall func(texts int, err error, d time.Duration)
 }
 
-// embedInBatches walks texts in chunks of at most the current size,
-// calls EmbedBatch per chunk, validates the vector count, and invokes
+// embedInBatches walks texts in chunks of at most the current size and
+// at most batchBytes of text (chunkEnd), calls EmbedBatch per chunk, validates the vector count, and invokes
 // onChunk with the chunk's [start,end) bounds and vectors.
 //
 // On a timeout (see isEmbedTimeout) the current chunk is halved and
@@ -227,7 +235,7 @@ func embedInBatches(ctx context.Context, run batchRun) error {
 	}
 	size := batchSize
 	for start := 0; start < len(texts); {
-		end := min(start+size, len(texts))
+		end := chunkEnd(texts, start, size, run.batchBytes)
 		began := time.Now()
 		vectors, err := run.embedder.EmbedBatch(ctx, texts[start:end])
 		if run.observeCall != nil {
@@ -259,6 +267,25 @@ func embedInBatches(ctx context.Context, run batchRun) error {
 		start = end
 	}
 	return nil
+}
+
+// chunkEnd is where the chunk starting at start ends: after at most size
+// texts, and before the text that would take the chunk's summed length past
+// budget, but never before start+1, so a text longer than the budget goes
+// alone. A non-positive budget bounds by count alone.
+func chunkEnd(texts []string, start, size, budget int) int {
+	end := min(start+size, len(texts))
+	if budget <= 0 {
+		return end
+	}
+	total := 0
+	for i := start; i < end; i++ {
+		total += len(texts[i])
+		if total > budget && i > start {
+			return i
+		}
+	}
+	return end
 }
 
 // isEmbedTimeout reports whether err is a request timeout worth

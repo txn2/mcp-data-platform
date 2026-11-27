@@ -460,7 +460,17 @@ A query may be text (`intent`), entity-keyed (`entity_urns`, returning every
 source linked to those datasets and their lineage neighbors: the catalog entity,
 URN-linked insights, and your URN-linked memory), or both. Ranking is
 hybrid (semantic vector + lexical) when an embedding provider is configured and
-lexical-only otherwise; an entity-only query reports ranking `entity`. The
+lexical-only otherwise; an entity-only query reports ranking `entity`. A hybrid
+ranking's lexical arm matches the records holding every word of the intent,
+beside the records the vector arm places near it. A lexical ranking, with no
+embedder or one that did not answer in time (a re-index after an upgrade keeps a
+CPU embedder busy), matches the records holding any word of the intent and
+ranks those holding more of them, and more often, first (#2838): an agent's
+intent is a sentence, and requiring every word of `outbound orders count` in
+one dataset's text matched nothing. A lexical response also carries
+`ranking_note`, saying which of the two it is and that each result matches at
+least one of the intent's words, so a thin answer is not read as "nothing
+exists". The
 response carries a `ranking` field, a `count` (total hits shown), a `groups`
 array (each `{source, hits[]}` where every hit pairs the matched `text` with its
 `source`, a `ref`, a relevance `score`, and where present `status`, `entity_urns`,

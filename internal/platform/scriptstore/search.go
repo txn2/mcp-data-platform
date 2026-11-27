@@ -10,6 +10,7 @@ import (
 	"github.com/lib/pq"
 	"github.com/pgvector/pgvector-go"
 
+	"github.com/txn2/mcp-data-platform/internal/ftsquery"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -27,11 +28,11 @@ var _ script.Searcher = (*Store)(nil)
 const scriptFTSExpr = `search_fts`
 
 // scriptFTSQuery is the parameterized tsquery the predicate compares against.
-// The lexical-only path binds the query text as $1; the hybrid arms bind $1 to
-// the vector and the text to $2.
-const (
-	scriptFTSQuery       = "plainto_tsquery('english', $1)"
-	scriptFTSQueryHybrid = "plainto_tsquery('english', $2)"
+// The lexical-only path binds the text as $1 and matches any word (#2838); the
+// hybrid arms bind $1 to the vector and the text to $2 and match every word.
+var (
+	scriptFTSQuery       = ftsquery.AnyWord("$1")
+	scriptFTSQueryHybrid = ftsquery.AllWords("$2")
 )
 
 // hybridSemanticWeight is the alpha blending the semantic and lexical signals:

@@ -13524,6 +13524,14 @@ definitions:
         description: Path is the folder's full slash-separated path inside its library.
         example: data/media-manager
         type: string
+      subfolders:
+        description: |-
+          Subfolders is how many folders are directly inside this one. A level
+          read (the facets route's parent, #2837) reports it, so a tree drawn one
+          level at a time knows which folders open without reading beneath them;
+          the whole-tree read leaves it out.
+        example: 3
+        type: integer
       updated_at:
         description: |-
           UpdatedAt is the latest change beneath the folder: the newest update
@@ -20606,6 +20614,14 @@ definitions:
     type: object
   webhookapi.SourceDetail:
     properties:
+      attachment_repair:
+        allOf:
+        - $ref: '#/definitions/whimap.RepairRecord'
+        description: |-
+          AttachmentRepair is what the one-time repair of an imap source's
+          attachments did (#2836): when it ran, the folders it moved to their
+          new addresses, the later copies it deleted and the folders it kept.
+          Absent until it has run.
       imap:
         description: |-
           IMAP is each folder of an imap source as its polls left it: the
@@ -21017,6 +21033,13 @@ definitions:
       updated_by:
         type: string
     type: object
+  whimap.FolderMove:
+    properties:
+      from:
+        type: string
+      to:
+        type: string
+    type: object
   whimap.Mark:
     properties:
       folder:
@@ -21038,6 +21061,49 @@ definitions:
         type: integer
       uid_validity:
         type: integer
+    type: object
+  whimap.RemovedFolder:
+    properties:
+      files:
+        type: integer
+      folder:
+        type: string
+    type: object
+  whimap.RepairRecord:
+    properties:
+      kept:
+        type: integer
+      moved:
+        type: integer
+      removed:
+        type: integer
+      removed_files:
+        type: integer
+      repaired_at:
+        type: string
+      report:
+        $ref: '#/definitions/whimap.RepairReport'
+    type: object
+  whimap.RepairReport:
+    properties:
+      kept:
+        description: |-
+          Kept are the folders of the old form no event names and no named folder
+          matches.
+        items:
+          type: string
+        type: array
+      moved:
+        description: Moved are the folders moved to the new form.
+        items:
+          $ref: '#/definitions/whimap.FolderMove'
+        type: array
+      removed:
+        description: Removed are the later copies deleted, each with how many files
+          it held.
+        items:
+          $ref: '#/definitions/whimap.RemovedFolder'
+        type: array
     type: object
   whpgstate.State:
     properties:
@@ -46077,6 +46143,12 @@ paths:
       - description: Filter by scope ID (persona name or user sub)
         in: query
         name: scope_id
+        type: string
+      - description: 'Read one level (#2837): only the folders directly inside this
+          folder, each with its subfolders count, the folder itself first; empty is
+          the library''s root. Tags are not read.'
+        in: query
+        name: parent
         type: string
       produces:
       - application/json

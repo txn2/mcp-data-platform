@@ -95,6 +95,7 @@ type Config struct {
 	// Worker tuning, already defaulted by the caller.
 	LeaseDuration time.Duration
 	BatchSize     int
+	BatchBytes    int
 	Workers       int
 
 	// RetentionDays > 0 wires a retention sweep that bounds finished history;
@@ -232,6 +233,7 @@ func New(cfg Config) *Handle {
 		Concurrency:   cfg.Workers,
 		LeaseDuration: cfg.LeaseDuration,
 		BatchSize:     cfg.BatchSize,
+		BatchBytes:    cfg.BatchBytes,
 		Observer:      obs,
 	})
 	h.reaper = indexjobs.NewReaper(store, 0)

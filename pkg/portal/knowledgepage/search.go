@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/pgvector/pgvector-go"
+	"github.com/txn2/mcp-data-platform/internal/ftsquery"
 )
 
 // SearchQuery describes a relevance ranking request over canonical
@@ -44,8 +45,9 @@ type Searcher interface {
 const ftsExpr = `search_fts`
 
 // ftsQueryLexical binds the lexical-only query text at $1 (no
-// vector parameter on that path). The hybrid arms inline the tsquery at $2.
-const ftsQueryLexical = "plainto_tsquery('english', $1)"
+// vector parameter on that path) and matches any of its words (#2838). The
+// hybrid arms inline the every-word tsquery at $2.
+var ftsQueryLexical = ftsquery.AnyWord("$1")
 
 // chunkTable holds one vector per embeddable chunk of a page (#1242). A page's
 // content is embedded as a SET of chunks, each within the provider's input
@@ -105,16 +107,17 @@ func (s *postgresStore) searchPagesHybrid(ctx context.Context, q SearchQuery) ([
 	// #nosec G201 -- column list, chunk table and FTS expr are constants; the
 	// predicate uses only parameterized placeholders ($1 vector, $2 text); limit
 	// is a sanitized int. No user input is concatenated into the SQL.
+	tsq := ftsquery.AllWords("$2")
 	vecArm := fmt.Sprintf(
-		"SELECT %s, %s AS vec_score, (%s @@ plainto_tsquery('english', $2)) AS lex_match "+
+		"SELECT %s, %s AS vec_score, (%s @@ %s) AS lex_match "+
 			"FROM portal_knowledge_pages WHERE deleted_at IS NULL AND id IN (%s) "+
 			"ORDER BY vec_score DESC LIMIT %d",
-		pageColumns, bestChunkScore, ftsExpr, nearestChunkPages(limit), limit)
+		pageColumns, bestChunkScore, ftsExpr, tsq, nearestChunkPages(limit), limit)
 	lexArm := fmt.Sprintf(
 		"SELECT %s, %s AS vec_score, TRUE AS lex_match "+
-			"FROM portal_knowledge_pages WHERE deleted_at IS NULL AND %s @@ plainto_tsquery('english', $2) "+
-			"ORDER BY ts_rank_cd(%s, plainto_tsquery('english', $2)) DESC LIMIT %d",
-		pageColumns, bestChunkScore, ftsExpr, ftsExpr, limit)
+			"FROM portal_knowledge_pages WHERE deleted_at IS NULL AND %s @@ %s "+
+			"ORDER BY ts_rank_cd(%s, %s) DESC LIMIT %d",
+		pageColumns, bestChunkScore, ftsExpr, tsq, ftsExpr, tsq, limit)
 	// #nosec G202 -- both arms are assembled from constant column/expression
 	// strings with parameterized placeholders; no user input is concatenated.
 	sqlStr := "(" + vecArm + ") UNION ALL (" + lexArm + ")"

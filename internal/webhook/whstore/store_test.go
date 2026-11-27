@@ -399,3 +399,20 @@ func TestCompactedDigest(t *testing.T) {
 	require.ErrorIs(t, err, errDown)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
+
+func TestLive(t *testing.T) {
+	s, mock := newMock(t)
+	start := time.Date(2026, 11, 4, 9, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(`FROM webhook_windows\s+WHERE source = \$1 AND expired_at IS NULL`).WithArgs("inbox").
+		WillReturnRows(sqlmock.NewRows([]string{"source", "window_start", "window_seconds", "generation", "resource_id", "location", "attempts"}).
+			AddRow("inbox", start, 3600, 2, "res-1", "s3://b/x/", 1))
+	got, err := s.Live(context.Background(), "inbox")
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, start, got[0].Start)
+	assert.Equal(t, time.Hour, got[0].Length)
+
+	mock.ExpectQuery(`FROM webhook_windows`).WillReturnError(errors.New("down"))
+	_, err = s.Live(context.Background(), "inbox")
+	assert.Error(t, err)
+}

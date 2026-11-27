@@ -159,10 +159,12 @@ func TestRealDB_HybridSearchRanksSemanticallyAndLexically(t *testing.T) {
 	assert.Contains(t, ids, near.ID, "a semantic match with no shared term must still rank")
 	assert.Contains(t, ids, worded.ID, "an unembedded row must still reach the caller through the lexical arm")
 
+	// Ranked by words alone, a script holding any word of the query matches
+	// (#2838): near keeps the seeded "revenue" tag but lost "region" with its
+	// description, so it matches below the script holding both words.
 	lexical, err := s.Search(ctx, script.SearchQuery{QueryText: "revenue by region"})
 	require.NoError(t, err)
-	assert.NotContains(t, scriptIDs(lexical), near.ID)
-	assert.Contains(t, scriptIDs(lexical), worded.ID)
+	require.Equal(t, []string{worded.ID, near.ID}, scriptIDs(lexical))
 }
 
 // TestRealDB_SearchFindsAPhraseOnlyInTheSource proves the lexical arm reads the

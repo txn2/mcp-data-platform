@@ -18,6 +18,7 @@ vi.mock("@/api/resources/client", () => ({
 vi.mock("@/api/resources/hooks", () => ({
   useResources: vi.fn(() => ({ data: { resources: [], total: 0 }, isLoading: false })),
   useFacets: vi.fn(),
+  useFolderLevel: vi.fn(),
   useInfiniteResources: vi.fn(),
   usePeople: vi.fn(),
   useExternalFolders: vi.fn(() => ({ data: undefined })),
@@ -31,7 +32,7 @@ vi.mock("@/api/admin/hooks", () => ({
   usePersonas: vi.fn(() => ({ data: { personas: [{ name: "analyst" }, { name: "ops" }] } })),
 }));
 
-import { useExternalFolders, useFacets, useInfiniteResources, usePeople } from "@/api/resources/hooks";
+import { useExternalFolders, useFacets, useFolderLevel, useInfiniteResources, usePeople } from "@/api/resources/hooks";
 import type { Resource } from "@/api/resources/types";
 import { ResourcesPage } from "./ResourcesPage";
 
@@ -96,6 +97,21 @@ function facetsFor(resources: Resource[], empty: string[]) {
   return [...counts].map(([path, count]) => ({ path, count, updated_at: "2026-08-17T10:00:00Z" }));
 }
 
+/**
+ * levelOf is one level of a whole tree, as the facets route answers a parent
+ * (#2837): the folder itself first, then the folders directly inside it, each
+ * with how many folders it holds.
+ */
+function levelOf(tree: { path: string; count: number }[], parent: string) {
+  const parentOf = (p: string) => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
+  const subs = new Map<string, number>();
+  for (const f of tree) subs.set(parentOf(f.path), (subs.get(parentOf(f.path)) ?? 0) + 1);
+  return tree
+    .filter((f) => f.path === parent || parentOf(f.path) === parent)
+    .map((f) => ({ ...f, subfolders: subs.get(f.path) ?? 0 }))
+    .sort((a, b) => (a.path === parent ? -1 : b.path === parent ? 1 : 0));
+}
+
 function seed(byScope: Record<string, Resource[]>, empty: Record<string, string[]> = {}) {
   held = byScope;
   emptyFolders = empty;
@@ -103,6 +119,13 @@ function seed(byScope: Record<string, Resource[]>, empty: Record<string, string[
     data: { folders: facetsFor(held[scopeKey(params)] ?? [], emptyFolders[scopeKey(params)] ?? []), tags: [] },
     isLoading: false,
   })) as unknown as typeof useFacets);
+  vi.mocked(useFolderLevel).mockImplementation(((params: { scope?: string; scope_id?: string } | undefined, parent: string) => ({
+    data: {
+      folders: levelOf(facetsFor(held[scopeKey(params)] ?? [], emptyFolders[scopeKey(params)] ?? []), parent),
+      tags: [],
+    },
+    isLoading: false,
+  })) as unknown as typeof useFolderLevel);
   vi.mocked(useInfiniteResources).mockImplementation(((params?: Record<string, unknown>, enabled = true) => {
     if (enabled) listings.push(params ?? {});
     // A listing that names no scope reads every top-level folder (#2293).

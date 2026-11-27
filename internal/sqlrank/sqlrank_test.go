@@ -14,7 +14,7 @@ import (
 func TestBuildRankedNumbering(t *testing.T) {
 	r := Ranking{Candidates: "SELECT id, name, embedding, fts FROM t WHERE owner_id = $1", Args: []any{"u1"}, FTS: "fts", QueryText: "q", Embedding: []float32{0.1}, Limit: 5, Offset: 995}
 	hybrid, args := BuildRanked(r)
-	assert.Contains(t, hybrid, "plainto_tsquery('english', $2)")
+	assert.Contains(t, hybrid, "(r.fts @@ plainto_tsquery('english', $2)) AS lex", "a hybrid ranking keeps every-word matches")
 	assert.Contains(t, hybrid, "c.embedding <=> $3")
 	assert.Contains(t, hybrid, ">= 0.45")
 	assert.Contains(t, hybrid, "LIMIT 5 OFFSET 995")
@@ -22,7 +22,8 @@ func TestBuildRankedNumbering(t *testing.T) {
 
 	r.Embedding, r.Offset = nil, 5000
 	lexical, args := BuildRanked(r)
-	assert.Contains(t, lexical, "ts_rank_cd(c.fts, plainto_tsquery('english', $2), 33)")
+	assert.Contains(t, lexical, "ts_rank_cd(c.fts, replace(plainto_tsquery('english', $2)::text, ' & ', ' | ')::tsquery, 33)",
+		"a ranking by words alone matches any word (#2838)")
 	assert.Contains(t, lexical, "WHERE c.lex ORDER BY")
 	assert.Contains(t, lexical, "LIMIT 5 OFFSET 995", "paging stops at the ranked depth")
 	assert.Equal(t, []any{"u1", "q"}, args)
