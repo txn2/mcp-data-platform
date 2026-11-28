@@ -318,7 +318,7 @@ func (c *card) transaction(n *Node) {
 		n.Role = RoleReads
 	}
 	fn, ok := c.arg("fn", 1).(*syntax.Ident)
-	def := c.a.funcs[nameOf(fn, ok)]
+	def := c.s.scope.localFunc(nameOf(fn, ok))
 	if def == nil || len(def.Params) == 0 {
 		n.Detail = []string{"statements in a function the source does not name"}
 		n.Computed = true

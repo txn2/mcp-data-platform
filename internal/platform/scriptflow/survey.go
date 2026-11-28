@@ -6,7 +6,7 @@ import (
 
 	"go.starlark.net/syntax"
 
-	"github.com/txn2/mcp-data-platform/internal/platform/scriptdialect"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptflow/scriptdefs"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptflow/stmtlookup"
 	"github.com/txn2/mcp-data-platform/internal/scriptconst"
 )
@@ -36,12 +36,15 @@ type analyzer struct {
 	// source and no frame at run time, so they add no call site.
 	entryCalls []*syntax.CallExpr
 	consts     scriptconst.Table
-	funcs      map[string]*syntax.DefStmt
+	// defs is every def by its key (#2848); funcs, keyOf and parentOf are its
+	// maps, read directly by the walk.
+	defs     *scriptdefs.Table
+	funcs    map[string]*syntax.DefStmt
+	keyOf    map[*syntax.DefStmt]string
+	parentOf map[string]string
 	// loaded is every name the script loads from a library it was given
 	// the source of (#2699).
 	loaded map[string]stmtlookup.Loaded
-	// parentOf names the function a nested def is written in.
-	parentOf map[string]string
 	// hasSteps is every function that makes a platform call, directly or
 	// through a function it calls; wrapper is each of those whose only effect
 	// is one platform call.
@@ -74,82 +77,31 @@ type groupInfo struct {
 func newAnalyzer(source string, file *syntax.File) *analyzer {
 	a := &analyzer{
 		lines: strings.Split(source, "\n"), file: file, consts: scriptconst.Collect(file),
-		funcs: map[string]*syntax.DefStmt{}, parentOf: map[string]string{},
 		hasSteps: map[string]bool{}, wrapper: map[string]bool{},
 		steps: map[string]*step{}, params: map[string]int{}, decides: map[string]bool{},
 		groups: map[string]*groupInfo{},
 	}
 	a.module = file.Stmts
-	if calls := entryCalls(file); len(calls) > 0 {
+	if calls := scriptdefs.EntryCalls(file); len(calls) > 0 {
 		a.entryCalls = calls
 		a.module = slices.Clone(file.Stmts)
 		for _, c := range calls {
 			a.module = append(a.module, &syntax.ExprStmt{X: c})
 		}
 	}
-	a.collectDefs(file.Stmts, "")
+	a.defs = scriptdefs.Collect(file.Stmts)
+	a.funcs, a.keyOf, a.parentOf = a.defs.Funcs, a.defs.KeyOf, a.defs.ParentOf
 	a.survey()
 	return a
-}
-
-// entryCalls are the calls the platform makes after the module runs: main()
-// for a run; in a script with no main(), handle(req) for an endpoint's
-// request (#2172, #2315), or a form's form_spec(req) then form_submit(req,
-// values), in the order a person meets them (#2176). None when it makes none.
-func entryCalls(file *syntax.File) []*syntax.CallExpr {
-	if main := scriptdialect.EntryPoint(file); main != nil {
-		return []*syntax.CallExpr{{Fn: main.Name, Lparen: main.Def, Rparen: main.Def}}
-	}
-	if handler := scriptdialect.HandlerOf(file); handler != nil {
-		return []*syntax.CallExpr{call(handler, "req")}
-	}
-	var calls []*syntax.CallExpr
-	for _, s := range file.Stmts {
-		d, ok := s.(*syntax.DefStmt)
-		switch {
-		case !ok:
-		case d.Name.Name == scriptdialect.FormSpecName && len(d.Params) == 1:
-			calls = append([]*syntax.CallExpr{call(d, "req")}, calls...)
-		case d.Name.Name == scriptdialect.FormSubmitName && len(d.Params) == 2:
-			calls = append(calls, call(d, "req", "values"))
-		}
-	}
-	if len(calls) != 2 {
-		return nil
-	}
-	return calls
-}
-
-// call is the platform's call of d with arguments of the names given.
-func call(d *syntax.DefStmt, args ...string) *syntax.CallExpr {
-	c := &syntax.CallExpr{Fn: d.Name, Lparen: d.Def, Rparen: d.Def}
-	for _, name := range args {
-		c.Args = append(c.Args, &syntax.Ident{NamePos: d.Def, Name: name})
-	}
-	return c
 }
 
 // isEntry reports whether c is one of the calls the platform makes.
 func (a *analyzer) isEntry(c *syntax.CallExpr) bool { return slices.Contains(a.entryCalls, c) }
 
-// collectDefs records every def, and the function each nested one is written
-// in.
-func (a *analyzer) collectDefs(stmts []syntax.Stmt, parent string) {
-	for _, s := range stmts {
-		switch s := s.(type) {
-		case *syntax.DefStmt:
-			a.funcs[s.Name.Name] = s
-			if parent != "" {
-				a.parentOf[s.Name.Name] = parent
-			}
-			a.collectDefs(s.Body, s.Name.Name)
-		case *syntax.ForStmt:
-			a.collectDefs(s.Body, parent)
-		case *syntax.IfStmt:
-			a.collectDefs(s.True, parent)
-			a.collectDefs(s.False, parent)
-		}
-	}
+// resolve is the def a name written in the function of key scope ("" at
+// module level) refers to, and its key (scriptdefs.Table.Resolve, #2848).
+func (a *analyzer) resolve(scope, name string) (string, *syntax.DefStmt) {
+	return a.defs.Resolve(scope, name)
 }
 
 // bodyCalls is what one function body calls, nested defs excluded: how many
@@ -162,16 +114,18 @@ type bodyCalls struct {
 	named []string
 }
 
-// scanBody reads the calls a function makes itself.
+// scanBody reads the calls a function makes itself, by the keys of the
+// functions it calls.
 func (a *analyzer) scanBody(d *syntax.DefStmt) bodyCalls {
 	var out bodyCalls
+	scope := a.keyOf[d]
 	called := map[*syntax.Ident]bool{}
 	for _, st := range d.Body {
 		walkCalls(st, func(c *syntax.CallExpr) {
 			if member, ok := platformMember(c); ok && !nonStep(member) {
 				out.platform++
 			}
-			if name, ok := a.userCall(c); ok {
+			if name, ok := a.userCall(scope, c); ok {
 				out.callees = append(out.callees, name)
 				if id, isIdent := c.Fn.(*syntax.Ident); isIdent {
 					called[id] = true
@@ -184,8 +138,10 @@ func (a *analyzer) scanBody(d *syntax.DefStmt) bodyCalls {
 			if _, ok := n.(*syntax.DefStmt); ok {
 				return false
 			}
-			if id, ok := n.(*syntax.Ident); ok && !called[id] && a.funcs[id.Name] != nil {
-				out.named = append(out.named, id.Name)
+			if id, ok := n.(*syntax.Ident); ok && !called[id] {
+				if key, def := a.resolve(scope, id.Name); def != nil {
+					out.named = append(out.named, key)
+				}
 			}
 			return true
 		})
@@ -206,13 +162,15 @@ func walkCalls(st syntax.Node, visit func(*syntax.CallExpr)) {
 	})
 }
 
-// userCall names the user function a call calls, if it calls one.
-func (a *analyzer) userCall(c *syntax.CallExpr) (string, bool) {
+// userCall is the key of the user function a call written in the function
+// of key scope calls, if it calls one.
+func (a *analyzer) userCall(scope string, c *syntax.CallExpr) (string, bool) {
 	id, ok := c.Fn.(*syntax.Ident)
-	if !ok || a.funcs[id.Name] == nil {
+	if !ok {
 		return "", false
 	}
-	return id.Name, true
+	key, d := a.resolve(scope, id.Name)
+	return key, d != nil
 }
 
 // survey decides which functions hold steps and which are wrappers.
@@ -279,7 +237,7 @@ func (a *analyzer) wholeScript() string {
 			if _, ok := platformMember(c); ok {
 				topPlatform = true
 			}
-			if name, ok := a.userCall(c); ok && a.hasSteps[name] {
+			if name, ok := a.userCall("", c); ok && a.hasSteps[name] {
 				found = append(found, name)
 			}
 		})

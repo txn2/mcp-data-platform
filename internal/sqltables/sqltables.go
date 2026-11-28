@@ -99,6 +99,10 @@ func cteKey(name string) string {
 	return strings.ToLower(strings.Trim(name, `"`))
 }
 
+// namePart is one part of a table reference: a bare name, or a double-quoted
+// one in which a doubled quote is a quote.
+const namePart = `(?:"(?:[^"]|"")+"|[a-zA-Z_][a-zA-Z0-9_]*)`
+
 // Regex patterns for SQL table extraction.
 var (
 	// ES raw_query patterns (non-standard Trino syntax).
@@ -122,8 +126,14 @@ var (
 	// "FROM a.b.t1 JOIN a.b.t2" as if it were t1's alias and left the
 	// joined table unextracted — every JOIN's second table was invisible to
 	// enrichment. Nothing after the name is needed to know the name.
+	//
+	// Each part is a bare name or a double-quoted one ("Sales"."Orders",
+	// hive.hr."employees"). A quoted part was not matched at all, so a table
+	// named in quotes was read by nothing: enrichment, lineage, the schema
+	// gate, the application diagram, and the column protection a transform
+	// gives a covered caller, which a quoted table name walked past (#2849).
 	tableRefPattern = regexp.MustCompile(`(?i)\b(?:FROM|JOIN)\s+` +
-		`([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*){0,2})` +
+		`(` + namePart + `(?:\s*\.\s*` + namePart + `){0,2})` +
 		`\s*(\()?`)
 )
 
@@ -177,10 +187,15 @@ func extractTablesWithRegex(sql string) []Ref {
 // tableNamePartsCount is the expected number of parts in a fully-qualified table name (catalog.schema.table).
 const tableNamePartsCount = 3
 
-// parseTablePath parses a dot-separated table path into Ref.
+// parseTablePath parses a dot-separated table path into Ref. A dot inside a
+// quoted part is the part's own, and the parts are kept as written, quotes
+// included, as the path is.
 func parseTablePath(path string) Ref {
-	parts := strings.Split(path, ".")
-	ref := Ref{FullPath: path}
+	parts, ref := strings.Split(path, "."), Ref{FullPath: path}
+	if strings.ContainsAny(path, "\" \t\n") {
+		parts = splitPath(path)
+		ref.FullPath = strings.Join(parts, ".")
+	}
 
 	switch len(parts) {
 	case tableNamePartsCount:
@@ -195,6 +210,23 @@ func parseTablePath(path string) Ref {
 	}
 
 	return ref
+}
+
+// splitPath splits a table path at the dots outside quotes, dropping the
+// spaces a statement may write around one.
+func splitPath(path string) []string {
+	var parts []string
+	start, quoted := 0, false
+	for i := 0; i < len(path); i++ {
+		switch {
+		case path[i] == '"':
+			quoted = !quoted
+		case path[i] == '.' && !quoted:
+			parts = append(parts, strings.TrimSpace(path[start:i]))
+			start = i + 1
+		}
+	}
+	return append(parts, strings.TrimSpace(path[start:]))
 }
 
 // extractESRawQuery extracts index references from Elasticsearch raw_query.

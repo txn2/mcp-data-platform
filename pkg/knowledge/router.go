@@ -176,13 +176,16 @@ func (r *Router) scoped(caller Caller) (Caller, *connGate) {
 }
 
 // embedContext derives the context for the intent-embedding call: the request
-// context bounded by embedTimeout, or the request context unchanged (with a
-// no-op cancel) when the bound is disabled.
+// context bounded by embedTimeout plus the embedder's search allowance, or the
+// request context unchanged (with a no-op cancel) when the bound is disabled.
+// The allowance is the time the background input already at a shared
+// embedding server is expected to take, which the search waits for however it
+// is ordered (#2846); it is zero when no background work is at the server.
 func (r *Router) embedContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	if r.embedTimeout <= 0 {
 		return ctx, func() {}
 	}
-	return context.WithTimeout(ctx, r.embedTimeout)
+	return context.WithTimeout(ctx, r.embedTimeout+embedding.SearchAllowance(ctx, r.embedder))
 }
 
 // Providers returns the registered providers, for introspection and wiring

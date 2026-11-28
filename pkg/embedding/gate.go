@@ -93,15 +93,27 @@ type Gate struct {
 	pubMu     sync.Mutex
 	published bool
 
-	// running holds the cancel of every background call at the server that
-	// may still be preempted, guarded by mu.
+	// running holds every background call at the server, guarded by mu: its
+	// cancel when it may still be preempted, and how long its largest input
+	// is expected to hold the server (#2846).
 	running map[*bgCall]struct{}
 	// preempted counts the background calls preempted, for tests and logs.
 	preempted int
+	// rate is the seconds one byte of background input takes the server, as
+	// measured over completed calls; zero until one is measured. Guarded by mu.
+	rate float64
+
+	// bg is what this replica last published of its background calls to a
+	// signal that carries them (#2846).
+	bg bgPublication
 }
 
-// bgCall is one background call at the server.
-type bgCall struct{ cancel context.CancelCauseFunc }
+// bgCall is one background call at the server: its cancel (nil when it may
+// not be preempted) and how long its largest input is expected to take.
+type bgCall struct {
+	cancel context.CancelCauseFunc
+	input  time.Duration
+}
 
 // errPreempted is the cause a preempted background call's context carries.
 var errPreempted = errors.New("embedding gate: background embed preempted by an interactive embed")
@@ -133,7 +145,7 @@ func (g *Gate) Interactive(p Provider) Provider {
 	if p == nil {
 		return nil
 	}
-	return &gated{inner: p, before: g.enter, after: g.leave}
+	return &gated{inner: p, before: g.enter, after: g.leave, allowance: g.searchAllowance}
 }
 
 // Background wraps p so each call first yields to interactive embeds, and is
@@ -164,7 +176,9 @@ func (g *Gate) enter(ctx context.Context) error {
 	}
 	g.busy++
 	for c := range g.running {
-		c.cancel(errPreempted)
+		if c.cancel != nil {
+			c.cancel(errPreempted)
+		}
 	}
 	g.mu.Unlock()
 	g.publish(ctx)
@@ -308,17 +322,21 @@ func (g *Gate) sharedBusy(ctx context.Context) bool {
 // sends the call, and sends it again when an interactive embed preempted it,
 // until maxYield has passed since it first yielded. Past that the call neither
 // waits nor is preempted. Errors are the call's own, or ctx's while waiting.
-func preemptible[T any](ctx context.Context, g *Gate, call func(context.Context) (T, error)) (T, error) {
+func preemptible[T any](ctx context.Context, g *Gate, sz inputSizes, call func(context.Context) (T, error)) (T, error) {
 	deadline := time.Now().Add(g.maxYield)
 	for {
 		var zero T
 		if err := g.yield(ctx, time.Until(deadline)); err != nil {
 			return zero, err
 		}
-		callCtx, done := g.start(ctx, time.Now().Before(deadline))
+		began := time.Now()
+		callCtx, done := g.start(ctx, began.Before(deadline), sz)
 		out, err := call(callCtx)
 		preempted := errors.Is(context.Cause(callCtx), errPreempted)
 		done()
+		if err == nil && !preempted {
+			g.observe(time.Since(began), sz.total)
+		}
 		if err != nil && preempted && ctx.Err() == nil {
 			slog.DebugContext(ctx, "embedding gate: background embed preempted; sending it again after the interactive embeds")
 			continue
@@ -327,25 +345,30 @@ func preemptible[T any](ctx context.Context, g *Gate, call func(context.Context)
 	}
 }
 
-// start registers a background call that may be preempted and returns the
-// context it runs on and the func that ends it. A call made while the gate is
-// interactive (an interactive embed began since it yielded) is preempted at
-// once. With a shared signal, the call also asks it every poll while at the
-// server and is preempted when another replica reports an interactive embed.
-func (g *Gate) start(ctx context.Context, preemptable bool) (callCtx context.Context, done func()) {
-	if !preemptable {
-		return ctx, func() {}
-	}
+// start registers a background call and returns the context it runs on and
+// the func that ends it. Every call is registered with how long its largest
+// input is expected to hold the server, which a search waits for (#2846). A
+// preemptable call made while the gate is interactive (an interactive embed
+// began since it yielded) is preempted at once; with a shared signal, it also
+// asks it every poll while at the server and is preempted when another
+// replica reports an interactive embed. A call past its yield limit is never
+// cut.
+func (g *Gate) start(ctx context.Context, preemptable bool, sz inputSizes) (callCtx context.Context, done func()) {
+	c := &bgCall{}
 	callCtx, cancel := context.WithCancelCause(ctx)
-	c := &bgCall{cancel: cancel}
 	g.mu.Lock()
-	g.running[c] = struct{}{}
-	if g.active {
-		cancel(errPreempted)
+	c.input = g.inputTimeLocked(sz.largest)
+	if preemptable {
+		c.cancel = cancel
+		if g.active {
+			cancel(errPreempted)
+		}
 	}
+	g.running[c] = struct{}{}
 	g.mu.Unlock()
+	g.publishBackground(ctx)
 	stopWatch := func() {}
-	if g.signal != nil {
+	if preemptable && g.signal != nil {
 		stopWatch = g.watchShared(callCtx, c)
 	}
 	return callCtx, func() {
@@ -357,6 +380,7 @@ func (g *Gate) start(ctx context.Context, preemptable bool) (callCtx context.Con
 		}
 		g.mu.Unlock()
 		cancel(nil)
+		g.publishBackground(ctx)
 	}
 }
 
@@ -403,14 +427,14 @@ type background struct {
 
 // Embed embeds one text as a background call.
 func (b *background) Embed(ctx context.Context, text string) ([]float32, error) {
-	return preemptible(ctx, b.gate, func(ctx context.Context) ([]float32, error) {
+	return preemptible(ctx, b.gate, sizesOf(text), func(ctx context.Context) ([]float32, error) {
 		return b.inner.Embed(ctx, text) //nolint:wrapcheck // transparent wrapper; callers classify the provider's own error
 	})
 }
 
 // EmbedBatch embeds texts as one background call.
 func (b *background) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
-	return preemptible(ctx, b.gate, func(ctx context.Context) ([][]float32, error) {
+	return preemptible(ctx, b.gate, sizesOf(texts...), func(ctx context.Context) ([][]float32, error) {
 		return b.inner.EmbedBatch(ctx, texts) //nolint:wrapcheck // transparent wrapper; callers classify the provider's own error
 	})
 }
@@ -434,6 +458,8 @@ type gated struct {
 	inner  Provider
 	before func(context.Context) error
 	after  func()
+	// allowance is the gate's searchAllowance; nil outside a gate.
+	allowance func(context.Context) time.Duration
 }
 
 // Embed embeds one text once the gate lets it through. The provider's error is

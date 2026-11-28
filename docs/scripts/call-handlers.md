@@ -144,8 +144,11 @@ operation other than `UNION ALL`, a positional reference) is refused with
 `PROTECTED_COLUMN`, naming the column and the handler, and so is a statement
 that writes to the table. Names are followed through aliases, subqueries, CTEs
 and views: a Trino view through its catalog's `information_schema.views`, an
-application database view or materialized view through `pg_catalog`. A
-statement the platform cannot read is refused when it names a protected column.
+application database view or materialized view through `pg_catalog`. A table
+is the same table however its name is quoted (`"hive"."hr"."employees"`,
+`hr."employees"`), and names are compared without case, so a quoted name in
+another case is held to the protection too (#2849). A statement the platform
+cannot read is refused when it names a protected column.
 
 **Fails closed.** An error or a timeout fails the call or the export, naming the
 handler (`on_failure: fail`, the default). A handler may return the original

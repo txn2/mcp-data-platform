@@ -97,3 +97,23 @@ func TestCheck_NothingProtected(t *testing.T) {
 	assert.NoError(t, Check(context.Background(), `SELECT substr(ssn, 1, 3) FROM hive.hr.employees`, nil, nil))
 	assert.NoError(t, Check(context.Background(), `SELECT 1`, map[string]string{"nodots": "x"}, nil))
 }
+
+// TestCheck_AQuotedTableNameIsTheSameTable is #2849's finding: the tables a
+// statement reads were read lexically with bare names only, so naming the
+// protected table in double quotes left it out of scope and a covered caller
+// could compute on the protected column. Every quoted form is the table, and
+// selecting the column as it is still passes.
+func TestCheck_AQuotedTableNameIsTheSameTable(t *testing.T) {
+	for _, sql := range []string{
+		`SELECT upper(ssn) FROM "hive"."hr"."employees"`,
+		`SELECT upper(ssn) FROM hive.hr."employees"`,
+		`SELECT upper(ssn) FROM "hr"."employees"`,
+		`SELECT upper(ssn) FROM "employees"`,
+		`SELECT e.name FROM "hive"."hr"."employees" e WHERE e.ssn LIKE '9%'`,
+		`SELECT count(*) FROM hive.hr.departments d JOIN "hive"."hr"."employees" e ON e.ssn = d.id`,
+	} {
+		var refusal *RefusalError
+		assert.ErrorAs(t, Check(context.Background(), sql, protected, nil), &refusal, sql)
+	}
+	assert.NoError(t, Check(context.Background(), `SELECT ssn, name FROM "hive"."hr"."employees"`, protected, nil))
+}

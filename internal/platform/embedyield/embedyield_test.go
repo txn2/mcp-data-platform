@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
+
+	"github.com/txn2/mcp-data-platform/pkg/embedding"
 )
 
 func newMock(t *testing.T) (*Store, sqlmock.Sqlmock) {
@@ -72,5 +75,47 @@ func TestNew_DrawsADistinctIDPerProcess(t *testing.T) {
 	a, b := New(nil, 0), New(nil, 0)
 	if a.instance == b.instance {
 		t.Errorf("two stores drew one id %q", a.instance)
+	}
+}
+
+// TestStore_BackgroundMarks pins the background statements (#2846): a mark
+// writes this process's expected input in milliseconds for the background
+// hold, the read sums the live marks, and a clear removes this replica's row
+// and every lapsed one.
+func TestStore_BackgroundMarks(t *testing.T) {
+	s, mock := newMock(t)
+	ctx := context.Background()
+	mock.ExpectExec("INSERT INTO embed_background").
+		WithArgs(s.instance, int64(4500), embedding.DefaultBackgroundHold.Seconds()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := s.MarkBackground(ctx, 4500*time.Millisecond); err != nil {
+		t.Fatalf("MarkBackground: %v", err)
+	}
+	mock.ExpectQuery("SELECT COALESCE\\(SUM\\(input_ms\\), 0\\) FROM embed_background WHERE until > now\\(\\)").
+		WillReturnRows(sqlmock.NewRows([]string{"sum"}).AddRow(int64(7250)))
+	if d, err := s.BackgroundInput(ctx); err != nil || d != 7250*time.Millisecond {
+		t.Fatalf("BackgroundInput = %s, %v; want 7.25s", d, err)
+	}
+	mock.ExpectExec("DELETE FROM embed_background WHERE instance = \\$1 OR until < now\\(\\)").WithArgs(s.instance).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := s.ClearBackground(ctx); err != nil {
+		t.Fatalf("ClearBackground: %v", err)
+	}
+
+	boom := errors.New("db down")
+	mock.ExpectExec("INSERT").WillReturnError(boom)
+	mock.ExpectExec("DELETE").WillReturnError(boom)
+	mock.ExpectQuery("SELECT").WillReturnError(boom)
+	if err := s.MarkBackground(ctx, time.Second); !errors.Is(err, boom) {
+		t.Errorf("MarkBackground: %v", err)
+	}
+	if err := s.ClearBackground(ctx); !errors.Is(err, boom) {
+		t.Errorf("ClearBackground: %v", err)
+	}
+	if _, err := s.BackgroundInput(ctx); !errors.Is(err, boom) {
+		t.Errorf("BackgroundInput: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
 	}
 }

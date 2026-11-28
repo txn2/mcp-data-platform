@@ -40,8 +40,17 @@ func issue2839Body(run string) string {
 }
 
 // Criterion: with a long page's chunks at the embedder, a search is answered
-// with semantic ranking in about the time a search takes, and the page is
-// still embedded in full afterwards.
+// with semantic ranking, waiting for the chunk in progress rather than the
+// page, and the page is still embedded in full afterwards.
+//
+// The embedder finishes the input it has begun when the page's request is
+// preempted, and a chunk near the input budget takes about as long as a
+// search's 5-second embedding timeout on the CI runner (searches took 4.2 to
+// 5.0 seconds, #2846). So the search waits past that timeout for the time the
+// background input at the server is expected to take, which the replica whose
+// worker sent it publishes (embedding.SearchAllowance): it is answered with
+// hybrid ranking, within searchBound2839 rather than the 80 to 95 seconds the
+// whole page takes.
 func TestIssue2839_ASearchIsAnsweredWhileAPagesChunksAreAtTheEmbedder(t *testing.T) {
 	c := connectFor(t, 10*time.Minute)
 	db := issue1988DB(t)
@@ -79,8 +88,8 @@ func TestIssue2839_ASearchIsAnsweredWhileAPagesChunksAreAtTheEmbedder(t *testing
 	if got["ranking"] != "hybrid" {
 		t.Fatalf("the search fell back to %v ranking (%v) while the page was at the embedder", got["ranking"], got["ranking_note"])
 	}
-	if took > 10*time.Second {
-		t.Fatalf("the search took %s behind the page's embed", took)
+	if took > searchBound2839 {
+		t.Fatalf("the search took %s behind the page's embed, want under %s", took, searchBound2839)
 	}
 
 	// The page is not starved by the searches that preempted it: it finishes.
@@ -104,3 +113,8 @@ func TestIssue2839_ASearchIsAnsweredWhileAPagesChunksAreAtTheEmbedder(t *testing
 
 // embedded2839 is how long the page may take to embed in full.
 const embedded2839 = 5 * time.Minute
+
+// searchBound2839 is how long the search may take: the input in progress at
+// the embedder for each replica's worker and the search's own embed, a few
+// seconds each on the CI runner.
+const searchBound2839 = 15 * time.Second
