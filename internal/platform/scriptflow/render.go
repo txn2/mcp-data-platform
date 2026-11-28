@@ -19,12 +19,12 @@ type scope struct {
 	vars   map[string]binding
 	global map[string]syntax.Expr
 	gdicts map[string]*syntax.DictExpr
-	// funcs is the functions the source defines, and body the statements of
-	// the function the scope is in (nil at module scope): what a statement
-	// list is followed through (stmtlookup, #2699).
-	funcs  map[string]*syntax.DefStmt
-	loaded map[string]stmtlookup.Loaded
-	body   []syntax.Stmt
+	// resolve is the function a name refers to in this scope (#2848), and body
+	// the statements of the function the scope is in (nil at module scope):
+	// what a statement list is followed through (stmtlookup, #2699).
+	resolve func(name string) *syntax.DefStmt
+	loaded  map[string]stmtlookup.Loaded
+	body    []syntax.Stmt
 	// lists is stmtlookup.Grown(body), read once when Bound first asks.
 	lists map[string][]syntax.Expr
 }
@@ -48,11 +48,19 @@ type binding struct {
 // scopeOf copies the scope visible from f: its own names, then its lexical
 // parents', then the module's expressions for names bound at module scope.
 func (a *analyzer) scopeOf(f *frame) *scope {
-	sc := &scope{vars: map[string]binding{}, global: map[string]syntax.Expr{}, gdicts: map[string]*syntax.DictExpr{}, funcs: a.funcs, loaded: a.loaded}
-	if f != nil && f != a.top {
-		if d := a.funcs[f.fn]; d != nil {
-			sc.body = d.Body
-		}
+	fn := ""
+	if f != nil {
+		fn = f.fn
+	}
+	sc := &scope{
+		vars: map[string]binding{}, global: map[string]syntax.Expr{}, gdicts: map[string]*syntax.DictExpr{}, loaded: a.loaded,
+		resolve: func(name string) *syntax.DefStmt {
+			_, d := a.resolve(fn, name)
+			return d
+		},
+	}
+	if d := a.funcs[fn]; d != nil {
+		sc.body = d.Body
 	}
 	for fr := f; fr != nil && fr != a.top; fr = fr.lexical {
 		for name, b := range fr.bindings() {
@@ -220,10 +228,19 @@ func (sc *scope) grownList(id *syntax.Ident) syntax.Expr {
 // Func is the function the source defines under name, or one it loads from a
 // library, read in that library's scope; nil for none.
 func (sc *scope) Func(name string) (*syntax.DefStmt, stmtlookup.Resolver) {
-	if d := sc.funcs[name]; d != nil {
+	if d := sc.localFunc(name); d != nil {
 		return d, nil
 	}
 	return sc.loaded[name].Def()
+}
+
+// localFunc is the function the source defines that name refers to in this
+// scope, nil for none.
+func (sc *scope) localFunc(name string) *syntax.DefStmt {
+	if sc.resolve == nil {
+		return nil
+	}
+	return sc.resolve(name)
 }
 
 // Known is the constant string id holds in this scope, when it holds one

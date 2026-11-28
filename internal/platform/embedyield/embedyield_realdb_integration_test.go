@@ -142,3 +142,47 @@ func (c countingProvider) EmbedBatch(_ context.Context, texts []string) ([][]flo
 }
 func (countingProvider) Dimension() int { return 1 }
 func (countingProvider) Kind() string   { return "test" }
+
+// TestRealDB_ASearchWaitsForAnotherReplicasBackgroundInput is #2846 across
+// replicas, over the real table: replica A's worker has a call at the server,
+// and a search on replica B, which has none, is allowed the time A expects its
+// input to take. Once A's call ends and its linger runs out, the mark is gone
+// and B allows nothing; a lapsed mark from a stopped replica never counts.
+func TestRealDB_ASearchWaitsForAnotherReplicasBackgroundInput(t *testing.T) {
+	db := testdb.New(t)
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO embed_background (instance, input_ms, until) VALUES ('stopped', 9000, now() - interval '1 second')`); err != nil {
+		t.Fatal(err)
+	}
+	gateA, gateB := embedding.NewGate(time.Hour), embedding.NewGate(time.Hour)
+	gateA.Share(New(db, 0), time.Hour)
+	gateB.Share(New(db, 0), time.Hour)
+	search := gateB.Interactive(countingProvider{calls: &atomic.Int64{}})
+	if d := embedding.SearchAllowance(ctx, search); d != 0 {
+		t.Fatalf("with only a lapsed mark the allowance is %s, want 0", d)
+	}
+
+	held := heldProvider{entered: make(chan struct{}, 1), release: make(chan struct{})}
+	done := make(chan error, 1)
+	go func() {
+		_, err := gateA.Background(held).Embed(ctx, "a chunk of a knowledge page")
+		done <- err
+	}()
+	<-held.entered
+	// Nothing is measured on A yet, so its mark is the cap.
+	if d := embedding.SearchAllowance(ctx, search); d != embedding.MaxSearchAllowance {
+		t.Errorf("allowance on B with A's call at the server = %s, want %s", d, embedding.MaxSearchAllowance)
+	}
+	close(held.release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for embedding.SearchAllowance(ctx, search) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("A's mark was not cleared after its call ended")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}

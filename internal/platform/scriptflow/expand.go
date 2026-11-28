@@ -13,7 +13,7 @@ import (
 // become steps of this expansion, drawn in its box unless it is the script's
 // main() or a one-call wrapper, which is folded into its step.
 func (a *analyzer) invoke(caller *frame, d *syntax.DefStmt, c *syntax.CallExpr) origins {
-	name := d.Name.Name
+	name := a.keyOf[d]
 	if a.expanding(name) {
 		// A recursive call: the interpreter refuses it when it is made, so it
 		// reaches nothing, and expanding it would never end.
@@ -36,7 +36,7 @@ func (a *analyzer) invoke(caller *frame, d *syntax.DefStmt, c *syntax.CallExpr) 
 	if !a.hasSteps[name] {
 		// A pure function reshapes the value it returns, and the edge that value
 		// travels on names it.
-		return fr.ret.via(name)
+		return fr.ret.via(d.Name.Name)
 	}
 	return fr.ret
 }
@@ -51,27 +51,30 @@ func (a *analyzer) expanding(name string) bool {
 	return false
 }
 
-// calleeFrame builds the frame one call of name runs in, deciding the box its
-// steps are drawn in.
+// calleeFrame builds the frame one call of the function of key name runs in,
+// deciding the box its steps are drawn in. The box and the chain are named by
+// the def's own name, which is what a reader sees; the key stays inside the
+// walk.
 func (a *analyzer) calleeFrame(caller *frame, name string, line int) *frame {
 	fr := newFrame(name)
+	shown := a.funcs[name].Name.Name
 	fr.group, fr.chain = caller.group, caller.chain
 	fr.loops = append([]string(nil), caller.loops...)
 	switch {
 	case caller.wrapper != "":
 		// Inside a folded wrapper: the outermost wrapper names the step.
 		fr.wrapper, fr.site = caller.wrapper, caller.site
-		fr.chain = caller.chain + ">" + name
+		fr.chain = caller.chain + ">" + shown
 	case a.wrapper[name]:
-		fr.wrapper, fr.site = name, line
-		fr.chain = fmt.Sprintf("%s>%s@%d", caller.chain, name, line)
+		fr.wrapper, fr.site = shown, line
+		fr.chain = fmt.Sprintf("%s>%s@%d", caller.chain, shown, line)
 	case !a.hasSteps[name]:
 		// A pure function: its calls are part of the caller's step, if any.
-		fr.chain = fmt.Sprintf("%s>%s@%d", caller.chain, name, line)
+		fr.chain = fmt.Sprintf("%s>%s@%d", caller.chain, shown, line)
 	case caller == a.top && a.whole == name:
 		// main(): the whole script, not a box around it.
 	default:
-		fr.group = caller.group + "/" + name
+		fr.group = caller.group + "/" + shown
 		fr.chain = fmt.Sprintf("%s@%d", fr.group, line)
 		gi, ok := a.groups[fr.group]
 		if !ok {

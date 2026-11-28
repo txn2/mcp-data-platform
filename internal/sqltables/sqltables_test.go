@@ -1,6 +1,7 @@
 package sqltables
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -333,5 +334,29 @@ RETURNING container_id, batch_id::text AS batch_id`
 	want := []string{"container_rate", "container_grid", "container"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("Extract = %v, want %v", got, want)
+	}
+}
+
+// TestExtract_QuotedNames is #2849's finding: a table named with
+// double-quoted parts is a table the statement reads, its parts kept as
+// written, a dot inside a quoted part its own.
+func TestExtract_QuotedNames(t *testing.T) {
+	tests := []struct {
+		sql  string
+		want []Ref
+	}{
+		{`SELECT * FROM "Sales"."Orders"`, []Ref{{Schema: `"Sales"`, Table: `"Orders"`, FullPath: `"Sales"."Orders"`, Source: "FROM"}}},
+		{`SELECT * FROM hive.hr."employees" JOIN "hive" . "hr" . "dept" ON true`, []Ref{
+			{Catalog: "hive", Schema: "hr", Table: `"employees"`, FullPath: `hive.hr."employees"`, Source: "FROM"},
+			{Catalog: `"hive"`, Schema: `"hr"`, Table: `"dept"`, FullPath: `"hive"."hr"."dept"`, Source: "FROM"},
+		}},
+		{`SELECT * FROM "odd.name"`, []Ref{{Table: `"odd.name"`, FullPath: `"odd.name"`, Source: "FROM"}}},
+		{`SELECT * FROM "a""b"`, []Ref{{Table: `"a""b"`, FullPath: `"a""b"`, Source: "FROM"}}},
+		{`WITH "q" AS (SELECT 1) SELECT * FROM "q"`, nil},
+	}
+	for _, tt := range tests {
+		if got := Extract(tt.sql); !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("Extract(%s) = %#v, want %#v", tt.sql, got, tt.want)
+		}
 	}
 }

@@ -549,7 +549,7 @@ func TestGate_ABackgroundCallMadeWhileInteractiveIsPreemptedAtOnce(t *testing.T)
 	g.active = true
 	g.idle = make(chan struct{})
 	g.mu.Unlock()
-	ctx, done := g.start(context.Background(), true)
+	ctx, done := g.start(context.Background(), true, inputSizes{})
 	if !errors.Is(context.Cause(ctx), errPreempted) {
 		t.Fatalf("a call started while interactive has cause %v, want errPreempted", context.Cause(ctx))
 	}
@@ -557,7 +557,7 @@ func TestGate_ABackgroundCallMadeWhileInteractiveIsPreemptedAtOnce(t *testing.T)
 	if g.Preempted() != 1 {
 		t.Errorf("Preempted() = %d, want 1", g.Preempted())
 	}
-	plain, end := g.start(context.Background(), false)
+	plain, end := g.start(context.Background(), false, inputSizes{})
 	if plain.Err() != nil {
 		t.Errorf("a call past its yield limit is never cut: %v", plain.Err())
 	}

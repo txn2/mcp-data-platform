@@ -166,9 +166,9 @@ func siteKey(site []string) string { return strings.Join(site, ">") }
 // funcSpans is every def with its lines, in source order.
 func (a *analyzer) funcSpans() []FuncSpan {
 	out := make([]FuncSpan, 0, len(a.funcs))
-	for name, d := range a.funcs {
+	for _, d := range a.funcs {
 		start, end := d.Span()
-		out = append(out, FuncSpan{Name: name, Line: int(start.Line), EndLine: int(end.Line)})
+		out = append(out, FuncSpan{Name: d.Name.Name, Line: int(start.Line), EndLine: int(end.Line)})
 	}
 	slices.SortFunc(out, func(x, y FuncSpan) int { return x.Line - y.Line })
 	return out
@@ -194,7 +194,7 @@ func (a *analyzer) drawsDirectly(d *syntax.DefStmt) (direct bool, callees []stri
 			if m, ok := platformMember(c); (ok && !nonStep(m)) || isFail(c) {
 				direct = true
 			}
-			if callee, ok := a.userCall(c); ok {
+			if callee, ok := a.userCall(a.keyOf[d], c); ok {
 				callees = append(callees, callee)
 			}
 		})
@@ -375,8 +375,17 @@ func (w *structWalk) drawsCall(c *syntax.CallExpr) bool {
 	if isFail(c) {
 		return true
 	}
-	name, ok := w.a.userCall(c)
+	name, ok := w.a.userCall(w.scope(), c)
 	return ok && w.drawable[name] && !slices.Contains(w.stack, name)
+}
+
+// scope is the key of the function whose body the walk is in, "" at module
+// level: the scope a call's name is resolved in (#2848).
+func (w *structWalk) scope() string {
+	if len(w.stack) == 0 {
+		return ""
+	}
+	return w.stack[len(w.stack)-1]
 }
 
 // expr draws the calls an expression makes, in the order they run: a call's
@@ -451,7 +460,7 @@ func (w *structWalk) call(c *syntax.CallExpr, cx sctx, in []pending) []pending {
 		w.node(StructNode{Kind: StructStop, Label: w.failText(c), Line: int(c.Lparen.Line), CallSite: site}, cx, in)
 		return nil
 	}
-	name, ok := w.a.userCall(c)
+	name, ok := w.a.userCall(w.scope(), c)
 	if !ok || !w.drawable[name] || slices.Contains(w.stack, name) {
 		return in
 	}

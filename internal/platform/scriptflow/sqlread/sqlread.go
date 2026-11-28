@@ -35,7 +35,7 @@ type Write struct{ Verb, Table string }
 // WITH, each common table expression's target and the target of the statement
 // that follows them.
 func WritesOf(sql string) []Write {
-	sql = withoutComments(sql)
+	sql = readable(sql)
 	if withRe.MatchString(sql) {
 		matches := cteDMLRe.FindAllStringSubmatch(sql, -1)
 		if len(matches) == 0 {
@@ -43,12 +43,12 @@ func WritesOf(sql string) []Write {
 		}
 		out := make([]Write, 0, len(matches))
 		for _, m := range matches {
-			out = append(out, Write{Verb: strings.ToUpper(strings.Fields(m[1])[0]), Table: m[2]})
+			out = append(out, Write{Verb: strings.ToUpper(strings.Fields(m[1])[0]), Table: unquoted(m[2])})
 		}
 		return out
 	}
 	if m := dmlRe.FindStringSubmatch(sql); m != nil {
-		return []Write{{Verb: strings.ToUpper(strings.Fields(m[1])[0]), Table: m[2]}}
+		return []Write{{Verb: strings.ToUpper(strings.Fields(m[1])[0]), Table: unquoted(m[2])}}
 	}
 	return nil
 }
@@ -73,10 +73,10 @@ var (
 // that rather than dropped or guessed.
 func TablesIn(sql string) []string {
 	var holes []string
-	masked := holeRe.ReplaceAllStringFunc(withoutComments(sql), func(m string) string {
+	masked := readable(holeRe.ReplaceAllStringFunc(sql, func(m string) string {
 		holes = append(holes, m)
 		return fmt.Sprintf("zzhole%dzz", len(holes)-1)
-	})
+	}))
 	seen := map[string]bool{}
 	out := []string{}
 	for _, ref := range sqltables.Extract(masked) {
@@ -88,6 +88,7 @@ func TablesIn(sql string) []string {
 			}
 			return m
 		})
+		p = unquoted(p)
 		if p == "" || seen[p] {
 			continue
 		}
@@ -97,30 +98,62 @@ func TablesIn(sql string) []string {
 	return out
 }
 
-// withoutComments is sql with each comment replaced by a space (#2840). A
-// statement is read by where its words stand: one opening with a comment
-// ("-- record the change\nWITH ...") is still a WITH statement, and a table
-// named in a comment is neither read nor written. Literals, quoted names and
-// dollar-quoted bodies are kept as written, and a "--" inside one is not a
+// readable is sql as its words are read: each comment replaced by a space
+// (#2840), and each string literal (E'...' included) and dollar-quoted body
+// by an empty literal (#2849). A statement is read by where its words stand:
+// one opening with a comment ("-- record the change\nWITH ...") is still a
+// WITH statement, and a table, verb or common table expression named in a
+// comment or in text a statement builds ("' (from a correction on invoice '")
+// is neither read nor written. A quoted name is kept as written, since a
+// table is named by it, and a "--" inside a literal or a quoted name is not a
 // comment.
-func withoutComments(sql string) string {
-	if !strings.Contains(sql, "--") && !strings.Contains(sql, "/*") {
+func readable(sql string) string {
+	if !strings.ContainsAny(sql, "'$") && !strings.Contains(sql, "--") && !strings.Contains(sql, "/*") {
 		return sql
 	}
 	var b strings.Builder
 	b.Grow(len(sql))
 	for i := 0; i < len(sql); {
 		end := pglex.SkipLexeme(sql, i)
-		switch {
-		case end == i:
+		if end == i {
 			_ = b.WriteByte(sql[i])
 			i++
-		case sql[i] == '-' || sql[i] == '/':
-			_ = b.WriteByte(' ')
-			i = end
-		default:
-			_, _ = b.WriteString(sql[i:end])
-			i = end
+			continue
+		}
+		_, _ = b.WriteString(readAs(sql[i:end]))
+		i = end
+	}
+	return b.String()
+}
+
+// readAs is what one lexeme is read as: a comment as a space, a literal or a
+// dollar-quoted body as an empty literal, a quoted name as written.
+func readAs(lexeme string) string {
+	switch lexeme[0] {
+	case '-', '/':
+		return " "
+	case '\'', '$':
+		return "''"
+	}
+	return lexeme
+}
+
+// unquoted is a table name as the database names the table: each quoted part
+// without its quotes, a doubled quote inside one read as a quote, so
+// "Sales"."Orders" is the table Sales.Orders an application's schema lists.
+func unquoted(name string) string {
+	if !strings.Contains(name, `"`) {
+		return name
+	}
+	var b strings.Builder
+	for i := 0; i < len(name); i++ {
+		if name[i] != '"' {
+			_ = b.WriteByte(name[i])
+			continue
+		}
+		if i+1 < len(name) && name[i+1] == '"' {
+			_ = b.WriteByte('"')
+			i++
 		}
 	}
 	return b.String()

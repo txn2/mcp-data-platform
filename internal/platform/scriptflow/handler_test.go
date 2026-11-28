@@ -6,6 +6,7 @@ import (
 	"go.starlark.net/syntax"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdialect"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptflow/scriptdefs"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -54,10 +55,10 @@ func TestDerive_AFormsTwoHandlersAreDrawn(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 2, steps, "the spec's query and the submission's call")
-	assert.Nil(t, entryCalls(parsed(t, "def form_spec(req):\n    pass\n")), "a spec handler alone is not a form")
+	assert.Nil(t, scriptdefs.EntryCalls(parsed(t, "def form_spec(req):\n    pass\n")), "a spec handler alone is not a form")
 }
 
-// parsed parses source for entryCalls.
+// parsed parses source for scriptdefs.EntryCalls.
 func parsed(t *testing.T, source string) *syntax.File {
 	t.Helper()
 	file, err := scriptdialect.Options.Parse("s", source, 0)

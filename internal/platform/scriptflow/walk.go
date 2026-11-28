@@ -180,7 +180,7 @@ func (a *analyzer) expr(f *frame, e syntax.Expr) origins {
 // namedFunction is the user function an identifier names as a value, nil
 // when it names none or a variable of the frame shadows it.
 func (a *analyzer) namedFunction(f *frame, id *syntax.Ident) *syntax.DefStmt {
-	d := a.funcs[id.Name]
+	_, d := a.resolve(f.fn, id.Name)
 	if d == nil {
 		return nil
 	}
@@ -314,7 +314,7 @@ func (a *analyzer) call(f *frame, c *syntax.CallExpr) origins {
 		}
 		return a.methodCall(f, c, fn)
 	case *syntax.Ident:
-		if d, ok := a.funcs[fn.Name]; ok {
+		if _, d := a.resolve(f.fn, fn.Name); d != nil {
 			return a.invoke(f, d, c)
 		}
 		args := a.argOrigins(f, c)
